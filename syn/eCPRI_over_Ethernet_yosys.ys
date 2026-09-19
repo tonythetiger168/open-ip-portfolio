@@ -1,0 +1,8 @@
+# eCPRI over Ethernet synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/eCPRI_over_Ethernet_top.sv 
+hierarchy -check -top eCPRI_over_Ethernet_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json eCPRI_over_Ethernet_top.json
+write_verilog eCPRI_over_Ethernet_top_netlist.v

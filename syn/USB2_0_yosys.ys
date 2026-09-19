@@ -1,0 +1,8 @@
+# USB2.0 synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/USB2_0_top.sv 
+hierarchy -check -top USB2_0_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json USB2_0_top.json
+write_verilog USB2_0_top_netlist.v

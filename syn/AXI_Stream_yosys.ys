@@ -1,0 +1,8 @@
+# AXI-Stream synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/AXI_Stream_top.sv 
+hierarchy -check -top AXI_Stream_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json AXI_Stream_top.json
+write_verilog AXI_Stream_top_netlist.v

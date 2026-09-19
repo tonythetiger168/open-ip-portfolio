@@ -1,0 +1,8 @@
+# JESD204C synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/JESD204C_top.sv 
+hierarchy -check -top JESD204C_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json JESD204C_top.json
+write_verilog JESD204C_top_netlist.v

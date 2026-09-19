@@ -1,0 +1,8 @@
+# JTAG synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/JTAG_top.sv 
+hierarchy -check -top JTAG_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json JTAG_top.json
+write_verilog JTAG_top_netlist.v

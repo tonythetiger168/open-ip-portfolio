@@ -1,0 +1,8 @@
+# USB4 synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/USB4_top.sv 
+hierarchy -check -top USB4_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json USB4_top.json
+write_verilog USB4_top_netlist.v

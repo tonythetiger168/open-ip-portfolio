@@ -1,0 +1,8 @@
+# WTB synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/WTB_top.sv 
+hierarchy -check -top WTB_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json WTB_top.json
+write_verilog WTB_top_netlist.v

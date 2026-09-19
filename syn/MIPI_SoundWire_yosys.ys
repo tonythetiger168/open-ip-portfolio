@@ -1,0 +1,8 @@
+# MIPI SoundWire synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/MIPI_SoundWire_top.sv 
+hierarchy -check -top MIPI_SoundWire_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json MIPI_SoundWire_top.json
+write_verilog MIPI_SoundWire_top_netlist.v

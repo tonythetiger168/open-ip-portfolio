@@ -1,0 +1,8 @@
+# OCP-IP Open Core Protocol synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/OCP_IP_Open_Core_Protocol_top.sv 
+hierarchy -check -top OCP_IP_Open_Core_Protocol_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json OCP_IP_Open_Core_Protocol_top.json
+write_verilog OCP_IP_Open_Core_Protocol_top_netlist.v

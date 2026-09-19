@@ -1,0 +1,8 @@
+# SPI synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/SPI_top.sv 
+hierarchy -check -top SPI_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json SPI_top.json
+write_verilog SPI_top_netlist.v

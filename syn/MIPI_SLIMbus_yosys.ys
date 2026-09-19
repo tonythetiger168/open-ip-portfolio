@@ -1,0 +1,8 @@
+# MIPI SLIMbus synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/MIPI_SLIMbus_top.sv 
+hierarchy -check -top MIPI_SLIMbus_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json MIPI_SLIMbus_top.json
+write_verilog MIPI_SLIMbus_top_netlist.v

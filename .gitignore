@@ -1,0 +1,8 @@
+# EDA artifacts
+work/
+*.vcd
+simv
+*.json
+*_netlist.v
+__pycache__/
+*.pyc

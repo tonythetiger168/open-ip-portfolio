@@ -1,0 +1,8 @@
+# Avalon-MM synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/Avalon_MM_top.sv 
+hierarchy -check -top Avalon_MM_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json Avalon_MM_top.json
+write_verilog Avalon_MM_top_netlist.v

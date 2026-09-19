@@ -1,0 +1,8 @@
+# APB synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/APB_top.sv 
+hierarchy -check -top APB_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json APB_top.json
+write_verilog APB_top_netlist.v

@@ -1,0 +1,8 @@
+# I2C synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/I2C_top.sv 
+hierarchy -check -top I2C_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json I2C_top.json
+write_verilog I2C_top_netlist.v

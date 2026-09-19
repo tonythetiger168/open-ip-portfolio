@@ -1,0 +1,8 @@
+# SD synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/SD_top.sv 
+hierarchy -check -top SD_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json SD_top.json
+write_verilog SD_top_netlist.v

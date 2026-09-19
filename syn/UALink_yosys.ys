@@ -1,0 +1,8 @@
+# UALink synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/UALink_top.sv 
+hierarchy -check -top UALink_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json UALink_top.json
+write_verilog UALink_top_netlist.v

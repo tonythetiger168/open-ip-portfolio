@@ -1,0 +1,8 @@
+# HSI synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/HSI_top.sv 
+hierarchy -check -top HSI_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json HSI_top.json
+write_verilog HSI_top_netlist.v

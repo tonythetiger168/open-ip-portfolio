@@ -1,0 +1,8 @@
+# MDIO synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/MDIO_top.sv 
+hierarchy -check -top MDIO_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json MDIO_top.json
+write_verilog MDIO_top_netlist.v

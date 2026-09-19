@@ -1,0 +1,8 @@
+# LIN synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/LIN_top.sv 
+hierarchy -check -top LIN_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json LIN_top.json
+write_verilog LIN_top_netlist.v

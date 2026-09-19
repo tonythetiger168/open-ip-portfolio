@@ -1,0 +1,8 @@
+# Ethernet-AVB-TSN synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/Ethernet_AVB_TSN_top.sv 
+hierarchy -check -top Ethernet_AVB_TSN_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json Ethernet_AVB_TSN_top.json
+write_verilog Ethernet_AVB_TSN_top_netlist.v

@@ -1,0 +1,8 @@
+# MIPI RFFE synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/MIPI_RFFE_top.sv 
+hierarchy -check -top MIPI_RFFE_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json MIPI_RFFE_top.json
+write_verilog MIPI_RFFE_top_netlist.v

@@ -1,0 +1,8 @@
+# TileLink (TL-UL/TL-C) synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/TileLink__TL_UL_TL_C__top.sv 
+hierarchy -check -top TileLink__TL_UL_TL_C__top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json TileLink__TL_UL_TL_C__top.json
+write_verilog TileLink__TL_UL_TL_C__top_netlist.v

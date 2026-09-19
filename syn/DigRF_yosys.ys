@@ -1,0 +1,8 @@
+# DigRF synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/DigRF_top.sv 
+hierarchy -check -top DigRF_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json DigRF_top.json
+write_verilog DigRF_top_netlist.v

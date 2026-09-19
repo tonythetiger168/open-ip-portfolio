@@ -1,0 +1,8 @@
+# HDCP 2.3 Content Protection synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/HDCP_2_3_Content_Protection_top.sv 
+hierarchy -check -top HDCP_2_3_Content_Protection_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json HDCP_2_3_Content_Protection_top.json
+write_verilog HDCP_2_3_Content_Protection_top_netlist.v

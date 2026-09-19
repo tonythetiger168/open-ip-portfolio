@@ -1,0 +1,8 @@
+# CXL synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/CXL_top.sv 
+hierarchy -check -top CXL_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json CXL_top.json
+write_verilog CXL_top_netlist.v

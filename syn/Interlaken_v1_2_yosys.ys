@@ -1,0 +1,8 @@
+# Interlaken v1.2 synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/Interlaken_v1_2_top.sv 
+hierarchy -check -top Interlaken_v1_2_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json Interlaken_v1_2_top.json
+write_verilog Interlaken_v1_2_top_netlist.v

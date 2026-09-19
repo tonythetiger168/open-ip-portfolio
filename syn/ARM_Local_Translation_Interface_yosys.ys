@@ -1,0 +1,8 @@
+# ARM Local Translation Interface synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/ARM_Local_Translation_Interface_top.sv 
+hierarchy -check -top ARM_Local_Translation_Interface_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json ARM_Local_Translation_Interface_top.json
+write_verilog ARM_Local_Translation_Interface_top_netlist.v

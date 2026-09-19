@@ -1,0 +1,8 @@
+# CXS CCIX Stream Interface synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/CXS_CCIX_Stream_Interface_top.sv 
+hierarchy -check -top CXS_CCIX_Stream_Interface_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json CXS_CCIX_Stream_Interface_top.json
+write_verilog CXS_CCIX_Stream_Interface_top_netlist.v

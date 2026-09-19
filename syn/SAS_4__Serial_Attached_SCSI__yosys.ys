@@ -1,0 +1,8 @@
+# SAS-4 (Serial Attached SCSI) synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/SAS_4__Serial_Attached_SCSI__top.sv 
+hierarchy -check -top SAS_4__Serial_Attached_SCSI__top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json SAS_4__Serial_Attached_SCSI__top.json
+write_verilog SAS_4__Serial_Attached_SCSI__top_netlist.v

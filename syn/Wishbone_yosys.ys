@@ -1,0 +1,8 @@
+# Wishbone synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/Wishbone_top.sv 
+hierarchy -check -top Wishbone_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json Wishbone_top.json
+write_verilog Wishbone_top_netlist.v

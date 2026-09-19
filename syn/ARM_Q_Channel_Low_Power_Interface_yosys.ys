@@ -1,0 +1,8 @@
+# ARM Q-Channel Low Power Interface synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/ARM_Q_Channel_Low_Power_Interface_top.sv 
+hierarchy -check -top ARM_Q_Channel_Low_Power_Interface_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json ARM_Q_Channel_Low_Power_Interface_top.json
+write_verilog ARM_Q_Channel_Low_Power_Interface_top_netlist.v

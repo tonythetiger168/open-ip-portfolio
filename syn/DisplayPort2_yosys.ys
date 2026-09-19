@@ -1,0 +1,8 @@
+# DisplayPort2 synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/DisplayPort2_top.sv 
+hierarchy -check -top DisplayPort2_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json DisplayPort2_top.json
+write_verilog DisplayPort2_top_netlist.v

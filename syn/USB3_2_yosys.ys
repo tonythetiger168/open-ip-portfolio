@@ -1,0 +1,8 @@
+# USB3.2 synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/USB3_2_top.sv 
+hierarchy -check -top USB3_2_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json USB3_2_top.json
+write_verilog USB3_2_top_netlist.v

@@ -1,0 +1,8 @@
+# MIPI SPMI synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/MIPI_SPMI_top.sv 
+hierarchy -check -top MIPI_SPMI_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json MIPI_SPMI_top.json
+write_verilog MIPI_SPMI_top_netlist.v

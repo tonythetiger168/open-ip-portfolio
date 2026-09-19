@@ -1,0 +1,8 @@
+# PCIe synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/PCIe_top.sv 
+hierarchy -check -top PCIe_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json PCIe_top.json
+write_verilog PCIe_top_netlist.v
