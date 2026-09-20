@@ -90,6 +90,41 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
   under Verilator 5.006 (blocking temporaries in always_ff) -- largest
   instance so far of the known attribution artifact (waiver ufs-line-1).
 
+## W5 continuation status (second coder, step-budget handoff)
+
+Closed this session (iverilog PASS + cov closed): I2S_Audio, SAS, SATA, UFS
+(see table above, rows added inline).
+
+In-flight at handoff:
+- **SDIO**: CRV complete (120 txns, 6 classes, 12/12 FSM, SVA all pass,
+  LINE 201/206, TOGGLE 613/650) but 4 residual errors. TWO simulator bugs
+  found: (1) Verilator 5.006 DROPS a parent-scope tristate driver of a
+  vector tri1 net when the drive variable ever holds z (scalar cmd net
+  unaffected) -- fixed in TB by driving explicit 1s (=pull-up) on unused
+  DAT lanes under `ifdef VERILATOR`, iverilog path bit-identical; without
+  this fix NO host->card DAT traffic exists in Verilator. (2) residual
+  4 errors: bad-CRC16 blocks partially commit 1-2 bytes (dev!=shadow,
+  proven by full-regfile sweep: single addr dev=ff shadow=00) exactly in
+  the RTL's NBA-to-array-inside-for-loop commit (rtl/SDIO_top.sv:300-305)
+  which Verilator 5.006 declares UNSUPPORTED (BLKLOOPINIT) -- the documented
+  -Wno-BLKLOOPINIT workaround (injected via ~/bin/verilator wrapper, NOT by
+  editing shared scripts) lets it build but the construct mis-executes
+  intermittently. iverilog executes the same TB 100% clean. Next step:
+  confirm codegen mis-execution (e.g. dump commit-loop writes under
+  Verilator) or restructure the commit check; NOT an RTL bug per iverilog.
+  Debug txn-log + final CMD52 sweep left in TB (Verilator-only).
+- **eMMC**: CRV edits complete (120 disturbance txns: crc16/crc7/mute/benign
+  + recovery; FSM 17, SVA suite, chunked timeout). iverilog PASS. Verilator
+  run NOT yet executed.
+- **HDMI_2_1**: CRV edits complete (120 random hpd drop/replug txns, mode
+  FSM probe 7, SVA suite, chunked 300ms timeout). iverilog PASS (>400s).
+  Verilator run NOT yet executed (launch from repo root!).
+- **SAS_4 / HDCP_2_3 / SD / DisplayPort2**: untouched. SAS_4 needs the
+  $BUILD/obj shim header (`__`->_05F, see W3_MIPI.md).
+- Reminder: verilator wrapper for BLKLOOPINIT lives at ~/bin/verilator
+  (export PATH=$HOME/bin:$PATH before run_cov.sh); shell env is
+  non-persistent between tool calls.
+
 ## Suspected RTL issues (reported, NOT fixed — per SPEC)
 
 - **W5-RTL-1 (NVMe / FC / Ethernet)**: `rtl/NVMe_top.sv:196` (same line
