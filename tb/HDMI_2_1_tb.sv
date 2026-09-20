@@ -359,6 +359,11 @@ module HDMI_2_1_tb;
       @(posedge de);
       @(negedge clk);        // skip trailing bit of the previous slot
       px = 0; py = 0;
+      // stream resync: the encoder parks/resets its TMDS disparity state
+      // while hpd is low, so the TB's running-disparity window must also
+      // restart here (otherwise a residual from the previous stream can
+      // trip the |disp|<=16 bound by +/-1 right after a replug).
+      disp_run[0] = 0; disp_run[1] = 0; disp_run[2] = 0;
       alive = 1'b1;
       while (alive) begin
         get_pixel(c0, c1, c2, fde, fhs, fvs, fck, alive);

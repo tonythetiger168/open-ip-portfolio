@@ -23,6 +23,9 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
 | SAS | PASS | PASS | 352/371 | 490/594 | 22/22 | all pass | **closed (5 line + 4 toggle waivers)** |
 | SATA | PASS | PASS | 420/437 | 1191/1279 | 31/31 | all pass | **closed (5 line + 3 toggle waivers)** |
 | UFS | PASS | PASS | 142/200 | 433/603 | 11/11 | all pass | **closed (5 line + 3 toggle waivers)** |
+| SDIO | PASS | PASS | 201/206 | 613/650 | 12/12 | all pass | **closed (3 line + 3 toggle waivers: sdio-line-1..3, sdio-toggle-1..3)** |
+| eMMC | PASS | PASS | 217/244 | 878/1075 | 17/17 | all pass | **closed (5 line + 3 toggle waivers: emmc-line-1..5, emmc-toggle-1..3)** |
+| HDMI_2_1 | PASS | PASS | 165/177 | 232/238 | 7/7 | all pass | **closed (2 waivers: hdmi-line-1, hdmi-toggle-1)** |
 
 ## CRV stimulus summary
 
@@ -89,6 +92,19 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
   Note: the entire RX_EOF dispatch block loses its line-coverage DA points
   under Verilator 5.006 (blocking temporaries in always_ff) -- largest
   instance so far of the known attribution artifact (waiver ufs-line-1).
+
+- **HDMI_2_1**: 120 randomized hpd drop/replug transactions (random unplug
+  duration and drop phase vs the pixel stream) against the TB's independent
+  TMDS/TERC4 wire decoder: after every replug the stream must resync
+  (preamble -> guard -> video/island) with |running disparity| <= 16 and
+  exact pixel/Sync/InfoFrame content. TB monitor fix this round: the
+  running-disparity window is reset at each replug resync because the
+  encoder parks its TMDS disparity state while hpd is low (a residual from
+  the previous stream could trip the |disp|<=16 bound by +/-1). Mode-FSM
+  probe 7/7, SVA suite clean, chunked timeout. Waivers: terc4 arms
+  4'h4..4'hF unreachable with the fixed AVI InfoFrame contents
+  (hdmi-line-1); disparity LSBs structurally constant 0 (even-parity
+  accumulator, hdmi-toggle-1).
 
 ## W5 continuation status (second coder, step-budget handoff)
 

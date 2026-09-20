@@ -187,3 +187,9 @@ waiver emmc-toggle-2 rtl/eMMC_top.sv toggle \
   reason="cid constant bits (63): cid captures the TB's fixed CID_VAL=128'h0123456789ABCDEF FEDCBA9876543211; bits that are 0 in that constant can never toggle in this config."
 waiver emmc-toggle-3 rtl/eMMC_top.sv toggle \
   reason="encoding/geometry-bound bits: rsp_len[2:0]+[6] (only 48/136), rsp_sh[135:134]+rsp_nxt[135] (responses lead with 2'b00), cur_cmd[2]+[5] (only CMD0/1/2/3/17/24), wait_cnt[6] (<TO_MAX<=64), round[7]/match_cnt[7] (<=4 rounds), bd_cnt[0] (BIT_CLKS=1), err_cmp (see emmc-line-5)."
+
+# ---- HDMI_2_1 ----
+waiver hdmi-line-1 rtl/HDMI_2_1_top.sv:133-144 line \
+  reason="terc4() case arms 4'h4..4'hF + default: every terc4 input in this config is one of 4'h0..4'h3 — island guard sends {n_vs,n_hs,2'b11} with n_vs=n_hs=0 at the fixed island line 481 (<VS_B=490, x<HS_B), header nibble is {0,0,1'b0,AVI_HDR bit} (bit-serial), and AVI_SP1/2/3 are constant 0 so subpacket nibbles are {0,0,AVI_SP0 bit pair} <= 4'h3. Arms 4'h4+ unreachable with the fixed AVI InfoFrame contents; TERC4 coding of all reachable values verified on the wire by the TB's independent decoder."
+waiver hdmi-toggle-1 rtl/HDMI_2_1_top.sv toggle \
+  reason="disp0[0], disp1[0], disp2[0], enc0[10], enc1[10], enc2[10]: TMDS running disparity is always even — every ncnt adjustment term (n1s=2*N1, 8, 2, 0) is a multiple of 2 and the accumulator starts at 0, so the disparity LSB is structurally constant 0 and can never toggle."
