@@ -180,3 +180,37 @@ waiver crypto-line-3 rtl/Crypto___Security_Engine_top.sv:285 line \
   reason="dead default: cs is a 3-bit FSM with encodings 0..4 cased explicitly."
 waiver crypto-toggle-1 rtl/Crypto___Security_Engine_top.sv:117 toggle \
   reason="bitlen[2:0]: bit length is always a multiple of 8 ({len_q,3'b000} + 512); low 3 bits constant 0."
+
+# ---- CSE ----
+waiver cse-line-1 rtl/CSE_top.sv:360 line \
+  reason="dead default: cs is a 2-bit FSM with encodings 0..3 (C_IDLE/C_KEY/C_RUN/C_DONE) cased explicitly; execution of all four states proven by FSM_COV 4/4."
+
+# ---- CPRI_v8_0__eCPRI_over_CPR_ ----
+waiver cpri-line-1 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv:76-77 line \
+  reason="5.006 attribution artifact on the enc8b10b K28 control path (function called in an NBA); execution proven by the line monitor verifying a K28.5 comma every 1024 symbols (CHECK 3)."
+waiver cpri-line-2 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv:81-111 line \
+  reason="5.006 attribution artifact on the enc8b10b 5b/6b case arms; the free-running TX pattern {tx_bf[3:0],tx_wpos} sweeps all 32 EDCBA values and the peer decodes every symbol without a code violation."
+waiver cpri-line-3 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv:115-116 line \
+  reason="5.006 attribution artifact on the enc8b10b Kx.7 alternate arm; execution proven by correct K28.5 comma transmission."
+waiver cpri-line-4 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv:120-126 line \
+  reason="5.006 attribution artifact on the enc8b10b 3b/4b case arms; the TX pattern sweeps all 8 HGF values (tx_bf[3:1]) with zero decode errors."
+waiver cpri-line-5 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv:339 line \
+  reason="5.006 attribution artifact on the cpu_addr==13 irq-clear condition; execution proven by 8 CRV code-violation irqs cleared via cpu_wr(13) and observed deasserted."
+waiver cpri-line-6 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv:362 line \
+  reason="5.006 attribution artifact on the ST_ALIGN rx_wcnt==0 condition; execution proven by the HUNT->ALIGN->SYNC handshake (FSM_COV 3/3)."
+waiver cpri-line-7 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv:373-381 line \
+  reason="5.006 attribution artifact on the ST_ALIGN stray-comma/no-comma arms; execution proven by loss-of-sync recovery back through ALIGN (CHECK 8, FSM_COV 3/3)."
+waiver cpri-line-8 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv:414 line \
+  reason="5.006 attribution artifact on the L1 slow-stream check-byte validate; execution proven by l1_done set and peer_ver/peer_rate negotiated (CHECK 4)."
+waiver cpri-toggle-1 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv toggle \
+  reason="l1_b1[2:7]/l1_b2[1,3,5,6,7]: peer RE transmits a fixed L1 slow-stream (version=3, rate=5), so these capture-register bits are structurally constant."
+waiver cpri-toggle-2 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv toggle \
+  reason="rx_vendor[0,1,5,7]: peer transmits a fixed vendor byte 8'h5C; the clear bits never toggle."
+waiver cpri-toggle-3 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv toggle \
+  reason="peer_ver[2:3]/peer_rate[1,3]/neg_ver[2:3]/neg_rate[3]: peer version/rate fixed at 3/5 and negotiated=min(local,peer) is capped, so the upper bits are unreachable."
+waiver cpri-toggle-4 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv toggle \
+  reason="align_cnt[1]: alignment counter wraps at 1 (two well-placed commas -> SYNC); bit 1 structurally unreachable."
+waiver cpri-toggle-5 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv toggle \
+  reason="miss_cnt[2]: loss-of-sync miss counter wraps at 3 (LOS declared on the 4th miss); bit 2 structurally unreachable."
+waiver cpri-toggle-6 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv toggle \
+  reason="cpu_rdata[25]: the read mux drives bits>23 only for the 32-bit iq_mem read (addr 10); the fixed iq_pat peer stream packs words whose bit25 is constant 0 (verified across all 64 word positions)."
