@@ -45,3 +45,31 @@ waiver i3c-line-1 rtl/I3C_top.sv:102  line \
 
 waiver i3c-toggle-1 rtl/I3C_top.sv:38  toggle \
   reason="bit_cnt[3]: byte bit-counter wraps at 4'd7, bit 3 never set by any reachable stimulus."
+
+# ---- DigRF ----
+waiver digrf-toggle-1 rtl/DigRF_top.sv:16  toggle \
+  reason="rx_addr[7:5]: rx_addr = {3'b000, shift_hold}; upper three bits are constant-tied to 0 and can never toggle."
+
+waiver digrf-toggle-2 rtl/DigRF_top.sv:37  toggle \
+  reason="bit_cnt[3]: frame bit-counter wraps at 4'd7, bit 3 never set by any reachable stimulus."
+
+# ---- MIPI_SLIMbus ----
+waiver slimbus-toggle-1 rtl/MIPI_SLIMbus_top.sv:16  toggle \
+  reason="rx_addr[7:5]: rx_addr = {3'b000, shift_hold}; upper three bits are constant-tied to 0 and can never toggle."
+
+waiver slimbus-toggle-2 rtl/MIPI_SLIMbus_top.sv:37  toggle \
+  reason="bit_cnt[3]: frame bit-counter wraps at 4'd7, bit 3 never set by any reachable stimulus."
+
+# ---- MIPI_SoundWire ----
+waiver soundwire-toggle-1 rtl/MIPI_SoundWire_top.sv:16  toggle \
+  reason="rx_addr[7:5]: rx_addr = {3'b000, shift_hold}; upper three bits are constant-tied to 0 and can never toggle."
+
+waiver soundwire-toggle-2 rtl/MIPI_SoundWire_top.sv:37  toggle \
+  reason="bit_cnt[3]: frame bit-counter wraps at 4'd7, bit 3 never set by any reachable stimulus."
+
+# ---- MIPI_DBI__Display_Bus_Interface_ ----
+waiver dbi-toggle-1 rtl/MIPI_DBI__Display_Bus_Interface__top.sv:16  toggle \
+  reason="rx_addr[7:5]: rx_addr = {3'b000, shift_hold}; upper three bits are constant-tied to 0 and can never toggle."
+
+waiver dbi-toggle-2 rtl/MIPI_DBI__Display_Bus_Interface__top.sv:37  toggle \
+  reason="bit_cnt[3]: frame bit-counter wraps at 4'd7, bit 3 never set by any reachable stimulus."
