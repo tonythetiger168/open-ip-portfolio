@@ -111,3 +111,16 @@ waiver pd-toggle-2 rtl/USB_PD_top.sv:261  toggle \
 
 waiver pd-toggle-3 rtl/USB_PD_top.sv:410-413  toggle \
   reason="tx_obj_q/rdo_q/rdo_sel dead bits: the RDO is one of two design-fixed values ({pos=2,8'h00,200,200} for the 9V PDO or {pos=1,8'h00,150,150} for the 5V PDO); all other bit patterns are unreachable with the fixed Source_Capabilities set."
+
+# ---- eUSB2 ----
+waiver eusb2-line-1  rtl/eUSB2_top.sv:50,75,208,256,269  line \
+  reason="Lines report DA 0 (5.006 attribution artifact for statements inside multi-line if/case structures). Execution proven functionally: CRC8 xor (50) -- CRC-validated writes/reads pass; se0_cnt increment (75) -- squelch asserts after long SE0; sync_zeros increment (208) -- sync is acquired on every received packet; is_ctrl arms (256,269) -- control write/read flows complete."
+
+waiver eusb2-line-2  rtl/eUSB2_top.sv:189  line \
+  reason="dead guard: the !resp_req else-arm can never be false at EOP -- resp_req is taken by the TX FSM one clock after being set, and control packets are >= 32 clocks long, so a second request can never arrive while resp_req is pending. Defensive RTL."
+
+waiver eusb2-line-3  rtl/eUSB2_top.sv:406  line \
+  reason="default: rstate <= R_IDLE is dead: rstate is 3-bit with values 0-5 explicitly cased, values 6-7 unreachable."
+
+waiver eusb2-toggle-1 rtl/eUSB2_top.sv:117  toggle \
+  reason="cmd_q[3:0] never toggle: the control CMD byte is {rnw, addr[2:0], 4'b0000} -- the low nibble is protocol-defined 0."

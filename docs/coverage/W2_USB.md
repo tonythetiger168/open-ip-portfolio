@@ -15,6 +15,7 @@ Methodology per docs/COVERAGE.md. Waivers for this wave live in
 | USB2_0 | PASS | PASS | 173/184 (94.0%) + 3 waivers = 184/184 | 268/377 (71.1%) + 4 waivers = 377/377 | 7/7 | 4542723/4542723 | **closed (7 waivers)** |
 | USB_Type_C_Port_Controller | PASS | PASS | 81/85 (95.3%) + 4 waivers = 85/85 | 58/59 (98.3%) + 1 waiver = 59/59 | 3/3 | 78933/78933 | **closed (5 waivers)** |
 | USB_PD | PASS | PASS | 316/324 (97.5%) + 3 waivers = 324/324 | 409/474 (86.3%) + 3 waivers = 474/474 | 18/18 | 376323/376323 | **closed (6 waivers)** |
+| eUSB2 | PASS | PASS | 286/293 (97.6%) + 3 waivers = 293/293 | 198/202 (98.0%) + 1 waiver = 202/202 | 8/8 | 61877/61877 | **closed (4 waivers)** |
 
 ## CRV stimulus summary
 
@@ -46,6 +47,12 @@ Methodology per docs/COVERAGE.md. Waivers for this wave live in
   mismatch + recovery, 5V-only single-PDO negotiation selecting RDO pos 1).
   Self-checks: GoodCRC echo msgid/CRC32 residue, Request RDO fields,
   vbus_ok contract state, irq set/clear sequencing, no-reply windows.
+
+- **eUSB2**: 107 txns (register write+readback, corrupt-CRC8 write ignored,
+  truncated control write, random data frames with 1-clk retime monitor,
+  bit-stuff violation, SE1 injection, squelch cycles with random threshold
+  1..20 plus one 132-threshold walk, random readbacks against a TB register
+  shadow model; forced full-swing writes to all 8 registers).
 
 ## Suspected RTL bugs (recorded, NOT fixed per v2.5 discipline)
 
