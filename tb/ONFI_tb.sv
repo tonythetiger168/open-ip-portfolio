@@ -4,6 +4,16 @@
 module ONFI_tb;
   localparam int BIT = 400;
   localparam int HB  = 8;
+`ifdef VERILATOR
+  // Clock-aligned host timing (see W4_MEMORY.md RISK-1): under the 5.006
+  // timing-scheduler pathology, #delay coroutine resumptions suffer
+  // unbounded lag/jitter, which skews host bit cells off the DUT sampling
+  // grid and eventually corrupts a frame (rx_err, no echo, TB parks in
+  // recv). Clock-edge waits land exactly on the DUT grid and are immune.
+  `define BDLY(ns) bdly(((ns) + 5) / 10)
+`else
+  `define BDLY(ns) #(ns)
+`endif
   logic clk = 0, rst_n = 0;
   logic host_val = 1'b1, host_oe = 1'b0;
   tri1  rx, tx;
@@ -103,17 +113,17 @@ module ONFI_tb;
   task automatic send_tlp(input int plen);
     logic [31:0] c; logic [7:0] fb;
     begin
-      host_oe = 1; host_val = 1'b0; #(BIT);
-      fb = 8'hFB; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
-      fb = HB + plen; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
+      host_oe = 1; host_val = 1'b0; `BDLY(BIT);
+      fb = 8'hFB; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; `BDLY(BIT); end
+      fb = HB + plen; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; `BDLY(BIT); end
       c = 32'hFFFFFFFF;
       for (int i=0;i<HB;i++) begin
         fb = hdr[i];
-        for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; #(BIT); end
+        for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; `BDLY(BIT); end
       end
       for (int i=0;i<plen;i++) begin
         fb = pl[i];
-        for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; #(BIT); end
+        for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; `BDLY(BIT); end
       end
       c = ~c;
 `ifdef VERILATOR
@@ -127,21 +137,43 @@ module ONFI_tb;
         exp_txm[j] = (j < 4) ? sh_buf[18 + j] : sh_buf[2 + j];
       exp_len = HB + plen;
 `endif
-      for (int i=0;i<32;i++) begin host_val=c[0]; c=c>>1; #(BIT); end
-      fb = 8'hFD; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
+      for (int i=0;i<32;i++) begin host_val=c[0]; c=c>>1; `BDLY(BIT); end
+      fb = 8'hFD; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; `BDLY(BIT); end
       host_oe = 0;
     end
   endtask
 
+`ifdef VERILATOR
+  // runtime-bound clock wait: keeps Verilator from unrolling the loop
+  task automatic bdly(input int n);
+    repeat (n) @(posedge clk);
+  endtask
+`endif
   logic b; logic [7:0] sh;
   task automatic recv_tlp(output int plen);
+    int wto;
     begin
       plen = 0; sh = 0;
+`ifdef VERILATOR
+      // Timing-scheduler pathology (5.006): wait() coroutine resumptions
+      // are lost intermittently. Poll the level on clock edges instead,
+      // bounded so a missing echo reports diagnostics instead of parking.
+      wto = 0;
+      while (tx !== 1'b0 && wto < 200000) begin @(posedge clk); wto++; end
+      if (tx !== 1'b0) begin
+        errors++;
+        $display("ERROR: no echo (rx_err=%b tstate=%0d rstate=%0d ridx=%0d rbitc=%0d)",
+                 dut.rx_err, dut.tstate, dut.rstate, dut.ridx, dut.rbitc);
+        plen = -1;
+        return;
+      end
+`else
       wait (tx === 1'b0);
-      #(BIT + BIT/2);
-      for (int i=0;i<8;i++) begin b=tx; sh={b,sh[7:1]}; #(BIT); end
+`endif
+      `BDLY(BIT + BIT/2);
+      for (int i=0;i<8;i++) begin b=tx; sh={b,sh[7:1]}; `BDLY(BIT); end
       sh = 0;
-      for (int i=0;i<8;i++) begin b=tx; sh={b,sh[7:1]}; if(i==7) plen = sh - HB; #(BIT); end
+      for (int i=0;i<8;i++) begin b=tx; sh={b,sh[7:1]}; if(i==7) plen = sh - HB; `BDLY(BIT); end
       for (int i=0;i<HB+plen;i++) begin
         sh = 0;
         for (int j=0;j<8;j++) begin
@@ -150,10 +182,10 @@ module ONFI_tb;
             if (i < HB) hdr[i] = sh;
             else        pl[i-HB] = sh;
           end
-          #(BIT);
+          `BDLY(BIT);
         end
       end
-      #(BIT*40);
+      `BDLY(BIT*40);
     end
   endtask
 
@@ -166,21 +198,21 @@ module ONFI_tb;
   task automatic send_tlp_bad(input int plen, input int mode);
     logic [31:0] c; logic [7:0] fb;
     begin
-      host_oe = 1; host_val = 1'b0; #(BIT);
+      host_oe = 1; host_val = 1'b0; `BDLY(BIT);
       fb = (mode == 2) ? 8'hFA : 8'hFB;
-      for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
+      for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; `BDLY(BIT); end
       if (mode == 2) begin
-        host_oe = 0; #(BIT*4);     // abort: nothing else on the wire
+        host_oe = 0; `BDLY(BIT*4);     // abort: nothing else on the wire
       end else begin
-        fb = HB + plen; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
+        fb = HB + plen; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; `BDLY(BIT); end
         c = 32'hFFFFFFFF;
         for (int i=0;i<HB;i++) begin
           fb = hdr[i];
-          for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; #(BIT); end
+          for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; `BDLY(BIT); end
         end
         for (int i=0;i<plen;i++) begin
           fb = pl[i];
-          for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; #(BIT); end
+          for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; `BDLY(BIT); end
         end
         c = ~c;
         // shadow: bytes are stored even when the CRC/END check fails
@@ -190,9 +222,9 @@ module ONFI_tb;
         for (int k = 0; k < 4; k++)
           sh_buf[2 + HB + plen + k] = (mode == 1) ? (c[8*k +: 8] ^ (k == 0)) : c[8*k +: 8];
         if (mode == 1) c = c ^ 32'h1;          // corrupt CRC: no rx_done
-        for (int i=0;i<32;i++) begin host_val=c[0]; c=c>>1; #(BIT); end
+        for (int i=0;i<32;i++) begin host_val=c[0]; c=c>>1; `BDLY(BIT); end
         fb = (mode == 3) ? 8'hFC : 8'hFD;      // corrupt END: no rx_done
-        for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
+        for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; `BDLY(BIT); end
         host_oe = 0;
       end
     end
@@ -237,6 +269,7 @@ module ONFI_tb;
     end
     if (dut.rx_err !== 1'b0) begin errors++; $display("ERROR: ONFI rx_err set"); end
 `ifdef VERILATOR
+    $display("DBG: directed done @%0t", $time);
     // ---- v2.5 CRV random phase (directed test above untouched) ----
     // 110 frames: random header/payload, random payload length 0..8
     // (rejection-weighted boundaries 0 and 8), echo compared against the
@@ -247,6 +280,7 @@ module ONFI_tb;
       int n_ok = 0, n_bad = 0;
       for (int i = 0; i < 23; i++) sh_buf[i] = 8'h00;   // 2-state init
       for (int t = 0; t < 110; t++) begin
+        if (t % 10 == 0) $display("DBG: frame %0d @%0t", t, $time);
         for (int i = 0; i < HB; i++) hdr[i] = $urandom_range(0, 255);
         for (int i = 0; i < 8; i++)  pl[i]  = $urandom_range(0, 255);
         rlen = $urandom_range(0, 8);
@@ -256,7 +290,7 @@ module ONFI_tb;
           // error injection: rotating corruption mode, no echo allowed
           n_bad++;
           send_tlp_bad(rlen, 1 + (n_bad % 3));
-          #(BIT*80);
+          `BDLY(BIT*80);
           if (dut.rx_err !== 1'b1) begin
             errors++; $display("ERROR: CRV#%0d rx_err not set (mode %0d)", t, 1 + (n_bad % 3));
           end
@@ -266,7 +300,9 @@ module ONFI_tb;
         end else begin
           n_ok++;
           send_tlp(rlen);
+          $display("DBG: frame %0d sent @%0t", t, $time);
           crv_recv_cmp(rlen, t);
+          $display("DBG: frame %0d recv @%0t", t, $time);
         end
       end
       // recovery: reset clears rx_err, device still echoes correctly
@@ -302,10 +338,14 @@ module ONFI_tb;
   // into 1-us delays: with Verilator 5.006 a single long-pending #delay
   // event corrupts the --timing delay heap once many short-delay
   // resumptions interleave with it (see docs/COVERAGE.md note 1).
+  // Host timing is clock-aligned (BDLY above), so nominal test traffic is
+  // ~17 ms of sim time; the guard allows >50x headroom for the scheduler
+  // pathology (see W4_MEMORY.md RISK-1). Chunked per docs/COVERAGE.md n.1.
   initial begin
-    repeat (20000) #10000;  // 200 ms in 10-us chunks (inflated: scheduler pathology slows sim-time)
+    repeat (100000) #10000;  // 1 s in 10-us chunks
     $display("TIMEOUT"); $finish;
   end
+
 `else
   initial begin #10_000_000; $display("TIMEOUT"); $finish; end
 `endif

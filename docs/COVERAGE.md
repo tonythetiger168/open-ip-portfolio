@@ -49,6 +49,16 @@ make -f Makefile.<PROTO> sim                    # iverilog regression (must stay
    only with independent functional proof of execution.
 6. `parse_cov.py` page filtering: `v_branch` entries must not bleed
    into the toggle tally (fixed 2026-09-20).
+7. **Constant-value NBA-to-array loop fills are UNSUPPORTED**
+   (`%Error-BLKLOOPINIT`): `for (i...) mem[i] <= const;` compiles to a
+   single delayed slot — only the LAST index is ever written (proven in
+   generated C++; the `-Wno-BLKLOOPINIT` suppression hides the error but
+   keeps the miscompile). Non-constant loop NBAs (`mem[i] <= f(i)`)
+   unroll correctly. A DUT whose checked behavior depends on such a fill
+   cannot be Verilator-closed: record a **tool-limitation waiver** —
+   functional evidence = iverilog PASS + FSM/SVA suites green, line/toggle
+   marked N/A (tool bug). First instance: Toggle_Mode_NAND (W4,
+   BLOCKER-1, docs/coverage/W4_MEMORY.md).
 
 All workarounds are TB-side, `` `ifdef VERILATOR ``-guarded; the iverilog
 path is byte-identical (verified: zero baseline lines removed vs the
