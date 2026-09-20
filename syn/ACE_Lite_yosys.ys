@@ -1,0 +1,8 @@
+# ACE-Lite synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/ACE_Lite_top.sv 
+hierarchy -check -top ACE_Lite_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json ACE_Lite_top.json
+write_verilog ACE_Lite_top_netlist.v

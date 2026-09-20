@@ -1,0 +1,26 @@
+# v2.5 global coverage waivers (verilator_coverage-style records)
+# One record per waived point: ID / file:line / metric / justification.
+# These points are provably unreachable or un-instrumentable; each is
+# cross-referenced in docs/COVERAGE.md. Consumed by report tooling;
+# verilator_coverage 5.006 has no -waiver flag, so this file is the
+# source of truth for manual/tooling exclusion.
+
+# ---- I2C ----
+waiver i2c-line-1   rtl/I2C_top.sv:132  line \
+  reason="if (state == ST_TXACK) is constant-true inside the ST_TXACK case arm; const-folded by Verilator, coverpoint unhittable. Body lines 133-135 covered."
+
+waiver i2c-toggle-1 rtl/I2C_top.sv:41   toggle \
+  reason="bit_cnt[3]: byte bit-counter wraps at 4'd7, bit 3 never set by any reachable stimulus."
+
+# ---- AXI4 ----
+waiver axi4-line-1  rtl/AXI4_top.sv:130-133 line \
+  reason="Strobe for-loop memory write: Verilator 5.006 line-coverage attribution artifact (counts shifted to neighboring lines). Execution proven by scoreboard read-back compares and minimal repro."
+
+waiver axi4-line-2  rtl/AXI4_top.sv:141,143 line \
+  reason="Early/missing-wlast SLVERR assignment: same attribution artifact (multi-line if; line 142 uninstrumented). Execution proven by directed check 8 (bresp=SLVERR + irq)."
+
+waiver axi4-line-3  rtl/AXI4_top.sv:155  line \
+  reason="default: wstate <= W_IDLE is dead; wstate is 2-bit with all 3 used encodings cased, value 3 unreachable."
+
+waiver axi4-line-4  rtl/AXI4_top.sv:210  line \
+  reason="default: rstate <= R_IDLE is dead; rstate is 1-bit with both encodings cased explicitly."

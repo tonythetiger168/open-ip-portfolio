@@ -1,0 +1,8 @@
+# GDDR6 synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/GDDR6_top.sv ../rtl/MEMCORE_top.sv ../rtl/MEMCH_top.sv
+hierarchy -check -top GDDR6_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json GDDR6_top.json
+write_verilog GDDR6_top_netlist.v

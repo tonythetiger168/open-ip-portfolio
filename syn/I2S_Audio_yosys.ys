@@ -1,0 +1,8 @@
+# I2S Audio synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/I2S_Audio_top.sv 
+hierarchy -check -top I2S_Audio_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json I2S_Audio_top.json
+write_verilog I2S_Audio_top_netlist.v

@@ -1,0 +1,8 @@
+# ATB synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/ATB_top.sv 
+hierarchy -check -top ATB_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json ATB_top.json
+write_verilog ATB_top_netlist.v

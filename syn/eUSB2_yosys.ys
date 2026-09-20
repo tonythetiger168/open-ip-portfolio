@@ -1,0 +1,8 @@
+# eUSB2 synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/eUSB2_top.sv 
+hierarchy -check -top eUSB2_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json eUSB2_top.json
+write_verilog eUSB2_top_netlist.v

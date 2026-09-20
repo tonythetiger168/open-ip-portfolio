@@ -1,0 +1,8 @@
+# RFFE synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/RFFE_top.sv 
+hierarchy -check -top RFFE_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json RFFE_top.json
+write_verilog RFFE_top_netlist.v

@@ -1,0 +1,8 @@
+# MIPI DPI (Display Pixel Interface) synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/MIPI_DPI__Display_Pixel_Interface__top.sv 
+hierarchy -check -top MIPI_DPI__Display_Pixel_Interface__top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json MIPI_DPI__Display_Pixel_Interface__top.json
+write_verilog MIPI_DPI__Display_Pixel_Interface__top_netlist.v

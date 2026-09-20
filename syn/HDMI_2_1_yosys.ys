@@ -1,0 +1,8 @@
+# HDMI 2.1 synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/HDMI_2_1_top.sv 
+hierarchy -check -top HDMI_2_1_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json HDMI_2_1_top.json
+write_verilog HDMI_2_1_top_netlist.v

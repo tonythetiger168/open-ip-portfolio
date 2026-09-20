@@ -1,0 +1,8 @@
+# UFS synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/UFS_top.sv ../rtl/SATA_top.sv
+hierarchy -check -top UFS_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json UFS_top.json
+write_verilog UFS_top_netlist.v

@@ -1,0 +1,8 @@
+# FC synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/FC_top.sv 
+hierarchy -check -top FC_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json FC_top.json
+write_verilog FC_top_netlist.v

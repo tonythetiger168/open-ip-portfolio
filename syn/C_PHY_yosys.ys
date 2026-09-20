@@ -1,0 +1,8 @@
+# C-PHY synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/C_PHY_top.sv 
+hierarchy -check -top C_PHY_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json C_PHY_top.json
+write_verilog C_PHY_top_netlist.v

@@ -1,0 +1,8 @@
+# NVMe synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/NVMe_top.sv 
+hierarchy -check -top NVMe_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json NVMe_top.json
+write_verilog NVMe_top_netlist.v

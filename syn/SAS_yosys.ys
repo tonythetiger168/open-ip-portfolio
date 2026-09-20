@@ -1,0 +1,8 @@
+# SAS synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/SAS_top.sv ../rtl/SATA_top.sv
+hierarchy -check -top SAS_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json SAS_top.json
+write_verilog SAS_top_netlist.v

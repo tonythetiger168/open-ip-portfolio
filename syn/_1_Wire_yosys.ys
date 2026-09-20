@@ -1,0 +1,8 @@
+# 1-Wire synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/_1_Wire_top.sv 
+hierarchy -check -top _1_Wire_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json _1_Wire_top.json
+write_verilog _1_Wire_top_netlist.v

@@ -1,0 +1,8 @@
+# LPDDR5X synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/LPDDR5X_top.sv ../rtl/MEMCORE_top.sv ../rtl/MEMCH_top.sv
+hierarchy -check -top LPDDR5X_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json LPDDR5X_top.json
+write_verilog LPDDR5X_top_netlist.v

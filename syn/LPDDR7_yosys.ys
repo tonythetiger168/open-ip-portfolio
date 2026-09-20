@@ -1,0 +1,8 @@
+# LPDDR7 synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/LPDDR7_top.sv ../rtl/MEMCORE_top.sv ../rtl/MEMCH_top.sv
+hierarchy -check -top LPDDR7_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json LPDDR7_top.json
+write_verilog LPDDR7_top_netlist.v

@@ -1,0 +1,28 @@
+name: regression
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  sim-syn:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install open toolchain
+        run: sudo apt-get update && sudo apt-get install -y iverilog yosys
+
+      - name: Full regression (117 protocols, sim + syn)
+        run: bash scripts/ci_regression.sh
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs
+          path: work/ci_*.log
+          retention-days: 7

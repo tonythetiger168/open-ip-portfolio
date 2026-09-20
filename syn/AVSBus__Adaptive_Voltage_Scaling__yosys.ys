@@ -1,0 +1,8 @@
+# AVSBus (Adaptive Voltage Scaling) synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/AVSBus__Adaptive_Voltage_Scaling__top.sv 
+hierarchy -check -top AVSBus__Adaptive_Voltage_Scaling__top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json AVSBus__Adaptive_Voltage_Scaling__top.json
+write_verilog AVSBus__Adaptive_Voltage_Scaling__top_netlist.v

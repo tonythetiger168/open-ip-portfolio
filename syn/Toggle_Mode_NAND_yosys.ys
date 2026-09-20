@@ -1,0 +1,8 @@
+# Toggle Mode NAND synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/Toggle_Mode_NAND_top.sv 
+hierarchy -check -top Toggle_Mode_NAND_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json Toggle_Mode_NAND_top.json
+write_verilog Toggle_Mode_NAND_top_netlist.v

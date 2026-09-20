@@ -1,0 +1,8 @@
+# HBM4 synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/HBM4_top.sv ../rtl/MEMCORE_top.sv ../rtl/MEMCH_top.sv
+hierarchy -check -top HBM4_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json HBM4_top.json
+write_verilog HBM4_top_netlist.v

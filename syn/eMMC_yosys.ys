@@ -1,0 +1,8 @@
+# eMMC synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/eMMC_top.sv 
+hierarchy -check -top eMMC_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json eMMC_top.json
+write_verilog eMMC_top_netlist.v

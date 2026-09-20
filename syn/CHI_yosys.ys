@@ -1,0 +1,8 @@
+# CHI synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/CHI_top.sv 
+hierarchy -check -top CHI_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json CHI_top.json
+write_verilog CHI_top_netlist.v

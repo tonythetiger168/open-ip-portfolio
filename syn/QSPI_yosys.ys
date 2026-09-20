@@ -1,0 +1,8 @@
+# QSPI synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/QSPI_top.sv 
+hierarchy -check -top QSPI_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json QSPI_top.json
+write_verilog QSPI_top_netlist.v

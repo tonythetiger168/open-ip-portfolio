@@ -1,0 +1,8 @@
+# USB Type-C Port Controller synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/USB_Type_C_Port_Controller_top.sv 
+hierarchy -check -top USB_Type_C_Port_Controller_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json USB_Type_C_Port_Controller_top.json
+write_verilog USB_Type_C_Port_Controller_top_netlist.v

@@ -1,0 +1,27 @@
+// Verilated -*- C++ -*-
+// Coverage-aware main loop for open-ip-portfolio Verilator runs.
+// Based on `verilator --main` output (time-advancing loop required by
+// --timing models) + VerilatedCov::write at the end.
+// Placeholder @TOP@ is replaced by run_cov.sh with the top module name.
+
+#include "verilated.h"
+#include "verilated_cov.h"
+#include "V@TOP@.h"
+
+int main(int argc, char** argv, char**) {
+    Verilated::debug(0);
+    const std::unique_ptr<VerilatedContext> contextp{new VerilatedContext};
+    contextp->commandArgs(argc, argv);
+
+    const std::unique_ptr<V@TOP@> topp{new V@TOP@{contextp.get()}};
+
+    while (!contextp->gotFinish()) {
+        topp->eval();
+        if (!topp->eventsPending()) break;
+        contextp->time(topp->nextTimeSlot());
+    }
+
+    topp->final();
+    VerilatedCov::write("coverage.dat");
+    return 0;
+}

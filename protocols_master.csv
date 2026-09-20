@@ -1,0 +1,88 @@
+#,Protocol,VIP檔案,大小,來源Bundle,Checkers,狀態,下載路徑,License
+1,CXL,CXL-VIP.zip,33KB,PCIE-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/CXL-VIP.zip,Apache-2.0
+2,PCIe,PCIe-VIP.zip,34KB,PCIE-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/PCIe-VIP.zip,Apache-2.0
+3,UCIe,UCIe-VIP.zip,33KB,PCIE-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/UCIe-VIP.zip,Apache-2.0
+4,UALink,UALink-VIP.zip,33KB,PCIE-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/UALink-VIP.zip,Apache-2.0
+5,Ethernet,Ethernet-VIP.zip,33KB,NET-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/Ethernet-VIP.zip,Apache-2.0
+6,FC,FC-VIP.zip,29KB,NET-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/FC-VIP.zip,Apache-2.0
+7,UEC,UEC-VIP.zip,29KB,NET-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/UEC-VIP.zip,Apache-2.0
+8,USB,USB-VIP.zip,36KB,USB-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/USB-VIP.zip,Apache-2.0
+9,USB-PD,USB_PD-VIP.zip,28KB,USB-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/USB_PD-VIP.zip,Apache-2.0
+10,USB2,USB2-VIP.zip,28KB,USB-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/USB2-VIP.zip,Apache-2.0
+11,USB3,USB3-VIP.zip,28KB,USB-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/USB3-VIP.zip,Apache-2.0
+12,USB4,USB4-VIP.zip,27KB,USB-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/USB4-VIP.zip,Apache-2.0
+13,eUSB2,eUSB2-VIP.zip,28KB,USB-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/eUSB2-VIP.zip,Apache-2.0
+14,AHB,AHB-VIP.zip,8KB,AMBA-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/AHB-VIP.zip,Apache-2.0
+15,APB,APB-VIP.zip,8KB,AMBA-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/APB-VIP.zip,Apache-2.0
+16,AXI,AXI-VIP.zip,8KB,AMBA-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/AXI-VIP.zip,Apache-2.0
+17,DDR,DDR-VIP.zip,19KB,MEMORY-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/DDR-VIP.zip,Apache-2.0
+18,DDR5,ddr5-VIP.zip,9KB,NEW,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/ddr5-VIP.zip,Apache-2.0
+19,DDR6,ddr6-VIP.zip,9KB,NEW,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/ddr6-VIP.zip,Apache-2.0
+20,HBM,HBM-VIP.zip,18KB,MEMORY-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/HBM-VIP.zip,Apache-2.0
+21,LPDDR,LPDDR-VIP.zip,18KB,MEMORY-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/LPDDR-VIP.zip,Apache-2.0
+22,LPDDR5,lpddr5-VIP.zip,9KB,NEW,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/lpddr5-VIP.zip,Apache-2.0
+23,LPDDR5X,lpddr5x-VIP.zip,9KB,NEW,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/lpddr5x-VIP.zip,Apache-2.0
+24,LPDDR6,lpddr6-VIP.zip,9KB,NEW,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/lpddr6-VIP.zip,Apache-2.0
+25,ONFI,ONFI-VIP.zip,18KB,MEMORY-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/ONFI-VIP.zip,Apache-2.0
+26,SD,SD-VIP.zip,18KB,MEMORY-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/SD-VIP.zip,Apache-2.0
+27,UFS,UFS-VIP.zip,18KB,MEMORY-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/UFS-VIP.zip,Apache-2.0
+28,UniPro-Mem,UniPro_Mem-VIP.zip,18KB,MEMORY-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/UniPro_Mem-VIP.zip,Apache-2.0
+29,eMMC,eMMC-VIP.zip,18KB,MEMORY-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/eMMC-VIP.zip,Apache-2.0
+30,DDR7,ddr7-VIP.zip,9KB,NEW,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/ddr7-VIP.zip,Apache-2.0
+31,GDDR5,gddr5-VIP.zip,9KB,NEW,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/gddr5-VIP.zip,Apache-2.0
+32,GDDR6,gddr6-VIP.zip,9KB,NEW,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/gddr6-VIP.zip,Apache-2.0
+33,GDDR7,gddr7-VIP.zip,9KB,NEW,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/gddr7-VIP.zip,Apache-2.0
+34,HBM2,hbm2-VIP.zip,9KB,NEW,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/hbm2-VIP.zip,Apache-2.0
+35,HBM3,hbm3-VIP.zip,9KB,NEW,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/hbm3-VIP.zip,Apache-2.0
+36,HBM3E,hbm3e-VIP.zip,9KB,NEW,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/hbm3e-VIP.zip,Apache-2.0
+37,HBM4,hbm4-VIP.zip,9KB,NEW,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/hbm4-VIP.zip,Apache-2.0
+38,HBM5,HBM5-VIP.zip,9KB,NEW,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/HBM5-VIP.zip,Apache-2.0
+39,LPDDR7,lpddr7-VIP.zip,9KB,NEW,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/lpddr7-VIP.zip,Apache-2.0
+40,C-PHY,C_PHY-VIP.zip,10KB,MIPI-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/C_PHY-VIP.zip,Apache-2.0
+41,CSE,CSE-VIP.zip,10KB,MIPI-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/CSE-VIP.zip,Apache-2.0
+42,CSI-2,CSI_2-VIP.zip,10KB,MIPI-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/CSI_2-VIP.zip,Apache-2.0
+43,D-PHY,D_PHY-VIP.zip,10KB,MIPI-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/D_PHY-VIP.zip,Apache-2.0
+44,DSI,DSI-VIP.zip,10KB,MIPI-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/DSI-VIP.zip,Apache-2.0
+45,DigRF,DigRF-VIP.zip,10KB,MIPI-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/DigRF-VIP.zip,Apache-2.0
+46,HSI,HSI-VIP.zip,10KB,MIPI-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/HSI-VIP.zip,Apache-2.0
+47,M-PHY,M_PHY-VIP.zip,10KB,MIPI-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/M_PHY-VIP.zip,Apache-2.0
+48,UniPro,UniPro-VIP.zip,10KB,MIPI-VIP.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/UniPro-VIP.zip,Apache-2.0
+49,Bluetooth5,Bluetooth5-VIP.zip,14KB,uvm_vips.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/Bluetooth5-VIP.zip,Apache-2.0
+50,DisplayPort2,DisplayPort2-VIP.zip,15KB,uvm_vips.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/DisplayPort2-VIP.zip,Apache-2.0
+51,JTAG,JTAG-VIP.zip,14KB,uvm_vips.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/JTAG-VIP.zip,Apache-2.0
+52,NVMe,NVMe-VIP.zip,14KB,uvm_vips.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/NVMe-VIP.zip,Apache-2.0
+53,SATA,SATA-VIP.zip,14KB,uvm_vips.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/SATA-VIP.zip,Apache-2.0
+54,CAN,CAN-VIP.zip,10KB,automotive_vips_only.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/CAN-VIP.zip,Apache-2.0
+55,Ethernet-AVB-TSN,Ethernet_AVB_TSN-VIP.zip,12KB,automotive_vips_only.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/Ethernet_AVB_TSN-VIP.zip,Apache-2.0
+56,FlexRay,FlexRay-VIP.zip,11KB,automotive_vips_only.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/FlexRay-VIP.zip,Apache-2.0
+57,LIN,LIN-VIP.zip,10KB,automotive_vips_only.zip,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/LIN-VIP.zip,Apache-2.0
+58,I2C,I2C-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/I2C-VIP.zip,Apache-2.0
+59,I2S Audio,I2S-VIP.zip,24KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/I2S-VIP.zip,Apache-2.0
+60,SPI,SPI-VIP.zip,24KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/SPI-VIP.zip,Apache-2.0
+61,UART,UART-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/UART-VIP.zip,Apache-2.0
+62,ARM Serial Wire Debug,SWD-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/SWD-VIP.zip,Apache-2.0
+63,AVSBus (Adaptive Voltage Scaling),AVSBus-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/AVSBus-VIP.zip,Apache-2.0
+64,ARM Q-Channel Low Power Interface,LPI-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/LPI-VIP.zip,Apache-2.0
+65,HDMI 2.1,HDMI-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/HDMI-VIP.zip,Apache-2.0
+66,HDCP 2.3 Content Protection,HDCP-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/HDCP-VIP.zip,Apache-2.0
+67,MIPI I3C,I3C-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/I3C-VIP.zip,Apache-2.0
+68,MIPI RFFE,RFFE-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/RFFE-VIP.zip,Apache-2.0
+69,MIPI SLIMbus,SLIMbus-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/SLIMbus-VIP.zip,Apache-2.0
+70,MIPI SoundWire,SoundWire-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/SoundWire-VIP.zip,Apache-2.0
+71,MIPI SPMI,SPMI-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/SPMI-VIP.zip,Apache-2.0
+72,MIPI DBI (Display Bus Interface),DBI-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/DBI-VIP.zip,Apache-2.0
+73,MIPI DPI (Display Pixel Interface),DPI-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/DPI-VIP.zip,Apache-2.0
+74,CCIX Cache Coherent Interconnect,CCIX-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/CCIX-VIP.zip,Apache-2.0
+75,CXS CCIX Stream Interface,CXS-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/CXS-VIP.zip,Apache-2.0
+76,OCP-IP Open Core Protocol,OCP-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/OCP-VIP.zip,Apache-2.0
+77,TileLink (TL-UL/TL-C),TileLink-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/TileLink-VIP.zip,Apache-2.0
+78,ARM Local Translation Interface,LTI-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/LTI-VIP.zip,Apache-2.0
+79,DFI 5.0 (MC-PHY Interface),DFI-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/DFI-VIP.zip,Apache-2.0
+80,CPRI v8.0 (eCPRI over CPR),CPRI-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/CPRI-VIP.zip,Apache-2.0
+81,eCPRI over Ethernet,eCPRI-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/eCPRI-VIP.zip,Apache-2.0
+82,Interlaken v1.2,Interlaken-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/Interlaken-VIP.zip,Apache-2.0
+83,JESD204C,JESD204-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/JESD204-VIP.zip,Apache-2.0
+84,SAS-4 (Serial Attached SCSI),SAS-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/SAS-VIP.zip,Apache-2.0
+85,Toggle Mode NAND,ToggleNAND-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/ToggleNAND-VIP.zip,Apache-2.0
+86,Crypto / Security Engine,Security-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/Security-VIP.zip,Apache-2.0
+87,USB Type-C Port Controller,TypeC-VIP.zip,25KB,NEW-v1.5.0,v1.5.0,✅,sandbox:///mnt/agents/output/individual_vip_testbenches/TypeC-VIP.zip,Apache-2.0

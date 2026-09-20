@@ -1,0 +1,8 @@
+# MIPI I3C synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/MIPI_I3C_top.sv 
+hierarchy -check -top MIPI_I3C_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json MIPI_I3C_top.json
+write_verilog MIPI_I3C_top_netlist.v

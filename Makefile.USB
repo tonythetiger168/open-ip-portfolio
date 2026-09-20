@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# USB Open IP -- sim & synthesis entry points
+S      := USB
+DEPS   := 
+SIM    ?= iverilog
+VFLAGS := -g2012 -Wall
+SYN    ?= yosys
+
+all: sim syn
+
+sim:
+	$(SIM) $(VFLAGS) -o simv rtl/$(S)_top.sv $(DEPS) tb/$(S)_tb.sv
+	./simv
+
+syn:
+	cd work && $(SYN) ../syn/$(S)_yosys.ys
+
+clean:
+	rm -f simv *.vcd work/*.json work/*_netlist.v
+.PHONY: all sim syn clean

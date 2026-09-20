@@ -1,0 +1,8 @@
+# CSE synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/CSE_top.sv 
+hierarchy -check -top CSE_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json CSE_top.json
+write_verilog CSE_top_netlist.v

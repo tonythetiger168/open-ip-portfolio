@@ -1,0 +1,8 @@
+# MIPI DBI (Display Bus Interface) synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/MIPI_DBI__Display_Bus_Interface__top.sv 
+hierarchy -check -top MIPI_DBI__Display_Bus_Interface__top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json MIPI_DBI__Display_Bus_Interface__top.json
+write_verilog MIPI_DBI__Display_Bus_Interface__top_netlist.v

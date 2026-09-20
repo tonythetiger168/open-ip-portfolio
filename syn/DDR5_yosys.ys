@@ -1,0 +1,8 @@
+# DDR5 synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/DDR5_top.sv ../rtl/MEMCORE_top.sv ../rtl/MEMCH_top.sv
+hierarchy -check -top DDR5_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json DDR5_top.json
+write_verilog DDR5_top_netlist.v
