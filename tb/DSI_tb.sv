@@ -92,6 +92,68 @@ module DSI_tb;
     end
   endtask
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
+  // Tool notes (Verilator 5.006): no native FSM/SVA coverage and
+  // randomize() ignores constraint blocks -> procedural constraints
+  // ($urandom_range + rejection sampling), TB FSM probe, immediate
+  // assertions.
+  // =====================================================================
+  localparam int DSI_FSM_TOTAL = 18;  // TX: 13 states + BTA RX sub-FSM: 5
+  logic [17:0] fsm_seen = '0;         // visited-state bitmap
+  wire  [3:0] dut_state = dut.state;  // hierarchical FSM probes
+  wire  [2:0] dut_rbst  = dut.rbst;
+
+  int sva_total = 0, sva_fail = 0;
+  // counted immediate assertion: every evaluation is one check
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors++;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // FSM coverage: sample both DUT state registers every clock
+  always @(posedge clk) begin
+    fsm_seen[dut_state]      <= 1'b1;
+    fsm_seen[13 + dut_rbst]  <= 1'b1;
+  end
+
+  // output-invariant assertion suite (sampled coherently pre-NBA)
+  bit        first_cycle = 1;  // skip the very first posedge (DUT reset
+                               // values land in that NBA region)
+  logic [15:0] pc_q = 0;
+  always @(posedge clk) begin
+    if (first_cycle) begin
+      first_cycle <= 0;
+    end else if (!rst_n) begin
+      // A1: outputs quiescent during reset
+      sva_check(tx_valid === 1'b0 && tx_oe === 1'b1 && cmd_busy === 1'b0 &&
+                irq === 1'b0 && pkt_cnt === 16'h0 && bta_done === 1'b0,
+                "A1 reset: outputs quiescent");
+    end else begin
+      // A2: the host only drives the lane while it owns it
+      sva_check(!tx_valid || tx_oe === 1'b1, "A2 tx_valid implies tx_oe");
+      // A3: packet counter never decreases
+      sva_check(pkt_cnt >= pc_q, "A3 pkt_cnt monotone");
+      // A4: the bus is turned around only inside the BTA window states
+      sva_check(tx_oe === 1'b1 ||
+                (dut_state == 4'd10 || dut_state == 4'd11 ||
+                 dut_state == 4'd12), "A4 tx_oe low only in BTA");
+      // A5: cmd_busy mirrors the FSM being out of idle
+      sva_check(cmd_busy === (dut_state != 4'd0), "A5 cmd_busy mirrors FSM");
+      // A6: a completed BTA never coincides with the error flag
+      sva_check(!bta_done || irq === 1'b0, "A6 bta_done excludes irq");
+    end
+    pc_q <= pkt_cnt;
+  end
+`endif
+
   // ------------------------------------------------------------------
   // peripheral receive tasks (sample host bits at negedge)
   // ------------------------------------------------------------------
@@ -344,17 +406,280 @@ module DSI_tb;
     wait (cmd_busy == 1'b0);
     check(pkt_cnt == 14, "pkt_cnt final");
 
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ------
+    // 120 randomized command transactions. Classes: DCS short writes
+    // (0/1 random param), DCS long writes (random len/payload), raw
+    // short packets (random DT/data), video-mode lines (random HACT/
+    // HBP), DCS reads with good BTA responses (random param). Error
+    // injection (round-robin): BTA response with single-bit ECC error
+    // (corrected), double-bit ECC error (irq + recovery), BTA timeout
+    // (irq + recovery). Every packet is received and checked byte by
+    // byte (SoT/ECC/CRC/payload); a scoreboard tracks pkt_cnt.
+    begin : crv_phase
+      int n_s0 = 0, n_s1 = 0, n_l = 0, n_sp = 0, n_vl = 0, n_rd = 0;
+      int n_e1 = 0, n_e2 = 0, n_to = 0, n_fr = 0;
+      int roll, eroll = 0, nl, m_pc;
+      logic [7:0] dcs_c, prm_c, dt8_c;
+      logic [15:0] dat_c;
+      m_pc = pkt_cnt;
+      for (int t = 0; t < 120; t++) begin
+        roll = $urandom_range(0, 29);
+        if (roll < 5) begin
+          // ---- DCS short write 0 param ----
+          n_s0++;
+          dcs_c = 8'($urandom_range(0, 255));
+          do_cmd(OP_DCS_S0, 6'h0, dcs_c, 16'h0, 16'h0);
+          recv_packet("CRV dcs_s0");
+          check(rx_dt == 8'h05, "CRV dcs_s0 DT");
+          check(rx_len == {8'h00, dcs_c}, "CRV dcs_s0 data field");
+          wait (cmd_busy == 1'b0);
+          m_pc++;
+          if (pkt_cnt !== 16'(m_pc)) begin
+            errors++; $display("ERROR: CRV pkt_cnt got=%0d exp=%0d",
+                               pkt_cnt, m_pc);
+          end
+        end else if (roll < 9) begin
+          // ---- DCS short write 1 param ----
+          n_s1++;
+          dcs_c = 8'($urandom_range(0, 255));
+          prm_c = 8'($urandom_range(0, 255));
+          exp_pay[0] = prm_c;
+          pl_write(1);
+          do_cmd(OP_DCS_S1, 6'h0, dcs_c, 16'h0, 16'h0);
+          recv_packet("CRV dcs_s1");
+          check(rx_dt == 8'h15, "CRV dcs_s1 DT");
+          check(rx_len == {prm_c, dcs_c}, "CRV dcs_s1 data field");
+          wait (cmd_busy == 1'b0);
+          m_pc++;
+        end else if (roll < 13) begin
+          // ---- DCS long write, random length + payload ----
+          n_l++;
+          dcs_c = 8'($urandom_range(0, 255));
+          nl = 1 + $urandom_range(0, 15);
+          for (int i = 0; i < nl; i++)
+            exp_pay[i] = 8'($urandom_range(0, 255));
+          pl_write(nl);
+          do_cmd(OP_DCS_L, 6'h0, dcs_c, 16'(nl), 16'h0);
+          recv_packet("CRV dcs_l");
+          check(rx_dt == 8'h39, "CRV dcs_l DT");
+          check(rx_len == 16'(nl), "CRV dcs_l WC");
+          for (int i = 0; i < nl; i++)
+            check(rx_pay[i] == exp_pay[i], "CRV dcs_l payload mismatch");
+          wait (cmd_busy == 1'b0);
+          m_pc++;
+        end else if (roll < 16) begin
+          // ---- raw short packet (passthrough DT + data) ----
+          n_sp++;
+          dt8_c = 8'($urandom_range(0, 255));
+          if (!is_short_dt(dt8_c))                  // rejection sampling:
+            dt8_c = {2'b00, 6'h01};                 // short-packet DTs only
+          dat_c = 16'($urandom_range(0, 65535));
+          do_cmd(OP_SPKT, dt8_c[5:0], 8'h00, dat_c, 16'h0);
+          recv_packet("CRV spkt");
+          check(rx_dt == {2'b00, dt8_c[5:0]}, "CRV spkt DT");
+          check(rx_len == dat_c, "CRV spkt data field");
+          wait (cmd_busy == 1'b0);
+          m_pc++;
+        end else if (roll < 19) begin
+          // ---- video-mode line: HSS/HSE/HBP/HACT ----
+          n_vl++;
+          nl = 1 + $urandom_range(0, 7);        // HACT payload bytes
+          for (int i = 0; i < nl; i++)
+            exp_pay[i] = 8'($urandom_range(0, 255));
+          pl_write(nl);
+          do_cmd(OP_VLINE, 6'h0, 8'h00, 16'(nl),
+                 16'(1 + $urandom_range(0, 5)));  // HBP blanking bytes
+          recv_packet("CRV vline.hss");
+          check(rx_dt == 8'h21 && !rx_long, "CRV vline HSS");
+          recv_packet("CRV vline.hse");
+          check(rx_dt == 8'h31 && !rx_long, "CRV vline HSE");
+          recv_packet("CRV vline.hbp");
+          check(rx_dt == 8'h19 && rx_long, "CRV vline HBP");
+          recv_packet("CRV vline.hact");
+          check(rx_dt == 8'h3E && rx_long && rx_len == 16'(nl),
+                "CRV vline HACT");
+          for (int i = 0; i < nl; i++)
+            check(rx_pay[i] == exp_pay[i], "CRV vline HACT payload");
+          wait (cmd_busy == 1'b0);
+          m_pc += 4;
+        end else if (roll < 24) begin
+          // ---- DCS read + good BTA response (random param) ----
+          n_rd++;
+          dcs_c = 8'($urandom_range(0, 255));
+          dat_c = 16'($urandom_range(0, 65535));
+          dt8_c = 8'($urandom_range(0, 255));   // random response DT
+          do_cmd(OP_DCS_RD, 6'h0, dcs_c, 16'h0, 16'h0);
+          recv_packet("CRV dcs_rd");
+          check(rx_dt == 8'h06, "CRV dcs_rd DT");
+          check(rx_len == {8'h00, dcs_c}, "CRV dcs_rd data field");
+          recv_bta_trig();
+          send_resp(dt8_c, dat_c, 8'h00);
+          wait (bta_done === 1'b1);
+          check(bta_data == {dat_c, dt8_c}, "CRV BTA data");
+          wait (cmd_busy == 1'b0);
+          check(tx_oe == 1'b1 && irq == 1'b0, "CRV BTA clean return");
+          m_pc++;
+        end else begin
+          // ---- error-injection classes (round-robin) ----
+          dcs_c = 8'($urandom_range(0, 255));
+          prm_c = 8'($urandom_range(0, 255));
+          case (eroll)
+            0: begin
+              // BTA response with single-bit ECC error: corrected
+              n_e1++;
+              do_cmd(OP_DCS_RD, 6'h0, dcs_c, 16'h0, 16'h0);
+              recv_packet("CRV e1.rd");
+              recv_bta_trig();
+              send_resp(8'h21, {8'h00, prm_c}, 8'h1 << $urandom_range(0, 5));
+              wait (bta_done === 1'b1);
+              check(bta_data == {8'h00, prm_c, 8'h21} && irq == 1'b0,
+                    "CRV BTA single-bit corrected");
+              wait (cmd_busy == 1'b0);
+              m_pc++;
+            end
+            1: begin
+              // BTA response with double-bit ECC error: irq + recovery
+              n_e2++;
+              do_cmd(OP_DCS_RD, 6'h0, dcs_c, 16'h0, 16'h0);
+              recv_packet("CRV e2.rd");
+              recv_bta_trig();
+              send_resp(8'h21, {8'h00, prm_c},
+                        (8'h1 << $urandom_range(0, 2)) |
+                        (8'h1 << $urandom_range(3, 5)));
+              wait (cmd_busy == 1'b0);
+              #1;
+              check(irq == 1'b1 && bta_done == 1'b0, "CRV BTA bad ECC irq");
+              do_cmd(OP_DCS_RD, 6'h0, dcs_c, 16'h0, 16'h0);
+              recv_packet("CRV e2.rec");
+              recv_bta_trig();
+              send_resp(8'h21, {8'h00, prm_c}, 8'h00);
+              wait (bta_done === 1'b1);
+              check(bta_data == {8'h00, prm_c, 8'h21} && irq == 1'b0,
+                    "CRV BTA recovery clears irq");
+              wait (cmd_busy == 1'b0);
+              m_pc += 2;
+            end
+            2: begin
+              // BTA response with bad framing (no SoT): irq + recovery
+              n_fr++;
+              do_cmd(OP_DCS_RD, 6'h0, dcs_c, 16'h0, 16'h0);
+              recv_packet("CRV fr.rd");
+              recv_bta_trig();
+              begin
+                logic [7:0] resp [0:4];
+                resp[0] = 8'($urandom_range(0, 255));
+                if (resp[0] == 8'hB8) resp[0] = 8'hB9;  // rejection sampling
+                resp[1] = 8'h21;
+                resp[2] = prm_c;
+                resp[3] = 8'h00;
+                resp[4] = {2'b00, ecc24({8'h00, prm_c, 8'h21})};
+                wait (tx_oe === 1'b0);
+                repeat (4) @(negedge clk);
+                for (int j = 0; j < 5; j++)
+                  for (int i = 0; i < 8; i++) begin
+                    @(negedge clk);
+                    rx_bit <= resp[j][i];
+                  end
+                @(negedge clk);
+                rx_bit <= 1'b1;
+              end
+              wait (cmd_busy == 1'b0);
+              #1;
+              check(irq == 1'b1, "CRV BTA bad framing: no irq");
+              m_pc++;
+              do_cmd(OP_DCS_RD, 6'h0, dcs_c, 16'h0, 16'h0);
+              recv_packet("CRV fr.rec");
+              recv_bta_trig();
+              send_resp(8'h21, {8'h00, prm_c}, 8'h00);
+              wait (bta_done === 1'b1);
+              check(irq == 1'b0, "CRV framing recovery clears irq");
+              wait (cmd_busy == 1'b0);
+              m_pc++;
+            end
+            default: begin
+              // BTA timeout: nobody answers -> irq, bus reclaimed
+              n_to++;
+              do_cmd(OP_DCS_RD, 6'h0, dcs_c, 16'h0, 16'h0);
+              recv_packet("CRV to.rd");
+              recv_bta_trig();
+              wait (cmd_busy == 1'b0);
+              #1;
+              check(irq == 1'b1 && tx_oe == 1'b1,
+                    "CRV BTA timeout irq + bus reclaimed");
+              m_pc++;
+              // recovery: good short write keeps irq semantics clean
+              do_cmd(OP_DCS_RD, 6'h0, dcs_c, 16'h0, 16'h0);
+              recv_packet("CRV to.rec");
+              recv_bta_trig();
+              send_resp(8'h21, {8'h00, prm_c}, 8'h00);
+              wait (bta_done === 1'b1);
+              check(irq == 1'b0, "CRV timeout recovery clears irq");
+              wait (cmd_busy == 1'b0);
+              m_pc++;
+            end
+          endcase
+          eroll = (eroll + 1) % 4;
+        end
+      end
+      // ---- pl_ram toggle sweep: 32-byte long writes with 0xFF then
+      //      0x00 payloads -> every payload-RAM bit toggles both ways
+      for (int i = 0; i < 32; i++) exp_pay[i] = 8'hFF;
+      pl_write(32);
+      do_cmd(OP_DCS_L, 6'h0, 8'h00, 16'd32, 16'h0);
+      recv_packet("sweep ff");
+      check(rx_len == 16'd32, "sweep ff WC");
+      for (int i = 0; i < 32; i++)
+        check(rx_pay[i] == 8'hFF, "sweep ff payload");
+      wait (cmd_busy == 1'b0);
+      for (int i = 0; i < 32; i++) exp_pay[i] = 8'h00;
+      pl_write(32);
+      do_cmd(OP_DCS_L, 6'h0, 8'h00, 16'd32, 16'h0);
+      recv_packet("sweep 00");
+      check(rx_len == 16'd32, "sweep 00 WC");
+      wait (cmd_busy == 1'b0);
+      m_pc += 2;
+      if (pkt_cnt !== 16'(m_pc)) begin
+        errors++; $display("ERROR: CRV final pkt_cnt got=%0d exp=%0d",
+                           pkt_cnt, m_pc);
+      end
+      $display("CRV: 120 txns (s0=%0d s1=%0d long=%0d spkt=%0d vline=%0d read=%0d | ecc1=%0d ecc2=%0d timeout=%0d)",
+               n_s0, n_s1, n_l, n_sp, n_vl, n_rd, n_e1, n_e2, n_to);
+    end
+`endif
+
     // ---- report ----
     if (errors == 0) $display("TEST PASSED: DSI");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < DSI_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, DSI_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
   // timeout guard
+`ifdef VERILATOR
+  // Chunked timeout: with Verilator 5.006 a single long-pending #delay
+  // event corrupts the --timing delay heap once many short-delay
+  // resumptions interleave with it (processes lose wakeups and the long
+  // event fires early). 1-us chunks keep all heap entries short-lived.
+  initial begin
+    repeat (8000) #1000;    // 8 ms in 1-us chunks
+    $display("TEST FAILED: %0d errors", errors + 1);
+    $finish;
+  end
+`else
   initial begin
     #1000000;
     $display("TEST FAILED: %0d errors", errors + 1);
     $finish;
   end
+`endif
 
 endmodule
