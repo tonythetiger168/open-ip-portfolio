@@ -238,3 +238,29 @@ waiver ecpri-toggle-8 rtl/eCPRI_over_Ethernet_top.sv toggle \
   reason="tq_cnt[1:2]: the TX descriptor queue rarely holds more than one entry (the serializer drains each frame as it arrives); depths 2 and 4 not reached."
 waiver ecpri-toggle-9 rtl/eCPRI_over_Ethernet_top.sv toggle \
   reason="tq_a/tq_b sparse descriptor bits: only read-response descriptors carry addr/data and the queue is shallow, so a few per-entry data bits are data-timing dependent and stay constant."
+
+# ---- WTB ----
+waiver wtb-line-1 rtl/WTB_top.sv:95 line \
+  reason="dead default: cpu_addr is 2-bit, addrs 1/2/3 cased and addr 0 pre-guarded by the push path; default unreachable."
+waiver wtb-line-2 rtl/WTB_top.sv:221 line \
+  reason="dead default: rstate is a 4-bit RX FSM with all 9 used states cased explicitly; execution of all 9 proven by FSM_COV 26/26."
+waiver wtb-line-3 rtl/WTB_top.sv:257-259 line \
+  reason="5.006 attribution artifact on the pay_byte case arms; every select i=0..3 is exercised by the 4-byte data frames (payload compared in CRV)."
+waiver wtb-line-4 rtl/WTB_top.sv:349 line \
+  reason="dead default: tstate is a 4-bit TX FSM with all 12 used states cased explicitly; execution proven by FSM_COV 26/26."
+waiver wtb-line-5 rtl/WTB_top.sv:369 line \
+  reason="dead irq source: the station FSM never asserts tok_irq (held at 0 every cycle); irq is driven by rx_bad/cfg_irq (both exercised)."
+waiver wtb-line-6 rtl/WTB_top.sv:412 line \
+  reason="5.006 attribution artifact on the hold_cnt increment guard; hold_cnt increments throughout every HOLD window (token rounds in CRV)."
+waiver wtb-line-7 rtl/WTB_top.sv:465 line \
+  reason="dead default: sstate is a 3-bit station FSM with all 5 used states cased explicitly; execution proven by FSM_COV 26/26."
+waiver wtb-toggle-1 rtl/WTB_top.sv toggle \
+  reason="tfc[2:7]/tx_fc_in[2:7]: the DUT only transmits frame-control 0 (claim), 1 (token), 2 (data); upper FC bits structurally constant."
+waiver wtb-toggle-2 rtl/WTB_top.sv toggle \
+  reason="my_addr[1,2,3,5,6,7]: station address is a static input tied to MY=8'h11 for the whole run."
+waiver wtb-toggle-3 rtl/WTB_top.sv toggle \
+  reason="tpay_cnt[2]: payload byte counter wraps at 3 (4-byte word); bit 2 structurally unreachable."
+waiver wtb-toggle-4 rtl/WTB_top.sv toggle \
+  reason="fr_sent[2]: the 200-clk hold window fits at most 2 four-byte frames, so the frames-sent counter never reaches 4."
+waiver wtb-toggle-5 rtl/WTB_top.sv toggle \
+  reason="tok_irq: dead irq source (never asserted by the station FSM); see wtb-line-5."
