@@ -36,6 +36,11 @@ Waivers: `scripts/verilator_cov/waiver_w6.vc`.
 | OCP    | PASS | PASS | 59/72 (81.9%) | 162/162 (100%) | 4/4 | 8992/8992 | **closed (2 waivers)** |
 | OCP_IP_Open_Core_Protocol | PASS | PASS | 99/102 (97.1%) | 522/551 (94.7%) | 6/6 | 13597/13597 | **closed (2L+3T waivers)** |
 | Crypto___Security_Engine | PASS | PASS | 167/177 (94.4%) | 1490/1493 (99.8%) | 5/5 | 260143/260143 | **closed (3L+1T waivers)** |
+| CSE    | PASS | PASS | 266/267 (99.6%) | 693/693 (100%) | 4/4 | 43573/43573 | **closed (1 waiver)** |
+| CPRI_v8_0__eCPRI_over_CPR_ | PASS | PASS | 261/312 (83.7%) | 290/315 (92.1%) | 3/3 | 219154/219154 | **closed (8L+6T waivers)** |
+| eCPRI_over_Ethernet | PASS | PASS | 345/348 (99.1%) | 954/994 (96.0%) | 4/4 | 35370/35370 | **closed (2L+9T waivers)** |
+| WTB    | PASS | PASS | 308/317 (97.2%) | 642/663 (96.8%) | 26/26 (RX9+TX12+station5) | 464992/464992 | **closed (7L+5T waivers) + RTL obs W6-6** |
+| Bluetooth5 | PASS | PASS | 316/326 (96.9%) | 872/1023 (85.2%) | 8/8 (RX4+TX2+link2) | 306065/306065 | **closed (5L+7T waivers)** |
 
 CRV stimulus summary:
 - GPIO: 120 txns (output write+loopback / external input drive / illegal-address
@@ -112,6 +117,36 @@ CRV stimulus summary:
   (msg/key/start while busy -> irq). No second SHA model in the TB; exact
   correctness anchored by the directed NIST/RFC4231 vectors.
 
+- CSE: 110 random AES-128-ECB ops (random key+block), each run twice for
+  bit-identical determinism, enc->dec round-trip self-check against the
+  queued plaintext, + 10 busy-violation injections (start while busy -> irq).
+  4-state FSM (C_IDLE/C_KEY/C_RUN/C_DONE) probed.
+- CPRI: 142 txns over the 8b/10b peer model — random hyperframe control
+  words (sync/K28.5 acquisition + loss-of-sync reinjection), random CPU
+  register writes (full-32-bit data) + readback, deterministic IQ streams
+  (period-256 pattern: the 8192-entry circular iq_log aliases random data,
+  a TB-model limit, not a DUT bug). Name-mangling: the module has `__`, so
+  the coverage build adds `--prefix V<unmangled>` via $HOME/run_cov_pfx.sh
+  (repo run_cov.sh left untouched per the no-shared-edits rule).
+- eCPRI: random message dispatch across the 4-state TX serializer — random
+  MAC/ethertype/header fields (module vars default to the directed values),
+  random 32-bit mem addresses, cfg MAC randomize+restore, random pc/seq, +
+  injections for irq_malf/irq_ovf/irq_concat, wrong-ethertype, len-fail and
+  malformed-memory drops.
+- WTB: ~130 self-checked frames through the token-bus station — FIFO-payload
+  data rounds (<=2 frames per 200-clk hold window), token pass-through,
+  bad-CRC/bad-ED/overlong drops + irq, other-station tokens ignored, NS/DA
+  reconfig, random RX data frames (valid/corrupt), FIFO overflow+in-order
+  drain, claim + claim-contention (lower-address back-off), random FC, an
+  idle-saturation soak and a FIFO complementary-pattern toggle sweep.
+- Bluetooth5: re-reset into advertising, then ~70 ops — 10 random adv
+  payloads (decode+CRC+byte cmp), 5 SCAN_REQ->SCAN_RSP, unknown-PDU/bad-CRC
+  injections (irq), reconnect, 30 random data PDUs with SN tracking (ack +
+  rx_buf payload cmp + rx_dlen + rx_evt count), reserved-LLID + bad-CRC data
+  injections, 8 random-connect cycles (toggles the conn_* parameter regs).
+  Advertising is disabled during the scan/error rounds because rx_en=!tx_act
+  (a master packet landing in a DUT tx window is dropped).
+
 ## RTL bugs recorded (NOT fixed, per wave discipline)
 
 ### QSPI-1: std-mode MOSI contention (slave drives io[0])
@@ -184,6 +219,15 @@ CRV stimulus summary:
 - TB handling: each CRV txn runs under a hard rst_n pulse; documented, not
   fixed.
 
+### W6-6: WTB tok_irq is a dead interrupt source (stuck at 0)
+- File: rtl/WTB_top.sv:369 (`logic tok_irq;`) — the station FSM asserts
+  `tok_irq <= 1'b0` every cycle and never sets it, so this irq source is
+  permanently 0 (line + toggle both unreachable; irq is driven correctly by
+  the rx_bad/cfg_irq paths, both exercised in CRV).
+- Impact: none functional (the irq output still pulses on frame errors and
+  FIFO overflow via rx_bad/cfg_irq), but any token-related event intended to
+  raise tok_irq is silently dropped. Observation only; not fixed.
+
 ### Template OOB advisory (cross-wave notice)
 Lead advisory: echo-copy template `for (i=2; i<=21; i=i+1) tx_mem[i-2] <= buf_mem[i];`
 with 16-entry tx_mem (OOB write). Grep of the W6 protocol list RTLs for this
@@ -230,28 +274,36 @@ chunked (`repeat (N) #1000;`) — applied in every TB of this wave.
 | ualink-line-2 / ucie-line-2 | default: cstate <= C_IDLE | dead: 2-bit state, 3 encodings cased |
 | ualink-toggle-1 / ucie-toggle-1 | rxrspflit[33:30] | constant opcode 5'b00001 upper bits |
 | ualink-toggle-2/3 / ucie-toggle-2/3 | crd_timer[3] (wraps 7), lat_cnt[3] (RSP_LAT=4) | counter wrap limits |
+| cse-line-1 | line 360 dead default | 4-state FSM fully cased; execution proven by FSM_COV 4/4 |
+| cpri-line-1..8 | encoder case-arm artifacts + FSM condition lines | 5.006 attribution; enc/dec round-trip + FSM_COV 3/3 prove execution |
+| cpri-toggle-1..6 | peer-fixed constants + counter caps | structural |
+| ecpri-line-1/2 | 286 artifact, 373/374 queue-full corner | artifact + closed corner |
+| ecpri-toggle-1..9 | structural constant/cap bits | structural |
+| wtb-line-1..7 | dead defaults (cpu/rx/tx/station cases), pay_byte artifact, tok_irq, hold_cnt artifact | dead/artifact; FSM_COV 26/26 proves execution |
+| wtb-toggle-1..5 | tfc/tx_fc_in FC-high, my_addr static, tpay_cnt[2], fr_sent[2], tok_irq | structural (DUT transmits FC 0/1/2 only; static addr; counter wraps; dead irq) |
+| bt5-line-1..5 | crc/whitening helper default, RXS_AA/TXS_SEND artifacts, CONNECT capture artifacts | dead/artifact; FSM_COV 8/8 + random connects prove execution |
+| bt5-toggle-1..7 | tx_buf[23:31] (>max packet), bc/counters high bits, conn_timer/adv_timer caps, structural single bits | structural; len=16 verified via rx_buf compare |
 
-## Not completed (step budget exhausted)
+## Wave complete — 30/30
 
-CXL, PCIe, UEC, Interlaken_v1_2, TileLink__TL_UL_TL_C_, JESD204C, Avalon_MM,
-Avalon_ST, OCP, OCP_IP_Open_Core_Protocol, WTB, Wishbone,
-CPRI_v8_0__eCPRI_over_CPR_, eCPRI_over_Ethernet, HSI, CAN, FlexRay, LIN,
-Bluetooth5, CSE, Crypto___Security_Engine, _1_Wire — untouched; iverilog
-regression for these remains at the v2.4 baseline (PASS).
+All 30 protocols in scope now close all four metrics (LINE/TOGGLE/FSM/
+SVA_CHECKS) with a self-checked CRV phase; iverilog regression passes for
+every TB. The final five (CSE, CPRI, eCPRI, WTB, Bluetooth5) were completed
+in the W6-rest session summarized below.
 
-## Final status (W6 continuation coder, this session)
+## Final status (W6-rest session)
 
-**Completed this session (17 protocols, all four metrics closed):**
-CXL, PCIe, UEC, Interlaken_v1_2, JESD204C (family batch), CAN, FlexRay, LIN
-(family batch), Avalon_ST, HSI, TileLink, _1_Wire, Avalon_MM, Wishbone, OCP,
-OCP_IP, Crypto. Together with the previous coder's 8 (GPIO..UCIe), the wave
-stands at **25/30**.
+**Completed this session (5 protocols, all four metrics closed):**
+CSE, CPRI_v8_0__eCPRI_over_CPR_, eCPRI_over_Ethernet, WTB, Bluetooth5 —
+closing the wave at **30/30** (previous sessions delivered GPIO..UCIe x8 and
+CXL..Crypto x17).
 
-**Not completed (5):** WTB, Bluetooth5, CPRI_v8_0__eCPRI_over_CPR_,
-eCPRI_over_Ethernet, CSE — step budget exhausted. These are the five largest
-remaining protocols (365-542 lines: token-ring station FSM, BLE link layer,
-CPRI 8b/10b sync engine, eCPRI message dispatch, CSE cipher core). Their
-directed TBs still pass iverilog untouched. Recommended next-session order:
-CSE (engine-style, similar to Crypto) -> CPRI (3-state sync FSM; existing TB
-already has a full 8b/10b peer model + enc/dec functions to reuse for a
-random IQ-stream CRV) -> eCPRI -> WTB -> Bluetooth5.
+Notes carried forward:
+- CPRI/eCPRI/WTB/Bluetooth5 exercise the largest FSMs in the wave (WTB 26
+  states, BT5 8, eCPRI 4, CPRI 3); all FSM states visited (see FSM column).
+- Verilator name-mangling (`__` -> `_05F`) affects CPRI (and TileLink); the
+  coverage build forces `--prefix V<unmangled>` (see CPRI bullet above).
+- Verilator 5.006 case-arm / branch attribution artifacts remain the dominant
+  LINE-waiver class; every waived line's execution is cross-proven by FSM_COV
+  or a functional self-check.
+- New RTL observation W6-6 (WTB tok_irq dead source) recorded above.
