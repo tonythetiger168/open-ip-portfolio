@@ -105,6 +105,56 @@ module APB_tb;
     apb_done();
   endtask
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
+  // Tool notes (Verilator 5.006): no native FSM/SVA coverage and
+  // randomize() ignores constraint blocks -> procedural constraints
+  // ($urandom_range + rejection sampling), TB FSM probe, immediate
+  // assertions.
+  // =====================================================================
+  localparam int APB_FSM_TOTAL = 2;   // APB_IDLE / APB_ACCESS (rtl enum)
+  logic [1:0] fsm_seen = '0;          // visited-state bitmap
+  wire dut_state = dut.state;         // hierarchical FSM probe
+
+  int sva_total = 0, sva_fail = 0;
+  // counted immediate assertion: every evaluation is one check
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors++;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // FSM coverage: sample DUT state register every clock
+  always @(posedge clk) fsm_seen[dut_state] <= 1'b1;
+
+  // output-invariant assertion suite (sampled coherently pre-NBA)
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      // A1: outputs quiescent during reset
+      sva_check(pready === 1'b0 && pslverr === 1'b0 && irq === 1'b0,
+                "A1 reset: outputs quiescent");
+    end else begin
+      // A2: pslverr only in a completing ACCESS cycle
+      sva_check(!pslverr || (psel && penable && pready),
+                "A2 pslverr only at completion");
+      // A3: irq implies pslverr
+      sva_check(!irq || pslverr, "A3 irq implies pslverr");
+      // A4: pready only during ACCESS (penable high)
+      sva_check(!pready || penable, "A4 pready implies penable");
+      // A5: pready only while a transfer is selected
+      sva_check(!pready || psel, "A5 pready implies psel");
+      // A6: errored completion returns zero read data
+      sva_check(!pslverr || (prdata === '0), "A6 prdata zero on pslverr");
+    end
+  end
+`endif
+
   initial begin
     psel = 0; penable = 0; paddr = '0; pwrite = 0; pwdata = '0;
 
@@ -173,12 +223,88 @@ module APB_tb;
     apb_read(32'h0020, 32'hC3C3_0020, 0);   // repeated read, same value
 
     bus_idle(2);
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ------
+    // 256-word random init sweep (resyncs the scoreboard model) + 120
+    // randomized transfers: random read/write, random data, address
+    // classes = fast region / slow alias region / fast+slow boundaries /
+    // reserved region (error injection: pslverr + irq expected).
+    begin : crv_phase
+      int n_wr = 0, n_rd = 0, n_err = 0;
+      int roll;
+      logic [31:0] c_addr, c_data;
+      logic        c_wrn;
+      logic [31:0] model [0:255];   // scoreboard of the register file
+      for (int i = 0; i < 256; i++) begin
+        c_data = $urandom;
+        model[i] = c_data;
+        apb_write(32'(i * 4), c_data, 0);
+      end
+      for (int t = 0; t < 120; t++) begin
+        c_wrn  = $urandom_range(0, 1);
+        c_data = $urandom;
+        roll   = $urandom_range(0, 19);
+        if (roll < 9)
+          c_addr = 32'($urandom_range(0, 255) * 4);          // fast region
+        else if (roll < 12)
+          c_addr = 32'(1024 + $urandom_range(0, 255) * 4);   // slow alias
+        else if (roll < 14)
+          c_addr = 32'($urandom_range(240, 255) * 4);        // fast boundary
+        else if (roll < 17)
+          c_addr = $urandom | 32'h0000_0800;                 // reserved
+        else
+          c_addr = 32'(1792 + $urandom_range(0, 15) * 4);    // slow boundary
+        if (c_addr[11]) begin
+          // reserved region: must complete with pslverr + irq, mem intact
+          n_err++;
+          apb_setup(c_addr, c_wrn, c_data);
+          apb_access();
+          chk(slverr_f === 1'b1, "CRV: reserved transfer must pslverr");
+          chk(irq_f === 1'b1, "CRV: reserved transfer must raise irq");
+          if (!c_wrn) chk(rd_data === '0, "CRV: reserved read returns 0");
+          apb_done();
+        end else if (c_wrn) begin
+          n_wr++;
+          apb_write(c_addr, c_data, 0);
+          model[c_addr[9:2]] = c_data;
+        end else begin
+          n_rd++;
+          apb_read(c_addr, model[c_addr[9:2]], 0);
+        end
+      end
+      $display("CRV: 256 init + 120 txns (wr=%0d rd=%0d err=%0d)",
+               n_wr, n_rd, n_err);
+    end
+`endif
     if (errors == 0) $display("TEST PASSED: APB");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < APB_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, APB_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
   // timeout guard
+`ifdef VERILATOR
+  // Chunked timeout: with Verilator 5.006 a single long-pending #delay
+  // event corrupts the --timing delay heap once many short-delay
+  // resumptions interleave with it (processes lose wakeups and the long
+  // event fires early). 1-us chunks keep all heap entries short-lived
+  // (verified with a minimal repro).
+  initial begin
+    repeat (200) #1000;   // 200 us in 1-us chunks
+    errors++;
+    $display("ERROR: TIMEOUT guard fired");
+    $display("TEST FAILED: %0d errors", errors);
+    $finish;
+  end
+`else
   initial begin
     #50000;
     errors++;
@@ -186,5 +312,6 @@ module APB_tb;
     $display("TEST FAILED: %0d errors", errors);
     $finish;
   end
+`endif
 
 endmodule
