@@ -73,3 +73,25 @@ waiver dbi-toggle-1 rtl/MIPI_DBI__Display_Bus_Interface__top.sv:16  toggle \
 
 waiver dbi-toggle-2 rtl/MIPI_DBI__Display_Bus_Interface__top.sv:37  toggle \
   reason="bit_cnt[3]: frame bit-counter wraps at 4'd7, bit 3 never set by any reachable stimulus."
+
+# ---- MIPI_I3C ----
+waiver mi3c-line-1 rtl/MIPI_I3C_top.sv:449  line \
+  reason="default: state <= S_IDLE is dead; state is 5-bit with 15 used encodings cased explicitly, values 15-31 unreachable."
+
+waiver mi3c-toggle-1 rtl/MIPI_I3C_top.sv:96  toggle \
+  reason="bcnt[3]: byte bit-counter wraps at 4'd7/4'd8, bit 3 never set by any reachable stimulus."
+
+waiver mi3c-toggle-2 rtl/MIPI_I3C_top.sv:108  toggle \
+  reason="pid_cnt[3]: PID byte index counts 0..5, bit 3 never set."
+
+waiver mi3c-toggle-3 rtl/MIPI_I3C_top.sv:114  toggle \
+  reason="arb_word[1,3,5,7]: arb_word = {dyn_addr,1'b1} with dyn_addr fixed at 7'h2A after the single ENTDAA; even data bits are constant 0."
+
+waiver mi3c-toggle-4 rtl/MIPI_I3C_top.sv:117,123  toggle \
+  reason="pid_byte[4]/pid_byte_n[4]: combinational PID-byte mux output; Verilator 5.006 toggle instrumentation reports 0 despite the mux selecting bytes with differing bit4 (functional proof: 13 CRV GETPID flows compare all 6 PID bytes, which requires the mux to deliver 0x45/0x89 with bit4=1)."
+
+waiver mi3c-toggle-5 rtl/MIPI_I3C_top.sv:30  toggle \
+  reason="dyn_addr[0,2,4,6]: assigned once by ENTDAA to 7'h2A (even bits constant 0) and never reassigned."
+
+waiver mi3c-toggle-6 rtl/MIPI_I3C_top.sv:59  toggle \
+  reason="state[4]: 15 legal states (0..14), bit 4 never set."
