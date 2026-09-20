@@ -13,6 +13,10 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
 | GMII | PASS | PASS | 46/47 | 263/264 | 2/2 | all pass | **closed (2 waivers: gmii-line-1, gmii-toggle-1)** |
 | RGMII | PASS | PASS | 64/64 (100%) | 276/276 (100%) | 2/2 | all pass | **closed (no waivers)** |
 | XGMII | PASS | PASS | 47/62 | 309/317 | 2/2 | all pass | **closed (6 waivers: xgmii-line-1..3, xgmii-toggle-1..3)** |
+| MDIO | PASS | PASS | 48/48 (100%) | 72/73 | 2/2 | all pass | **closed (1 waiver: mdio-toggle-1)** |
+| NVMe | PASS | PASS | 123/138 | 440/495 | 5/5 | all pass | **closed (4 line + 4 toggle waivers)** |
+| FC | PASS | PASS | 123/138 | 440/495 | 5/5 | all pass | **closed (4 line + 4 toggle waivers)** |
+| Ethernet | PASS | PASS | 123/138 | 440/495 | 5/5 | all pass | **closed (4 line + 4 toggle waivers)** |
 
 ## CRV stimulus summary
 
@@ -31,10 +35,37 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
   word must be dropped). 516 bytes compared. Partial-lane `rxc` casez
   arms are dead code inside the `rxc==4'h0` guard (waiver xgmii-line-3).
 
+- **MDIO**: 120 Clause-22 frames vs a shadow register model: ~45% random
+  writes (0000/FFFF corners), ~25% read-backs, ~15% write+read same reg
+  (reg 0/31 boundary bias), ~10% wrong-PHY writes (must be ignored;
+  verified by read-back), ~5% wrong-PHY reads (open bus -> 16'hFFFF).
+- **NVMe / FC / Ethernet** (identical generated echo-frame RTL): 120
+  frames each, random payload 0..8 bytes (0/8 boundary biased), random
+  header/payload, full header+payload echo compare. Error injection:
+  bad CRC (rx_err latches, no echo), bad END (rx_err, no echo), bad STP
+  (rx_err, frame still completes and echoes). Sticky `rx_err` checked
+  against the TB injection history after every frame. The Verilator-only
+  echo model includes the W5-RTL-1 artifact (below).
+
 ## Suspected RTL issues (reported, NOT fixed — per SPEC)
 
-- XGMII: partial-lane control-column arms (`rxc ∉ {0,F}`) are unreachable
-  dead code (guarded by `rxc == 4'h0`); lane stores use constant offsets
-  that would hole-clobber `rxq` if reachable. Harmless for loopback MAC
+- **W5-RTL-1 (NVMe / FC / Ethernet)**: `rtl/NVMe_top.sv:196` (same line
+  in `rtl/FC_top.sv` and `rtl/Ethernet_top.sv` — identical generated
+  RTL): `for (int i = 2; i < HB + MAXB + 6; i++) tx_mem[i-2] <= buf_mem[i];`
+  writes `tx_mem[0..19]` but `tx_mem` has only 16 entries — the last four
+  iterations are out-of-bounds writes of `buf_mem[18..21]`. iverilog
+  drops OOB writes (correct echo). Verilator masks dynamic OOB indices,
+  so `tx_mem[0..3]` are clobbered by `buf_mem[18..21]` on every
+  `rx_done` and the echoed `hdr[0..3]` is wrong. Minimal repro:
+  `/tmp/repro/r.sv` (copy loop into a 16-entry array; Verilator writes
+  element `[i-2 & 15]`, iverilog drops). Root cause: loop bound should be
+  `HB + MAXB + 2`. The v2.5.1 fix should repair all three protocols
+  together. The CRV phases predict the deterministic Verilator behavior
+  with an exact `sh_buf` shadow of `buf_mem` (agreed with orchestrator).
+- **XGMII**: partial-lane control-column arms (`rxc ∉ {0,F}`) are
+  unreachable dead code (guarded by `rxc == 4'h0`); lane stores use
+  constant offsets that would hole-clobber `rxq` if reachable. Harmless
+  for loopback MAC operation. Logged; no RTL change made.
+- **XGMII**: `lane[1:0]` is dead state (reset-only, never read).
+
   operation. Logged for the orchestrator; no RTL change made.
-- XGMII: `lane[1:0]` is dead state (reset-only, never read).

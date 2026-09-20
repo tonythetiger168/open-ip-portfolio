@@ -29,3 +29,47 @@ waiver xgmii-toggle-2 rtl/XGMII_top.sv     toggle \
 
 waiver xgmii-toggle-3 rtl/XGMII_top.sv:32  toggle \
   reason="lane[1:0]: dead state, only assigned '0 at reset; can never toggle."
+
+# ---- MDIO ----
+waiver mdio-toggle-1 rtl/MDIO_top.sv:21  toggle \
+  reason="cnt[5]: frame bit-counter runs 0..29 (32-bit Clause-22 frame), bit 5 never set by any reachable stimulus."
+
+# ---- echo-frame family: NVMe / FC / Ethernet (identical generated RTL) ----
+# Line numbers refer to rtl/NVMe_top.sv; rtl/FC_top.sv and rtl/Ethernet_top.sv
+# are byte-identical except the header comment, so the same lines apply.
+
+waiver nvme-line-1 rtl/NVMe_top.sv:97    line \
+  reason="default: ; in the tfld case: tfld only ever takes values 0..5 (all explicitly cased); 6/7 unreachable."
+waiver nvme-line-2 rtl/NVMe_top.sv:102   line \
+  reason="default: tstate <= T_IDLE is dead; tstate is 2-bit with all 3 used encodings cased, value 3 unreachable."
+waiver nvme-line-3 rtl/NVMe_top.sv:159,164-176 line \
+  reason="RX error/CRC block: Verilator 5.006 line-attribution artifact (block-local 'logic [31:0] c' declaration inside always_ff shifts DA counts). Execution proven functionally: bad-STP sets rx_err (line 159), bad-END sets rx_err (164), good frames pulse rx_done (176) and bad-CRC sets rx_err (175) — all checked by CRV self-checks."
+waiver nvme-line-4 rtl/NVMe_top.sv:186   line \
+  reason="default: rstate <= R_IDLE is dead; rstate only takes 0/1 (both cased), values 2/3 unreachable."
+
+waiver nvme-toggle-1 rtl/NVMe_top.sv     toggle \
+  reason="buf_mem[0][*] and buf_mem[22][*], buf_mem[23][*]: index 0 is reset-only (STP byte is never stored), indices 22/23 exceed the max write index (2+len_q+3 <= 21 for len_q <= 16). Provably unreachable."
+waiver nvme-toggle-2 rtl/NVMe_top.sv     toggle \
+  reason="buf_mem[1][7:5]: buf_mem[1] stores LEN = 8+plen <= 16, bits 5..7 never set."
+waiver nvme-toggle-3 rtl/NVMe_top.sv     toggle \
+  reason="len_q[5], tlen[5], ridx[5], rstate[1], ta_cnt[3], tbit[5]: counters bounded by frame geometry (len<=16, ridx<=22, rstate<=1, ta_cnt<=6, tbit<=31); these bits never set."
+waiver nvme-toggle-4 rtl/NVMe_top.sv     toggle \
+  reason="tmr[15:5], rtmr[15:5]: baud counters run 0..BAUD_DIV-1 (19); bits 5 and above never set."
+
+waiver fc-line-1 rtl/FC_top.sv:97    line reason="see nvme-line-1 (identical RTL)."
+waiver fc-line-2 rtl/FC_top.sv:102   line reason="see nvme-line-2 (identical RTL)."
+waiver fc-line-3 rtl/FC_top.sv:159,164-176 line reason="see nvme-line-3 (identical RTL; same functional proofs via FC CRV)."
+waiver fc-line-4 rtl/FC_top.sv:186   line reason="see nvme-line-4 (identical RTL)."
+waiver fc-toggle-1 rtl/FC_top.sv     toggle reason="see nvme-toggle-1 (identical RTL)."
+waiver fc-toggle-2 rtl/FC_top.sv     toggle reason="see nvme-toggle-2 (identical RTL)."
+waiver fc-toggle-3 rtl/FC_top.sv     toggle reason="see nvme-toggle-3 (identical RTL)."
+waiver fc-toggle-4 rtl/FC_top.sv     toggle reason="see nvme-toggle-4 (identical RTL)."
+
+waiver eth-line-1 rtl/Ethernet_top.sv:97    line reason="see nvme-line-1 (identical RTL)."
+waiver eth-line-2 rtl/Ethernet_top.sv:102   line reason="see nvme-line-2 (identical RTL)."
+waiver eth-line-3 rtl/Ethernet_top.sv:159,164-176 line reason="see nvme-line-3 (identical RTL; same functional proofs via Ethernet CRV)."
+waiver eth-line-4 rtl/Ethernet_top.sv:186   line reason="see nvme-line-4 (identical RTL)."
+waiver eth-toggle-1 rtl/Ethernet_top.sv     toggle reason="see nvme-toggle-1 (identical RTL)."
+waiver eth-toggle-2 rtl/Ethernet_top.sv     toggle reason="see nvme-toggle-2 (identical RTL)."
+waiver eth-toggle-3 rtl/Ethernet_top.sv     toggle reason="see nvme-toggle-3 (identical RTL)."
+waiver eth-toggle-4 rtl/Ethernet_top.sv     toggle reason="see nvme-toggle-4 (identical RTL)."
