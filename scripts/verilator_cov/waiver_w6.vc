@@ -52,3 +52,55 @@ waiver ucie-toggle-2 rtl/UCIe_top.sv:31 toggle \
   reason="same as ualink-toggle-2: crd_timer wraps at 4'd7."
 waiver ucie-toggle-3 rtl/UCIe_top.sv:38 toggle \
   reason="same as ualink-toggle-3: lat_cnt max value 4, bit 3 never set."
+
+# ---- CXL-family framed-echo template (CXL, PCIe, UEC, Interlaken_v1_2, JESD204C) ----
+# Identical 204-line template (rtl/<P>_top.sv), same waivers for all five.
+# Line numbers below are identical in all five RTL files.
+# (1) Dead default arms:
+#   :97  `default: ;` in the tfld sequencer case — tfld is a 3-bit sequencer
+#        that only takes values 0..5; 6/7 unreachable by construction.
+#   :102 `default: tstate <= T_IDLE;` — tstate 2-bit, encodings 0..2 cased.
+#   :186 `default: rstate <= R_IDLE;` — rstate 2-bit, encodings 0..1 cased.
+# (2) :159-176 RX END/CRC/rx_done region — Verilator 5.006 line-coverage
+#     attribution artifact around the block-local `logic [31:0] c` declaration
+#     (counters in the whole region are mis-attributed, e.g. rx_done shows 0
+#     while 105 echo frames were byte-verified against the shadow model).
+#     Execution proven: 105 echoes only start after rx_done; the sticky
+#     rx_err flag is TB-checked after the first bad-STP, each bad-CRC and
+#     each bad-END frame.
+# (3) Toggle:
+#   tmr[15:5]/rtmr[15:5] — BAUD_DIV=20 (counters span 0..19); upper bits are
+#     16-bit generic headroom (same convention as uart-toggle-1).
+#   buf_mem[0][7:0] — RX store port never selects index 0 (ridx==0 is the STP
+#     check, which stores nothing; stores start at ridx==1). Reset-only entry.
+#   buf_mem[1][5], len_q[5], tlen[5], ridx[5] — LEN-byte bit5 is len_q[5];
+#     len_q>=32 overruns the 24-entry buf_mem (end index 2+len_q+4 > 23), so
+#     these bits are unreachable by any non-buffer-overflow frame.
+#   rstate[1] — 2-state RX FSM in a 2-bit register; bit 1 constant 0.
+#   ta_cnt[3] — TX-arm countdown loaded with the constant 6 (4'd6), bit 3
+#     never set.
+#   tbit[5] — bit counter wraps at 6'd31 (32-bit CRC field), bit 5 never set.
+waiver cxl-fam-line-1 rtl/CXL_top.sv:97 rtl/PCIe_top.sv:97 rtl/UEC_top.sv:97 rtl/Interlaken_v1_2_top.sv:97 rtl/JESD204C_top.sv:97 line \
+  reason="dead default arm of tfld sequencer; tfld only takes 0..5 by construction."
+waiver cxl-fam-line-2 rtl/CXL_top.sv:102 rtl/PCIe_top.sv:102 rtl/UEC_top.sv:102 rtl/Interlaken_v1_2_top.sv:102 rtl/JESD204C_top.sv:102 line \
+  reason="dead default: tstate is 2-bit with encodings 0..2 cased explicitly."
+waiver cxl-fam-line-3 rtl/CXL_top.sv:186 rtl/PCIe_top.sv:186 rtl/UEC_top.sv:186 rtl/Interlaken_v1_2_top.sv:186 rtl/JESD204C_top.sv:186 line \
+  reason="dead default: rstate is 2-bit with encodings 0..1 cased explicitly."
+waiver cxl-fam-line-4 rtl/CXL_top.sv:159-176 rtl/PCIe_top.sv:164-176 rtl/UEC_top.sv:164-176 rtl/Interlaken_v1_2_top.sv:164-176 rtl/JESD204C_top.sv:164-176 line \
+  reason="5.006 attribution artifact around block-local logic[31:0] c declaration; execution proven by 105 shadow-verified echo frames and TB-checked sticky rx_err after bad-STP/bad-CRC/bad-END injections."
+waiver cxl-fam-toggle-1 rtl/CXL_top.sv:29 rtl/PCIe_top.sv:29 rtl/UEC_top.sv:29 rtl/Interlaken_v1_2_top.sv:29 rtl/JESD204C_top.sv:29 toggle \
+  reason="tmr[15:5]: BAUD_DIV=20, counter spans 0..19; upper bits are 16-bit generic headroom."
+waiver cxl-fam-toggle-2 rtl/CXL_top.sv:116 rtl/PCIe_top.sv:116 rtl/UEC_top.sv:116 rtl/Interlaken_v1_2_top.sv:116 rtl/JESD204C_top.sv:116 toggle \
+  reason="rtmr[15:5]: BAUD_DIV=20, counter spans 0..19; upper bits are 16-bit generic headroom."
+waiver cxl-fam-toggle-3 rtl/CXL_top.sv:121 rtl/PCIe_top.sv:121 rtl/UEC_top.sv:121 rtl/Interlaken_v1_2_top.sv:121 rtl/JESD204C_top.sv:121 toggle \
+  reason="buf_mem[0][7:0]: RX store port never selects index 0 (ridx==0 STP check stores nothing); reset-only entry."
+waiver cxl-fam-toggle-4 rtl/CXL_top.sv:162 rtl/PCIe_top.sv:162 rtl/UEC_top.sv:162 rtl/Interlaken_v1_2_top.sv:162 rtl/JESD204C_top.sv:162 toggle \
+  reason="buf_mem[1][5]: LEN bit5 is len_q[5]; len_q>=32 overruns 24-entry buf_mem (end index 2+len_q+4>23), unreachable without buffer overflow."
+waiver cxl-fam-toggle-5 rtl/CXL_top.sv:120 rtl/PCIe_top.sv:120 rtl/UEC_top.sv:120 rtl/Interlaken_v1_2_top.sv:120 rtl/JESD204C_top.sv:120 toggle \
+  reason="len_q[5]/tlen[5]/ridx[5]: bounded by LEN<=18 valid frames; LEN>=32 is a buffer-overflow condition outside the store array."
+waiver cxl-fam-toggle-6 rtl/CXL_top.sv:113 rtl/PCIe_top.sv:113 rtl/UEC_top.sv:113 rtl/Interlaken_v1_2_top.sv:113 rtl/JESD204C_top.sv:113 toggle \
+  reason="rstate[1]: 2-state RX FSM in a 2-bit register; bit 1 constant 0."
+waiver cxl-fam-toggle-7 rtl/CXL_top.sv:48 rtl/PCIe_top.sv:48 rtl/UEC_top.sv:48 rtl/Interlaken_v1_2_top.sv:48 rtl/JESD204C_top.sv:48 toggle \
+  reason="ta_cnt[3]: countdown loaded with constant 4'd6; bit 3 never set."
+waiver cxl-fam-toggle-8 rtl/CXL_top.sv:42 rtl/PCIe_top.sv:42 rtl/UEC_top.sv:42 rtl/Interlaken_v1_2_top.sv:42 rtl/JESD204C_top.sv:42 toggle \
+  reason="tbit[5]: bit counter wraps at 6'd31 (32-bit CRC field); bit 5 never set."

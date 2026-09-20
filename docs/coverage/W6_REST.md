@@ -19,6 +19,11 @@ Waivers: `scripts/verilator_cov/waiver_w6.vc`.
 | JTAG   | PASS | PASS | 62/63 (98.4%) | 71/71 (100%) | 16/16 (TAP) | 35041/35041 | **closed (1 waiver)** |
 | UALink | PASS | PASS | 35/37 (94.6%) | 142/148 (95.9%) | 3/3 | 6278/6278 | **closed (5 waivers)** |
 | UCIe   | PASS | PASS | 35/37 (94.6%) | 142/148 (95.9%) | 3/3 | 6278/6278 | **closed (5 waivers)** |
+| CXL    | PASS | PASS | 132/138 (95.7%) | 458/495 (92.5%) | 5/5 (TX+RX) | 10431401/10431401 | **closed (6L+8T family waivers)** |
+| PCIe   | PASS | PASS | 123/138 (89.1%) | 458/495 (92.5%) | 5/5 (TX+RX) | 10674441/10674441 | **closed (family waivers)** |
+| UEC    | PASS | PASS | 123/138 (89.1%) | 458/495 (92.5%) | 5/5 (TX+RX) | 10674441/10674441 | **closed (family waivers)** |
+| Interlaken_v1_2 | PASS | PASS | 123/138 (89.1%) | 458/495 (92.5%) | 5/5 (TX+RX) | 10674441/10674441 | **closed (family waivers)** |
+| JESD204C | PASS | PASS | 123/138 (89.1%) | 458/495 (92.5%) | 5/5 (TX+RX) | 10674441/10674441 | **closed (family waivers)** |
 
 CRV stimulus summary:
 - GPIO: 120 txns (output write+loopback / external input drive / illegal-address
@@ -38,6 +43,17 @@ CRV stimulus summary:
 - UALink/UCIe: 110 flits (random txnID/addr, all-zero/all-one boundary, junk flit
   while busy must be ignored); rsp {txnID, addr[15:0], opcode=OK} self-check.
 
+- CXL family (CXL/PCIe/UEC/Interlaken_v1_2/JESD204C, identical 204-line
+  framed-echo template, one TB sed-copied x4): 127 frames — 100 good
+  (LEN 9..16 random + all-zero/all-one), 2 bad-STP (echo still expected),
+  8 bad-CRC, 12 long (LEN=17/18 bad-CRC, toggles buf_mem[22:23] via the RX
+  store port), 2 bad-END, 3 zero-len (LEN=0x40/0x80/0xC0 -> len_q=0, echo of
+  16 tx_mem bytes). Shadow model predicts the Verilator OOB-masked echo copy
+  (tx_mem[0..3] <= buf_mem[18..21]) exactly (shadow-err+=0). Echo first byte
+  predicted 8'h00 (RTL bug W6-2 below). Verilator bit sampling is
+  clock-counted: 40 posedges + negedge per bit cell (a 39-posedge + negedge
+  cell drifts -0.5 clk/bit and desynchronises after ~80 bits — measured).
+
 ## RTL bugs recorded (NOT fixed, per wave discipline)
 
 ### QSPI-1: std-mode MOSI contention (slave drives io[0])
@@ -54,6 +70,37 @@ CRV stimulus summary:
 - TB handling: CRV std-mode tx values reject bit4=1 (documented in tb/QSPI_tb.sv);
   a deterministic demo (tx_q=0x10, MOSI=0xA5 -> rx_q=0xFF) runs after the CRV
   loop and prints an RTL-BUG note. Candidate for the v2.5.1 fix list.
+
+### W6-1: CXL-family echo-copy OOB (template bug, CONFIRMED in 5 more protocols)
+- Files: rtl/CXL_top.sv:196-197, rtl/PCIe_top.sv:196-197, rtl/UEC_top.sv:196-197,
+  rtl/Interlaken_v1_2_top.sv:196-197, rtl/JESD204C_top.sv:196-197 —
+  `for (int i = 2; i < HB + MAXB + 6; i++) tx_mem[i-2] <= buf_mem[i];`
+  (i=2..21, tx_mem is [0:15] -> indices 16..19 out of bounds).
+- Behaviour: iverilog drops the OOB writes; Verilator masks the index so
+  buf_mem[18..21] clobber tx_mem[0..3] (later NBA wins over the i=2..5 writes).
+- TB handling: VERILATOR-path shadow buf_mem model predicts the masked result;
+  105 echoes byte-verified, 0 mismatches. Same root cause as the previously
+  confirmed NVMe/FC/Ethernet/USB3_2/USB4 instances.
+
+### W6-2: CXL-family TX never transmits STP (stale shift register)
+- Files: rtl/<P>_top.sv:60-64 (same five) — T_IDLE -> T_PKT transition sets
+  oe_q/out_q/tbit/tfld but never loads tx_shift with STP; the tfld==0 ("STP")
+  field therefore shifts out the stale register, which is deterministically
+  8'h00 (after the previous frame's END byte shifts out; also 0 after reset).
+- Failure signature: every echoed frame's first wire byte is 8'h00 instead of
+  STP (8'h5C for CXL, 8'hFB for the rest). A real link partner would reject
+  every echo with rx_err (bad STP).
+- Latent in v2.4: the directed TB discards the first received byte.
+- Minimal repro: send any valid frame; observe echo byte0 == 8'h00.
+
+### W6-3: CXL-family LEN=8 (zero-payload) TX data overrun
+- Files: rtl/<P>_top.sv:90 (same five) — data-field end compare is
+  `if (tcur == (tlen[3:0] - 4'd1))`; for tlen=8 this is 8==7, never true at
+  the tcur=8 start, so TX sends 16 data bytes (tx_mem[8..15] then tx_mem[0..7])
+  instead of 0. The wire frame is 16 bytes longer than its own LEN field.
+- Minimal repro: send a valid LEN=8 frame; echo carries 24 data bytes.
+- CRV good/bad-STP frames use LEN 9..16 (LEN=8 exercises only the no-echo
+  error injections). Documented, not fixed.
 
 ### Template OOB advisory (cross-wave notice)
 Lead advisory: echo-copy template `for (i=2; i<=21; i=i+1) tx_mem[i-2] <= buf_mem[i];`
