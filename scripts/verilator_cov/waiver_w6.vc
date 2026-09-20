@@ -1,0 +1,9 @@
+# v2.5 W6-rest wave coverage waivers (verilator_coverage-style records)
+# One record per waived point: ID / file:line / metric / justification.
+# Cross-referenced in docs/coverage/W6_REST.md. verilator_coverage 5.006 has
+# no -waiver flag, so this file is the source of truth for manual/tooling
+# exclusion, same convention as waiver.vc.
+
+# ---- PWM ----
+waiver pwm-toggle-1 rtl/PWM_top.sv:24  toggle \
+  reason="counter[31:22]: bit k of the free-running counter toggles only in a single period >= 2^(k+1) clocks; bits 22..31 need >= 4M..2G-cycle runs, impractical under --timing. Carry chain proven through bit 21 by the 2^22-period CRV long run."
