@@ -55,6 +55,83 @@ module DFI_5_0__MC_PHY_Interface__tb;
 
   always #5 clk = ~clk;
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
+  // Tool notes (Verilator 5.006): no native FSM/SVA coverage and
+  // randomize() ignores constraint blocks -> procedural constraints
+  // ($urandom_range + rejection sampling), TB FSM probes, immediate
+  // assertions. The timeout guard is chunked (see bottom of file).
+  //
+  // FSM probe paths (DUT is not a wrapper; probe the RTL directly):
+  //   dut.init_st (INIT_IDLE/RUN/DONE, 3 states)
+  //   dut.lp_st   (LP_RUN/REQ/SLEEP/EXIT, 4 states)
+  // =====================================================================
+  localparam int CRV_INIT_FSM = 3;
+  localparam int CRV_LP_FSM   = 4;
+  localparam int CRV_FSM_TOTAL = CRV_INIT_FSM + CRV_LP_FSM;
+  logic [2:0] init_seen = '0;         // init-FSM visited-state bitmap
+  logic [3:0] lp_seen   = '0;         // lp-FSM visited-state bitmap
+  wire  [1:0] dut_init_st = dut.init_st;
+  wire  [1:0] dut_lp_st   = dut.lp_st;
+
+  int sva_total = 0, sva_fail = 0;
+  // counted immediate assertion: every evaluation is one check
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors++;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // FSM coverage: sample both DUT state registers every clock
+  always @(posedge clk) begin
+    init_seen[dut_init_st] <= 1'b1;
+    lp_seen[dut_lp_st]     <= 1'b1;
+  end
+
+  // output-invariant assertion suite (sampled coherently pre-NBA)
+  logic p_rdv = 0, p_irq = 0;
+  int rst_cyc = 0;   // consecutive reset clocks (skip the fall-edge cycle:
+                     // rst_n drops mid-step and the async clear lands NBA)
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      // A1: outputs quiescent during reset (checked from the 2nd reset
+      // clock on: the pre-NBA sample then reflects the reset branch)
+      if (rst_cyc >= 1) begin
+        sva_check(dfi_init_complete === 1'b0, "A1a reset: init_complete low");
+        sva_check(dfi_rddata_valid === 1'b0,  "A1b reset: rddata_valid low");
+        sva_check(dfi_lp_ctrl_ack === 1'b0,   "A1c reset: lp_ack low");
+        sva_check(irq === 1'b0,               "A1d reset: irq low");
+      end
+      rst_cyc <= rst_cyc + 1;
+    end else begin
+      rst_cyc <= 0;
+      // A2: init FSM holds a legal enum encoding
+      sva_check(dut_init_st <= 2'd2, "A2 init_st encoding legal");
+      // A3: rddata gated to 0 when not valid
+      sva_check(dfi_rddata_valid || (dfi_rddata === 32'd0),
+                "A3 rddata gated when not valid");
+      // A4: rddata_valid is a single-cycle pulse
+      sva_check(!(p_rdv && dfi_rddata_valid), "A4 rddata_valid single pulse");
+      // A5: lp ack only outside LP_RUN (REQ/SLEEP/EXIT handshake states)
+      sva_check(!dfi_lp_ctrl_ack || (dut_lp_st != 2'd0),
+                "A5 lp_ack only outside LP_RUN");
+      // A6: irq is sticky until reset
+      sva_check(!p_irq || irq, "A6 irq sticky");
+      // A7: init_complete only while the init FSM is out of IDLE
+      sva_check(!dfi_init_complete || (dut_init_st != 2'd0),
+                "A7 init_complete implies init active");
+    end
+    p_rdv <= dfi_rddata_valid;
+    p_irq <= irq;
+  end
+`endif
+
   task automatic check(input logic cond, input string msg);
     begin
       if (!cond) begin errors++; $display("ERROR: %s (time %0t)", msg, $time); end
@@ -157,6 +234,61 @@ module DFI_5_0__MC_PHY_Interface__tb;
 
   logic [31:0] rd;
 
+`ifdef VERILATOR
+  // ---- v2.5 CRV helpers (random upper address bits for toggle closure;
+  //      the DUT only decodes dfi_address[4:0], upper bits are don't-care)
+  task automatic crv_cmd(input logic [2:0] cmd, input logic [2:0] bank,
+                         input logic [4:0] row, input logic [11:0] ahi);
+    begin
+      @(negedge clk);
+      dfi_cs_n    = 1'b0;
+      dfi_ras_n   = cmd[2];
+      dfi_cas_n   = cmd[1];
+      dfi_we_n    = cmd[0];
+      dfi_bank    = bank;
+      dfi_address = {ahi, row};
+      dfi_odt     = $urandom_range(0, 1);   // sampled, no side effect
+      @(negedge clk);
+      dfi_cs_n    = 1'b1;
+      dfi_ras_n   = 1'b1;
+      dfi_cas_n   = 1'b1;
+      dfi_we_n    = 1'b1;
+    end
+  endtask
+
+  // write with the same delay-line discipline as dfi_write (decoy at
+  // t0+3, real data exactly t_phy_wrlat after wrdata_en is sampled)
+  task automatic crv_write(input logic [2:0] bank, input logic [4:0] row,
+                           input logic [31:0] data, input logic [3:0] mask,
+                           input logic [11:0] ahi);
+    begin
+      crv_cmd(CMD_WR, bank, row, ahi);
+      @(negedge clk); dfi_wrdata_en = 1'b1;
+      @(negedge clk); dfi_wrdata_en = 1'b0;
+      @(negedge clk);
+      @(negedge clk); dfi_wrdata = $urandom;              // decoy @t0+3
+                      dfi_wrdata_mask = 4'hF;
+      @(negedge clk); dfi_wrdata = data;                  // real  @t0+4
+                      dfi_wrdata_mask = mask;
+      @(negedge clk); dfi_wrdata = 32'd0;
+                      dfi_wrdata_mask = 4'h0;
+    end
+  endtask
+
+  task automatic crv_read(input logic [2:0] bank, input logic [4:0] row,
+                          input logic [11:0] ahi, output logic [31:0] data);
+    begin
+      crv_cmd(CMD_RD, bank, row, ahi);
+      @(negedge clk); dfi_rddata_en = 1'b1;
+      @(negedge clk); dfi_rddata_en = 1'b0;
+      repeat (T_PHY_RDLAT) @(posedge clk);
+      #1;
+      data = dfi_rddata;
+      @(negedge clk);
+    end
+  endtask
+`endif
+
   initial begin
     do_reset;
 
@@ -243,15 +375,148 @@ module DFI_5_0__MC_PHY_Interface__tb;
       check(dfi_lp_ctrl_ack === 1'b0, "lp_ctrl_ack did not drop");
     end
 
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ----
+    // 140 randomized transactions over a byte-masked scoreboard model:
+    // ~40% WR (random bank/row/data/mask + model update), ~30% RD
+    // (readback compare for locations written by this phase), ~15% legal
+    // non-data commands (ACT/PRE/REF/MRS/NOP: accepted, no side effect),
+    // ~5% cke/odt wiggles, ~10% LP episodes (command in LP -> ignored +
+    // sticky irq, then reset+re-init; the DRAM array survives reset).
+    begin : crv_phase
+      logic [31:0] model [0:255];
+      logic [255:0] written;
+      logic [31:0] d, rcv;
+      logic [3:0]  m;
+      logic [11:0] ahi;
+      int n_wr = 0, n_rd = 0, n_cmd = 0, n_wig = 0, n_lp = 0;
+      int roll, b, r;
+      written = '0;
+      for (int t = 0; t < 140; t++) begin
+        roll = $urandom_range(0, 19);
+        b = $urandom_range(0, 7);
+        r = $urandom_range(0, 31);
+        // rejection sampling: over-weight boundary bank/row
+        if ($urandom_range(0, 9) < 2) b = ($urandom_range(0, 1) == 0) ? 0 : 7;
+        if ($urandom_range(0, 9) < 2) r = ($urandom_range(0, 1) == 0) ? 0 : 31;
+        ahi = $urandom_range(0, 4095);
+        if (roll < 8) begin
+          // random write (+decoy) with random byte mask; model update
+          n_wr++;
+          d = $urandom;
+          m = $urandom_range(0, 15);
+          if ($urandom_range(0, 9) < 3) m = ($urandom_range(0, 1) == 0) ? 4'h0 : 4'hF;
+          crv_write(3'(b), 5'(r), d, m, ahi);
+          for (int k = 0; k < 4; k++)
+            if (!m[k]) model[{3'(b), 5'(r)}][8*k +: 8] = d[8*k +: 8];
+          written[{3'(b), 5'(r)}] = 1'b1;
+        end else if (roll < 14) begin
+          // random read + readback compare (only CRV-written locations:
+          // the directed phase leaves live data in the array)
+          n_rd++;
+          crv_read(3'(b), 5'(r), ahi, rcv);
+          if (written[{3'(b), 5'(r)}] && rcv !== model[{3'(b), 5'(r)}]) begin
+            errors++;
+            $display("ERROR: CRV RD b%0d r%0d got=%h exp=%h",
+                     b, r, rcv, model[{3'(b), 5'(r)}]);
+          end
+        end else if (roll < 17) begin
+          // legal non-data command (MRS/REF/PRE/ACT/NOP): no side effect
+          n_cmd++;
+          begin
+            logic [2:0] nops [0:4];
+            nops[0] = 3'b000; nops[1] = 3'b001; nops[2] = 3'b010;
+            nops[3] = 3'b011; nops[4] = 3'b111;
+            crv_cmd(nops[$urandom_range(0, 4)], 3'(b), 5'(r), ahi);
+          end
+        end else if (roll < 18) begin
+          // cke low pulse between commands (legal, no command in flight)
+          n_wig++;
+          @(negedge clk); dfi_cke = 1'b0;
+          repeat (2) @(negedge clk);
+          dfi_cke = 1'b1;
+        end else begin
+          // LP episode: request -> ack -> illegal command in LP (ignored,
+          // sticky irq) -> release -> reset clears irq -> re-init; the
+          // DRAM array is not reset, so the scoreboard stays valid
+          n_lp++;
+          @(negedge clk); dfi_lp_ctrl = 1'b1;
+          while (dfi_lp_ctrl_ack !== 1'b1) @(posedge clk);
+          crv_cmd(CMD_RD, 3'(b), 5'(r), ahi);
+          @(negedge clk); dfi_rddata_en = 1'b1;
+          @(negedge clk); dfi_rddata_en = 1'b0;
+          repeat (T_PHY_RDLAT + 3) begin
+            @(posedge clk); #1;
+            if (dfi_rddata_valid !== 1'b0) begin
+              errors++; $display("ERROR: CRV LP: rddata_valid asserted");
+            end
+          end
+          if (irq !== 1'b1) begin
+            errors++; $display("ERROR: CRV LP: irq not raised");
+          end
+          @(negedge clk); dfi_lp_ctrl = 1'b0;
+          while (dfi_lp_ctrl_ack !== 1'b0) @(posedge clk);
+          do_reset;
+          do_init;
+          if (irq !== 1'b0) begin
+            errors++; $display("ERROR: CRV LP: irq not cleared by reset");
+          end
+        end
+      end
+      // deterministic data toggle closure: write+readback all-zeros /
+      // all-ones / alternating patterns so every dfi_rddata bit toggles
+      // both directions (random stimulus leaves single-bit misses)
+      begin
+        logic [31:0] pats [0:3];
+        pats[0] = 32'h0000_0000; pats[1] = 32'hFFFF_FFFF;
+        pats[2] = 32'hAAAA_AAAA; pats[3] = 32'h5555_5555;
+        for (int i = 0; i < 4; i++) begin
+          crv_write(3'd0, 5'd0, pats[i], 4'h0, 12'h000);
+          model[0] = pats[i];
+          written[0] = 1'b1;
+          crv_read(3'd0, 5'd0, 12'h000, rcv);
+          if (rcv !== pats[i]) begin
+            errors++;
+            $display("ERROR: CRV toggle RD got=%h exp=%h", rcv, pats[i]);
+          end
+        end
+      end
+      $display("CRV: 140 txns (wr=%0d rd=%0d cmd=%0d wig=%0d lp=%0d) + 8 toggle txns",
+               n_wr, n_rd, n_cmd, n_wig, n_lp);
+    end
+`endif
+
     if (errors == 0) $display("TEST PASSED: DFI_5_0__MC_PHY_Interface_");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < CRV_INIT_FSM; s++) visited += init_seen[s];
+      for (int s = 0; s < CRV_LP_FSM; s++)   visited += lp_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, CRV_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
+`ifdef VERILATOR
+  // Random phase adds traffic: extend the guard. The timeout is chunked
+  // into 1-us delays: with Verilator 5.006 a single long-pending #delay
+  // event corrupts the --timing delay heap once many short-delay
+  // resumptions interleave with it (see docs/COVERAGE.md note 1).
+  initial begin
+    repeat (8000) #1000;    // 8 ms in 1-us chunks
+    $display("TIMEOUT");
+    $finish;
+  end
+`else
   initial begin
     #2000000;
     $display("TIMEOUT");
     $finish;
   end
+`endif
 
 endmodule
