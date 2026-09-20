@@ -16,6 +16,13 @@ waiver uart-toggle-2 rtl/UART_top.sv:44 toggle \
 waiver uart-toggle-3 rtl/UART_top.sv:101 toggle \
   reason="rbit[3]: RX bit counter wraps at 4'd7 (8N1), bit 3 never set by any reachable stimulus."
 
+# ---- QSPI ----
+waiver qspi-toggle-1 rtl/QSPI_top.sv:27 toggle \
+  reason="qcnt[1]: quad nibble counter wraps at 2'd1 (two nibbles per 8-bit frame), bit 1 never set by any reachable stimulus."
+# QSPI RTL-BUG (recorded, not fixed): std mode drives io[0] with tx_q[4]
+# because assign io = io_oe ? io_out : 4'bzzzz uses the OE vector as a
+# boolean; MOSI corrupted when tx_q[4]=1. Demonstrated in tb/QSPI_tb.sv.
+
 # ---- PWM ----
 waiver pwm-toggle-1 rtl/PWM_top.sv:24  toggle \
   reason="counter[31:22]: bit k of the free-running counter toggles only in a single period >= 2^(k+1) clocks; bits 22..31 need >= 4M..2G-cycle runs, impractical under --timing. Carry chain proven through bit 21 by the 2^22-period CRV long run."
