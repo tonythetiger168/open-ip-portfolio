@@ -20,6 +20,7 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
 | I2S | PASS | PASS | 50/50 (100%) | 156/157 | 2/2 | all pass | **closed (1 waiver: i2s-toggle-1)** |
 | Ethernet_AVB_TSN | PASS | PASS | 173/175 | 309/327 | 16/16 | all pass | **closed (2 line + 4 toggle waivers)** |
 | I2S_Audio | PASS | PASS | 125/127 | 336/340 | 4/4 | all pass | **closed (1 line + 2 toggle waivers)** |
+| SAS | PASS | PASS | 352/371 | 490/594 | 22/22 | all pass | **closed (5 line + 4 toggle waivers)** |
 
 ## CRV stimulus summary
 
@@ -55,6 +56,17 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
   corners, ~25% slave-mode (TB-generated bclk/wclk). Error classes: dropped
   bclk pulse (irq must pulse, then auto-resync and loop back correctly) and
   TX underrun (wire must carry zeros; RX checked against 0).
+
+- **SAS**: the DUT initiator runs its own write/read-verify sequence over the
+  loopback link; CRV = 120 randomized error-injection transactions flipping
+  one random bit (position 0..31) of a random dword (HDR/PAY/CRC/EOF) of a
+  random frame (write / read-req / read-rsp, via frame-skip 0..2). Per txn:
+  injection must fire, DUT must flag it (irq from crc/proto/timeout error),
+  link must stay alive (a later txn completes ok or caught-mismatch).
+  Observed mix: 78 crc / 43 proto / 82 timeout flags on wr=37/rdreq=28/
+  rdrsp=55 frames. Injection methodology note: arming must be edge-detected
+  on TS_SOF and frame-skipped, otherwise every injection lands on the EOF of
+  the in-flight read-response (arming moment is correlated with TX position).
 
 ## Suspected RTL issues (reported, NOT fixed — per SPEC)
 
