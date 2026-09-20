@@ -73,3 +73,7 @@ waiver eth-toggle-1 rtl/Ethernet_top.sv     toggle reason="see nvme-toggle-1 (id
 waiver eth-toggle-2 rtl/Ethernet_top.sv     toggle reason="see nvme-toggle-2 (identical RTL)."
 waiver eth-toggle-3 rtl/Ethernet_top.sv     toggle reason="see nvme-toggle-3 (identical RTL)."
 waiver eth-toggle-4 rtl/Ethernet_top.sv     toggle reason="see nvme-toggle-4 (identical RTL)."
+
+# ---- I2S ----
+waiver i2s-toggle-1 rtl/I2S_top.sv:26  toggle \
+  reason="bit_cnt[4]: word bit-counter wraps at DW-1=15, bit 4 never set by any reachable stimulus."
