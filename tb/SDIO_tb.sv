@@ -110,6 +110,7 @@ module SDIO_tb;
     end
   end
 
+
   // CMD53 non-incrementing variants (arg_incr=0): all bytes hit base addr
   task automatic cmd53_write_ni(input logic [16:0] addr, input int n,
                                 input logic bad_crc, output logic ok);
@@ -562,10 +563,12 @@ module SDIO_tb;
       int n_52 = 0, n_53 = 0, n_c7 = 0, n_il = 0, n_c16 = 0, n_nblk = 0;
       for (int i = 0; i < 128; i++) shadow[i] = 8'h00;
       // directed-phase survivors: CMD52 at 0x10/0x17/0x1E/0x25,
-      // CMD53 block of 8 at 0x40 (0x42 + 0x11*i)
+      // CMD53 block of 8 at 0x40 (0x42 + 0x11*i),
+      // post-error CMD52 round-trips at 0x70/0x71 (5A ^ i*A5)
       shadow[8'h10] = 8'hA5; shadow[8'h17] = 8'h99;
       shadow[8'h1E] = 8'hDD; shadow[8'h25] = 8'h11;
       for (int i = 0; i < 8; i++) shadow[8'h40 + i] = 8'h42 + 8'h11 * i;
+      shadow[8'h70] = 8'h5A; shadow[8'h71] = 8'hFF;
       for (int i = 0; i < 120; i++) begin
         sel = $urandom_range(0, 19);
         if (sel < 7) begin
@@ -592,7 +595,6 @@ module SDIO_tb;
         end else if (sel < 11) begin
           // ---- CMD53 write + read (incr / non-incr, wrap) ----
           n_53++;
-          $display("CRV T%0d cmd53 ba=%0d nb=%0d d0=%h dl=%h", i, ba, nb, txb[0], txb[nb-1]);
           nb = $urandom_range(1, 32);
           if ($urandom_range(0, 9) == 0) nb = 1;
           if ($urandom_range(0, 9) == 0) nb = 32;
@@ -602,6 +604,7 @@ module SDIO_tb;
             if ($urandom_range(0, 15) == 0) txb[j] = 8'h00;
             if ($urandom_range(0, 15) == 0) txb[j] = 8'hFF;
           end
+          $display("CRV T%0d cmd53 ba=%0d nb=%0d d0=%h dl=%h", i, ba, nb, txb[0], txb[nb-1]);
           if ($urandom_range(0, 1)) begin
             cmd53_write(ba[16:0], nb, 1'b0, ok);
             if (ok) for (int j = 0; j < nb; j++)
@@ -674,7 +677,7 @@ module SDIO_tb;
           ba = $urandom_range(0, 127);
           for (int j = 0; j < nb; j++) txb[j] = $urandom_range(0, 255);
           irq_seen = 0;
-          $display("CRV T%0d badCRC16 ba=%0d nb=%0d", i, ba, nb);
+          $display("CRV T%0d badCRC16 ba=%0d nb=%0d d3=%h", i, ba, nb, txb[3]);
           cmd53_write(ba[16:0], nb, 1'b1, ok);
           if (!ok) begin
             errors++; $display("ERROR: CRV %0d bad-CRC16 write: no R5", i);

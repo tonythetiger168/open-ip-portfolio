@@ -155,3 +155,17 @@ waiver ufs-toggle-2 rtl/UFS_top.sv toggle \
   reason="status/sense + header constants: r_status[15:1] (values 0/1), r_sense[15:3]+[1] (values 0/5), hdr_lun[7:0] (TB lun=0), hdr_type[7:1] (only T_CMD=8'h01 received), hdr_len[7:4] (len<=9), n_xfer high bits (<=255), rd_n[3]/rx_cnt[3]/tr_rep[3] (bounded 0..8), tx_idx bit (<=11)."
 waiver ufs-toggle-3 rtl/UFS_top.sv toggle \
   reason="tr_timer high bits: peer answers training within ~130 clks; timer never reaches 256+ (TR_TMO=4095 path unexercised, see ufs-line-3). bd_cnt[0]: BIT_CLKS=1 constant 0."
+
+# ---- SDIO ----
+waiver sdio-line-1 rtl/SDIO_top.sv:160,164,165 line \
+  reason="bit_tick/bd_cnt: BIT_CLKS=1 makes bit_tick constant 1; bd_cnt else/incr arm (165) dead, decl (160) and reset arm (164) constant-folded with the dead register (same class as sata-line-4)."
+waiver sdio-line-2 rtl/SDIO_top.sv:197 line \
+  reason="if (bit_tick) guard line: Verilator 5.006 attribution artifact with constant-1 bit_tick (same class as ufs-line-2); body verifiably executes every sd_clk (all FSM transitions, 122k SVA checks pre-NBA coherent)."
+waiver sdio-line-3 rtl/SDIO_top.sv:363 line \
+  reason="FSM default arm: state is a fully-cased 4-bit enum (12 states, encodings 0..11); encodings 12..15 unreachable (SVA A3 checks state<12 every sd_clk)."
+waiver sdio-toggle-1 rtl/SDIO_top.sv toggle \
+  reason="rsp_pre constant fields (assign line 154 = {2'b00, cmd_idx, 8'h00, 16'h0000, rsp_data}): bits [39:38] (2'b00), [31:24] (8'h00), [23:8] (16'h0000) — 26 constant bits under any stimulus."
+waiver sdio-toggle-2 rtl/SDIO_top.sv toggle \
+  reason="geometry/encoding-bound bits: bd_cnt[0] (BIT_CLKS=1 -> constant 0), bit_cnt[6] (counter <= 47), n_bytes[6] (1..32), wr_byte_cnt[6]/rd_byte_cnt[6:5] (<= 32), shift[47] (command start bit, always 0), cmd_idx[1]/cmd_idx[3] (latched only for CMD52=6'b110100 / CMD53=6'b110101, bits 1 and 3 are 0 in both — latch condition verified at rtl/SDIO_top.sv:217)."
+waiver sdio-toggle-3 rtl/SDIO_top.sv toggle \
+  reason="wr_buf[29][7], wr_buf[30][1]: stochastic residual — staging-buffer high indices written only by >=30-byte blocks (rare in the random mix); byte values fully random so individual bits can stay 0 for a seed. Each bit is coverable (seed +7 covers wr_buf[29][7]); data integrity through exactly these bytes is proven by CMD53 read-back compares of every 32-byte block."
