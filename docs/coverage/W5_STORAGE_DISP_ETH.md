@@ -212,3 +212,21 @@ Resolved this session (third coder):
 - **XGMII**: `lane[1:0]` is dead state (reset-only, never read).
 
   operation. Logged for the orchestrator; no RTL change made.
+
+## Fourth-coder final status (HDCP_2_3 Verilator-build blocker)
+
+Closed this round: HDMI_2_1, SAS_4, SD, DisplayPort2 (all iverilog PASS +
+run_cov PASS + waivers). **HDCP_2_3 is the only open item**: iverilog
+`make -f Makefile.HDCP_2_3_Content_Protection sim` PASSES with the full CRV
+TB (120 randomized auth sessions: 60% good + random pixel burst verified
+word-by-word vs TB AES-128-CTR, 20% pairing-fail, 10% locality-timeout,
+10% wrong-locality-value; random km/hrx/repeater per session; FSM probe
+10 + 8-assertion SVA suite). The Verilator coverage build repeatedly OOMs:
+the fully-unrolled combinational AES-128 produces a single 39 MB TU
+(VHDCP..._DepSet_h9991c3dd__0.cpp) whose cc1plus needs >3 GB; the box has
+5 GB shared with other waves' builds (VUSB etc.), so `run_cov.sh` (-j 4)
+and even serial -O0 compiles were SIGKILLed. Next coder: rerun
+`bash scripts/verilator_cov/run_cov.sh HDCP_2_3_Content_Protection` when
+the box is quiet (or verilate manually with `--output-split-cfuncs 1000`
+added to split the giant TU, then make + run + parse per run_cov.sh tail),
+then collect waivers + doc row. TB edits are committed (fd59008).
