@@ -214,3 +214,27 @@ waiver cpri-toggle-5 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv toggle \
   reason="miss_cnt[2]: loss-of-sync miss counter wraps at 3 (LOS declared on the 4th miss); bit 2 structurally unreachable."
 waiver cpri-toggle-6 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv toggle \
   reason="cpu_rdata[25]: the read mux drives bits>23 only for the 32-bit iq_mem read (addr 10); the fixed iq_pat peer stream packs words whose bit25 is constant 0 (verified across all 64 word positions)."
+
+# ---- eCPRI_over_Ethernet ----
+waiver ecpri-line-1 rtl/eCPRI_over_Ethernet_top.sv:286 line \
+  reason="5.006 attribution artifact on the cpu addr9 reset_op-clear write; execution proven by cpu_wr(9,1) clearing reset_op (directed CHECK 4 + CRV)."
+waiver ecpri-line-2 rtl/eCPRI_over_Ethernet_top.sv:373-374 line \
+  reason="tx-descriptor-queue-full cpu fault-injection drop corner: the serializer drains each frame before a 5th descriptor accumulates, so cpu_push never sees tq_cnt==4. irq_ovf is already exercised via the IQ-buffer-overflow path (line 317)."
+waiver ecpri-toggle-1 rtl/eCPRI_over_Ethernet_top.sv toggle \
+  reason="rx_psize[6:15]: payload size is bounded by PAY_MAX=40 (len-fail probe uses 41); index bits above 5 unreachable."
+waiver ecpri-toggle-2 rtl/eCPRI_over_Ethernet_top.sv toggle \
+  reason="tx_mt[3:7]: the DUT only generates msgtype 4/5/6 response frames; upper msgtype bits structurally constant."
+waiver ecpri-toggle-3 rtl/eCPRI_over_Ethernet_top.sv toggle \
+  reason="tx_plen[2,4]: response payloads are only 9 bytes (memory) or 2 bytes (reset/event); other length bits unreachable."
+waiver ecpri-toggle-4 rtl/eCPRI_over_Ethernet_top.sv toggle \
+  reason="ridx[6:7]/rx_cnt[6:7]: frames are at most 18+41+4=63 bytes, so the byte-index counters never reach 64."
+waiver ecpri-toggle-5 rtl/eCPRI_over_Ethernet_top.sv toggle \
+  reason="tx_st[2]: TX serializer FSM uses states TX_IDLE/TX_HDR/TX_PAY/TX_FCS (0..3); bit 2 structurally constant (FSM_COV 4/4)."
+waiver ecpri-toggle-6 rtl/eCPRI_over_Ethernet_top.sv toggle \
+  reason="seq_gap_cnt[4:7]: the run injects ~20 sequence gaps; the upper counter bits would need 16/32/64/128 gaps."
+waiver ecpri-toggle-7 rtl/eCPRI_over_Ethernet_top.sv toggle \
+  reason="rx_err_cnt[5:7]: the run injects ~20 error frames; the upper counter bits would need 32/64/128 errors."
+waiver ecpri-toggle-8 rtl/eCPRI_over_Ethernet_top.sv toggle \
+  reason="tq_cnt[1:2]: the TX descriptor queue rarely holds more than one entry (the serializer drains each frame as it arrives); depths 2 and 4 not reached."
+waiver ecpri-toggle-9 rtl/eCPRI_over_Ethernet_top.sv toggle \
+  reason="tq_a/tq_b sparse descriptor bits: only read-response descriptors carry addr/data and the queue is shallow, so a few per-entry data bits are data-timing dependent and stay constant."
