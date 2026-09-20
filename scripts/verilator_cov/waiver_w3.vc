@@ -125,3 +125,28 @@ waiver dphy-line-3 rtl/D_PHY_top.sv:582  line \
   reason="default: rstate <= R_STOP is dead; rstate is a 4-bit enum whose 15 used encodings are all cased explicitly; encoding 15 never occurs."
 waiver dphy-toggle-1 rtl/D_PHY_top.sv:126  toggle \
   reason="trig_cnt[2]: the Trigger Mark-1 hold counter wraps at 3'd3 (T_TRIG exits at trig_cnt==3), so bit 2 is constant-tied to 0 and can never toggle."
+
+# ---- CSI_2 (run_cov needs VERILATOR_TEST_FLAGS=-Wno-BLKANDNBLK: rtl eb/hc
+#      mix blocking/nonblocking assignments -- recorded, not fixed) ----
+waiver csi-line-1 rtl/CSI_2_top.sv:95-109  line \
+  reason="ecc_bit syndrome-decode table: Verilator 5.006 line-attribution artifact for multi-item case lines inside functions. Execution proven: the closure sweep injects a single-bit error at every one of the 24 header + 6 ECC-bit positions and every packet corrects and commits (line_cnt/lb self-checked) -- only possible through these arms."
+waiver csi-line-2 rtl/CSI_2_top.sv:217  line \
+  reason="short-packet default arm (generic DT): attribution artifact. Execution proven: CRV short-mix sends random DTs 0x4-0xF whose (non-)effect on frame/line counts is scoreboard-checked."
+waiver csi-line-3 rtl/CSI_2_top.sv:226  line \
+  reason="S_ECC corrected-path else-if: attribution artifact. Execution proven: 30+ corrected packets per run commit with err_flags[3] set."
+waiver csi-line-4 rtl/CSI_2_top.sv:252,254-256  line \
+  reason="S_ECC uncorrectable arm: attribution artifact. Execution proven: the ECC double-bit class checks irq + err_flags[1] + line not committed on every iteration."
+waiver csi-line-5 rtl/CSI_2_top.sv:285  line \
+  reason="default: state <= S_SYNC is dead; state is 3-bit and all 8 encodings (S_SYNC..S_CRC1) are cased explicitly."
+waiver csi-toggle-1 rtl/CSI_2_top.sv:149-150  toggle \
+  reason="wc[15:10]/pay_cnt[15:10]: packets are bounded to <=520 payload bytes (the line buffer is 512 deep; longer packets only add serial runtime without new behavior). Upper bits never toggle in the verified envelope."
+waiver csi-toggle-2 rtl/CSI_2_top.sv:161  toggle \
+  reason="lb_len[15:10]: lb_len = min(wc, 512) can never exceed 512; the upper six bits are constant-tied to 0."
+waiver csi-toggle-3 rtl/CSI_2_top.sv:157  toggle \
+  reason="line_cnt[15:13]: the closure walk commits 4200 lines in one frame (bits 12:0 toggle); >=8192-line frames are a sim-practicality limit, not a design bound."
+waiver csi-toggle-4 rtl/CSI_2_top.sv:156  toggle \
+  reason="frame_cnt[15:11]: the closure walk runs 1100 FS/FE pairs (bits 10:0 toggle); >=2048-frame runs are a sim-practicality limit, not a design bound."
+waiver csi-toggle-5 rtl/CSI_2_top.sv:71  toggle \
+  reason="eb[5]: the syndrome index only takes values 0..29 (24 data + 6 ECC positions; uncorrectable syndromes return 63 but are not assigned to eb), so bit 5 is constant-tied to 0."
+waiver csi-toggle-6 rtl/CSI_2_top.sv:72  toggle \
+  reason="hc[23:18]: hc is the ECC-corrected header; its [23:8] field is the packet word count, bounded to <=520 in the verified envelope (see csi-toggle-1), so [23:18] never toggle."
