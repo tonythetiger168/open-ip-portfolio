@@ -595,6 +595,29 @@ module USB3_tb;
     end
   endtask
 
+  // 14. give-up: 4 consecutive failed IN attempts -> DUT abandons the
+  // transfer (in_active cleared, irq raised), tx_seq not advanced
+  task automatic crv_giveup;
+    int blk;
+    begin
+      blk = $urandom_range(0, 3);
+      if (!valid_m[blk]) begin crv_out_good; return; end
+      for (int i = 0; i < 16; i++) exp_buf[i] = mem_m[blk*16 + i];
+      send_tp(TP_ACK, 3'd0, 1'b0, blk[1:0], 1'b1);   // IN request
+      tx_sym(SYM_IDLE);
+      recv_dpp(tx_seq_m[2:0], blk[1:0]);             // attempt 1
+      for (int r = 0; r < 3; r++) begin
+        send_tp(TP_LBAD, 3'd0, 1'b0, blk[1:0], 1'b0);
+        tx_sym(SYM_IDLE);
+        recv_dpp(tx_seq_m[2:0], blk[1:0]);           // retransmission
+      end
+      send_tp(TP_LBAD, 3'd0, 1'b0, blk[1:0], 1'b0);  // 4th failure: give up
+      repeat (6) tx_sym(SYM_IDLE);
+      check(irq === 1'b1, "CRV give-up after 4 attempts: irq raised");
+      crv_expect_quiet(20, "CRV give-up");
+    end
+  endtask
+
   // 13. ACK timeout: host drops the ACK, DUT watchdog retransmits the DPP
   task automatic crv_ack_timeout;
     int blk;
@@ -737,7 +760,7 @@ module USB3_tb;
     begin : crv_phase
       int n_og = 0, n_bc = 0, n_dup = 0, n_ooo = 0, n_ig = 0, n_lb = 0,
           n_nr = 0, n_bd = 0, n_bt = 0, n_be = 0, n_md = 0, n_ut = 0,
-          n_to = 0;
+          n_to = 0, n_gu = 0;
       int roll;
       // models start from the directed-test end state:
       //   rx_exp=4 (seq0..3 committed), tx_seq=5 (five completed INs),
@@ -753,7 +776,9 @@ module USB3_tb;
       end
       irq_m = 1'b1;
       // deterministic first pass: guarantee the ACK-watchdog retransmission
+      // and the 4-attempt give-up path
       crv_ack_timeout; n_to++;
+      crv_giveup;      n_gu++;
       for (int t = 0; t < 100; t++) begin
         roll = $urandom_range(0, 99);
         if (roll < 25) begin
@@ -784,9 +809,9 @@ module USB3_tb;
           n_to++;  crv_ack_timeout;
         end
       end
-      $display("CRV: 100 txns (out_good=%0d out_badcrc=%0d out_dup=%0d out_ooo=%0d in_good=%0d in_lbad=%0d in_nrdy=%0d bad_dph=%0d bad_tp=%0d bad_end=%0d missing_dpp=%0d unsup_type=%0d ack_timeout=%0d)",
+      $display("CRV: 102 txns (out_good=%0d out_badcrc=%0d out_dup=%0d out_ooo=%0d in_good=%0d in_lbad=%0d in_nrdy=%0d bad_dph=%0d bad_tp=%0d bad_end=%0d missing_dpp=%0d unsup_type=%0d ack_timeout=%0d giveup=%0d)",
                n_og, n_bc, n_dup, n_ooo, n_ig, n_lb, n_nr, n_bd, n_bt, n_be,
-               n_md, n_ut, n_to);
+               n_md, n_ut, n_to, n_gu);
     end
 `endif
     // ---- summary ----------------------------------------------------
