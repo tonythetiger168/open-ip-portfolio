@@ -18,3 +18,13 @@ waiver mrffe-line-1 rtl/MIPI_RFFE_top.sv:122  line \
 
 waiver mrffe-line-2 rtl/MIPI_RFFE_top.sv:264  line \
   reason="default: state <= S_IDLE is dead; state is 3-bit with 7 used encodings cased explicitly, value 7 unreachable."
+
+# ---- SPMI ----
+waiver spmi-line-1 rtl/SPMI_top.sv:92  line \
+  reason="write-ACK release (else if sclk_rise): Verilator 5.006 line-attribution artifact. Execution proven: it is the only exit from ST_ACKP for write commands and 60+ CRV writes complete and return to IDLE."
+
+waiver spmi-line-2 rtl/SPMI_top.sv:99  line \
+  reason="ST_ACKP else arm is dead: ST_ACKP is only entered with cmd==0 or cmd==1, so the else (cmd other) can never execute."
+
+waiver spmi-toggle-1 rtl/SPMI_top.sv:37  toggle \
+  reason="bit_cnt[3]: frame bit-counter wraps at 4'd7, bit 3 never set by any reachable stimulus."
