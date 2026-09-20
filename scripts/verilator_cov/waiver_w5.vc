@@ -91,3 +91,11 @@ waiver avb-toggle-3 rtl/Ethernet_AVB_TSN_top.sv    toggle \
   reason="tmr[15:5]: baud phase timer runs 0..BAUD_DIV-1 (19); bits 5 and above never set."
 waiver avb-toggle-4 rtl/Ethernet_AVB_TSN_top.sv:56 toggle \
   reason="tx_hdr[6:4]: constant header field bits (rtr/ide/r0) hard-wired 0 in tx_hdr <= {tx_id, 3'b0, tx_dlc}; never toggle."
+
+# ---- I2S_Audio ----
+waiver i2sa-line-1 rtl/I2S_Audio_top.sv:101-102 line \
+  reason="ljust() case arms 2'd1/default: Verilator 5.006 function line-attribution artifact (cf. nvme-line-3). Execution proven functionally: 24-bit and 32-bit loopback data pass through exactly these arms in directed CHECK2 and CRV (depth=1/2/3 all exercised, data compared exact)."
+waiver i2sa-toggle-1 rtl/I2S_Audio_top.sv:108 toggle \
+  reason="fp_p[5]: fp_p = {1'b0, frame_pos[4:0]} — bit 5 is a constant-0 pad, can never toggle."
+waiver i2sa-toggle-2 rtl/I2S_Audio_top.sv:69 toggle \
+  reason="shv[2:0]: shv only takes 16/8/0 (10000/01000/00000) from the 3 depth encodings; bits 2:0 are always 0 and can never toggle."

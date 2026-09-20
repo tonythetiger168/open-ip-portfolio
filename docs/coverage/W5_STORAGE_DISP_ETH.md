@@ -19,6 +19,7 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
 | Ethernet | PASS | PASS | 123/138 | 440/495 | 5/5 | all pass | **closed (4 line + 4 toggle waivers)** |
 | I2S | PASS | PASS | 50/50 (100%) | 156/157 | 2/2 | all pass | **closed (1 waiver: i2s-toggle-1)** |
 | Ethernet_AVB_TSN | PASS | PASS | 173/175 | 309/327 | 16/16 | all pass | **closed (2 line + 4 toggle waivers)** |
+| I2S_Audio | PASS | PASS | 125/127 | 336/340 | 4/4 | all pass | **closed (1 line + 2 toggle waivers)** |
 
 ## CRV stimulus summary
 
@@ -48,6 +49,12 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
   (rx_err, frame still completes and echoes). Sticky `rx_err` checked
   against the TB injection history after every frame. The Verilator-only
   echo model includes the W5-RTL-1 artifact (below).
+
+- **I2S_Audio**: 120 randomized stereo loopback transactions, random format
+  (I2S/LJ/RJ) x depth (16/24/32, encodings 2/3), random data with all-0/all-1
+  corners, ~25% slave-mode (TB-generated bclk/wclk). Error classes: dropped
+  bclk pulse (irq must pulse, then auto-resync and loop back correctly) and
+  TX underrun (wire must carry zeros; RX checked against 0).
 
 ## Suspected RTL issues (reported, NOT fixed — per SPEC)
 

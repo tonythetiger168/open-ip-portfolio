@@ -36,6 +36,53 @@ module I2S_Audio_tb;
 
   assign sd_in = sd_out;          // serial loopback
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
+  // =====================================================================
+  // FSM: 4 operating phases {master/slave, left/right slot}
+  localparam int I2SA_FSM_TOTAL = 4;
+  logic [3:0] fsm_seen = '0;
+  always @(posedge clk) fsm_seen[{cfg_master, dut.frame_pos[5]}] <= 1'b1;
+
+  int sva_total = 0, sva_fail = 0;
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors++;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // output-invariant assertion suite (sampled at posedge, pre-NBA coherent)
+  int  rst_cyc = 0;
+  logic irq_q = 1'b0;
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      // A1: registers cleared in reset
+      if (rst_cyc > 0)
+        sva_check((dut.frame_pos === 6'd0) && (dut.tx_word_l === 32'h0) &&
+                  (dut.rx_valid === 1'b0) && (dut.irq === 1'b0),
+                  "A1 reset: regs cleared");
+      rst_cyc++;
+    end else begin
+      // A2: tx_ready is exactly the frame_pos==63 load window
+      sva_check(tx_ready === (dut.frame_pos === 6'd63), "A2 tx_ready window");
+      // A3: wclk_out is frame_pos[5] in master mode, 0 in slave mode
+      sva_check(wclk_out === (cfg_master ? dut.frame_pos[5] : 1'b0),
+                "A3 wclk_out source");
+      // A4: irq is a single-cycle pulse
+      if (irq_q) sva_check(irq === 1'b0, "A4 irq pulse width");
+      // A5: master divider bounded by MCLK_DIV
+      sva_check(dut.div_cnt < 4, "A5 div_cnt < MCLK_DIV");
+    end
+    irq_q <= irq;
+  end
+`endif
+
   // ------------------------- helpers ------------------------------
   task automatic chk(input bit cond, input string msg);
     if (!cond) begin
@@ -232,18 +279,106 @@ module I2S_Audio_tb;
     loopback(32'h0000_5A5A, 32'h0000_C3C3, 2'd0);
     $display("INFO: check 4 (dropped bclk injection + resync) done");
 
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ----
+    // 120 randomized loopback transactions: random format (I2S/LJ/RJ),
+    // random depth (16/24/32, encodings 2 and 3 both 32-bit), random
+    // sample data with all-0/all-1 corners. ~25% slave-mode txns; error
+    // classes: dropped bclk pulse (irq + resync) and TX underrun (zeros).
+    begin : crv_phase
+      logic [31:0] dl, dr;
+      logic [1:0]  cf, cd;
+      int n_txn = 0, n_slave = 0, n_drop = 0, n_und = 0;
+      for (int t = 0; t < 120; t++) begin
+        cf = $urandom_range(0, 2);
+        cd = $urandom_range(0, 3);
+        dl = $urandom(); dr = $urandom();
+        if ($urandom_range(0, 9) == 0) dl = 32'h0;
+        if ($urandom_range(0, 9) == 0) dl = 32'hFFFF_FFFF;
+        if ($urandom_range(0, 9) == 0) dr = 32'h0;
+        if ($urandom_range(0, 9) == 0) dr = 32'hFFFF_FFFF;
+        m = dmask(cd);
+        @(negedge clk);
+        cfg_fmt = cf; cfg_depth = cd;
+        if ($urandom_range(0, 3) == 0) begin
+          // ---- slave-mode transaction (TB clocks) ----
+          n_slave++;
+          cfg_master = 1'b0;
+          sdiv = 2'd0; sft = 6'd0; bclk_r = 1'b0; wclk_r = 1'b0;
+          slave_en = 1'b1;
+          wait_frames(3);
+          loopback(dl & m, dr & m, cd);
+          // error injection 1: dropped bclk pulse -> irq + resync
+          if ($urandom_range(0, 5) == 0) begin
+            n_drop++;
+            irq_before = irq_cnt;
+            @(negedge clk);
+            drop_pulse = 1'b1;
+            repeat (5) @(negedge clk);
+            drop_pulse = 1'b0;
+            wait_frames(2);
+            chk(irq_cnt > irq_before, "CRV: no irq on dropped bclk");
+            loopback(dl & m, dr & m, cd);   // must resync
+          end
+        end else begin
+          // ---- master-mode transaction ----
+          cfg_master = 1'b1;
+          slave_en = 1'b0;
+          wait_frames(2);
+          if ($urandom_range(0, 9) == 0) begin
+            // error injection 2: TX underrun -> wire carries zeros
+            n_und++;
+            wait_frames(2);
+            recv_check(32'h0, 32'h0, cd);
+          end else begin
+            loopback(dl & m, dr & m, cd);
+          end
+        end
+        n_txn++;
+      end
+      // return to master mode for a clean end state
+      @(negedge clk);
+      cfg_master = 1'b1; slave_en = 1'b0;
+      cfg_fmt = 2'd0; cfg_depth = 2'd2;
+      wait_frames(2);
+      $display("CRV: %0d txns (%0d slave, %0d bclk-drop, %0d underrun)",
+               n_txn, n_slave, n_drop, n_und);
+    end
+`endif
+
     // ---------------- result ----------------
     if (errors == 0) $display("TEST PASSED: I2S_Audio");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < I2SA_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, I2SA_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
   // ------------------------- timeout guard -------------------------
+`ifdef VERILATOR
+  // Chunked into 1-us delays: with Verilator 5.006 a single long-pending
+  // #delay event corrupts the --timing delay heap once many short-delay
+  // resumptions interleave.
+  initial begin
+    repeat (40000) #1000;   // 40 ms in 1-us chunks
+    $display("TIMEOUT");
+    $display("TEST FAILED: %0d errors", errors + 1);
+    $finish;
+  end
+`else
   initial begin
     #20_000_000;
     $display("TIMEOUT");
     $display("TEST FAILED: %0d errors", errors + 1);
     $finish;
   end
+`endif
 
 endmodule
