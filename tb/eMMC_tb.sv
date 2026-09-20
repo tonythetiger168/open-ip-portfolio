@@ -14,8 +14,18 @@ module eMMC_tb;
   logic clk = 1'b0, rst_n = 1'b0;
   logic emmc_clk = 1'b0;
   logic emmc_rst_n = 1'b0;
+`ifdef VERILATOR
+  // NOTE(vlt-5.006 tristate bug, see tb/SDIO_tb.sv): an undriven plain tri
+  // net reads as 0 under Verilator, so the card model sees permanent false
+  // start bits (thousands of bad-CRC7 "commands"). tri1 gives the eMMC
+  // idle-high pull-up semantics; all drivers still drive z to release.
+  // iverilog path (plain tri + z) is bit-identical to before.
+  tri1 cmd;
+  tri1 [7:0] dat;
+`else
   tri   cmd;
   tri [7:0] dat;
+`endif
   logic irq;
   int   errors = 0;
 
@@ -56,6 +66,15 @@ module eMMC_tb;
   int twait            = 0;
 
   always @(posedge irq) irq_cnt = irq_cnt + 1;
+
+`ifdef VERILATOR
+  // DEBUG (temporary): bus trace around first bad command
+  always @(posedge emmc_clk) begin
+    if ($time > 43000 && $time < 46000)
+      $display("TRC t=%0t cmd=%b hoe=%b hout=%b coe=%b cout=%b cstate=%0d ccnt=%0d hst=%0d ph=%0d bc=%0d cur=%0d",
+               $time, cmd, dut.cmd_oe_r, dut.cmd_out_r, c_cmd_oe, c_cmd_out, cstate, ccnt, dut.state, dut.phase, dut.bit_cnt, dut.cur_cmd);
+  end
+`endif
 
 `ifdef VERILATOR
   // =====================================================================
@@ -206,7 +225,11 @@ module eMMC_tb;
                               (busy_ready ? 32'hC0FF_8080 : 32'h40FF_8080),
                               7'h7F, 1'b1}, 88'h0};
                 crsp_len <= 8'd48;
+`ifdef VERILATOR
+                cgap     <= 4'd7;  // vlt-5.006: wider rsp gap (host PH_GAP skew)
+`else
                 cgap     <= 4'd3;
+`endif
                 post_act <= 2'd0;
                 cstate   <= C_GAP;
                 cmd1_cnt = cmd1_cnt + 1;
@@ -215,7 +238,11 @@ module eMMC_tb;
               6'd2: begin                              // CMD2: R2 (CID)
                 crsp     <= {1'b0, 1'b0, 6'b111111, CID_VAL[127:1], 1'b1};
                 crsp_len <= 8'd136;
+`ifdef VERILATOR
+                cgap     <= 4'd7;  // vlt-5.006: wider rsp gap (host PH_GAP skew)
+`else
                 cgap     <= 4'd3;
+`endif
                 post_act <= 2'd0;
                 cstate   <= C_GAP;
               end
@@ -225,7 +252,11 @@ module eMMC_tb;
                 if (inj_crc7) r1crc = r1crc ^ 7'h55;
                 crsp     <= {{1'b0, r1body, r1crc, 1'b1}, 88'h0};
                 crsp_len <= 8'd48;
+`ifdef VERILATOR
+                cgap     <= 4'd7;  // vlt-5.006: wider rsp gap (host PH_GAP skew)
+`else
                 cgap     <= 4'd3;
+`endif
                 cstate   <= C_GAP;
                 if (f[45:40] == 6'd24) begin           // CMD24: then RX data
                   cblk     <= f[9:8];
@@ -275,6 +306,21 @@ module eMMC_tb;
       // -------------------- receive write data block on dat[0] ------------
       C_DRX: begin
         if (drx_cnt == 9'd0) begin
+`ifdef VERILATOR
+          // vlt-5.006: after a rejected (bad-CRC7) R1 the host aborts the
+          // write and retries CMD24 while the card still waits for data.
+          // iverilog timing lets drx_to expire in the host's response-hunt
+          // window; under Verilator it lands mid-retry-frame and the card
+          // mis-syncs (harmless ignored bad-CRC7 frames, but they trip the
+          // hygiene counter). A real card answers a new command at any
+          // time: abort the data wait on a command start bit.
+          if (cmd === 1'b0) begin
+            cframe <= {47'h0, 1'b0};
+            ccnt   <= 9'd1;
+            cstate <= C_CMDRX;
+            drx_to <= 9'd0;
+          end else
+`endif
           if (dat[0] === 1'b0) begin
             drx_cnt <= 9'd1;                           // start bit
             drx_to  <= 9'd0;

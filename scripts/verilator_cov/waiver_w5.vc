@@ -169,3 +169,21 @@ waiver sdio-toggle-2 rtl/SDIO_top.sv toggle \
   reason="geometry/encoding-bound bits: bd_cnt[0] (BIT_CLKS=1 -> constant 0), bit_cnt[6] (counter <= 47), n_bytes[6] (1..32), wr_byte_cnt[6]/rd_byte_cnt[6:5] (<= 32), shift[47] (command start bit, always 0), cmd_idx[1]/cmd_idx[3] (latched only for CMD52=6'b110100 / CMD53=6'b110101, bits 1 and 3 are 0 in both — latch condition verified at rtl/SDIO_top.sv:217)."
 waiver sdio-toggle-3 rtl/SDIO_top.sv toggle \
   reason="wr_buf[29][7], wr_buf[30][1]: stochastic residual — staging-buffer high indices written only by >=30-byte blocks (rare in the random mix); byte values fully random so individual bits can stay 0 for a seed. Each bit is coverable (seed +7 covers wr_buf[29][7]); data integrity through exactly these bytes is proven by CMD53 read-back compares of every 32-byte block."
+
+# ---- eMMC ----
+waiver emmc-line-1 rtl/eMMC_top.sv:119,211,250,270,274,284,287,293-297,410,422 line \
+  reason="Verilator 5.006 attribution artifacts on declaration/guard/macro lines (same class as nvme-line-3/sata-line-1): error-flag decl (119), constant-1 bit_tick guard (211), and multi-line EMMC_RAISE macro expansion sites (250,270,274,284,287,293-297,410,422) lose their DA points. Execution proven by TB self-checks: 120-txn CRV observed err_timeout set 34x (mute), err_crc7 set (corrupted R1), err_crc16 set (corrupted read block) — each followed by a verified recovery round."
+waiver emmc-line-2 rtl/eMMC_top.sv:174,178,179 line \
+  reason="bit_tick/bd_cnt: BIT_CLKS=1 makes bit_tick constant 1; bd_cnt else/incr arm dead, decl constant-folded (same as sata-line-4)."
+waiver emmc-line-3 rtl/eMMC_top.sv:305,361,385,426,427 line \
+  reason="FSM default arms: state/phase/dphase are fully-cased enums; default encodings unreachable."
+waiver emmc-line-4 rtl/eMMC_top.sv:360,361,371,384,385 line \
+  reason="data-phase wait-timeout arms (write-data start / busy release / read-data start): the card model always drives data and releases busy within a few cycles in these phases (mute suppresses only command responses), so TO_MAX arms are unreachable in this config (same class as ufs-line-3)."
+waiver emmc-line-5 rtl/eMMC_top.sv:415,416,419 line \
+  reason="err_cmp raise arm: requires a read-data content corruption with a VALID CRC16; the card model can only inject CRC-level errors, and the DUT verifiably does not corrupt data (every clean round compares exact 256-bit blocks). Unreachable without a DUT bug."
+waiver emmc-toggle-1 rtl/eMMC_top.sv toggle \
+  reason="exp_blk constant/limited bits (120): the expected-block pattern is 32'hA5003C00 ^ round ^ (i*32'h00010101) per 32-bit word with round<=3 and 4 blocks; large bit ranges are structurally constant across the whole run."
+waiver emmc-toggle-2 rtl/eMMC_top.sv toggle \
+  reason="cid constant bits (63): cid captures the TB's fixed CID_VAL=128'h0123456789ABCDEF FEDCBA9876543211; bits that are 0 in that constant can never toggle in this config."
+waiver emmc-toggle-3 rtl/eMMC_top.sv toggle \
+  reason="encoding/geometry-bound bits: rsp_len[2:0]+[6] (only 48/136), rsp_sh[135:134]+rsp_nxt[135] (responses lead with 2'b00), cur_cmd[2]+[5] (only CMD0/1/2/3/17/24), wait_cnt[6] (<TO_MAX<=64), round[7]/match_cnt[7] (<=4 rounds), bd_cnt[0] (BIT_CLKS=1), err_cmp (see emmc-line-5)."
