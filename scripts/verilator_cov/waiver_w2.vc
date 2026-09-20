@@ -92,3 +92,22 @@ waiver tcpc-line-4  rtl/USB_Type_C_Port_Controller_top.sv:174  line \
 
 waiver tcpc-toggle-1 rtl/USB_Type_C_Port_Controller_top.sv:174  toggle \
   reason="unused tie-off wire is constant 0 (framework-parameter sink), can never toggle."
+
+# ---- USB_PD ----
+waiver pd-line-1  rtl/USB_PD_top.sv:247,392,474  line \
+  reason="dead default arms: rx_st is 3-bit with values 0-4 cased; tx_st is 4-bit with values 0-7 cased; pe_st is 3-bit with values 0-4 cased. Remaining encodings unreachable."
+
+waiver pd-line-2  rtl/USB_PD_top.sv:444,451,457,461  line \
+  reason="PE case-arm condition lines report DA 0 (5.006 attribution artifact for multi-line if conditions; arm bodies at 445-447/452-453/458/462-463 all show hits). Execution proven: full negotiations reach PE_CONTRACT/vbus_ok=1 only through these arms; the GoodCRC-msgid-mismatch CRV scenario exercises lines 452-453 (irq asserted)."
+
+waiver pd-line-3  rtl/USB_PD_top.sv:484  line \
+  reason="unused tie-off wire: constant 0 by construction, const-folded, no executable statement to cover."
+
+waiver pd-toggle-1 rtl/USB_PD_top.sv toggle \
+  reason="structurally unreachable bits: tx_st[3] (4-bit enum, values 0-7), tx_bit_cnt[5]/bit_cnt[5] (counters 0..31), nobj[2]/rx_nobj[2]/rx_hdr_q[14] (numobj<=2; larger rejected as prot_err before capture), tx_sym[2:1] (K_SYNC1=5'b11000/K_SYNC2=5'b10001 constants), obj_sr[0] (never-read bit: obj_next uses obj_sr[31:1], optimized constant), unused (tie-off)."
+
+waiver pd-toggle-2 rtl/USB_PD_top.sv:261  toggle \
+  reason="tx_hdr_q[15:13],[8],[6:2] never toggle: sink TX header templates are fixed -- ext=0, numobj in {0,1} (bits 14-13 = 0), powerrole=0 (sink), specrev=2'b10 (bit 6 = 0), datarole=0 (UFP), mtype in {GoodCRC=5'h01, Request=5'h02} (bits 4-2 = 0)."
+
+waiver pd-toggle-3 rtl/USB_PD_top.sv:410-413  toggle \
+  reason="tx_obj_q/rdo_q/rdo_sel dead bits: the RDO is one of two design-fixed values ({pos=2,8'h00,200,200} for the 9V PDO or {pos=1,8'h00,150,150} for the 5V PDO); all other bit patterns are unreachable with the fixed Source_Capabilities set."

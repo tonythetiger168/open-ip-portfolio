@@ -14,6 +14,7 @@ Methodology per docs/COVERAGE.md. Waivers for this wave live in
 | USB4 | PASS | PASS | 132/138 (95.7%) + 5 waivers = 138/138 | 440/495 (88.9%) + 3 waivers = 495/495 | 5/5 | 8695683/8695683 | **closed (8 waivers)** |
 | USB2_0 | PASS | PASS | 173/184 (94.0%) + 3 waivers = 184/184 | 268/377 (71.1%) + 4 waivers = 377/377 | 7/7 | 4542723/4542723 | **closed (7 waivers)** |
 | USB_Type_C_Port_Controller | PASS | PASS | 81/85 (95.3%) + 4 waivers = 85/85 | 58/59 (98.3%) + 1 waiver = 59/59 | 3/3 | 78933/78933 | **closed (5 waivers)** |
+| USB_PD | PASS | PASS | 316/324 (97.5%) + 3 waivers = 324/324 | 409/474 (86.3%) + 3 waivers = 474/474 | 18/18 | 376323/376323 | **closed (6 waivers)** |
 
 ## CRV stimulus summary
 
@@ -38,6 +39,13 @@ Methodology per docs/COVERAGE.md. Waivers for this wave live in
   Ra-only/both-Rd non-sink levels, detach glitches, role toggles, RO-write
   immunity). Self-checks: attach/detach timing, orientation, vbus_en/role
   composition, INT_STAT/FAULT_STAT readbacks, W1C clear behavior.
+
+- **USB_PD**: 100 txns (safe-type pings with fully randomized header
+  template + objects, 9V negotiations incl. re-negotiation in CONTRACT,
+  bad-CRC, numobj>2 truncated frames, HardReset + recovery, GoodCRC msgid
+  mismatch + recovery, 5V-only single-PDO negotiation selecting RDO pos 1).
+  Self-checks: GoodCRC echo msgid/CRC32 residue, Request RDO fields,
+  vbus_ok contract state, irq set/clear sequencing, no-reply windows.
 
 ## Suspected RTL bugs (recorded, NOT fixed per v2.5 discipline)
 
