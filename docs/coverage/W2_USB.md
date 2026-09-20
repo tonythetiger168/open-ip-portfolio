@@ -12,6 +12,7 @@ Methodology per docs/COVERAGE.md. Waivers for this wave live in
 |---|---|---|---|---|---|---|---|
 | USB3_2 | PASS | PASS | 123/138 (89.1%) + 5 waivers = 138/138 | 440/495 (88.9%) + 3 waivers = 495/495 | 5/5 | 8695683/8695683 | **closed (8 waivers)** |
 | USB4 | PASS | PASS | 132/138 (95.7%) + 5 waivers = 138/138 | 440/495 (88.9%) + 3 waivers = 495/495 | 5/5 | 8695683/8695683 | **closed (8 waivers)** |
+| USB2_0 | PASS | PASS | 173/184 (94.0%) + 3 waivers = 184/184 | 268/377 (71.1%) + 4 waivers = 377/377 | 7/7 | 4542723/4542723 | **closed (7 waivers)** |
 
 ## CRV stimulus summary
 
@@ -24,6 +25,13 @@ Methodology per docs/COVERAGE.md. Waivers for this wave live in
 - **USB4**: 100 txns, same mix as USB3_2 (RTL identical except STP=8'hFB /
   END=8'hFD). Same self-checks and same wrong-STP deterministic probe.
 
+- **USB2_0**: 100 txns (54 good / 19 bad-CRC16 / 8 bad-PID-nibble / 8
+  bit-stuff-violation / 11 short-frame). Random PID nibble (0..14 for
+  echo-compared frames, see bug 3), random payload length 0..8 (0/1/8
+  boundaries forced), random payload bytes. Good frames: echo PID/len/payload
+  compare + irq pulse count. Bad frames: no echo, busy low, sticky rx_err.
+  Deterministic bad-PID probe at txn 2 proves rx_err 0->1.
+
 ## Suspected RTL bugs (recorded, NOT fixed per v2.5 discipline)
 
 1. **USB3_2** `rtl/USB3_2_top.sv:196`: echo-copy loop
@@ -35,3 +43,11 @@ Methodology per docs/COVERAGE.md. Waivers for this wave live in
    comment pointing here.
 2. **USB4** `rtl/USB4_top.sv:196`: identical OOB echo-copy loop as USB3_2
    (same `tx_mem[16..19]` aliasing, same CRV `hdr[0..3]` exclusion).
+3. **USB2_0** `rtl/USB2_0_top.sv:98`: TX `run_cnt` is not reset at the
+   SYNC->PID boundary (SYNC bit7=1 leaves `run_cnt`=2 entering the PID
+   field), so with `pid_b=8'h0F` (PID nibble F) the count reaches 6 after
+   the four leading PID ones and the transmitter inserts a **spurious stuff
+   bit**, shifting every following echo bit by one (spec 7.1.9 restarts
+   run-counting after SYNC; the DUT's own RX does reset `rrun`). CRV
+   rejection-samples PID=F out of echo-compared frames with a comment
+   pointing here.

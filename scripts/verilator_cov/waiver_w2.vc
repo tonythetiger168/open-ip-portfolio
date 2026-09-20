@@ -54,3 +54,25 @@ waiver usb4-toggle-2 rtl/USB4_top.sv toggle \
 
 waiver usb4-toggle-3 rtl/USB4_top.sv:121  toggle \
   reason="buf_mem[0], buf_mem[22], buf_mem[23] never written (receiver writes ridx 1..21 only); buf_mem[1][7:6] never set: LEN byte <= 16 in valid frames."
+
+# ---- USB2_0 ----
+waiver usb20-line-1  rtl/USB2_0_top.sv:214-222  line \
+  reason="CRC-fail/echo-launch block reports DA 0 (5.006 attribution artifact in always_ff case with multi-line if/for). Execution proven: bad-CRC frames set rx_err with no echo (only reachable via line 214); every good frame echoes with payload compare and irq_cnt==1 -- rx_done/tx_len/tx_mem copy (lines 215-222) must execute."
+
+waiver usb20-line-2  rtl/USB2_0_top.sv:130  line \
+  reason="default: tstate <= T_IDLE is dead: tstate is 2-bit with all 4 encodings explicitly cased."
+
+waiver usb20-line-3  rtl/USB2_0_top.sv:243  line \
+  reason="default: rstate <= R_IDLE is dead: rstate is 2-bit with values 0-2 explicitly cased, value 3 unreachable."
+
+waiver usb20-toggle-1 rtl/USB2_0_top.sv:147  toggle \
+  reason="buf_mem[11..19] never written: frames carry PID + <=MAXB(8) payload + CRC16 = at most 11 bytes, so ridx stays <= 10."
+
+waiver usb20-toggle-2 rtl/USB2_0_top.sv:21,151  toggle \
+  reason="tmr[15:5] and rtmr[15:5] never toggle: both counters run 0..BAUD_DIV-1=19 with BAUD_DIV=20, bits [15:5] structurally unreachable."
+
+waiver usb20-toggle-3 rtl/USB2_0_top.sv toggle \
+  reason="Counter/enum high bits unreachable by construction: ridx[5:4] (<=10), rrun[3]/run_cnt[3] (run counters stay <= 7), ta_cnt[3] (only assigned 6), tbit[5:4] (counts 0..15), tx_len[4] (payload <= 8)."
+
+waiver usb20-toggle-4 rtl/USB2_0_top.sv:64  toggle \
+  reason="sync_b[6:0] never toggle: sync_b is the constant 8'h80 (tie-off bits)."
