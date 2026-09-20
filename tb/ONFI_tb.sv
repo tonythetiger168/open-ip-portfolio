@@ -14,6 +14,86 @@ module ONFI_tb;
   always #5 clk = ~clk;
   assign rx = host_oe ? host_val : tx;
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
+  // Tool notes (Verilator 5.006): no native FSM/SVA coverage and
+  // randomize() ignores constraint blocks -> procedural constraints
+  // ($urandom_range + rejection sampling), TB FSM probes, immediate
+  // assertions. The timeout guard is chunked (see bottom of file).
+  //
+  // FSM probe paths (DUT is not a wrapper; probe the RTL directly):
+  //   dut.tstate (T_IDLE/T_CALC/T_DATA, 3 states)
+  //   dut.rstate (R_IDLE/R_DATA, 2 states)
+  //
+  // Shadow model for BUG-ONFI-1 (rtl/ONFI_top.sv:196-197, recorded in
+  // docs/coverage/W4_MEMORY.md): the echo-copy loop writes tx_mem[0..19]
+  // but tx_mem is declared [0:15]; under Verilator the out-of-bounds
+  // indices are masked so tx_mem[0..3] are overwritten with
+  // buf_mem[18..21] (CRC bytes for plen=8 frames, stale bytes for
+  // shorter frames). exp_txm predicts the echoed bytes the DUT will
+  // actually send; sh_buf tracks the DUT receive buffer across frames.
+  // =====================================================================
+  localparam int CRV_FSM_TOTAL = 5;   // tstate(3) + rstate(2)
+  logic [2:0] t_seen = '0;
+  logic [1:0] r_seen = '0;
+  wire  [1:0] dut_tstate = dut.tstate;
+  wire        dut_rstate = dut.rstate;
+
+  logic [7:0] sh_buf  [0:22];         // shadow of DUT buf_mem[0:22]
+  logic [7:0] exp_txm [0:15];         // predicted echo content (shadow)
+  int         exp_len = 0;
+
+  int sva_total = 0, sva_fail = 0;
+  // counted immediate assertion: every evaluation is one check
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors++;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // FSM coverage: sample both DUT state registers every clock
+  always @(posedge clk) begin
+    t_seen[dut_tstate] <= 1'b1;
+    r_seen[dut_rstate] <= 1'b1;
+  end
+
+  // output-invariant assertion suite (sampled coherently pre-NBA)
+  logic p_irq = 0, p_rxerr = 0;
+  int rst_cyc = 0;   // consecutive reset clocks (skip the fall-edge cycle)
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      // A1: outputs quiescent during reset (from the 2nd reset clock on)
+      if (rst_cyc >= 1)
+        sva_check(dut.busy === 1'b0 && dut.irq === 1'b0 &&
+                  dut.oe_q === 1'b0 && dut.rx_err === 1'b0,
+                  "A1 reset: outputs quiescent");
+      rst_cyc <= rst_cyc + 1;
+    end else begin
+      rst_cyc <= 0;
+      // A2/A3: FSM state encodings legal
+      sva_check(dut_tstate <= 2'd2, "A2 tstate encoding legal");
+      sva_check(dut_rstate <= 1'd1, "A3 rstate encoding legal");
+      // A4: busy is exactly "either FSM out of idle"
+      sva_check(dut.busy === ((dut_tstate != 2'd0) || (dut_rstate != 1'd0)),
+                "A4 busy == FSMs not idle");
+      // A5: irq is a single-cycle pulse
+      sva_check(!(p_irq && dut.irq), "A5 irq single-cycle pulse");
+      // A6: rx_err is sticky until reset
+      sva_check(!p_rxerr || dut.rx_err, "A6 rx_err sticky");
+      // A7: tx pad driven only while the TX FSM is active
+      sva_check(!dut.oe_q || (dut_tstate != 2'd0), "A7 tx driven only in TX");
+    end
+    p_irq   <= dut.irq;
+    p_rxerr <= dut.rx_err;
+  end
+`endif
+
   function automatic logic [31:0] crc32(input logic [31:0] c, input logic b);
     logic fb; begin fb=c[0]^b; crc32=c>>1; if(fb) crc32=crc32^32'hEDB88320; end
   endfunction
@@ -36,6 +116,17 @@ module ONFI_tb;
         for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; #(BIT); end
       end
       c = ~c;
+`ifdef VERILATOR
+      // BUG-ONFI-1 shadow: track the DUT receive buffer and predict the
+      // echoed bytes (tx_mem[0..3] are clobbered by buf_mem[18..21])
+      sh_buf[1] = HB + plen;
+      for (int i = 0; i < HB; i++)   sh_buf[2 + i] = hdr[i];
+      for (int i = 0; i < plen; i++) sh_buf[HB + 2 + i] = pl[i];
+      for (int k = 0; k < 4; k++)    sh_buf[2 + HB + plen + k] = c[8*k +: 8];
+      for (int j = 0; j < HB + plen; j++)
+        exp_txm[j] = (j < 4) ? sh_buf[18 + j] : sh_buf[2 + j];
+      exp_len = HB + plen;
+`endif
       for (int i=0;i<32;i++) begin host_val=c[0]; c=c>>1; #(BIT); end
       fb = 8'hFD; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
       host_oe = 0;
@@ -66,6 +157,71 @@ module ONFI_tb;
     end
   endtask
 
+`ifdef VERILATOR
+  // ---- v2.5 CRV helpers ------------------------------------------------
+  // frame with a deliberate protocol error:
+  //   mode 1: corrupt CRC (stored, no echo, rx_err set)
+  //   mode 2: bad STP byte, frame aborted (ignored, rx_err set)
+  //   mode 3: bad END byte (stored, no echo, rx_err set)
+  task automatic send_tlp_bad(input int plen, input int mode);
+    logic [31:0] c; logic [7:0] fb;
+    begin
+      host_oe = 1; host_val = 1'b0; #(BIT);
+      fb = (mode == 2) ? 8'hFA : 8'hFB;
+      for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
+      if (mode == 2) begin
+        host_oe = 0; #(BIT*4);     // abort: nothing else on the wire
+      end else begin
+        fb = HB + plen; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
+        c = 32'hFFFFFFFF;
+        for (int i=0;i<HB;i++) begin
+          fb = hdr[i];
+          for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; #(BIT); end
+        end
+        for (int i=0;i<plen;i++) begin
+          fb = pl[i];
+          for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; #(BIT); end
+        end
+        c = ~c;
+        // shadow: bytes are stored even when the CRC/END check fails
+        sh_buf[1] = HB + plen;
+        for (int i = 0; i < HB; i++)   sh_buf[2 + i] = hdr[i];
+        for (int i = 0; i < plen; i++) sh_buf[HB + 2 + i] = pl[i];
+        for (int k = 0; k < 4; k++)
+          sh_buf[2 + HB + plen + k] = (mode == 1) ? (c[8*k +: 8] ^ (k == 0)) : c[8*k +: 8];
+        if (mode == 1) c = c ^ 32'h1;          // corrupt CRC: no rx_done
+        for (int i=0;i<32;i++) begin host_val=c[0]; c=c>>1; #(BIT); end
+        fb = (mode == 3) ? 8'hFC : 8'hFD;      // corrupt END: no rx_done
+        for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
+        host_oe = 0;
+      end
+    end
+  endtask
+
+  // receive an echo and compare against the BUG-ONFI-1 shadow prediction
+  task automatic crv_recv_cmp(input int plen, input int tag);
+    int rlen2;
+    begin
+      recv_tlp(rlen2);
+      if (rlen2 !== plen) begin
+        errors++; $display("ERROR: CRV#%0d plen got=%0d exp=%0d", tag, rlen2, plen);
+      end
+      for (int i = 0; i < HB; i++) begin
+        if (hdr[i] !== exp_txm[i]) begin
+          errors++;
+          $display("ERROR: CRV#%0d hdr[%0d] got=%h exp=%h", tag, i, hdr[i], exp_txm[i]);
+        end
+      end
+      for (int i = 0; i < plen; i++) begin
+        if (pl[i] !== exp_txm[HB+i]) begin
+          errors++;
+          $display("ERROR: CRV#%0d pl[%0d] got=%h exp=%h", tag, i, pl[i], exp_txm[HB+i]);
+        end
+      end
+    end
+  endtask
+`endif
+
   int rlen;
   initial begin
     for (int i=0;i<8;i++) begin hdr[i] = 8'h10 + i; pl[i] = 8'hA0 + i * 8'h11; end
@@ -80,9 +236,77 @@ module ONFI_tb;
       end
     end
     if (dut.rx_err !== 1'b0) begin errors++; $display("ERROR: ONFI rx_err set"); end
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed test above untouched) ----
+    // 110 frames: random header/payload, random payload length 0..8
+    // (rejection-weighted boundaries 0 and 8), echo compared against the
+    // BUG-ONFI-1 shadow prediction; ~1 in 8 frames is an error injection
+    // (bad CRC / bad STP / bad END -> no echo, sticky rx_err), then a
+    // reset recovery: rx_err must clear and a clean frame must echo.
+    begin : crv_phase
+      int n_ok = 0, n_bad = 0;
+      for (int i = 0; i < 23; i++) sh_buf[i] = 8'h00;   // 2-state init
+      for (int t = 0; t < 110; t++) begin
+        for (int i = 0; i < HB; i++) hdr[i] = $urandom_range(0, 255);
+        for (int i = 0; i < 8; i++)  pl[i]  = $urandom_range(0, 255);
+        rlen = $urandom_range(0, 8);
+        // rejection sampling: over-weight boundary lengths 0 and 8
+        if ($urandom_range(0, 9) < 3) rlen = ($urandom_range(0, 1) == 0) ? 0 : 8;
+        if ($urandom_range(0, 7) == 0) begin
+          // error injection: rotating corruption mode, no echo allowed
+          n_bad++;
+          send_tlp_bad(rlen, 1 + (n_bad % 3));
+          #(BIT*80);
+          if (dut.rx_err !== 1'b1) begin
+            errors++; $display("ERROR: CRV#%0d rx_err not set (mode %0d)", t, 1 + (n_bad % 3));
+          end
+          if (tx !== 1'b1) begin
+            errors++; $display("ERROR: CRV#%0d echo after bad frame", t);
+          end
+        end else begin
+          n_ok++;
+          send_tlp(rlen);
+          crv_recv_cmp(rlen, t);
+        end
+      end
+      // recovery: reset clears rx_err, device still echoes correctly
+      rst_n = 0; repeat(5) @(posedge clk);
+      rst_n = 1; repeat(5) @(posedge clk);
+      if (dut.rx_err !== 1'b0) begin
+        errors++; $display("ERROR: CRV rx_err not cleared by reset");
+      end
+      for (int i = 0; i < HB; i++) hdr[i] = $urandom_range(0, 255);
+      for (int i = 0; i < 8; i++)  pl[i]  = $urandom_range(0, 255);
+      send_tlp(8);
+      crv_recv_cmp(8, 999);
+      $display("CRV: 110 frames (ok=%0d bad=%0d) + reset recovery", n_ok, n_bad);
+    end
+`endif
+
     if (errors == 0) $display("TEST PASSED: ONFI");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < 3; s++) visited += t_seen[s];
+      for (int s = 0; s < 2; s++) visited += r_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, CRV_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
+`ifdef VERILATOR
+  // Random phase adds traffic: extend the guard. The timeout is chunked
+  // into 1-us delays: with Verilator 5.006 a single long-pending #delay
+  // event corrupts the --timing delay heap once many short-delay
+  // resumptions interleave with it (see docs/COVERAGE.md note 1).
+  initial begin
+    repeat (20000) #10000;  // 200 ms in 10-us chunks (inflated: scheduler pathology slows sim-time)
+    $display("TIMEOUT"); $finish;
+  end
+`else
   initial begin #10_000_000; $display("TIMEOUT"); $finish; end
+`endif
 endmodule
