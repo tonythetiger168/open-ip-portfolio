@@ -131,6 +131,249 @@ module D_PHY_tb;
           $sformatf("%s: rx byte count got=%0d exp=%0d", tag, rxn - rxn_mark, n));
   endtask
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
+  // Tool notes (Verilator 5.006): no native FSM/SVA coverage and
+  // randomize() ignores constraint blocks -> procedural constraints
+  // ($urandom_range + rejection sampling), TB FSM probe, immediate
+  // assertions.
+  // =====================================================================
+  localparam int DPHY_FSM_TOTAL = 33; // TX: 18 states + RX: 15 states
+  logic [32:0] fsm_seen = '0;         // visited-state bitmap
+  wire  [4:0] dut_tstate = dut.tstate;   // hierarchical FSM probes
+  wire  [3:0] dut_rstate = dut.rstate;
+
+  int sva_total = 0, sva_fail = 0;
+  // counted immediate assertion: every evaluation is one check
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors++;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // FSM coverage: sample both DUT state registers every clock
+  always @(posedge clk) begin
+    fsm_seen[dut_tstate]      <= 1'b1;
+    fsm_seen[18 + dut_rstate] <= 1'b1;
+  end
+
+  // output-invariant assertion suite (sampled coherently pre-NBA)
+  bit first_cycle = 1;   // skip the very first posedge (DUT reset values
+                         // land in that NBA region)
+  always @(posedge clk) begin
+    if (first_cycle) begin
+      first_cycle <= 0;
+    end else if (!rst_n) begin
+      // A1: outputs quiescent during reset
+      sva_check({d_lp_p, d_lp_n} === 2'b11 && {c_lp_p, c_lp_n} === 2'b11 &&
+                d_hs_en === 1'b0 && c_hs_en === 1'b0 && irq === 1'b0 &&
+                rx_data_valid === 1'b0 && rx_esc_valid === 1'b0,
+                "A1 reset: outputs quiescent");
+    end else begin
+      // A2: irq mirrors the sticky error flag
+      sva_check(irq === dut.err_sticky, "A2 irq mirrors err_sticky");
+      // A3: rx_hs_active exactly while the RX FSM decodes an HS burst
+      sva_check(rx_hs_active === ((dut_rstate == 4'd3) || (dut_rstate == 4'd4)),
+                "A3 rx_hs_active mirrors rstate");
+      // A4: rx_ulps exactly while the RX FSM sits in ULPS
+      sva_check(rx_ulps === (dut_rstate == 4'd10), "A4 rx_ulps mirrors rstate");
+      // A5: enabled HS drivers are always differential (data + clock lane)
+      sva_check(!d_hs_en || (d_hs_n === ~d_hs_p), "A5 data lane differential");
+      sva_check(!c_hs_en || (c_hs_n === ~c_hs_p), "A6 clock lane differential");
+      // A7: hs_tx_ready mirrors skid-buffer occupancy and HS phase
+      sva_check(hs_tx_ready === (~dut.buf_valid &
+                ((dut_tstate == 5'd4) | (dut_tstate == 5'd5))),
+                "A7 hs_tx_ready mirrors buf/state");
+      // A8: stopped lane is LP-11 with HS drivers off
+      sva_check((dut_tstate != 5'd0) ||
+                ({d_lp_p, d_lp_n} === 2'b11 && d_hs_en === 1'b0),
+                "A8 stop state is LP-11");
+    end
+  end
+
+  // ---- passive lane recorder -------------------------------------------
+  // Replaces the forked mon_* coroutines on the Verilator path: with
+  // 5.006 --timing, concurrent timing coroutines lose wakeups / resume
+  // ~10us late (the directed phase then misaligns with the free-running
+  // DUT clock). The recorder samples the data lane every negedge (same
+  // sampling point as the original monitors); checks run post-hoc from
+  // the single stimulus coroutine.
+  logic [1:0] rec_lp   [0:1023];
+  logic       rec_hsen [0:1023];
+  logic       rec_hsp  [0:1023];
+  logic       rec_chen [0:1023];
+  logic       rec_chsp [0:1023];
+  logic       rec_rxhs [0:1023];
+  int  rec_n = 0;
+  bit  rec_en = 1'b0;
+  int  mon_guard;
+  always @(negedge clk) begin
+    if (rec_en && rec_n < 1024) begin
+      rec_lp[rec_n]   = {d_lp_p, d_lp_n};
+      rec_hsen[rec_n] = d_hs_en;
+      rec_hsp[rec_n]  = d_hs_p;
+      rec_chen[rec_n] = c_hs_en;
+      rec_chsp[rec_n] = c_hs_p;
+      rec_rxhs[rec_n] = rx_hs_active;
+      rec_n = rec_n + 1;
+    end
+  end
+
+  // bounded wait until the lane shows LP-11 with HS drivers off
+  task automatic wait_lane_idle;
+    begin
+      mon_guard = 0;
+      while (!({d_lp_p, d_lp_n} === 2'b11 && d_hs_en === 1'b0) &&
+             mon_guard < 2000) begin
+        @(negedge clk);
+        mon_guard++;
+      end
+      check(mon_guard < 2000, "lane did not return to LP-11");
+      repeat (2) @(negedge clk);
+    end
+  endtask
+
+  // post-hoc equivalent of mon_hs (works on the recorder arrays)
+  task automatic pc_mon_hs(input int n, input string tag);
+    logic [7:0] sh;
+    logic       lb, c0;
+    int         idx;
+    begin
+      idx = 0;
+      while (idx < rec_n && rec_lp[idx] !== 2'b01) idx++;  // skip idle
+      check(idx < rec_n, {tag, ": HS SoT LP-01 not seen"});
+      idx = idx + 1;
+      check(rec_lp[idx] === 2'b00, {tag, ": HS SoT LP-00 bridge"});
+      idx = idx + 1;
+      check(rec_hsen[idx] === 1'b1 && rec_hsp[idx] === 1'b0,
+            {tag, ": HS SoT HS-0 entry"});
+      check(rec_chen[idx] === 1'b1, {tag, ": clock lane HS enabled"});
+      sh = 8'h00;
+      c0 = rec_chsp[idx];
+      for (int i = 0; i < 8; i++) begin
+        idx = idx + 1;
+        check(rec_hsen[idx] === 1'b1, {tag, ": HS sync driver enabled"});
+        sh = {rec_hsp[idx], sh[7:1]};
+        if (i == 1) check(rec_chsp[idx] !== rec_chsp[idx - 1],
+                          {tag, ": HS clock toggles"});
+      end
+      check(sh === 8'hB8, {tag, ": HS sync byte"});
+      check(rec_rxhs[idx] === 1'b1, {tag, ": rx_hs_active during payload"});
+      for (int b = 0; b < n; b++) begin
+        sh = 8'h00;
+        for (int i = 0; i < 8; i++) begin
+          idx = idx + 1;
+          check(rec_hsen[idx] === 1'b1, {tag, ": HS data driver enabled"});
+          sh = {rec_hsp[idx], sh[7:1]};
+        end
+        check(sh === exp_bytes[b],
+              $sformatf("%s: HS wire byte %0d got=%h exp=%h",
+                        tag, b, sh, exp_bytes[b]));
+      end
+      lb = rec_hsp[idx];
+      idx = idx + 1;
+      check(rec_hsen[idx] === 1'b1 && rec_hsp[idx] === ~lb,
+            {tag, ": HS EoT last bit inverted"});
+      idx = idx + 1;
+      check(rec_hsen[idx] === 1'b1 && rec_hsp[idx] === lb,
+            {tag, ": HS EoT last level held"});
+      idx = idx + 1;
+      check(rec_hsen[idx] === 1'b0 && rec_lp[idx] === 2'b11,
+            {tag, ": HS EoT return to LP-11"});
+    end
+  endtask
+
+  // common tail of an injection sequence: return the lane to LP-11,
+  // release the mux, expect the sticky irq, then clear it
+  task automatic inj_err_tail(input string tag);
+    begin
+      @(negedge clk);
+      i_hs_en <= 1'b0;
+      i_lp_p  <= 1'b1;
+      i_lp_n  <= 1'b1;
+      @(negedge clk);
+      inj <= 1'b0;
+      repeat (2) @(negedge clk);
+      check(irq === 1'b1, {tag, ": irq not raised"});
+      @(negedge clk);
+      irq_clear <= 1'b1;
+      @(negedge clk);
+      irq_clear <= 1'b0;
+      @(negedge clk);
+      check(irq === 1'b0, {tag, ": irq not cleared"});
+    end
+  endtask
+
+  // post-hoc equivalent of mon_esc_entry + the per-mode exit monitors
+  // mode: 0 = LPDT (exp_n data bytes), 1 = ULPS, 2 = Trigger-Reset
+  task automatic pc_mon_esc(input logic [7:0] cmd, input int mode,
+                            input string tag);
+    logic [7:0] sh;
+    int         idx;
+    begin
+      idx = 0;
+      while (idx < rec_n && rec_lp[idx] !== 2'b10) idx++;  // skip idle
+      check(idx < rec_n, {tag, ": ESC entry LP-10 not seen"});
+      idx = idx + 1;
+      check(rec_lp[idx] === 2'b00, {tag, ": ESC entry LP-00"});
+      idx = idx + 1;
+      check(rec_lp[idx] === 2'b01, {tag, ": ESC entry LP-01"});
+      idx = idx + 1;
+      check(rec_lp[idx] === 2'b00, {tag, ": ESC entry LP-00 (2nd)"});
+      sh = 8'h00;
+      for (int i = 0; i < 8; i++) begin
+        idx = idx + 1;
+        check(rec_lp[idx] === 2'b10 || rec_lp[idx] === 2'b00,
+              {tag, ": ESC cmd bit level"});
+        sh = {rec_lp[idx][1], sh[7:1]};
+      end
+      check(sh === cmd, {tag, ": ESC cmd on wire"});
+      if (mode == 0) begin
+        for (int b = 0; b < exp_n; b++) begin
+          sh = 8'h00;
+          for (int i = 0; i < 8; i++) begin
+            idx = idx + 1;
+            check(rec_lp[idx] === 2'b10 || rec_lp[idx] === 2'b00,
+                  {tag, ": LPDT bit level"});
+            sh = {rec_lp[idx][1], sh[7:1]};
+          end
+          check(sh === exp_bytes[b],
+                $sformatf("%s: LPDT wire byte %0d got=%h exp=%h",
+                          tag, b, sh, exp_bytes[b]));
+        end
+        idx = idx + 1;
+        check(rec_lp[idx] === 2'b01, {tag, ": LPDT exit LP-01 space"});
+        idx = idx + 1;
+        check(rec_lp[idx] === 2'b10, {tag, ": LPDT exit LP-10 Mark-1"});
+        idx = idx + 1;
+        check(rec_lp[idx] === 2'b11, {tag, ": LPDT exit LP-11 stop"});
+      end else if (mode == 1) begin
+        idx = idx + 1;
+        check(rec_lp[idx] === 2'b00, {tag, ": ULPS lines held LP-00"});
+        while (idx < rec_n && rec_lp[idx] !== 2'b10) idx++;
+        check(idx < rec_n, {tag, ": ULPS exit LP-10 not seen"});
+        idx = idx + 1;
+        check(rec_lp[idx] === 2'b11, {tag, ": ULPS exit LP-11 stop"});
+      end else begin
+        for (int i = 0; i < 4; i++) begin
+          idx = idx + 1;
+          check(rec_lp[idx] === 2'b00, {tag, ": Trigger Mark-1 hold LP-00"});
+        end
+        idx = idx + 1;
+        check(rec_lp[idx] === 2'b10, {tag, ": Trigger exit LP-10"});
+        idx = idx + 1;
+        check(rec_lp[idx] === 2'b11, {tag, ": Trigger exit LP-11 stop"});
+      end
+    end
+  endtask
+`endif
+
   // ------------------------------------------------------------------
   // host sender tasks
   // ------------------------------------------------------------------
@@ -348,10 +591,18 @@ module D_PHY_tb;
     exp_bytes[3] = 8'h44;
     exp_n = 4;
     mark_rx;
+`ifdef VERILATOR
+    rec_n = 0; rec_en = 1'b1;               // single coroutine + recorder
+    hs_send(4);
+    wait_lane_idle;
+    rec_en = 1'b0;
+    pc_mon_hs(4, "HS burst #1");
+`else
     fork
       hs_send(4);
       mon_hs;
     join
+`endif
     repeat (2) @(negedge clk);
     check_rxq(4, "HS burst #1 loopback");
 
@@ -359,10 +610,18 @@ module D_PHY_tb;
     exp_bytes[0] = 8'hA5;
     exp_n = 1;
     mark_rx;
+`ifdef VERILATOR
+    rec_n = 0; rec_en = 1'b1;
+    hs_send(1);
+    wait_lane_idle;
+    rec_en = 1'b0;
+    pc_mon_hs(1, "HS burst #2");
+`else
     fork
       hs_send(1);
       mon_hs;
     join
+`endif
     repeat (2) @(negedge clk);
     check_rxq(1, "HS burst #2 loopback");
 
@@ -372,6 +631,21 @@ module D_PHY_tb;
     exp_bytes[1] = 8'h3C;
     exp_n = 2;
     mark_rx;
+`ifdef VERILATOR
+    rec_n = 0; rec_en = 1'b1;
+    esc_start(8'h87);
+    lpdt_push(8'h96, 0);
+    lpdt_push(8'h3C, 1);
+    mon_guard = 0;
+    while (esc_done !== 1'b1 && mon_guard < 2000) begin
+      @(negedge clk);
+      mon_guard++;
+    end
+    check(esc_done === 1'b1, "LPDT: esc_done timeout");
+    wait_lane_idle;
+    rec_en = 1'b0;
+    pc_mon_esc(8'h87, 0, "LPDT");
+`else
     fork
       begin
         esc_start(8'h87);
@@ -384,6 +658,7 @@ module D_PHY_tb;
         mon_lpdt_exit;
       end
     join
+`endif
     repeat (2) @(negedge clk);
     check_rxq(2, "LPDT loopback");
     check(escn - escn_mark === 1 && escq[escn_mark] === 8'h87,
@@ -392,6 +667,29 @@ module D_PHY_tb;
     // ---- check 5: escape ULPS ----
     exp_esc = 8'h78;
     mark_rx;
+`ifdef VERILATOR
+    rec_n = 0; rec_en = 1'b1;
+    esc_start(8'h78);
+    mon_guard = 0;
+    while (rx_ulps !== 1'b1 && mon_guard < 2000) begin
+      @(negedge clk);
+      mon_guard++;
+    end
+    check(rx_ulps === 1'b1, "ULPS: rx_ulps raised");
+    repeat (4) @(negedge clk);
+    esc_release <= 1'b1;
+    @(negedge clk);
+    esc_release <= 1'b0;
+    mon_guard = 0;
+    while (esc_done !== 1'b1 && mon_guard < 2000) begin
+      @(negedge clk);
+      mon_guard++;
+    end
+    @(negedge clk);
+    check(rx_ulps === 1'b0, "ULPS: rx_ulps cleared after exit");
+    rec_en = 1'b0;
+    pc_mon_esc(8'h78, 1, "ULPS");
+`else
     fork
       begin
         esc_start(8'h78);
@@ -410,12 +708,26 @@ module D_PHY_tb;
         mon_ulps_exit;
       end
     join
+`endif
     check(escn - escn_mark === 1 && escq[escn_mark] === 8'h78,
           "ULPS: rx escape command 8'h78 decoded");
 
     // ---- check 6: escape Trigger-Reset ----
     exp_esc = 8'h46;
     mark_rx;
+`ifdef VERILATOR
+    rec_n = 0; rec_en = 1'b1;
+    esc_start(8'h46);
+    mon_guard = 0;
+    while (esc_done !== 1'b1 && mon_guard < 2000) begin
+      @(negedge clk);
+      mon_guard++;
+    end
+    check(esc_done === 1'b1, "Trigger: esc_done timeout");
+    wait_lane_idle;
+    rec_en = 1'b0;
+    pc_mon_esc(8'h46, 2, "Trigger");
+`else
     fork
       begin
         esc_start(8'h46);
@@ -426,6 +738,7 @@ module D_PHY_tb;
         mon_trig_exit;
       end
     join
+`endif
     check(escn - escn_mark === 1 && escq[escn_mark] === 8'h46,
           "Trigger: rx escape command 8'h46 decoded");
 
@@ -475,18 +788,457 @@ module D_PHY_tb;
     @(negedge clk);
     irq_clear <= 1'b0;
 
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ------
+    // 120 randomized transactions. Classes: HS bursts of 1-8 random bytes
+    // (boundary 0x00/0xFF; every 4th burst also wire-checked post-hoc via
+    // the recorder), escape LPDT with 1-4 random bytes, escape ULPS with
+    // random hold length, escape Trigger-Reset, plus error injection
+    // (round-robin selector): unknown escape command, bad HS sync byte,
+    // LP-00 from STOP, HS abort during sync. All payloads/commands are
+    // looped back and self-checked against the capture queues; irq is
+    // checked after every transaction.
+    begin : crv_phase
+      int n_hs = 0, n_lpdt = 0, n_ulps = 0, n_trig = 0;
+      int n_euc = 0, n_ebs = 0, n_e00 = 0, n_eab = 0;
+      int n_ehu = 0, n_esot = 0, n_eent = 0, n_ecmd = 0, n_ephz = 0, n_eext = 0;
+      int roll, eroll = 0, nb;
+      logic [7:0] w_b, cmd_c;
+      for (int t = 0; t < 120; t++) begin
+        roll = $urandom_range(0, 29);
+        if (roll < 12) begin
+          // ---- random HS burst + loopback compare ----
+          // (the first burst is empty-payload: TX goes straight from
+          // the sync byte to EoT, covering the no-payload arm)
+          n_hs++;
+          nb = (n_hs == 1) ? 0 : 1 + $urandom_range(0, 7);
+          for (int i = 0; i < nb; i++) begin
+            if (t == 0)      w_b = 8'h00;
+            else if (t == 1) w_b = 8'hFF;
+            else begin
+              roll = $urandom_range(0, 9);
+              w_b = (roll == 0) ? 8'h00 : (roll == 1) ? 8'hFF
+                                : 8'($urandom_range(0, 255));
+            end
+            exp_bytes[i] = w_b;
+          end
+          exp_n = nb;
+          mark_rx;
+          if (n_hs % 4 == 1) begin
+            rec_n = 0; rec_en = 1'b1;      // wire-check every 4th burst
+            hs_send(nb);
+            wait_lane_idle;
+            rec_en = 1'b0;
+            pc_mon_hs(nb, "CRV HS");
+          end else begin
+            hs_send(nb);
+            wait_lane_idle;
+          end
+          check_rxq(nb, "CRV HS loopback");
+          if (irq !== 1'b0) begin
+            errors++; $display("ERROR: CRV irq set during clean HS burst");
+          end
+        end else if (roll < 16) begin
+          // ---- random escape LPDT + loopback compare ----
+          // (the first LPDT has zero bytes: host underrun at the first
+          // byte boundary -> lpdt_exit LP-01 space + early T_EX_10 arm)
+          n_lpdt++;
+          nb = (n_lpdt == 1) ? 0 : 1 + $urandom_range(0, 3);
+          for (int i = 0; i < nb; i++)
+            exp_bytes[i] = 8'($urandom_range(0, 255));
+          exp_n = nb;
+          mark_rx;
+          esc_start(8'h87);
+          for (int i = 0; i < nb; i++)
+            lpdt_push(exp_bytes[i], i == nb - 1);
+          mon_guard = 0;
+          while (esc_done !== 1'b1 && mon_guard < 2000) begin
+            @(negedge clk);
+            mon_guard++;
+          end
+          check(esc_done === 1'b1, "CRV LPDT: esc_done timeout");
+          wait_lane_idle;
+          check_rxq(nb, "CRV LPDT loopback");
+          if (!(escn - escn_mark === 1 && escq[escn_mark] === 8'h87)) begin
+            errors++; $display("ERROR: CRV LPDT: esc cmd not decoded");
+          end
+          if (irq !== 1'b0) begin
+            errors++; $display("ERROR: CRV irq set during clean LPDT");
+          end
+        end else if (roll < 19) begin
+          // ---- escape ULPS with random hold length ----
+          n_ulps++;
+          mark_rx;
+          esc_start(8'h78);
+          mon_guard = 0;
+          while (rx_ulps !== 1'b1 && mon_guard < 2000) begin
+            @(negedge clk);
+            mon_guard++;
+          end
+          check(rx_ulps === 1'b1, "CRV ULPS: rx_ulps not raised");
+          repeat (1 + $urandom_range(0, 7)) @(negedge clk);
+          esc_release <= 1'b1;
+          @(negedge clk);
+          esc_release <= 1'b0;
+          mon_guard = 0;
+          while (esc_done !== 1'b1 && mon_guard < 2000) begin
+            @(negedge clk);
+            mon_guard++;
+          end
+          @(negedge clk);
+          check(rx_ulps === 1'b0, "CRV ULPS: rx_ulps not cleared");
+          if (!(escn - escn_mark === 1 && escq[escn_mark] === 8'h78)) begin
+            errors++; $display("ERROR: CRV ULPS: esc cmd not decoded");
+          end
+          if (irq !== 1'b0) begin
+            errors++; $display("ERROR: CRV irq set during clean ULPS");
+          end
+        end else if (roll < 22) begin
+          // ---- escape Trigger-Reset ----
+          n_trig++;
+          mark_rx;
+          esc_start(8'h46);
+          mon_guard = 0;
+          while (esc_done !== 1'b1 && mon_guard < 2000) begin
+            @(negedge clk);
+            mon_guard++;
+          end
+          check(esc_done === 1'b1, "CRV Trigger: esc_done timeout");
+          wait_lane_idle;
+          if (!(escn - escn_mark === 1 && escq[escn_mark] === 8'h46)) begin
+            errors++; $display("ERROR: CRV Trigger: esc cmd not decoded");
+          end
+          if (irq !== 1'b0) begin
+            errors++; $display("ERROR: CRV irq set during clean Trigger");
+          end
+        end else begin
+          // ---- error-injection classes (round-robin) ----
+          mark_rx;
+          case (eroll)
+            0: begin
+              // unknown escape command -> irq (TX-side just exits)
+              n_euc++;
+              cmd_c = 8'($urandom_range(0, 255));
+              if (cmd_c == 8'h87 || cmd_c == 8'h78 || cmd_c == 8'h46)
+                cmd_c = cmd_c ^ 8'h01;          // rejection sampling
+              @(negedge clk);
+              inj <= 1'b1;
+              i_hs_en <= 1'b0;
+              inj_lp(2'b10);
+              inj_lp(2'b00);
+              inj_lp(2'b01);
+              inj_lp(2'b00);
+              for (int i = 0; i < 8; i++)
+                inj_lp(cmd_c[i] ? 2'b10 : 2'b00);
+              inj_lp(2'b01);
+              inj_lp(2'b10);
+              inj_lp(2'b11);
+              @(negedge clk);
+              inj <= 1'b0;
+              repeat (2) @(negedge clk);
+              if (irq !== 1'b1) begin
+                errors++; $display("ERROR: CRV unknown esc cmd: no irq");
+              end
+              @(negedge clk);
+              irq_clear <= 1'b1;
+              @(negedge clk);
+              irq_clear <= 1'b0;
+              @(negedge clk);
+              if (irq !== 1'b0) begin
+                errors++; $display("ERROR: CRV irq not cleared (euc)");
+              end
+            end
+            1: begin
+              // bad HS sync byte -> irq, no payload decoded
+              n_ebs++;
+              cmd_c = 8'($urandom_range(0, 255));
+              if (cmd_c == 8'hB8) cmd_c = 8'hB9;  // rejection sampling
+              @(negedge clk);
+              inj <= 1'b1;
+              inj_lp(2'b01);
+              inj_lp(2'b00);
+              inj_hs_bit(1'b0);
+              for (int i = 0; i < 8; i++) inj_hs_bit(cmd_c[i]);
+              @(negedge clk);
+              i_hs_en <= 1'b0;
+              i_lp_p  <= 1'b1;
+              i_lp_n  <= 1'b1;
+              @(negedge clk);
+              inj <= 1'b0;
+              repeat (2) @(negedge clk);
+              if (irq !== 1'b1) begin
+                errors++; $display("ERROR: CRV bad HS sync: no irq");
+              end
+              if (rxn !== rxn_mark) begin
+                errors++; $display("ERROR: CRV bad HS sync: payload decoded");
+              end
+              @(negedge clk);
+              irq_clear <= 1'b1;
+              @(negedge clk);
+              irq_clear <= 1'b0;
+              @(negedge clk);
+              if (irq !== 1'b0) begin
+                errors++; $display("ERROR: CRV irq not cleared (ebs)");
+              end
+            end
+            2: begin
+              // LP-00 driven from STOP (illegal SoT) -> irq
+              n_e00++;
+              @(negedge clk);
+              inj <= 1'b1;
+              i_hs_en <= 1'b0;
+              inj_lp(2'b00);
+              inj_lp(2'b11);
+              @(negedge clk);
+              inj <= 1'b0;
+              repeat (2) @(negedge clk);
+              if (irq !== 1'b1) begin
+                errors++; $display("ERROR: CRV LP-00 from STOP: no irq");
+              end
+              @(negedge clk);
+              irq_clear <= 1'b1;
+              @(negedge clk);
+              irq_clear <= 1'b0;
+              @(negedge clk);
+              if (irq !== 1'b0) begin
+                errors++; $display("ERROR: CRV irq not cleared (e00)");
+              end
+            end
+            3: begin
+              // HS abort during the sync byte (hs_en drops) -> irq
+              n_eab++;
+              @(negedge clk);
+              inj <= 1'b1;
+              inj_lp(2'b01);
+              inj_lp(2'b00);
+              inj_hs_bit(1'b0);
+              cmd_c = 8'hB8;
+              for (int i = 0; i < 3; i++) inj_hs_bit(cmd_c[i]);
+              @(negedge clk);
+              i_hs_en <= 1'b0;                  // abort mid-sync
+              i_lp_p  <= 1'b1;
+              i_lp_n  <= 1'b1;
+              @(negedge clk);
+              inj <= 1'b0;
+              repeat (2) @(negedge clk);
+              if (irq !== 1'b1) begin
+                errors++; $display("ERROR: CRV HS abort in sync: no irq");
+              end
+              @(negedge clk);
+              irq_clear <= 1'b1;
+              @(negedge clk);
+              irq_clear <= 1'b0;
+              @(negedge clk);
+              if (irq !== 1'b0) begin
+                errors++; $display("ERROR: CRV irq not cleared (eab)");
+              end
+            end
+            4: begin
+              // host-side unknown escape command: TX walks the entry and
+              // the command, then takes the default->exit arm; the RX
+              // decoder flags the unknown command (irq)
+              n_ehu++;
+              cmd_c = 8'($urandom_range(0, 255));
+              if (cmd_c == 8'h87 || cmd_c == 8'h78 || cmd_c == 8'h46)
+                cmd_c = cmd_c ^ 8'h80;          // rejection sampling
+              esc_start(cmd_c);
+              mon_guard = 0;
+              while (esc_done !== 1'b1 && mon_guard < 2000) begin
+                @(negedge clk);
+                mon_guard++;
+              end
+              check(esc_done === 1'b1, "CRV host-unkcmd: esc_done timeout");
+              wait_lane_idle;
+              if (irq !== 1'b1) begin
+                errors++; $display("ERROR: CRV host unkcmd: no irq");
+              end
+              @(negedge clk);
+              irq_clear <= 1'b1;
+              @(negedge clk);
+              irq_clear <= 1'b0;
+              @(negedge clk);
+              if (irq !== 1'b0) begin
+                errors++; $display("ERROR: CRV irq not cleared (ehu)");
+              end
+            end
+            5: begin
+              // SoT violations: LP-01 followed by LP-10 (R_HS1 err),
+              // then LP-01/LP-00 not followed by HS-0 (R_HS2 err)
+              n_esot++;
+              @(negedge clk);
+              inj <= 1'b1;
+              i_hs_en <= 1'b0;
+              inj_lp(2'b01);
+              inj_lp(2'b10);                    // not LP-00 -> error
+              inj_err_tail("CRV hs1-violation");
+              @(negedge clk);
+              inj <= 1'b1;
+              i_hs_en <= 1'b0;
+              inj_lp(2'b01);
+              inj_lp(2'b00);
+              inj_lp(2'b00);                    // no HS-0 -> error
+              inj_err_tail("CRV hs2-violation");
+            end
+            6: begin
+              // escape-entry violations: LP-10->LP-01 (R_ESC1 err),
+              // LP-10/00->LP-00 (R_ESC2 err), LP-10/00/01->LP-01 (R_ESC3)
+              n_eent++;
+              @(negedge clk);
+              inj <= 1'b1;
+              i_hs_en <= 1'b0;
+              inj_lp(2'b10);
+              inj_lp(2'b01);                    // not LP-00 -> error
+              inj_err_tail("CRV esc1-violation");
+              @(negedge clk);
+              inj <= 1'b1;
+              i_hs_en <= 1'b0;
+              inj_lp(2'b10);
+              inj_lp(2'b00);
+              inj_lp(2'b00);                    // not LP-01 -> error
+              inj_err_tail("CRV esc2-violation");
+              @(negedge clk);
+              inj <= 1'b1;
+              i_hs_en <= 1'b0;
+              inj_lp(2'b10);
+              inj_lp(2'b00);
+              inj_lp(2'b01);
+              inj_lp(2'b01);                    // not LP-00 -> error
+              inj_err_tail("CRV esc3-violation");
+            end
+            7: begin
+              // LP-01 inside the escape command byte (R_ESC_CMD err)
+              n_ecmd++;
+              cmd_c = 8'($urandom_range(0, 255));
+              @(negedge clk);
+              inj <= 1'b1;
+              i_hs_en <= 1'b0;
+              inj_lp(2'b10);
+              inj_lp(2'b00);
+              inj_lp(2'b01);
+              inj_lp(2'b00);
+              for (int i = 0; i < 3; i++)
+                inj_lp(cmd_c[i] ? 2'b10 : 2'b00);
+              inj_lp(2'b01);                    // illegal inside cmd
+              inj_err_tail("CRV cmd-violation");
+            end
+            8: begin
+              // in-phase violations: LP-11 mid-LPDT-byte (R_LPDT err),
+              // LP-01 during ULPS hold (R_ULPS err), LP-01 during the
+              // Trigger Mark-1 hold (R_TRIG err)
+              n_ephz++;
+              @(negedge clk);
+              inj <= 1'b1;
+              i_hs_en <= 1'b0;
+              inj_lp(2'b10);
+              inj_lp(2'b00);
+              inj_lp(2'b01);
+              inj_lp(2'b00);
+              cmd_c = 8'h87;
+              for (int i = 0; i < 8; i++) inj_lp(cmd_c[i] ? 2'b10 : 2'b00);
+              cmd_c = 8'($urandom_range(0, 255));
+              for (int i = 0; i < 3; i++) inj_lp(cmd_c[i] ? 2'b10 : 2'b00);
+              inj_lp(2'b11);                    // LP-11 mid-byte -> error
+              inj_err_tail("CRV lpdt-violation");
+              @(negedge clk);
+              inj <= 1'b1;
+              i_hs_en <= 1'b0;
+              inj_lp(2'b10);
+              inj_lp(2'b00);
+              inj_lp(2'b01);
+              inj_lp(2'b00);
+              cmd_c = 8'h78;
+              for (int i = 0; i < 8; i++) inj_lp(cmd_c[i] ? 2'b10 : 2'b00);
+              inj_lp(2'b00);
+              inj_lp(2'b01);                    // LP-01 in ULPS -> error
+              inj_err_tail("CRV ulps-violation");
+              @(negedge clk);
+              inj <= 1'b1;
+              i_hs_en <= 1'b0;
+              inj_lp(2'b10);
+              inj_lp(2'b00);
+              inj_lp(2'b01);
+              inj_lp(2'b00);
+              cmd_c = 8'h46;
+              for (int i = 0; i < 8; i++) inj_lp(cmd_c[i] ? 2'b10 : 2'b00);
+              inj_lp(2'b00);
+              inj_lp(2'b01);                    // LP-01 in Mark-1 -> error
+              inj_err_tail("CRV trig-violation");
+            end
+            default: begin
+              // exit-sequence violations: LP-00 after the LPDT exit
+              // space (R_EX1 err), LP-00 after ULPS Mark-1 (R_EX2 err)
+              n_eext++;
+              @(negedge clk);
+              inj <= 1'b1;
+              i_hs_en <= 1'b0;
+              inj_lp(2'b10);
+              inj_lp(2'b00);
+              inj_lp(2'b01);
+              inj_lp(2'b00);
+              cmd_c = 8'h87;
+              for (int i = 0; i < 8; i++) inj_lp(cmd_c[i] ? 2'b10 : 2'b00);
+              cmd_c = 8'($urandom_range(0, 255));
+              for (int i = 0; i < 8; i++) inj_lp(cmd_c[i] ? 2'b10 : 2'b00);
+              inj_lp(2'b01);                    // exit space (byte boundary)
+              inj_lp(2'b00);                    // not LP-10 -> error
+              inj_err_tail("CRV ex1-violation");
+              @(negedge clk);
+              inj <= 1'b1;
+              i_hs_en <= 1'b0;
+              inj_lp(2'b10);
+              inj_lp(2'b00);
+              inj_lp(2'b01);
+              inj_lp(2'b00);
+              cmd_c = 8'h78;
+              for (int i = 0; i < 8; i++) inj_lp(cmd_c[i] ? 2'b10 : 2'b00);
+              inj_lp(2'b10);                    // ULPS Mark-1 -> R_EX2
+              inj_lp(2'b00);                    // not LP-11 -> error
+              inj_err_tail("CRV ex2-violation");
+            end
+          endcase
+          eroll = (eroll + 1) % 10;
+        end
+      end
+      $display("CRV: 120 txns (hs=%0d lpdt=%0d ulps=%0d trig=%0d | unkcmd=%0d badsync=%0d lp00=%0d abort=%0d hostunk=%0d sot=%0d ent=%0d cmd=%0d phz=%0d ext=%0d)",
+               n_hs, n_lpdt, n_ulps, n_trig, n_euc, n_ebs, n_e00, n_eab,
+               n_ehu, n_esot, n_eent, n_ecmd, n_ephz, n_eext);
+    end
+`endif
+
     repeat (4) @(negedge clk);
     if (errors == 0) $display("TEST PASSED: D-PHY");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < DPHY_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, DPHY_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
   // timeout guard
+`ifdef VERILATOR
+  // Chunked timeout: with Verilator 5.006 a single long-pending #delay
+  // event corrupts the --timing delay heap once many short-delay
+  // resumptions interleave with it (processes lose wakeups and the long
+  // event fires early). 1-us chunks keep all heap entries short-lived.
+  initial begin
+    repeat (2000) #1000;    // 2 ms in 1-us chunks
+    $display("TIMEOUT");
+    $display("TEST FAILED: %0d errors", errors + 1);
+    $finish;
+  end
+`else
   initial begin
     #200000;
     $display("TIMEOUT");
     $display("TEST FAILED: %0d errors", errors + 1);
     $finish;
   end
+`endif
 
 endmodule
