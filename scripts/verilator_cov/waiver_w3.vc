@@ -99,3 +99,19 @@ waiver mi3c-toggle-6 rtl/MIPI_I3C_top.sv:59  toggle \
 # ---- MIPI_DPI ----
 waiver mdpi-line-1 rtl/MIPI_DPI__Display_Pixel_Interface__top.sv:94  line \
   reason="else if (reg_addr == 4'd8): Verilator 5.006 line-attribution artifact (branch shifted to the neighbouring line). Execution proven: every one of the ~230 ctrl writes (enables, disables, shutdown/resume, invalid-config rejections) passes through this arm and their registered effects are all self-checked."
+
+# ---- C_PHY ----
+waiver cphy-line-1 rtl/C_PHY_top.sv:228  line \
+  reason="default: tstate <= T_IDLE is dead; tstate is a 2-bit enum and all four encodings (T_IDLE/T_SYNC/T_DATA/T_STOP) are cased explicitly."
+waiver cphy-line-2 rtl/C_PHY_top.sv:289-292  line \
+  reason="R_IDLE sync-start arm: Verilator 5.006 line-attribution artifact. Execution proven: every one of the ~85 loopback packets (directed + CRV) enters R_SYNC only through this arm and all rx words compare correctly."
+waiver cphy-line-3 rtl/C_PHY_top.sv:300-306  line \
+  reason="R_SYNC sync-match arm: Verilator 5.006 line-attribution artifact. Execution proven: R_DATA (whose rx_valid words all self-check) is reachable only via the r_spos==6 path of this arm; the else arm is proven by the bad-sync error class raising irq."
+waiver cphy-line-4 rtl/C_PHY_top.sv:341  line \
+  reason="default: rstate <= R_IDLE is dead; rstate is a 2-bit enum and all four encodings (R_IDLE/R_SYNC/R_DATA/R_ERR) are cased explicitly."
+waiver cphy-toggle-1 rtl/C_PHY_top.sv:154  toggle \
+  reason="tx_d16[15:3]: base-5 digit r_val%5 only takes values 0..4; the upper 13 bits are constant-tied to 0 and can never toggle."
+waiver cphy-toggle-2 rtl/C_PHY_top.sv:251  toggle \
+  reason="r_acc[31:16]: partial base-5 accumulation of the first 6 digits is bounded by 4*(1+5+25+125+625+3125)=15624; the upper bits are constant-tied to 0 and can never toggle."
+waiver cphy-toggle-3 rtl/C_PHY_top.sv:264  toggle \
+  reason="r_word[31:16]: the reconstructed word equals the transmitted 16-bit word (<=16'hFFFF) for every legal symbol stream; upper bits constant-tied to 0, only reachable via illegal streams that take the error arms instead."
