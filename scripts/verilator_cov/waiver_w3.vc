@@ -38,3 +38,10 @@ waiver mspmi-line-2 rtl/MIPI_SPMI_top.sv:199  line \
 
 waiver mspmi-line-3 rtl/MIPI_SPMI_top.sv:303  line \
   reason="default: state <= S_IDLE is dead; state is 3-bit and all 8 encodings are cased explicitly (S_IDLE..S_PARK)."
+
+# ---- I3C ----
+waiver i3c-line-1 rtl/I3C_top.sv:102  line \
+  reason="if (state == ST_TXACK) is constant-true inside the ST_TXACK case arm; const-folded by Verilator, coverpoint unhittable. Body lines 103-105 covered (multi-byte-read re-entry)."
+
+waiver i3c-toggle-1 rtl/I3C_top.sv:38  toggle \
+  reason="bit_cnt[3]: byte bit-counter wraps at 4'd7, bit 3 never set by any reachable stimulus."
