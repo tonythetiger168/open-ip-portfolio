@@ -238,3 +238,20 @@ Avalon_ST, OCP, OCP_IP_Open_Core_Protocol, WTB, Wishbone,
 CPRI_v8_0__eCPRI_over_CPR_, eCPRI_over_Ethernet, HSI, CAN, FlexRay, LIN,
 Bluetooth5, CSE, Crypto___Security_Engine, _1_Wire — untouched; iverilog
 regression for these remains at the v2.4 baseline (PASS).
+
+## Final status (W6 continuation coder, this session)
+
+**Completed this session (17 protocols, all four metrics closed):**
+CXL, PCIe, UEC, Interlaken_v1_2, JESD204C (family batch), CAN, FlexRay, LIN
+(family batch), Avalon_ST, HSI, TileLink, _1_Wire, Avalon_MM, Wishbone, OCP,
+OCP_IP, Crypto. Together with the previous coder's 8 (GPIO..UCIe), the wave
+stands at **25/30**.
+
+**Not completed (5):** WTB, Bluetooth5, CPRI_v8_0__eCPRI_over_CPR_,
+eCPRI_over_Ethernet, CSE — step budget exhausted. These are the five largest
+remaining protocols (365-542 lines: token-ring station FSM, BLE link layer,
+CPRI 8b/10b sync engine, eCPRI message dispatch, CSE cipher core). Their
+directed TBs still pass iverilog untouched. Recommended next-session order:
+CSE (engine-style, similar to Crypto) -> CPRI (3-state sync FSM; existing TB
+already has a full 8b/10b peer model + enc/dec functions to reuse for a
+random IQ-stream CRV) -> eCPRI -> WTB -> Bluetooth5.
