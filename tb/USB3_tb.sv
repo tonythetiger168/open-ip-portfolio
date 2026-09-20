@@ -750,6 +750,8 @@ module USB3_tb;
         mem_m[3*16+i] = 32'h1234_5000 + i;
       end
       irq_m = 1'b1;
+      // deterministic first pass: guarantee the ACK-watchdog retransmission
+      crv_ack_timeout; n_to++;
       for (int t = 0; t < 100; t++) begin
         roll = $urandom_range(0, 99);
         if (roll < 25) begin
