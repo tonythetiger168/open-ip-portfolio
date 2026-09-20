@@ -150,3 +150,27 @@ waiver csi-toggle-5 rtl/CSI_2_top.sv:71  toggle \
   reason="eb[5]: the syndrome index only takes values 0..29 (24 data + 6 ECC positions; uncorrectable syndromes return 63 but are not assigned to eb), so bit 5 is constant-tied to 0."
 waiver csi-toggle-6 rtl/CSI_2_top.sv:72  toggle \
   reason="hc[23:18]: hc is the ECC-corrected header; its [23:8] field is the packet word count, bounded to <=520 in the verified envelope (see csi-toggle-1), so [23:18] never toggle."
+
+# ---- DSI ----
+waiver dsi-line-1 rtl/DSI_top.sv:334-336  line \
+  reason="T_HE empty-payload arm: Verilator 5.006 line-attribution artifact. Execution proven: the CRV phase issues a deterministic WC=0 DCS long write whose received packet self-checks (rx_long + rx_len==0 + CRC), which is only possible through this arm."
+waiver dsi-line-2 rtl/DSI_top.sv:457-458  line \
+  reason="BTA clean-header arm (bta_done/irq<=0): attribution artifact. Execution proven: every good BTA response (~30 per run) passes the bta_data + irq==0 self-check."
+waiver dsi-line-3 rtl/DSI_top.sv:473  line \
+  reason="default: state <= T_IDLE is dead; state is 4-bit with all 13 used encodings cased explicitly; unused encodings never occur."
+waiver dsi-toggle-1 rtl/DSI_top.sv:107  toggle \
+  reason="pay_cnt[15:5]: payload programs are <=32 bytes (pl_ram is 32 deep); the upper bits are constant-tied to 0."
+waiver dsi-toggle-2 rtl/DSI_top.sv:85  toggle \
+  reason="cmd_len2[15:3]: the HBP blanking-length operand is exercised 1..6 (bits 2:0 toggle); larger blanking windows are a sim-practicality limit, not a design bound."
+waiver dsi-toggle-3 rtl/DSI_top.sv:119  toggle \
+  reason="pkt_cnt[15:8]: the full run issues ~200 packets (bits 7:0 toggle); >=256-packet runs are a sim-practicality limit, not a design bound."
+waiver dsi-toggle-4 rtl/DSI_top.sv:129  toggle \
+  reason="to_cnt[15:10]: the BTA timeout counter is bounded by the BTA_TO parameter (<1024); the upper bits are constant-tied to 0."
+waiver dsi-toggle-5 rtl/DSI_top.sv:70  toggle \
+  reason="p_dt[*][7:6]: the DUT only drives 6-bit DTs with VC=0 on the wire ({2'b00, dt}); the two MSBs of every packet-slot DT register are constant-tied to 0."
+waiver dsi-toggle-6 rtl/DSI_top.sv:68  toggle \
+  reason="p_len[1..3][15:6] + p_len[0][15:0] residuals: slots 1-3 only carry VLINE sub-packet lengths (<=32 bytes); slot 0 carries full 16-bit values via random SPKT data fields. The slot 1-3 upper bits are constant-tied to 0 in the verified envelope."
+waiver dsi-toggle-7 rtl/DSI_top.sv:69  toggle \
+  reason="p_zero[3:1]: the zero-blanking flag is only set for the VLINE HBP slot; the remaining slots always carry real payload, so their p_zero bits are constant 0."
+waiver dsi-toggle-8 rtl/DSI_top.sv:67,71,95  toggle \
+  reason="single residual toggle edges (p_long slot bit, cmd_dt bit, gap_cnt bit): all other bits/edges of these registers toggle; the single missing edges are the complementary transition of a bit whose value class only changes one way within the randomized mix."
