@@ -122,3 +122,19 @@ run_cov.sh to mangle @TOP@ the same way.
   (DUT reset values land in that NBA region) — see `first_cycle` guards.
 - echo-copy OOB template pattern (tx_mem[i-2] loop) grepped across all 18
   W3 RTLs: NOT present.
+
+## W3 continuation (second coder) — newly closed
+| protocol | LINE | TOGGLE | FSM | SVA | notes |
+|---|---|---|---|---|---|
+| MIPI_DPI | 87/88 (1 waiver: :94 artifact) | 555/555 | 5/5 | all pass | reg9-11 readback + treg sweep + wide/tall/tiny frames (frame_cnt full wrap); A6 amended for legal 0xFFFF->0 wrap |
+| C_PHY | 195/204 (9 waiver lines: 2 dead defaults + 7 artifact) | 216/246 (waivers: tx_d16/r_acc/r_word constant high bits) | 8/8 | all pass | fork/join -> passive wire monitor (wakeup-loss workaround); 120 txns, 5 error classes + host underrun |
+| D_PHY | 307/310 (3 waiver lines) | 132/133 (trig_cnt[2]) | 33/33 | all pass | fork/join -> lane recorder + post-hoc checks; 120 txns, 10 error classes; empty HS / zero-byte LPDT |
+| CSI_2 | 156/178 (22 waiver lines, mostly ecc_bit table artifact) | 205/238 (waivers: wc/pay_cnt/lb_len/hc/counters high bits, eb[5]) | 8/8 | all pass | needs VERILATOR_TEST_FLAGS=-Wno-BLKANDNBLK (rtl eb/hc mixed blocking/NBA — recorded, not fixed); ECC syndrome sweep (30 positions) + corrected shorts + 4200-line / 1100-frame walks |
+| DSI | 304/310 (6 waiver lines) | 535/635 (100 waiver points: pl/p_len/p_dt/cmd_len2/pay_cnt/pkt_cnt/to_cnt high bits + residuals) | 18/18 | all pass | 120 cmd txns + BTA ECC1/ECC2/timeout/framing classes; pl_ram 0xFF/0x00 32B sweep |
+
+### New tool-compat findings
+- fork/join timing coroutines under Verilator 5.006 --timing lose wakeups / resume ~10us late when the DUT has a free-running clock (C_PHY, D_PHY directed phases). Workaround: serialize stimulus into one coroutine + passive always-block wire monitor/recorder + post-hoc checks (same checks, clock-driven).
+- CSI_2 RTL uses blocking assigns for eb/hc inside always_ff (BLKANDNBLK error) -> run with VERILATOR_TEST_FLAGS=-Wno-BLKANDNBLK. RTL not modified.
+
+### Remaining (not started): M_PHY, UniPro, UniPro_Mem
+No new RTL bugs found in C_PHY/D_PHY/CSI_2/DSI (the 3 previously known ones stand).
