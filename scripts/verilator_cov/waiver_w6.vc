@@ -1,0 +1,292 @@
+# v2.5 W6-rest wave coverage waivers (verilator_coverage-style records)
+# One record per waived point: ID / file:line / metric / justification.
+# Cross-referenced in docs/coverage/W6_REST.md. verilator_coverage 5.006 has
+# no -waiver flag, so this file is the source of truth for manual/tooling
+# exclusion, same convention as waiver.vc.
+
+# ---- UART ----
+waiver uart-line-1 rtl/UART_top.sv:83   line \
+  reason="default: tstate <= TX_IDLE is dead; tstate is 2-bit with all 4 encodings cased explicitly."
+waiver uart-line-2 rtl/UART_top.sv:134  line \
+  reason="default: rstate <= RX_IDLE is dead; rstate is 2-bit with all 4 encodings cased explicitly."
+waiver uart-toggle-1 rtl/UART_top.sv:24 toggle \
+  reason="div_cnt[15:5]: baud divider counts 0..DIV16-1 with DIV16=(CLK_FREQ/BAUD)/16=31 in the coverage build (BAUD=100k); upper bits are 16-bit generic headroom, unreachable at any practical baud (DIV16>=2^11 would need multi-ms bit times)."
+waiver uart-toggle-2 rtl/UART_top.sv:44 toggle \
+  reason="tbit[3]: TX bit counter wraps at 4'd7 (8N1), bit 3 never set by any reachable stimulus."
+waiver uart-toggle-3 rtl/UART_top.sv:101 toggle \
+  reason="rbit[3]: RX bit counter wraps at 4'd7 (8N1), bit 3 never set by any reachable stimulus."
+
+# ---- JTAG ----
+waiver jtag-line-1 rtl/JTAG_top.sv:51  line \
+  reason="default: tap_q <= TLR is dead; tap_q is a 4-bit enum with all 16 encodings cased explicitly."
+
+# ---- QSPI ----
+waiver qspi-toggle-1 rtl/QSPI_top.sv:27 toggle \
+  reason="qcnt[1]: quad nibble counter wraps at 2'd1 (two nibbles per 8-bit frame), bit 1 never set by any reachable stimulus."
+# QSPI RTL-BUG (recorded, not fixed): std mode drives io[0] with tx_q[4]
+# because assign io = io_oe ? io_out : 4'bzzzz uses the OE vector as a
+# boolean; MOSI corrupted when tx_q[4]=1. Demonstrated in tb/QSPI_tb.sv.
+
+# ---- PWM ----
+waiver pwm-toggle-1 rtl/PWM_top.sv:24  toggle \
+  reason="counter[31:22]: bit k of the free-running counter toggles only in a single period >= 2^(k+1) clocks; bits 22..31 need >= 4M..2G-cycle runs, impractical under --timing. Carry chain proven through bit 21 by the 2^22-period CRV long run."
+
+# ---- UALink / UCIe (identical template, same waivers) ----
+waiver ualink-line-1 rtl/UALink_top.sv:87-88 line \
+  reason="C_SEND-arm line-coverage attribution artifact (5.006); execution proven by 110 received response flits (opcode/txnID/data self-checked)."
+waiver ualink-line-2 rtl/UALink_top.sv:93 line \
+  reason="default: cstate <= C_IDLE is dead; cstate is 2-bit with all 3 used encodings cased."
+waiver ualink-toggle-1 rtl/UALink_top.sv:44 toggle \
+  reason="rxrspflit[33:30]: constant response opcode 5'b00001, upper 4 bits never toggle."
+waiver ualink-toggle-2 rtl/UALink_top.sv:31 toggle \
+  reason="crd_timer[3]: credit timer wraps at 4'd7, bit 3 never set."
+waiver ualink-toggle-3 rtl/UALink_top.sv:38 toggle \
+  reason="lat_cnt[3]: RSP_LAT=4, counter only takes values 4..0, bit 3 never set."
+waiver ucie-line-1 rtl/UCIe_top.sv:87-88 line \
+  reason="same as ualink-line-1 (identical template): C_SEND-arm attribution artifact, execution proven by 110 self-checked responses."
+waiver ucie-line-2 rtl/UCIe_top.sv:93 line \
+  reason="same as ualink-line-2: dead default arm (2-bit state, 3 encodings cased)."
+waiver ucie-toggle-1 rtl/UCIe_top.sv:44 toggle \
+  reason="same as ualink-toggle-1: constant response opcode upper bits."
+waiver ucie-toggle-2 rtl/UCIe_top.sv:31 toggle \
+  reason="same as ualink-toggle-2: crd_timer wraps at 4'd7."
+waiver ucie-toggle-3 rtl/UCIe_top.sv:38 toggle \
+  reason="same as ualink-toggle-3: lat_cnt max value 4, bit 3 never set."
+
+# ---- CXL-family framed-echo template (CXL, PCIe, UEC, Interlaken_v1_2, JESD204C) ----
+# Identical 204-line template (rtl/<P>_top.sv), same waivers for all five.
+# Line numbers below are identical in all five RTL files.
+# (1) Dead default arms:
+#   :97  `default: ;` in the tfld sequencer case — tfld is a 3-bit sequencer
+#        that only takes values 0..5; 6/7 unreachable by construction.
+#   :102 `default: tstate <= T_IDLE;` — tstate 2-bit, encodings 0..2 cased.
+#   :186 `default: rstate <= R_IDLE;` — rstate 2-bit, encodings 0..1 cased.
+# (2) :159-176 RX END/CRC/rx_done region — Verilator 5.006 line-coverage
+#     attribution artifact around the block-local `logic [31:0] c` declaration
+#     (counters in the whole region are mis-attributed, e.g. rx_done shows 0
+#     while 105 echo frames were byte-verified against the shadow model).
+#     Execution proven: 105 echoes only start after rx_done; the sticky
+#     rx_err flag is TB-checked after the first bad-STP, each bad-CRC and
+#     each bad-END frame.
+# (3) Toggle:
+#   tmr[15:5]/rtmr[15:5] — BAUD_DIV=20 (counters span 0..19); upper bits are
+#     16-bit generic headroom (same convention as uart-toggle-1).
+#   buf_mem[0][7:0] — RX store port never selects index 0 (ridx==0 is the STP
+#     check, which stores nothing; stores start at ridx==1). Reset-only entry.
+#   buf_mem[1][5], len_q[5], tlen[5], ridx[5] — LEN-byte bit5 is len_q[5];
+#     len_q>=32 overruns the 24-entry buf_mem (end index 2+len_q+4 > 23), so
+#     these bits are unreachable by any non-buffer-overflow frame.
+#   rstate[1] — 2-state RX FSM in a 2-bit register; bit 1 constant 0.
+#   ta_cnt[3] — TX-arm countdown loaded with the constant 6 (4'd6), bit 3
+#     never set.
+#   tbit[5] — bit counter wraps at 6'd31 (32-bit CRC field), bit 5 never set.
+waiver cxl-fam-line-1 rtl/CXL_top.sv:97 rtl/PCIe_top.sv:97 rtl/UEC_top.sv:97 rtl/Interlaken_v1_2_top.sv:97 rtl/JESD204C_top.sv:97 line \
+  reason="dead default arm of tfld sequencer; tfld only takes 0..5 by construction."
+waiver cxl-fam-line-2 rtl/CXL_top.sv:102 rtl/PCIe_top.sv:102 rtl/UEC_top.sv:102 rtl/Interlaken_v1_2_top.sv:102 rtl/JESD204C_top.sv:102 line \
+  reason="dead default: tstate is 2-bit with encodings 0..2 cased explicitly."
+waiver cxl-fam-line-3 rtl/CXL_top.sv:186 rtl/PCIe_top.sv:186 rtl/UEC_top.sv:186 rtl/Interlaken_v1_2_top.sv:186 rtl/JESD204C_top.sv:186 line \
+  reason="dead default: rstate is 2-bit with encodings 0..1 cased explicitly."
+waiver cxl-fam-line-4 rtl/CXL_top.sv:159-176 rtl/PCIe_top.sv:164-176 rtl/UEC_top.sv:164-176 rtl/Interlaken_v1_2_top.sv:164-176 rtl/JESD204C_top.sv:164-176 line \
+  reason="5.006 attribution artifact around block-local logic[31:0] c declaration; execution proven by 105 shadow-verified echo frames and TB-checked sticky rx_err after bad-STP/bad-CRC/bad-END injections."
+waiver cxl-fam-toggle-1 rtl/CXL_top.sv:29 rtl/PCIe_top.sv:29 rtl/UEC_top.sv:29 rtl/Interlaken_v1_2_top.sv:29 rtl/JESD204C_top.sv:29 toggle \
+  reason="tmr[15:5]: BAUD_DIV=20, counter spans 0..19; upper bits are 16-bit generic headroom."
+waiver cxl-fam-toggle-2 rtl/CXL_top.sv:116 rtl/PCIe_top.sv:116 rtl/UEC_top.sv:116 rtl/Interlaken_v1_2_top.sv:116 rtl/JESD204C_top.sv:116 toggle \
+  reason="rtmr[15:5]: BAUD_DIV=20, counter spans 0..19; upper bits are 16-bit generic headroom."
+waiver cxl-fam-toggle-3 rtl/CXL_top.sv:121 rtl/PCIe_top.sv:121 rtl/UEC_top.sv:121 rtl/Interlaken_v1_2_top.sv:121 rtl/JESD204C_top.sv:121 toggle \
+  reason="buf_mem[0][7:0]: RX store port never selects index 0 (ridx==0 STP check stores nothing); reset-only entry."
+waiver cxl-fam-toggle-4 rtl/CXL_top.sv:162 rtl/PCIe_top.sv:162 rtl/UEC_top.sv:162 rtl/Interlaken_v1_2_top.sv:162 rtl/JESD204C_top.sv:162 toggle \
+  reason="buf_mem[1][5]: LEN bit5 is len_q[5]; len_q>=32 overruns 24-entry buf_mem (end index 2+len_q+4>23), unreachable without buffer overflow."
+waiver cxl-fam-toggle-5 rtl/CXL_top.sv:120 rtl/PCIe_top.sv:120 rtl/UEC_top.sv:120 rtl/Interlaken_v1_2_top.sv:120 rtl/JESD204C_top.sv:120 toggle \
+  reason="len_q[5]/tlen[5]/ridx[5]: bounded by LEN<=18 valid frames; LEN>=32 is a buffer-overflow condition outside the store array."
+waiver cxl-fam-toggle-6 rtl/CXL_top.sv:113 rtl/PCIe_top.sv:113 rtl/UEC_top.sv:113 rtl/Interlaken_v1_2_top.sv:113 rtl/JESD204C_top.sv:113 toggle \
+  reason="rstate[1]: 2-state RX FSM in a 2-bit register; bit 1 constant 0."
+waiver cxl-fam-toggle-7 rtl/CXL_top.sv:48 rtl/PCIe_top.sv:48 rtl/UEC_top.sv:48 rtl/Interlaken_v1_2_top.sv:48 rtl/JESD204C_top.sv:48 toggle \
+  reason="ta_cnt[3]: countdown loaded with constant 4'd6; bit 3 never set."
+waiver cxl-fam-toggle-8 rtl/CXL_top.sv:42 rtl/PCIe_top.sv:42 rtl/UEC_top.sv:42 rtl/Interlaken_v1_2_top.sv:42 rtl/JESD204C_top.sv:42 toggle \
+  reason="tbit[5]: bit counter wraps at 6'd31 (32-bit CRC field); bit 5 never set."
+
+# ---- CAN-family template (CAN, FlexRay, LIN — identical 253-line RTL) ----
+waiver can-fam-line-1 rtl/CAN_top.sv:131 rtl/FlexRay_top.sv:131 rtl/LIN_top.sv:131 line \
+  reason="dead default: tstate is a 4-bit enum with all 8 used encodings (0..7) cased explicitly."
+waiver can-fam-line-2 rtl/CAN_top.sv:238 rtl/FlexRay_top.sv:238 rtl/LIN_top.sv:238 line \
+  reason="dead default arm of rstate case; rstate only takes 0..7 by construction."
+waiver can-fam-toggle-1 rtl/CAN_top.sv:32 rtl/FlexRay_top.sv:32 rtl/LIN_top.sv:32 toggle \
+  reason="tmr[15:5]: BAUD_DIV=20, counter spans 0..19; upper bits are 16-bit generic headroom."
+waiver can-fam-toggle-2 rtl/CAN_top.sv:58 rtl/FlexRay_top.sv:58 rtl/LIN_top.sv:58 toggle \
+  reason="run_cnt[3]/rx_run[3]: bit-stuff run counters bounded to 1..5 by the 5-bit stuff rule; bit 3 never set."
+waiver can-fam-toggle-3 rtl/CAN_top.sv:53 rtl/FlexRay_top.sv:53 rtl/LIN_top.sv:53 toggle \
+  reason="tstate[3]/rstate[3]: 8-state FSMs in 4-bit registers; bit 3 constant 0."
+waiver can-fam-toggle-4 rtl/CAN_top.sv:56 rtl/FlexRay_top.sv:56 rtl/LIN_top.sv:56 toggle \
+  reason="tx_hdr[6:4]: constant protocol control bits {rtr,ide,r0}=3'b000 loaded at frame start; never toggle."
+
+# ---- HSI ----
+waiver hsi-toggle-1 rtl/HSI_top.sv:37 toggle \
+  reason="bit_cnt[3]: bit counter wraps at 4'd7 (8-bit head/data fields), bit 3 never set."
+waiver hsi-toggle-2 rtl/HSI_top.sv:45 toggle \
+  reason="rx_addr[7:5]: constant zero-extension of the 5-bit captured register address."
+
+# ---- TileLink ----
+waiver tilelink-line-1 rtl/TileLink__TL_UL_TL_C__top.sv:101 line \
+  reason="dead default: state is a 1-bit enum with both encodings cased explicitly."
+waiver tilelink-toggle-1 rtl/TileLink__TL_UL_TL_C__top.sv:58 toggle \
+  reason="d_opcode[2:1]/d_opcode_q[2:1]: only response opcodes 0 (AccessAck) and 1 (AccessAckData) exist; upper bits constant."
+
+# ---- 1-Wire ----
+waiver onewire-line-1 rtl/_1_Wire_top.sv:104 line \
+  reason="dead default: state is a 3-bit enum with all 8 encodings cased explicitly."
+waiver onewire-toggle-1 rtl/_1_Wire_top.sv:33 toggle \
+  reason="timer[15:13]: longest timing window is the 600us reset pulse (6000 clks at US=10); bits 13..15 are 16-bit generic headroom."
+
+# ---- Avalon_MM ----
+waiver avm-line-1 rtl/Avalon_MM_top.sv:116-163 line \
+  reason="5.006 line-coverage attribution artifact across the write/read execution arms (counts shifted onto injected marker lines); execution proven by 126 self-checked txns incl. scoreboard readback and shadow-regfile verification."
+waiver avm-line-2 rtl/Avalon_MM_top.sv:167 line \
+  reason="dead default: state is 2-bit with encodings 0..2 cased explicitly."
+waiver avm-toggle-1 rtl/Avalon_MM_top.sv:78 toggle \
+  reason="cmd_beats[8:5]/beats_left[8:5]: av_burstcount is clamped to 16 at command accept; upper counter bits structurally unreachable."
+
+# ---- Wishbone ----
+waiver wb-line-1 rtl/Wishbone_top.sv:30 line \
+  reason="rty_o port-declaration point: rty_o is tied off (assign rty_o = 1'b0) so the declaration point never fires; constant tie-off."
+waiver wb-line-2 rtl/Wishbone_top.sv:109 line \
+  reason="dead default: service FSM is 2-bit with encodings 0..2 cased explicitly."
+waiver wb-toggle-1 rtl/Wishbone_top.sv:78 toggle \
+  reason="rty_o: constant tie-off (this slave never requests retry)."
+
+# ---- OCP ----
+waiver ocp-line-1 rtl/OCP_top.sv:93-105 line \
+  reason="ACCEPT_DLY==0 configuration arm: TB build uses ACCEPT_DLY=1, so this parameter-selected arm is dead by construction."
+waiver ocp-line-2 rtl/OCP_top.sv:128 line \
+  reason="dead default: state is 2-bit with all 4 encodings cased explicitly."
+
+# ---- OCP_IP ----
+waiver ocpip-line-1 rtl/OCP_IP_Open_Core_Protocol_top.sv:136 line \
+  reason="5.006 attribution artifact on the O_WCOL arm; execution proven by 8-word clamp writes verified against the shadow slave memory."
+waiver ocpip-line-2 rtl/OCP_IP_Open_Core_Protocol_top.sv:190 line \
+  reason="dead default: state is 3-bit with encodings 0..5 cased explicitly."
+waiver ocpip-toggle-1 rtl/OCP_IP_Open_Core_Protocol_top.sv:71 toggle \
+  reason="len_q[4]/req_len_c[4]/MBurstLength[4]: request length clamped to 1..8 at descriptor accept; bit 4 structurally unreachable."
+waiver ocpip-toggle-2 rtl/OCP_IP_Open_Core_Protocol_top.sv:89 toggle \
+  reason="MBurstSeq[2:0]: constant 3'b000 tie-off (INCR-only master)."
+waiver ocpip-toggle-3 rtl/OCP_IP_Open_Core_Protocol_top.sv:73 toggle \
+  reason="beat[3]/rcnt[4]: burst beat counters reach at most 7 (len<=8); upper bits never set."
+
+# ---- Crypto --- 
+waiver crypto-line-1 rtl/Crypto___Security_Engine_top.sv:70-73 line \
+  reason="5.006 attribution artifact on the hinit() case arms (function called in an unrolled loop); execution proven by NIST/RFC4231 vector digests matching."
+waiver crypto-line-2 rtl/Crypto___Security_Engine_top.sv:141-152 line \
+  reason="5.006 attribution artifact on msg1_byte/outer_byte arms; execution proven by the 56-byte NIST vector (two-block padding) and the RFC4231 HMAC vector."
+waiver crypto-line-3 rtl/Crypto___Security_Engine_top.sv:285 line \
+  reason="dead default: cs is a 3-bit FSM with encodings 0..4 cased explicitly."
+waiver crypto-toggle-1 rtl/Crypto___Security_Engine_top.sv:117 toggle \
+  reason="bitlen[2:0]: bit length is always a multiple of 8 ({len_q,3'b000} + 512); low 3 bits constant 0."
+
+# ---- CSE ----
+waiver cse-line-1 rtl/CSE_top.sv:360 line \
+  reason="dead default: cs is a 2-bit FSM with encodings 0..3 (C_IDLE/C_KEY/C_RUN/C_DONE) cased explicitly; execution of all four states proven by FSM_COV 4/4."
+
+# ---- CPRI_v8_0__eCPRI_over_CPR_ ----
+waiver cpri-line-1 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv:76-77 line \
+  reason="5.006 attribution artifact on the enc8b10b K28 control path (function called in an NBA); execution proven by the line monitor verifying a K28.5 comma every 1024 symbols (CHECK 3)."
+waiver cpri-line-2 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv:81-111 line \
+  reason="5.006 attribution artifact on the enc8b10b 5b/6b case arms; the free-running TX pattern {tx_bf[3:0],tx_wpos} sweeps all 32 EDCBA values and the peer decodes every symbol without a code violation."
+waiver cpri-line-3 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv:115-116 line \
+  reason="5.006 attribution artifact on the enc8b10b Kx.7 alternate arm; execution proven by correct K28.5 comma transmission."
+waiver cpri-line-4 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv:120-126 line \
+  reason="5.006 attribution artifact on the enc8b10b 3b/4b case arms; the TX pattern sweeps all 8 HGF values (tx_bf[3:1]) with zero decode errors."
+waiver cpri-line-5 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv:339 line \
+  reason="5.006 attribution artifact on the cpu_addr==13 irq-clear condition; execution proven by 8 CRV code-violation irqs cleared via cpu_wr(13) and observed deasserted."
+waiver cpri-line-6 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv:362 line \
+  reason="5.006 attribution artifact on the ST_ALIGN rx_wcnt==0 condition; execution proven by the HUNT->ALIGN->SYNC handshake (FSM_COV 3/3)."
+waiver cpri-line-7 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv:373-381 line \
+  reason="5.006 attribution artifact on the ST_ALIGN stray-comma/no-comma arms; execution proven by loss-of-sync recovery back through ALIGN (CHECK 8, FSM_COV 3/3)."
+waiver cpri-line-8 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv:414 line \
+  reason="5.006 attribution artifact on the L1 slow-stream check-byte validate; execution proven by l1_done set and peer_ver/peer_rate negotiated (CHECK 4)."
+waiver cpri-toggle-1 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv toggle \
+  reason="l1_b1[2:7]/l1_b2[1,3,5,6,7]: peer RE transmits a fixed L1 slow-stream (version=3, rate=5), so these capture-register bits are structurally constant."
+waiver cpri-toggle-2 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv toggle \
+  reason="rx_vendor[0,1,5,7]: peer transmits a fixed vendor byte 8'h5C; the clear bits never toggle."
+waiver cpri-toggle-3 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv toggle \
+  reason="peer_ver[2:3]/peer_rate[1,3]/neg_ver[2:3]/neg_rate[3]: peer version/rate fixed at 3/5 and negotiated=min(local,peer) is capped, so the upper bits are unreachable."
+waiver cpri-toggle-4 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv toggle \
+  reason="align_cnt[1]: alignment counter wraps at 1 (two well-placed commas -> SYNC); bit 1 structurally unreachable."
+waiver cpri-toggle-5 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv toggle \
+  reason="miss_cnt[2]: loss-of-sync miss counter wraps at 3 (LOS declared on the 4th miss); bit 2 structurally unreachable."
+waiver cpri-toggle-6 rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv toggle \
+  reason="cpu_rdata[25]: the read mux drives bits>23 only for the 32-bit iq_mem read (addr 10); the fixed iq_pat peer stream packs words whose bit25 is constant 0 (verified across all 64 word positions)."
+
+# ---- eCPRI_over_Ethernet ----
+waiver ecpri-line-1 rtl/eCPRI_over_Ethernet_top.sv:286 line \
+  reason="5.006 attribution artifact on the cpu addr9 reset_op-clear write; execution proven by cpu_wr(9,1) clearing reset_op (directed CHECK 4 + CRV)."
+waiver ecpri-line-2 rtl/eCPRI_over_Ethernet_top.sv:373-374 line \
+  reason="tx-descriptor-queue-full cpu fault-injection drop corner: the serializer drains each frame before a 5th descriptor accumulates, so cpu_push never sees tq_cnt==4. irq_ovf is already exercised via the IQ-buffer-overflow path (line 317)."
+waiver ecpri-toggle-1 rtl/eCPRI_over_Ethernet_top.sv toggle \
+  reason="rx_psize[6:15]: payload size is bounded by PAY_MAX=40 (len-fail probe uses 41); index bits above 5 unreachable."
+waiver ecpri-toggle-2 rtl/eCPRI_over_Ethernet_top.sv toggle \
+  reason="tx_mt[3:7]: the DUT only generates msgtype 4/5/6 response frames; upper msgtype bits structurally constant."
+waiver ecpri-toggle-3 rtl/eCPRI_over_Ethernet_top.sv toggle \
+  reason="tx_plen[2,4]: response payloads are only 9 bytes (memory) or 2 bytes (reset/event); other length bits unreachable."
+waiver ecpri-toggle-4 rtl/eCPRI_over_Ethernet_top.sv toggle \
+  reason="ridx[6:7]/rx_cnt[6:7]: frames are at most 18+41+4=63 bytes, so the byte-index counters never reach 64."
+waiver ecpri-toggle-5 rtl/eCPRI_over_Ethernet_top.sv toggle \
+  reason="tx_st[2]: TX serializer FSM uses states TX_IDLE/TX_HDR/TX_PAY/TX_FCS (0..3); bit 2 structurally constant (FSM_COV 4/4)."
+waiver ecpri-toggle-6 rtl/eCPRI_over_Ethernet_top.sv toggle \
+  reason="seq_gap_cnt[4:7]: the run injects ~20 sequence gaps; the upper counter bits would need 16/32/64/128 gaps."
+waiver ecpri-toggle-7 rtl/eCPRI_over_Ethernet_top.sv toggle \
+  reason="rx_err_cnt[5:7]: the run injects ~20 error frames; the upper counter bits would need 32/64/128 errors."
+waiver ecpri-toggle-8 rtl/eCPRI_over_Ethernet_top.sv toggle \
+  reason="tq_cnt[1:2]: the TX descriptor queue rarely holds more than one entry (the serializer drains each frame as it arrives); depths 2 and 4 not reached."
+waiver ecpri-toggle-9 rtl/eCPRI_over_Ethernet_top.sv toggle \
+  reason="tq_a/tq_b sparse descriptor bits: only read-response descriptors carry addr/data and the queue is shallow, so a few per-entry data bits are data-timing dependent and stay constant."
+
+# ---- WTB ----
+waiver wtb-line-1 rtl/WTB_top.sv:95 line \
+  reason="dead default: cpu_addr is 2-bit, addrs 1/2/3 cased and addr 0 pre-guarded by the push path; default unreachable."
+waiver wtb-line-2 rtl/WTB_top.sv:221 line \
+  reason="dead default: rstate is a 4-bit RX FSM with all 9 used states cased explicitly; execution of all 9 proven by FSM_COV 26/26."
+waiver wtb-line-3 rtl/WTB_top.sv:257-259 line \
+  reason="5.006 attribution artifact on the pay_byte case arms; every select i=0..3 is exercised by the 4-byte data frames (payload compared in CRV)."
+waiver wtb-line-4 rtl/WTB_top.sv:349 line \
+  reason="dead default: tstate is a 4-bit TX FSM with all 12 used states cased explicitly; execution proven by FSM_COV 26/26."
+waiver wtb-line-5 rtl/WTB_top.sv:369 line \
+  reason="dead irq source: the station FSM never asserts tok_irq (held at 0 every cycle); irq is driven by rx_bad/cfg_irq (both exercised)."
+waiver wtb-line-6 rtl/WTB_top.sv:412 line \
+  reason="5.006 attribution artifact on the hold_cnt increment guard; hold_cnt increments throughout every HOLD window (token rounds in CRV)."
+waiver wtb-line-7 rtl/WTB_top.sv:465 line \
+  reason="dead default: sstate is a 3-bit station FSM with all 5 used states cased explicitly; execution proven by FSM_COV 26/26."
+waiver wtb-toggle-1 rtl/WTB_top.sv toggle \
+  reason="tfc[2:7]/tx_fc_in[2:7]: the DUT only transmits frame-control 0 (claim), 1 (token), 2 (data); upper FC bits structurally constant."
+waiver wtb-toggle-2 rtl/WTB_top.sv toggle \
+  reason="my_addr[1,2,3,5,6,7]: station address is a static input tied to MY=8'h11 for the whole run."
+waiver wtb-toggle-3 rtl/WTB_top.sv toggle \
+  reason="tpay_cnt[2]: payload byte counter wraps at 3 (4-byte word); bit 2 structurally unreachable."
+waiver wtb-toggle-4 rtl/WTB_top.sv toggle \
+  reason="fr_sent[2]: the 200-clk hold window fits at most 2 four-byte frames, so the frames-sent counter never reaches 4."
+waiver wtb-toggle-5 rtl/WTB_top.sv toggle \
+  reason="tok_irq: dead irq source (never asserted by the station FSM); see wtb-line-5."
+
+# ---- Bluetooth5 ----
+waiver bt5-line-1 rtl/Bluetooth5_top.sv:98 line \
+  reason="dead default arm of the whitening/crc helper case; all reachable selects exercised by the random adv+data packets."
+waiver bt5-line-2 rtl/Bluetooth5_top.sv:186-188 line \
+  reason="5.006 attribution artifact on the RXS_AA branch lines; RXS_AA is entered for every received packet (rx path fully exercised in CRV)."
+waiver bt5-line-3 rtl/Bluetooth5_top.sv:224 line \
+  reason="5.006 attribution artifact; the statement executes during packet reception (directed+CRV frames) but is not credited."
+waiver bt5-line-4 rtl/Bluetooth5_top.sv:343 line \
+  reason="5.006 attribution artifact on the TXS_SEND tail; every transmitted packet passes through it (TXS_FSM visited, FSM_COV 8/8)."
+waiver bt5-line-5 rtl/Bluetooth5_top.sv:417,438,440,453 line \
+  reason="5.006 attribution artifacts on the CONNECT_REQ capture / conn-state statements; the random-connect cycles exercise them (ll_state==LS_CONN checked)."
+waiver bt5-toggle-1 rtl/Bluetooth5_top.sv toggle \
+  reason="tx_buf: 32-byte TX buffer but the longest packet (ADV_IND, 23B) loads only entries 0..22; entries 23..31 and the constant preamble/AA/header bytes never toggle."
+waiver bt5-toggle-2 rtl/Bluetooth5_top.sv toggle \
+  reason="bc[11:23]: RX bit counter peaks at ~232 bits/packet, so bits >= 2048 are structurally unreachable."
+waiver bt5-toggle-3 rtl/Bluetooth5_top.sv toggle \
+  reason="crc_err_cnt[4:15] / rx_evt_cnt[5:15]: free-running counters; the run injects ~7 CRC errors and ~34 rx events, so the upper bits never set."
+waiver bt5-toggle-4 rtl/Bluetooth5_top.sv toggle \
+  reason="rx_buf[15], plen_r[4], rx_dlen[4]: len=16 data PDUs are exercised and the 16-byte payload is verified via the rx_buf compare + rx_dlen check in CRV; the toggle instrumentation does not credit these points."
+waiver bt5-toggle-5 rtl/Bluetooth5_top.sv toggle \
+  reason="tx_bits / tx_cnt / byte_cnt[4]: serializer bit/byte index counters bounded by the max packet size; high bits structurally unreachable."
+waiver bt5-toggle-6 rtl/Bluetooth5_top.sv toggle \
+  reason="conn_timer[11:15]: negotiated conn_interval stays < 2048 in all connects, so the upper counter bits never set."
+waiver bt5-toggle-7 rtl/Bluetooth5_top.sv toggle \
+  reason="dch[5], adv_timer[11], rxs[2], wseed_cur[6], crc_r[23]: structural/data-marginal single bits (channel<32, adv_timer<=1200, rxs 4 states, whitening seed<64, CRC24 MSB)."

@@ -38,6 +38,58 @@ module CSE_tb;
 
   always #5 clk = ~clk;
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (tool build only; iverilog path unchanged)
+  // FSM probed: dut.cs (C_IDLE/C_KEY/C_RUN/C_DONE), 4 states.
+  // =====================================================================
+  localparam int CSE_FSM_TOTAL = 4;
+  logic [3:0] fsm_seen = '0;          // visited-state bitmap
+  wire  [1:0] dut_state = dut.cs;
+
+  int sva_total = 0, sva_fail = 0;
+  // counted immediate assertion: every evaluation is one check
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors = errors + 1;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // FSM coverage: sample DUT state register on both edges (scheduler
+  // failure mode #3 mitigation: dual-edge probe tolerates lost wakeups)
+  always @(posedge clk or negedge clk) fsm_seen[dut_state] <= 1'b1;
+
+  // output-invariant assertion suite (level/comb checks, negedge-sampled
+  // so all NBA updates are settled; no history-dependent properties)
+  logic rst_n_q = 1'b1;
+  always @(negedge clk) begin
+    if (!rst_n) begin
+      // A1: outputs quiescent during reset (one cycle for regs to init)
+      if (!rst_n_q)
+        sva_check(busy === 1'b0 && done === 1'b0 && irq === 1'b0,
+                  "A1 reset: outputs quiescent");
+    end else begin
+      // A2: busy exactly reflects non-idle
+      sva_check(busy === (dut_state != 2'd0), "A2 busy == !C_IDLE");
+      // A3: done is a single-cycle pulse NBA-issued by C_DONE (state has
+      // already returned to C_IDLE when the pulse is observed)
+      sva_check(!done || (dut_state == 2'd0), "A3 done pulse in C_IDLE");
+      // A4/A5: round/key-expansion counters bounded by the 10-round schedule
+      sva_check(dut.rcnt <= 4'd10, "A4 rcnt <= 10");
+      sva_check(dut.kcnt <= 4'd10, "A5 kcnt <= 10");
+      // A6: key-expansion counter within its active window while in C_KEY
+      sva_check((dut_state != 2'd1) || (dut.kcnt >= 4'd1 && dut.kcnt <= 4'd10),
+                "A6 C_KEY kcnt in [1,10]");
+    end
+    rst_n_q <= rst_n;
+  end
+`endif
+
   // irq capture
   logic irq_seen = 1'b0;
   always @(posedge clk) if (irq) irq_seen = 1'b1;
@@ -163,16 +215,99 @@ module CSE_tb;
 
     // ---- summary ----
     wait_clk(10);
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ----
+    // 110 randomized ops + 10 busy-violation injections. Self-checking
+    // without a second AES model: (a) every op is encrypted twice
+    // back-to-back and must be bit-identical (determinism), (b) AES is
+    // invertible, so decrypt(encrypt(pt)) must recover pt exactly
+    // (round-trip), (c) known FIPS-197/NIST vectors anchored by the
+    // directed phase, (d) all busy/done/irq protocol invariants via the
+    // SVA suite.
+    begin : crv_phase
+      int n_enc = 0, n_det = 0, n_rt = 0, n_vio = 0;
+      logic [127:0] k_v, pt_v, ct1, ct2, rt;
+      integer       tt;
+      for (int t = 0; t < 110; t++) begin
+        for (int i = 0; i < 4; i++) k_v[127-32*i -: 32] = $urandom;
+        for (int i = 0; i < 4; i++) pt_v[127-32*i -: 32] = $urandom;
+        load_key(k_v);
+        // encrypt the same block twice -> deterministic
+        run_op(1'b1, pt_v); ct1 = dout;
+        run_op(1'b1, pt_v); ct2 = dout;
+        n_enc = n_enc + 1; n_det = n_det + 1;
+        if (ct1 !== ct2) begin
+          errors = errors + 1;
+          $display("ERROR: CRV non-deterministic enc t=%0d", t);
+        end
+        // decrypt the ciphertext -> must recover the plaintext (round-trip)
+        run_op(1'b0, ct1); rt = dout;
+        n_rt = n_rt + 1;
+        if (rt !== pt_v) begin
+          errors = errors + 1;
+          $display("ERROR: CRV round-trip t=%0d pt=%032h ct=%032h rt=%032h",
+                   t, pt_v, ct1, rt);
+        end
+        if (busy !== 1'b0) begin
+          errors = errors + 1;
+          $display("ERROR: CRV busy stuck after done t=%0d", t);
+        end
+      end
+      // busy-violation injections: key write + extra start while busy -> irq
+      for (int t = 0; t < 10; t++) begin
+        for (int i = 0; i < 4; i++) k_v[127-32*i -: 32] = $urandom;
+        for (int i = 0; i < 4; i++) pt_v[127-32*i -: 32] = $urandom;
+        load_key(k_v);
+        irq_seen = 1'b0;
+        @(negedge clk); start = 1'b1; enc_dec = (t % 2); din = pt_v;
+        @(negedge clk); start = 1'b0;
+        // engine now busy: violate with a key write and a second start
+        @(negedge clk); key_we = 1'b1; key_widx = t[1:0]; key = $urandom;
+        @(negedge clk); key_we = 1'b0;
+        @(negedge clk); start = 1'b1;
+        @(negedge clk); start = 1'b0;
+        tt = 0;
+        while ((done !== 1'b1) && (tt < 400)) begin @(posedge clk); tt = tt + 1; end
+        if (done !== 1'b1) begin
+          errors = errors + 1; $display("ERROR: CRV violation op timeout t=%0d", t);
+        end
+        if (!irq_seen) begin
+          errors = errors + 1; $display("ERROR: CRV no irq on busy violation t=%0d", t);
+        end
+        n_vio = n_vio + 1;
+      end
+      $display("CRV: 110 ops (enc=%0d det=%0d roundtrip=%0d) + %0d violations",
+               n_enc, n_det, n_rt, n_vio);
+    end
+`endif
+
     if (errors == 0) $display("TEST PASSED: CSE");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < CSE_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, CSE_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
+`ifdef VERILATOR
+  // chunked timeout guard
+  initial begin
+    repeat (8000) #1000;
+    $display("TIMEOUT"); $finish;
+  end
+`else
   // TIMEOUT guard
   initial begin
     #1000000;
     $display("TEST FAILED: TIMEOUT");
     $finish;
   end
+`endif
 
 endmodule
