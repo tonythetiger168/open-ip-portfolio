@@ -28,3 +28,13 @@ waiver spmi-line-2 rtl/SPMI_top.sv:99  line \
 
 waiver spmi-toggle-1 rtl/SPMI_top.sv:37  toggle \
   reason="bit_cnt[3]: frame bit-counter wraps at 4'd7, bit 3 never set by any reachable stimulus."
+
+# ---- MIPI_SPMI ----
+waiver mspmi-line-1 rtl/MIPI_SPMI_top.sv:133  line \
+  reason="if (ssc_cnt != 6'h3F) ssc_cnt <= ssc_cnt+1: Verilator 5.006 line-attribution artifact. Execution proven: SSC detection gates every one of the ~300 passing transactions and requires ssc_cnt to count up to SSC_MIN."
+
+waiver mspmi-line-2 rtl/MIPI_SPMI_top.sv:199  line \
+  reason="S_ABIT default arm is dead: S_ABIT is only entered after cmd_legal passed in S_CMD, so cmd_q is always one of the four cased commands."
+
+waiver mspmi-line-3 rtl/MIPI_SPMI_top.sv:303  line \
+  reason="default: state <= S_IDLE is dead; state is 3-bit and all 8 encodings are cased explicitly (S_IDLE..S_PARK)."
