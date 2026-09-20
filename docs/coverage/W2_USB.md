@@ -13,6 +13,7 @@ Methodology per docs/COVERAGE.md. Waivers for this wave live in
 | USB3_2 | PASS | PASS | 123/138 (89.1%) + 5 waivers = 138/138 | 440/495 (88.9%) + 3 waivers = 495/495 | 5/5 | 8695683/8695683 | **closed (8 waivers)** |
 | USB4 | PASS | PASS | 132/138 (95.7%) + 5 waivers = 138/138 | 440/495 (88.9%) + 3 waivers = 495/495 | 5/5 | 8695683/8695683 | **closed (8 waivers)** |
 | USB2_0 | PASS | PASS | 173/184 (94.0%) + 3 waivers = 184/184 | 268/377 (71.1%) + 4 waivers = 377/377 | 7/7 | 4542723/4542723 | **closed (7 waivers)** |
+| USB_Type_C_Port_Controller | PASS | PASS | 81/85 (95.3%) + 4 waivers = 85/85 | 58/59 (98.3%) + 1 waiver = 59/59 | 3/3 | 78933/78933 | **closed (5 waivers)** |
 
 ## CRV stimulus summary
 
@@ -31,6 +32,12 @@ Methodology per docs/COVERAGE.md. Waivers for this wave live in
   boundaries forced), random payload bytes. Good frames: echo PID/len/payload
   compare + irq pulse count. Bad frames: no echo, busy low, sticky rx_err.
   Deterministic bad-PID probe at txn 2 proves rx_err 0->1.
+
+- **USB_Type_C_Port_Controller**: 120 txns (full attach/detach cycles with
+  random pin + hold time, sub-debounce glitches, abnormal-level faults,
+  Ra-only/both-Rd non-sink levels, detach glitches, role toggles, RO-write
+  immunity). Self-checks: attach/detach timing, orientation, vbus_en/role
+  composition, INT_STAT/FAULT_STAT readbacks, W1C clear behavior.
 
 ## Suspected RTL bugs (recorded, NOT fixed per v2.5 discipline)
 

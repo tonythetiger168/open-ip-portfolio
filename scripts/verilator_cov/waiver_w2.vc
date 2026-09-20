@@ -76,3 +76,19 @@ waiver usb20-toggle-3 rtl/USB2_0_top.sv toggle \
 
 waiver usb20-toggle-4 rtl/USB2_0_top.sv:64  toggle \
   reason="sync_b[6:0] never toggle: sync_b is the constant 8'h80 (tie-off bits)."
+
+# ---- USB_Type_C_Port_Controller ----
+waiver tcpc-line-1  rtl/USB_Type_C_Port_Controller_top.sv:126  line \
+  reason="default: state <= ST_UNATTACHED is dead: state is 2-bit with values 0-2 explicitly cased, value 3 unreachable."
+
+waiver tcpc-line-2  rtl/USB_Type_C_Port_Controller_top.sv:139  line \
+  reason="FAULT_STAT W1C clear reports DA 0 (5.006 attribution artifact in the reg-write case). Execution proven by CRV/directed fault flows: after reg_write(2,8'h01), FAULT_STAT reads back 8'h00 and irq drops -- only possible if this line executed."
+
+waiver tcpc-line-3  rtl/USB_Type_C_Port_Controller_top.sv:169  line \
+  reason="default: reg_rdata = 8'h00 is dead: reg_addr is 3-bit with all 8 encodings explicitly cased."
+
+waiver tcpc-line-4  rtl/USB_Type_C_Port_Controller_top.sv:174  line \
+  reason="unused tie-off wire: constant 0 by construction (&{1'b0,...}), const-folded, no toggling statement to cover."
+
+waiver tcpc-toggle-1 rtl/USB_Type_C_Port_Controller_top.sv:174  toggle \
+  reason="unused tie-off wire is constant 0 (framework-parameter sink), can never toggle."

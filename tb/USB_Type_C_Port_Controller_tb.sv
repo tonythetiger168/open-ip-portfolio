@@ -76,6 +76,186 @@ module USB_Type_C_Port_Controller_tb;
     end
   endtask
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
+  // Tool notes (Verilator 5.006): no native FSM/SVA coverage and
+  // randomize() ignores constraint blocks -> procedural constraints
+  // ($urandom_range + rejection sampling), TB FSM probe, immediate
+  // assertions.
+  // =====================================================================
+  localparam int TCPC_FSM_TOTAL = 3;   // ST_UNATTACHED/ST_ATTACHWAIT/ST_ATTACHED
+  logic [2:0] fsm_seen = '0;           // visited-state bitmap
+  wire  [1:0] dut_state = dut.state;   // hierarchical FSM probe
+
+  int sva_total = 0, sva_fail = 0;
+  // counted immediate assertion: every evaluation is one check
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors++;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // FSM coverage: sample DUT state register every clock
+  always @(posedge clk) fsm_seen[dut_state] <= 1'b1;
+
+  // output-invariant assertion suite (sampled coherently pre-NBA)
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      // A1: outputs quiescent during reset
+      sva_check(attached === 1'b0 && vbus_en === 1'b0 && irq === 1'b0 &&
+                orientation === 1'b0, "A1 reset: outputs quiescent");
+    end else begin
+      // A2: state register holds a legal enum encoding
+      sva_check(dut_state <= 2'd2, "A2 state encoding legal");
+      // A3: vbus_en == attached && source-role
+      sva_check(vbus_en === (attached && dut.role_src_q), "A3 vbus_en == attached&&src");
+      // A4: attached output == (state == ST_ATTACHED)
+      sva_check(attached === (dut_state == 2'd2), "A4 attached == ST_ATTACHED");
+      // A5: irq == live fault OR any sticky int bit
+      sva_check(irq === ((cc1 == 2'b11) || (cc2 == 2'b11) || (|dut.int_sticky)),
+                "A5 irq composition");
+      // A6: debounce counters stay inside their programmed ranges
+      sva_check(dut.deb_cnt <= 7'd99 && dut.rel_cnt <= 4'd9, "A6 debounce ranges");
+      // A7: unattached implies vbus off
+      sva_check((dut_state != 2'd0) || (vbus_en === 1'b0), "A7 unattached => vbus off");
+    end
+  end
+
+  // ---- constrained-random scenario tasks ------------------------------
+  // attach+detach cycle on a random pin with random hold time
+  task automatic crv_cycle(input bit pin2, input int hold);
+    begin
+      if (pin2) cc2 = CC_RD; else cc1 = CC_RD;
+      repeat (hold) @(posedge clk);
+      chk(attached === 1'b1, "CRV attach after full debounce");
+      chk(orientation === pin2, "CRV orientation matches wired CC pin");
+      chk(irq === 1'b1, "CRV irq after attach event");
+      reg_read(3'd3, 8'h01);                    // INT_STAT attach bit
+      clear_ints;
+      @(posedge clk); #1;
+      chk(irq === 1'b0, "CRV irq cleared after attach W1C");
+      cc1 = CC_OPEN; cc2 = CC_OPEN;
+      repeat (15) @(posedge clk);
+      chk(attached === 1'b0, "CRV detach after release debounce");
+      chk(irq === 1'b1, "CRV irq after detach event");
+      reg_read(3'd3, 8'h02);                    // INT_STAT detach bit
+      clear_ints;
+    end
+  endtask
+
+  // glitch: Rd pulse shorter than the 100-clk debounce must not attach
+  task automatic crv_glitch(input bit pin2, input int hold);
+    begin
+      if (pin2) cc2 = CC_RD; else cc1 = CC_RD;
+      repeat (hold) @(posedge clk);
+      chk(attached === 1'b0, "CRV glitch must not attach");
+      cc1 = CC_OPEN; cc2 = CC_OPEN;
+      repeat (20) @(posedge clk);
+      chk(attached === 1'b0, "CRV still unattached after glitch");
+      reg_read(3'd3, 8'h00);                    // no attach/detach events
+    end
+  endtask
+
+  // abnormal CC level: live irq + sticky fault, cleared by W1C
+  task automatic crv_fault(input bit pin2, input int hold);
+    begin
+      if (pin2) cc2 = CC_BAD; else cc1 = CC_BAD;
+      repeat (hold) @(posedge clk);
+      chk(irq === 1'b1, "CRV irq on CC fault");
+      reg_read(3'd2, 8'h01);                    // FAULT_STAT sticky
+      reg_read(3'd3, 8'h04);                    // INT_STAT fault bit
+      cc1 = CC_OPEN; cc2 = CC_OPEN;
+      repeat (2) @(posedge clk);
+      chk(irq === 1'b1, "CRV irq sticky after fault removed");
+      clear_ints;
+      @(posedge clk); #1;
+      chk(irq === 1'b0, "CRV irq cleared after fault W1C");
+      reg_read(3'd2, 8'h00);
+    end
+  endtask
+
+  // non-sink levels (Ra-only or Rd on both pins): never an attach
+  task automatic crv_nonsink(input int mode);
+    begin
+      case (mode)
+        0: cc1 = CC_RA;
+        1: cc2 = CC_RA;
+        default: begin cc1 = CC_RD; cc2 = CC_RD; end
+      endcase
+      repeat (120) @(posedge clk);
+      chk(attached === 1'b0, "CRV Ra-only/both-Rd must not attach");
+      chk(irq === 1'b0, "CRV no events for non-sink levels");
+      // CC_STATUS readback with hot CC levels (toggles reg_rdata upper bits)
+      case (mode)
+        0: reg_read(3'd0, {1'b0, orientation, 2'b00, CC_OPEN, CC_RA});
+        1: reg_read(3'd0, {1'b0, orientation, 2'b00, CC_RA, CC_OPEN});
+        default: reg_read(3'd0, {1'b0, orientation, 2'b00, CC_RD, CC_RD});
+      endcase
+      cc1 = CC_OPEN; cc2 = CC_OPEN;
+      repeat (5) @(posedge clk);
+    end
+  endtask
+
+  // detach-glitch: brief open pulse on the active pin is rejected
+  task automatic crv_detach_glitch(input bit pin2, input int gap);
+    begin
+      if (pin2) cc2 = CC_RD; else cc1 = CC_RD;
+      repeat (110) @(posedge clk);
+      chk(attached === 1'b1, "CRV detach-glitch: attached first");
+      clear_ints;
+      cc1 = CC_OPEN; cc2 = CC_OPEN;
+      repeat (gap) @(posedge clk);              // < 10 clk open pulse
+      if (pin2) cc2 = CC_RD; else cc1 = CC_RD;
+      repeat (12) @(posedge clk);
+      chk(attached === 1'b1, "CRV short release must not detach");
+      chk(irq === 1'b0, "CRV no detach event after short release");
+      cc1 = CC_OPEN; cc2 = CC_OPEN;
+      repeat (15) @(posedge clk);
+      chk(attached === 1'b0, "CRV detach-glitch: final detach");
+      clear_ints;
+    end
+  endtask
+
+  // role toggle while attached: vbus_en follows ROLE_CTRL
+  task automatic crv_role(input bit pin2, input logic role);
+    begin
+      if (pin2) cc2 = CC_RD; else cc1 = CC_RD;
+      repeat (110) @(posedge clk);
+      chk(attached === 1'b1, "CRV role: attached");
+      clear_ints;
+      reg_write(3'd1, {7'b0, role});
+      reg_read (3'd1, {7'b0, role});
+      @(posedge clk); #1;
+      chk(vbus_en === role, "CRV vbus_en follows role while attached");
+      reg_write(3'd1, 8'h01);                   // restore source role
+      cc1 = CC_OPEN; cc2 = CC_OPEN;
+      repeat (15) @(posedge clk);
+      clear_ints;
+    end
+  endtask
+
+  // writes to RO registers must be ignored (covers the write-default arm)
+  task automatic crv_ro_write;
+    logic [7:0] junk;
+    begin
+      junk = $urandom_range(0, 255);
+      reg_write(3'd0, junk);
+      reg_write(3'd4, ~junk);
+      reg_write(3'd7, junk | 8'h80);   // force wdata bit7 toggle
+      reg_read(3'd7, 8'hC7);                    // DEVICE_ID unharmed
+      reg_read(3'd4, 8'd100);                   // DEBOUNCE unharmed
+      // CC_STATUS idle unharmed (orientation holds its last resolved value)
+      reg_read(3'd0, {1'b0, orientation, 2'b00, CC_OPEN, CC_OPEN});
+    end
+  endtask
+`endif
+
   // ------------------------------------------------------------------
   // stimulus
   // ------------------------------------------------------------------
@@ -182,15 +362,65 @@ module USB_Type_C_Port_Controller_tb;
     clear_ints;
     $display("CHECK 8 done: cycle 3 (errors=%0d)", errors);
 
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ----
+    begin : crv_phase
+      int n_cyc = 0, n_glt = 0, n_flt = 0, n_ns = 0, n_dg = 0, n_role = 0, n_ro = 0;
+      int roll;
+      bit pin2;
+      for (int t = 0; t < 120; t++) begin
+        roll = $urandom_range(0, 19);
+        pin2 = $urandom_range(0, 1);
+        if (roll < 5) begin
+          n_cyc++;  crv_cycle(pin2, $urandom_range(105, 140));
+        end else if (roll < 8) begin
+          n_glt++;  crv_glitch(pin2, $urandom_range(1, 99));
+        end else if (roll < 11) begin
+          n_flt++;  crv_fault(pin2, $urandom_range(1, 5));
+        end else if (roll < 14) begin
+          n_ns++;   crv_nonsink($urandom_range(0, 2));
+        end else if (roll < 16) begin
+          n_dg++;   crv_detach_glitch(pin2, $urandom_range(1, 9));
+        end else if (roll < 19) begin
+          n_role++; crv_role(pin2, $urandom_range(0, 1));
+        end else begin
+          n_ro++;   crv_ro_write;
+        end
+      end
+      $display("CRV: 120 txns (cycle=%0d glitch=%0d fault=%0d nonsink=%0d det_glitch=%0d role=%0d ro_wr=%0d)",
+               n_cyc, n_glt, n_flt, n_ns, n_dg, n_role, n_ro);
+    end
+`endif
     if (errors == 0) $display("TEST PASSED: USB Type-C Port Controller");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < TCPC_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, TCPC_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
+`ifdef VERILATOR
+  // CRV phase adds ~0.4 ms of stimulus: extend the guard. The timeout is
+  // chunked into 1-us delays: with Verilator 5.006 a single long-pending
+  // #delay event corrupts the --timing delay heap (docs/COVERAGE.md note 1).
+  initial begin
+    repeat (2000) #1000;    // 2 ms in 1-us chunks
+    $display("TIMEOUT");
+    $display("TEST FAILED: %0d errors", errors + 1);
+    $finish;
+  end
+`else
   initial begin
     #200000;
     $display("TIMEOUT");
     $display("TEST FAILED: %0d errors", errors + 1);
     $finish;
   end
+`endif
 endmodule
