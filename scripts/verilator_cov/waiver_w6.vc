@@ -16,6 +16,10 @@ waiver uart-toggle-2 rtl/UART_top.sv:44 toggle \
 waiver uart-toggle-3 rtl/UART_top.sv:101 toggle \
   reason="rbit[3]: RX bit counter wraps at 4'd7 (8N1), bit 3 never set by any reachable stimulus."
 
+# ---- JTAG ----
+waiver jtag-line-1 rtl/JTAG_top.sv:51  line \
+  reason="default: tap_q <= TLR is dead; tap_q is a 4-bit enum with all 16 encodings cased explicitly."
+
 # ---- QSPI ----
 waiver qspi-toggle-1 rtl/QSPI_top.sv:27 toggle \
   reason="qcnt[1]: quad nibble counter wraps at 2'd1 (two nibbles per 8-bit frame), bit 1 never set by any reachable stimulus."
