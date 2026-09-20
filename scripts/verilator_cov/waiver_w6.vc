@@ -104,3 +104,17 @@ waiver cxl-fam-toggle-7 rtl/CXL_top.sv:48 rtl/PCIe_top.sv:48 rtl/UEC_top.sv:48 r
   reason="ta_cnt[3]: countdown loaded with constant 4'd6; bit 3 never set."
 waiver cxl-fam-toggle-8 rtl/CXL_top.sv:42 rtl/PCIe_top.sv:42 rtl/UEC_top.sv:42 rtl/Interlaken_v1_2_top.sv:42 rtl/JESD204C_top.sv:42 toggle \
   reason="tbit[5]: bit counter wraps at 6'd31 (32-bit CRC field); bit 5 never set."
+
+# ---- CAN-family template (CAN, FlexRay, LIN — identical 253-line RTL) ----
+waiver can-fam-line-1 rtl/CAN_top.sv:131 rtl/FlexRay_top.sv:131 rtl/LIN_top.sv:131 line \
+  reason="dead default: tstate is a 4-bit enum with all 8 used encodings (0..7) cased explicitly."
+waiver can-fam-line-2 rtl/CAN_top.sv:238 rtl/FlexRay_top.sv:238 rtl/LIN_top.sv:238 line \
+  reason="dead default arm of rstate case; rstate only takes 0..7 by construction."
+waiver can-fam-toggle-1 rtl/CAN_top.sv:32 rtl/FlexRay_top.sv:32 rtl/LIN_top.sv:32 toggle \
+  reason="tmr[15:5]: BAUD_DIV=20, counter spans 0..19; upper bits are 16-bit generic headroom."
+waiver can-fam-toggle-2 rtl/CAN_top.sv:58 rtl/FlexRay_top.sv:58 rtl/LIN_top.sv:58 toggle \
+  reason="run_cnt[3]/rx_run[3]: bit-stuff run counters bounded to 1..5 by the 5-bit stuff rule; bit 3 never set."
+waiver can-fam-toggle-3 rtl/CAN_top.sv:53 rtl/FlexRay_top.sv:53 rtl/LIN_top.sv:53 toggle \
+  reason="tstate[3]/rstate[3]: 8-state FSMs in 4-bit registers; bit 3 constant 0."
+waiver can-fam-toggle-4 rtl/CAN_top.sv:56 rtl/FlexRay_top.sv:56 rtl/LIN_top.sv:56 toggle \
+  reason="tx_hdr[6:4]: constant protocol control bits {rtr,ide,r0}=3'b000 loaded at frame start; never toggle."

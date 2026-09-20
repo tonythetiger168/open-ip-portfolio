@@ -24,6 +24,9 @@ Waivers: `scripts/verilator_cov/waiver_w6.vc`.
 | UEC    | PASS | PASS | 123/138 (89.1%) | 458/495 (92.5%) | 5/5 (TX+RX) | 10674441/10674441 | **closed (family waivers)** |
 | Interlaken_v1_2 | PASS | PASS | 123/138 (89.1%) | 458/495 (92.5%) | 5/5 (TX+RX) | 10674441/10674441 | **closed (family waivers)** |
 | JESD204C | PASS | PASS | 123/138 (89.1%) | 458/495 (92.5%) | 5/5 (TX+RX) | 10674441/10674441 | **closed (family waivers)** |
+| CAN    | PASS | PASS | 173/175 (98.9%) | 309/327 (94.5%) | 16/16 (TX+RX) | 2857639/2857639 | **closed (2L+4T family waivers)** |
+| FlexRay | PASS | PASS | 173/175 (98.9%) | 309/327 (94.5%) | 16/16 (TX+RX) | 2857639/2857639 | **closed (family waivers)** |
+| LIN    | PASS | PASS | 173/175 (98.9%) | 309/327 (94.5%) | 16/16 (TX+RX) | 2857639/2857639 | **closed (family waivers)** |
 
 CRV stimulus summary:
 - GPIO: 120 txns (output write+loopback / external input drive / illegal-address
@@ -53,6 +56,15 @@ CRV stimulus summary:
   predicted 8'h00 (RTL bug W6-2 below). Verilator bit sampling is
   clock-counted: 40 posedges + negedge per bit cell (a 39-posedge + negedge
   cell drifts -0.5 clk/bit and desynchronises after ~80 bits — measured).
+
+- CAN family (CAN/FlexRay/LIN, identical 253-line controller template, one
+  TB sed-copied x2): 120 frames through the register interface in loopback —
+  100 good (random 11-bit id, dlc 0..8, every 7th misuse dlc 9..15 — both
+  ends wrap dlc[2:0] consistently, all-zero/all-one stuffing boundaries,
+  illegal-address reads expect 8'h00), 10 live bit-flip injections (rxd =~ txd
+  for one 40-clk cell in the data phase — a *held* injected value misses when
+  txd transitions mid-window, measured 5/10; live inversion is exact), 10
+  recovery frames proving sticky rx_err clears on the next SOF.
 
 ## RTL bugs recorded (NOT fixed, per wave discipline)
 
