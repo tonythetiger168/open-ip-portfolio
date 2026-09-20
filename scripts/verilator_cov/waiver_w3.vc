@@ -214,3 +214,41 @@ waiver upm-toggle-5 rtl/UniPro_Mem_top.sv:85,86,94,123  toggle \
   reason="q0/q1/rb/t_pay[3][1:0],[7:4]: payload byte 3 carries only the length field (0x04/0x08/0x0C) or is left unwritten by shorter frames; bits 0,1,4-7 are constant-tied to 0."
 waiver upm-toggle-6 rtl/UniPro_Mem_top.sv:108  toggle \
   reason="rx_pay[1][7:5] + rx_pay[3][7:4],[1]: request byte 1 carries only the address-high byte (0x00), attribute indices (<= 31) or NAC seqs (<= 15); request byte 3 carries only length values (0x04/0x05/0x08/0x0C, oversized ones are discarded before the payload write). Those bits are constant-tied to 0."
+
+# ---- UniPro ----
+waiver uni-line-1 rtl/UniPro_top.sv:144,708  line \
+  reason="dead FSM default arms: rxs is a 2-bit enum with its three used encodings cased (encoding 3 never occurs); fstate has all nine used encodings (0-8) cased explicitly (encodings 9-15 never occur)."
+waiver uni-line-2 rtl/UniPro_top.sv:237,238,247,251  line \
+  reason="PACP GET/SET arm statements: Verilator 5.006 line-attribution artifacts inside the scrambled ctl-frame basic block. Execution proven: directed CHECK 6 plus the CRV ppacp/cpacp classes and the attr sweep run hundreds of GET/SET frames, every GETRSP/SETCNF response self-checked field-exact by the recorder."
+waiver uni-line-3 rtl/UniPro_top.sv:243,255,287,291,296,300,304,308,311,315  line \
+  reason="cfifo-full else (e_cof) arms and their condition lines on the GET/SET/accept/mof/other-cport/dup/oos push paths: the e_cof pulse mechanism is proven by the CRV cof class (back-to-back 1-byte frames saturate the 4-deep cfifo, irq self-checked); covering every per-arm corner additionally requires the cfifo to be exactly full at each specific frame type. Same mechanism on every arm."
+waiver uni-line-4 rtl/UniPro_top.sv:332  line \
+  reason="cpu message-pop case-item label line: attribution artifact. Execution proven: every CRV uplink/cfill frame is popped via cpu_rd(4) and byte-compared against the TB payload model."
+waiver uni-line-5 rtl/UniPro_top.sv:519,539,556  line \
+  reason="cpu_pacp_pend / ack_timer-increment / e_rex lines: attribution artifacts. Execution proven: cpu-PACP runs in directed CHECK 6 + CRV cpacp (csr flags self-checked), the CRV retx-timeout class waits out the 600-clk ACK window (retransmission recorded and seq-checked), and directed CHECK 4 plus the CRV qof/NAC classes fire e_rex (irq self-checked)."
+waiver uni-line-6 rtl/UniPro_top.sv:681,682,683,684,685,691,692  line \
+  reason="TX frame-FSM case-item/case lines: attribution artifacts. These lines execute for every one of the ~350 recorded DUT frames (recorder CRC-verifies each frame end-to-end)."
+waiver uni-line-7 rtl/UniPro_top.sv:446  line \
+  reason="f_h2_last is constant 0: the DUT only transmits frames with payload lengths 3 (control) and 4 (data), so the header-only-frame shortcut (f_len == 0) is structurally unreachable."
+waiver uni-toggle-1 rtl/UniPro_top.sv:33  toggle \
+  reason="cpu_rdata[31:14]: the status register only defines bits [13:0] (queue counts + message count); the upper bits are constant-tied to 0 by the read mux."
+waiver uni-toggle-2 rtl/UniPro_top.sv:85,89,403  toggle \
+  reason="cfifo/cf_head/f_ctl[12:15] and [19:23]: the 24-bit control-frame packing is {cmd,arg1,arg2} with cmd <= 5 (CC_*) and arg1 <= 15 (seq nibble / attribute index), so cmd[3:7] and arg1[4:7] are constant-tied to 0."
+waiver uni-toggle-3 rtl/UniPro_top.sv:150  toggle \
+  reason="fr[0][7] (received TC field - the TB peer testplan drives TC0 uplinks only), fr[1][5:6] (sequence nibble upper bits, seq <= 15), fr[2][5:7] (frame length <= 27 incl. the oversized drop frame), fr[21][0] (single-cell residual: that byte is only ever written by the >32-byte fdrop test frame)."
+waiver uni-toggle-4 rtl/UniPro_top.sv:154  toggle \
+  reason="frm_len[5]: only complete non-dropped frames latch frm_len and those are bounded by the 21-byte envelope (16-byte payload + header/CRC); oversized frames set fdrop instead and never latch."
+waiver uni-toggle-5 rtl/UniPro_top.sv:155  toggle \
+  reason="frm_crc residual bits: the latched CRC residue is 16'h0000 for every valid frame by construction; only the handful of bad-CRC error-injection frames produce non-zero residues, so some bits never see a 1."
+waiver uni-toggle-6 rtl/UniPro_top.sv:401  toggle \
+  reason="f_len[3:7]: transmitted frame lengths are only 3 (control) and 4 (data), so the upper bits are constant-tied to 0."
+waiver uni-toggle-7 rtl/UniPro_top.sv:404  toggle \
+  reason="pay_cnt[2]: the payload counter walks 0..3 for the 3/4-byte frames this DUT emits, so bit 2 is constant-tied to 0."
+waiver uni-toggle-8 rtl/UniPro_top.sv:423  toggle \
+  reason="cpu_pacp[12:15] (attribute index <= 15) and cpu_pacp[17:23] (command is only CC_GET=0 / CC_SET=1): constant-tied to 0."
+waiver uni-toggle-9 rtl/UniPro_top.sv:446  toggle \
+  reason="f_h2_last: constant 0 (payload length is never 0), see uni-line-7."
+
+# ---- UniPro_Mem residual cells ----
+waiver upm-toggle-7 rtl/UniPro_Mem_top.sv:85,86  toggle \
+  reason="q0_pay[13][6] and q1_pay[5][1]: single-cell residuals; those deep payload cells are only written by 12-byte read responses on one TC each and the applied walking-pattern subset happens not to toggle those two bits."

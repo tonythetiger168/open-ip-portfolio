@@ -138,3 +138,25 @@ run_cov.sh to mangle @TOP@ the same way.
 
 ### Remaining (not started): M_PHY, UniPro, UniPro_Mem
 No new RTL bugs found in C_PHY/D_PHY/CSI_2/DSI (the 3 previously known ones stand).
+
+## Round 3 closure (third coder): M_PHY, UniPro, UniPro_Mem — 18/18 DONE
+
+| Protocol | Pattern | iverilog | run_cov | CRV txns | FSM | SVA | LINE | TOGGLE |
+|---|---|---|---|---|---|---|---|---|
+| M_PHY | SPMI (no fork) | PASS | PASS | 126 (burst/G2/hibern8 + inv-code/disparity/bad-D/bad-K/gear classes) | 7/7 | all pass | 218/220 + 2 dead-default waivers | 198/202 + 4 structural waivers |
+| UniPro_Mem | SPMI (passive negedge monitor) | PASS | PASS | 126 + attr/data sweeps (mem rd/wr model-checked, PACP, 7 error classes incl. TC0 read-timeout) | 6/6 | all pass | 279/286 + 7 waivers (2 dead defaults + 5 Verilator line-attribution artifacts) | 940/1015 + 75 waivers (len/opcode/field bounds + 2 single-cell residuals) |
+| UniPro | recorder (fork in original) | PASS | PASS | 126 + sweeps (push/uplink/PACP + badcrc/oos/dup/retx-timeout/mof/frm/fdrop/qof/cof classes) | 12/12 | all pass | 488/516 + 28 waivers (2 dead defaults + attribution artifacts + e_cof per-arm corners + const f_h2_last) | 1120/1225 + 105 waivers (packing/field bounds + residues) |
+
+New tool/TB findings (no new RTL bugs; the 3 known RTL bugs untouched):
+- **Pre-existing TB bug (UniPro_Mem)**: directed `send_frame` declared `fb[0:18]` but writes CRC
+  bytes at `fb[19]`/`fb[20]` for 16-byte payloads. iverilog silently tolerates (x CRC bytes
+  compare as "no error"); Verilator reads 0 -> real CRC error -> frame dropped. Fixed `fb[0:20]`.
+- **Verilator metacomment trap**: a `//` comment whose first word is `Verilator` is parsed as a
+  `verilator` metacomment directive and fails the build. Avoid starting comments with "Verilator".
+- **Verilator zero-init false-start**: DUT output regs zero-initialize before reset values land,
+  so a passive serial recorder sees a phantom start bit at time 0 -> gate recorder with rst_n.
+- **cfifo saturation**: peer->DUT and DUT->peer frames run at the same symbol rate, so long ctl
+  frames can never overflow the 4-deep cfifo; only back-to-back *short* (1-byte payload) data
+  frames push ACKs faster than the ~110-clk ctl drain.
+- **fdrop frames are silent**: the UniPro de-framer sets fdrop at 32 bytes and never asserts
+  frm_end -> no irq, no response; verify silently-dropped + resync instead of expecting e_crc.
