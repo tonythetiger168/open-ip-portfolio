@@ -39,6 +39,60 @@ module UFS_tb;
     if (tx_p === 1'b0)  tx_act   <= 1'b1;
   end
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
+  // =====================================================================
+  // FSM probe: link-training(4) + rx-decoder(5) + tx-serializer(2) = 11
+  localparam int UFS_FSM_TOTAL = 11;
+  logic [10:0] fsm_seen = '0;
+  always @(posedge clk) begin
+    if (dut.lp_state < 4) fsm_seen[dut.lp_state]      <= 1'b1;
+    if (dut.rx_state < 5) fsm_seen[4 + dut.rx_state]  <= 1'b1;
+    if (dut.tx_state < 2) fsm_seen[9 + dut.tx_state]  <= 1'b1;
+  end
+
+  int sva_total = 0, sva_fail = 0;
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors++;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // output-invariant assertion suite (sampled at posedge, pre-NBA coherent)
+  int  rst_cyc = 0;
+  logic irq_q = 1'b0, link_q = 1'b0;
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      // A1: link down and idle after reset
+      if (rst_cyc > 0)
+        sva_check((dut.link_up === 1'b0) && (irq === 1'b0) &&
+                  (tx_p === 1'b1), "A1 reset: link down/idle");
+      rst_cyc++;
+    end else begin
+      // A2: complementary differential drive
+      sva_check(tx_n === ~tx_p, "A2 tx_n == ~tx_p");
+      // A3: FSM encodings in range
+      sva_check((dut.lp_state < 4) && (dut.rx_state < 5) &&
+                (dut.tx_state < 2), "A3 FSM encodings valid");
+      // A4: link_up is sticky once trained
+      if (link_q) sva_check(dut.link_up === 1'b1, "A4 link_up sticky");
+      // A5: irq is a single-cycle pulse
+      if (irq_q) sva_check(irq === 1'b0, "A5 irq pulse width");
+      // A6: TX serializer index bounded by frame length
+      if (dut.tx_state == 1)
+        sva_check(dut.tx_idx < dut.tx_total, "A6 tx_idx < tx_total");
+    end
+    irq_q  <= irq;
+    link_q <= dut.link_up;
+  end
+`endif
+
   // ------------------------ helpers ------------------------
   function automatic logic [31:0] crc_step(input logic [31:0] c, input logic b);
     logic fb;
@@ -241,12 +295,177 @@ module UFS_tb;
     check(rpay[0] === 32'hAAAA_5555, "2nd readback mismatch [0]");
     check(rpay[1] === 32'h5555_AAAA, "2nd readback mismatch [1]");
 
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ----
+    // 120 randomized UPIU transactions vs a 256-dword shadow medium:
+    //  - ~35% WRITE10 (random lba 0..255-n, n 1..4, corners) + READ10 verify
+    //  - ~25% READ10 of a previously written region, shadow compare
+    //  - ~15% CRC-corrupted WRITE10: irq, no response, storage unchanged
+    //  - ~10% unknown opcode: CHECK CONDITION + ILLEGAL REQUEST + irq
+    //  - ~10% out-of-range request (lba+n>256 / n=0 / n>8): CHECK + irq
+    //  - ~5%  malformed CDB (len<4): irq, no response
+    //  - ~5%  oversize frame (len=9): dropped at header, irq, no response
+    begin : crv_phase
+      logic [31:0] shadow [0:255];
+      bit          written [0:256];   // region-start markers (conservative)
+      logic [7:0]  tt, op, nn;
+      int          lba, wl, sel;
+      int n_wr = 0, n_rd = 0, n_ce = 0, n_uo = 0, n_oor = 0, n_mc = 0, n_ol = 0;
+      for (int i = 0; i < 256; i++) begin shadow[i] = 32'h0; written[i] = 0; end
+      written[256] = 0;
+      // directed phase survivors
+      shadow[16] = 32'hDEAD_BEEF; shadow[17] = 32'h1234_5678;
+      shadow[18] = 32'hCAFE_F00D; shadow[19] = 32'h0BAD_5EED;
+      shadow[64] = 32'hAAAA_5555; shadow[65] = 32'h5555_AAAA;
+      written[16] = 1; written[64] = 1;
+      for (int i = 0; i < 120; i++) begin
+        tt  = $urandom_range(1, 255);
+        sel = $urandom_range(0, 19);
+        if (sel < 7) begin
+          // ---- WRITE10 + READ10 verify ----
+          n_wr++;
+          nn  = $urandom_range(1, 4);
+          lba = $urandom_range(0, 256 - nn);
+          for (int j = 0; j < 4; j++) begin
+            wdata[j] = $urandom();
+            if ($urandom_range(0, 11) == 0) wdata[j] = 32'h0;
+            if ($urandom_range(0, 11) == 0) wdata[j] = 32'hFFFF_FFFF;
+          end
+          ufs_cmd(8'h2A, lba[23:0], nn, tt, 1'b0);
+          expect_resp(tt, 32'h0000_0000);
+          for (int j = 0; j < nn; j++) shadow[lba + j] = wdata[j];
+          written[lba] = 1;
+          ufs_cmd(8'h28, lba[23:0], nn, tt, 1'b0);
+          expect_resp(tt, 32'h0000_0000);
+          recv_frame(rhdr);
+          check(rhdr[31:24] === 8'h02, "CRV wr: no DATA UPIU");
+          check(rhdr[7:0] === nn,     "CRV wr: DATA len mismatch");
+          for (int j = 0; j < nn; j++)
+            check(rpay[j] === shadow[lba+j], "CRV wr: readback mismatch");
+        end else if (sel < 12) begin
+          // ---- READ10 of a previously written region ----
+          n_rd++;
+          wl = 16;
+          for (int j = 0; j < 256; j++) if (written[j]) wl = j;
+          lba = $urandom_range(0, 255);
+          if (written[lba]) wl = lba;
+          nn  = $urandom_range(1, 2);
+          ufs_cmd(8'h28, wl[23:0], nn, tt, 1'b0);
+          expect_resp(tt, 32'h0000_0000);
+          recv_frame(rhdr);
+          check(rhdr[31:24] === 8'h02, "CRV rd: no DATA UPIU");
+          for (int j = 0; j < nn; j++)
+            check(rpay[j] === shadow[wl+j], "CRV rd: data mismatch");
+        end else if (sel < 15) begin
+          // ---- CRC-corrupted WRITE10: dropped, storage unchanged ----
+          n_ce++;
+          nn  = $urandom_range(1, 4);
+          lba = $urandom_range(0, 256 - nn);
+          for (int j = 0; j < 4; j++) wdata[j] = $urandom();
+          irq_seen = 0;
+          ufs_cmd(8'h2A, lba[23:0], nn, tt, 1'b1);
+          tx_act = 0;
+          repeat (600) @(posedge clk);
+          check(irq_seen === 1'b1, "CRV crc: no irq");
+          check(tx_act   === 1'b0, "CRV crc: DUT responded to bad frame");
+          // verify via READ10 that shadow contents survived
+          ufs_cmd(8'h28, lba[23:0], nn, tt, 1'b0);
+          expect_resp(tt, 32'h0000_0000);
+          recv_frame(rhdr);
+          for (int j = 0; j < nn; j++)
+            check(rpay[j] === shadow[lba+j], "CRV crc: storage polluted");
+        end else if (sel < 17) begin
+          // ---- unknown opcode ----
+          n_uo++;
+          do op = $urandom_range(0, 255);
+          while (op == 8'h00 || op == 8'h28 || op == 8'h2A);
+          irq_seen = 0;
+          ufs_cmd(op, 24'h0, 8'd0, tt, 1'b0);
+          recv_frame(rhdr);
+          check(rhdr[31:24] === 8'h81,       "CRV unk: no RESPONSE UPIU");
+          check(rpay[0][15:0]  === 16'h0001, "CRV unk: status not CHECK");
+          check(rpay[0][31:16] === 16'h0005, "CRV unk: sense not ILLEGAL");
+          check(irq_seen === 1'b1,           "CRV unk: no irq");
+        end else if (sel < 18) begin
+          // ---- malformed CDB (len 0..3): dropped, no response ----
+          n_mc++;
+          irq_seen = 0;
+          send_frame(8'h01, tt, 8'h00, $urandom_range(0, 3), 1'b0);
+          tx_act = 0;
+          repeat (600) @(posedge clk);
+          check(irq_seen === 1'b1, "CRV malformed: no irq");
+          check(tx_act   === 1'b0, "CRV malformed: DUT responded");
+        end else if (sel < 19) begin
+          // ---- out-of-range request: CHECK CONDITION + irq ----
+          n_oor++;
+          if ($urandom_range(0, 1)) begin
+            // WRITE10 with lba + n > 256
+            nn  = $urandom_range(1, 4);
+            lba = 256 - nn + $urandom_range(1, 8);
+            for (int j = 0; j < 4; j++) wdata[j] = $urandom();
+            irq_seen = 0;
+            ufs_cmd(8'h2A, lba[23:0], nn, tt, 1'b0);
+          end else begin
+            // READ10 with n == 0 or n > 8
+            nn  = ($urandom_range(0, 1)) ? 8'd0 : $urandom_range(9, 255);
+            irq_seen = 0;
+            ufs_cmd(8'h28, 24'd0, nn, tt, 1'b0);
+          end
+          recv_frame(rhdr);
+          check(rhdr[31:24] === 8'h81,       "CRV oor: no RESPONSE UPIU");
+          check(rpay[0][15:0]  === 16'h0001, "CRV oor: status not CHECK");
+          check(rpay[0][31:16] === 16'h0005, "CRV oor: sense not ILLEGAL");
+          check(irq_seen === 1'b1,           "CRV oor: no irq");
+        end else begin
+          // ---- oversize frame (len=9): dropped at header ----
+          n_ol++;
+          irq_seen = 0;
+          begin
+            logic [31:0] c;
+            send_word(SOF, 0);
+            tb_crc = 32'hFFFF_FFFF;
+            send_word({8'h01, tt, 8'h00, 8'd9}, 1);
+            for (int j = 0; j < 9; j++) send_word($urandom(), 1);
+            c = tb_crc ^ 32'hFFFF_FFFF;
+            send_word(c, 0);
+            send_word(EOFR, 0);
+            @(negedge clk); rx_p = 1'b1; rx_n = 1'b0;
+          end
+          tx_act = 0;
+          repeat (600) @(posedge clk);
+          check(irq_seen === 1'b1, "CRV oversize: no irq");
+          check(tx_act   === 1'b0, "CRV oversize: DUT responded");
+        end
+      end
+      $display("CRV: 120 txns (wr=%0d rd=%0d crc-err=%0d unk-op=%0d oor=%0d malformed=%0d oversize=%0d)",
+               n_wr, n_rd, n_ce, n_uo, n_oor, n_mc, n_ol);
+    end
+`endif
+
     if (errors == 0) $display("TEST PASSED: UFS");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < UFS_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, UFS_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
+`ifdef VERILATOR
+  // Chunked timeout: Verilator 5.006 corrupts the --timing delay heap on a
+  // single long-pending #delay once many short-delay resumptions interleave.
+  initial begin
+    repeat (15000) #1000;   // 15 ms in 1-us chunks
+    $display("TIMEOUT"); $finish;
+  end
+`else
   initial begin
     #3_000_000; $display("TIMEOUT"); $finish;
   end
+`endif
 endmodule

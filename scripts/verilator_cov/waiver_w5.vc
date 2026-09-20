@@ -137,3 +137,21 @@ waiver sata-toggle-2 rtl/SATA_top.sv toggle \
   reason="counter bits bounded by geometry/timeouts: align_bitcnt[5], tx_bitcnt[5], rbitcnt[5] (0..31), bd_cnt[0] (BIT_CLKS=1), dfstate[3] (8 states), dtmr[11] (DS_TMO=2000<2048), hstmr[13] (HS_TMO=5000<8192), hnd[0,1,5] (+=4, max 16), hseq[2:7] (dseq 0..3 in 6'b0 pad), longs[1]/shorts[1] (values 0/1 only), zrun[7] (max low run 192... low bursts <=64<128), host_status[7] (status in {50,51,7F})."
 waiver sata-toggle-3 rtl/SATA_top.sv toggle \
   reason="htmr[9:13]: OOB retry timer always resets on successful detection within ~200 clks in loopback; values >=512 unreachable (retry path never taken, see sata-line-2)."
+
+# ---- UFS ----
+waiver ufs-line-1 rtl/UFS_top.sv:150,194-196,206-207,217,219,224,226-242,245-254,257-258,262-268,272 line \
+  reason="Verilator 5.006 line-attribution artifact, large-block instance (same class as nvme-line-3): the RX frame-decoder bodies that contain blocking temporaries (rxw/r_status/r_sense/do_resp/n_xfer/lba_ok) lose their DA points. Execution proven functionally by the TB: ~110 successful COMMAND UPIU dispatches with exact RESPONSE/DATA UPIU payload compares (224,226-242,245-254,257-258), 26 CRC-corrupted WRITE10 drops with irq+no-response checks (217/219 region), 3 oversize len=9 header drops with irq+no-response checks (206-207), hundreds of received frames via the SOF hunt (194-196), response-build + tx_req for every accepted command (262-268)."
+waiver ufs-line-2 rtl/UFS_top.sv:110,120,128,280 line \
+  reason="bit_tick guard lines: attribution artifact; the training burst, wait-response and TX serializer all verifiably ran (LINKUP reached, 300+ frames transmitted)."
+waiver ufs-line-3 rtl/UFS_top.sv:131-133 line \
+  reason="LP_WAIT_RSP retrain-timeout arm: the TB peer always answers training within ~130 clks (TR_TMO=4095), so retrain is unreachable in this config (tr_timer toggle bits 8+ confirm)."
+waiver ufs-line-4 rtl/UFS_top.sv:77,81,82 line \
+  reason="bit_tick/bd_cnt: BIT_CLKS=1 makes bit_tick constant 1; bd_cnt else arm dead, wire decl constant-folded."
+waiver ufs-line-5 rtl/UFS_top.sv:137,315 line \
+  reason="FSM default arms: lp_state/tx_state fully-cased enums; defaults unreachable."
+waiver ufs-toggle-1 rtl/UFS_top.sv toggle \
+  reason="pay_buf constant fields: pay_buf[0][23:8] (lba<=255 -> high bytes 0), pay_buf[1][23:0]+[31:28] (xfer count<=255 in byte 31:24, rest 0), pay_buf[2][*], pay_buf[3][*] (CDB padding always 32'h0). Const under any legal stimulus."
+waiver ufs-toggle-2 rtl/UFS_top.sv toggle \
+  reason="status/sense + header constants: r_status[15:1] (values 0/1), r_sense[15:3]+[1] (values 0/5), hdr_lun[7:0] (TB lun=0), hdr_type[7:1] (only T_CMD=8'h01 received), hdr_len[7:4] (len<=9), n_xfer high bits (<=255), rd_n[3]/rx_cnt[3]/tr_rep[3] (bounded 0..8), tx_idx bit (<=11)."
+waiver ufs-toggle-3 rtl/UFS_top.sv toggle \
+  reason="tr_timer high bits: peer answers training within ~130 clks; timer never reaches 256+ (TR_TMO=4095 path unexercised, see ufs-line-3). bd_cnt[0]: BIT_CLKS=1 constant 0."

@@ -22,6 +22,7 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
 | I2S_Audio | PASS | PASS | 125/127 | 336/340 | 4/4 | all pass | **closed (1 line + 2 toggle waivers)** |
 | SAS | PASS | PASS | 352/371 | 490/594 | 22/22 | all pass | **closed (5 line + 4 toggle waivers)** |
 | SATA | PASS | PASS | 420/437 | 1191/1279 | 31/31 | all pass | **closed (5 line + 3 toggle waivers)** |
+| UFS | PASS | PASS | 142/200 | 433/603 | 11/11 | all pass | **closed (5 line + 3 toggle waivers)** |
 
 ## CRV stimulus summary
 
@@ -78,6 +79,16 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
   (device error status 8'h51 + errf). Gotcha: Verilator 5.006 duplicates
   `$urandom_range` calls inlined in case expressions -- assign the selector
   to a temp first.
+
+- **UFS** (TB is the UniPro peer): 120 randomized UPIU transactions vs a
+  256-dword shadow medium: ~33% WRITE10+READ10 verify (random lba/n/corners),
+  ~22% READ10 of written regions, ~22% CRC-corrupted WRITE10 (irq, no
+  response, storage unpolluted), ~11% unknown opcode (CHECK CONDITION +
+  ILLEGAL REQUEST + irq), out-of-range (lba+n>256 / n=0 / n>8), malformed
+  CDB (len<4, dropped), oversize frame (len=9, dropped at header).
+  Note: the entire RX_EOF dispatch block loses its line-coverage DA points
+  under Verilator 5.006 (blocking temporaries in always_ff) -- largest
+  instance so far of the known attribution artifact (waiver ufs-line-1).
 
 ## Suspected RTL issues (reported, NOT fixed — per SPEC)
 
