@@ -42,6 +42,58 @@ module Crypto___Security_Engine_tb;
 
   always #5 clk = ~clk;
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (tool build only; iverilog path unchanged)
+  // FSM probed: dut.cs (S_IDLE/S_BLK/S_RND/S_FIN/S_DONE), 5 states.
+  // =====================================================================
+  localparam int CRY_FSM_TOTAL = 5;
+  logic [4:0] fsm_seen = '0;          // visited-state bitmap
+  wire  [2:0] dut_state = dut.cs;
+
+  int sva_total = 0, sva_fail = 0;
+  // counted immediate assertion: every evaluation is one check
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors = errors + 1;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // FSM coverage: sample DUT state register on both edges (scheduler
+  // failure mode #3 mitigation: dual-edge probe tolerates lost wakeups)
+  always @(posedge clk or negedge clk) fsm_seen[dut_state] <= 1'b1;
+
+  // output-invariant assertion suite (level/comb checks, negedge-sampled
+  // so all NBA updates are settled; no history-dependent properties)
+  logic rst_n_q = 1'b1;
+  always @(negedge clk) begin
+    if (!rst_n) begin
+      // A1: outputs quiescent during reset (one cycle for regs to init)
+      if (!rst_n_q)
+        sva_check(busy === 1'b0 && done === 1'b0 && irq === 1'b0,
+                  "A1 reset: outputs quiescent");
+    end else begin
+      // A2: busy exactly reflects non-idle
+      sva_check(busy === (dut_state != 3'd0), "A2 busy == !S_IDLE");
+      // A3: done is a single-cycle pulse NBA-issued by S_DONE (state has
+      // already returned to S_IDLE when the pulse is observed)
+      sva_check(!done || (dut_state == 3'd0), "A3 done pulse observed in S_IDLE");
+      // A4: state register holds a legal encoding (5 of 8 used)
+      sva_check(dut_state <= 3'd4, "A4 state legal");
+      // A5: round counter bounded by the 64-round schedule
+      sva_check(dut.rcnt <= 6'd63, "A5 rcnt <= 63");
+      // A6: block programme register holds a legal encoding
+      sva_check(dut.blk_type <= 3'd5, "A6 blk_type legal");
+    end
+    rst_n_q <= rst_n;
+  end
+`endif
+
   // irq capture
   logic irq_seen = 1'b0;
   always @(posedge clk) if (irq) irq_seen = 1'b1;
@@ -197,16 +249,117 @@ module Crypto___Security_Engine_tb;
 
     // ---- summary ----
     wait_clk(10);
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ----
+    // 110 randomized ops + 10 busy-violation injections. Self-checking
+    // without a second SHA model: (a) every op is run twice back-to-back
+    // and must be bit-identical (determinism), (b) HMAC(key,m) must differ
+    // from SHA-256(m) for the same message (avalanche sanity), (c) known
+    // NIST/RFC4231 vectors anchored by the directed phase, (d) all
+    // busy/done/irq protocol invariants via the SVA suite. Message lengths
+    // sweep the padding boundaries 0/1/55/56/63/64.
+    begin : crv_phase
+      int n_sha = 0, n_hmac = 0, n_vio = 0, n_b2b = 0;
+      logic [511:0] m_v, k_v;
+      logic [255:0] d1, d2;
+      logic [6:0]   len_v;
+      logic         hm_v;
+      integer       tt;
+      for (int t = 0; t < 110; t++) begin
+        for (int i = 0; i < 16; i++) m_v[511-32*i -: 32] = $urandom;
+        for (int i = 0; i < 16; i++) k_v[511-32*i -: 32] = $urandom;
+        hm_v = (t % 2 == 1);
+        case (t % 6)
+          0: len_v = 7'd0;
+          1: len_v = 7'd55;
+          2: len_v = 7'd56;
+          3: len_v = 7'd64;
+          4: len_v = 7'd1;
+          default: len_v = $urandom_range(2, 63);
+        endcase
+        load_msg(m_v);
+        load_key(k_v);
+        run_op(hm_v, len_v);
+        d1 = digest;
+        // immediate re-run of the identical op: must be bit-identical
+        run_op(hm_v, len_v);
+        d2 = digest;
+        n_b2b = n_b2b + 1;
+        if (d1 !== d2) begin
+          errors = errors + 1;
+          $display("ERROR: CRV non-deterministic t=%0d len=%0d hm=%0d", t, len_v, hm_v);
+        end
+        if (hm_v) begin
+          n_hmac = n_hmac + 1;
+          // HMAC(key,m) must differ from plain SHA-256(m)
+          run_op(1'b0, len_v);
+          if (digest === d1) begin
+            errors = errors + 1;
+            $display("ERROR: CRV HMAC == SHA t=%0d", t);
+          end
+        end else n_sha = n_sha + 1;
+        if (busy !== 1'b0) begin
+          errors = errors + 1;
+          $display("ERROR: CRV busy stuck after done t=%0d", t);
+        end
+      end
+      // busy-violation injections: msg/key writes + start while busy -> irq
+      for (int t = 0; t < 10; t++) begin
+        for (int i = 0; i < 16; i++) m_v[511-32*i -: 32] = $urandom;
+        load_msg(m_v);
+        load_key(k_v);
+        irq_seen = 1'b0;
+        @(negedge clk); start = 1'b1; mode = (t % 2); msg_len = 7'd64;
+        @(negedge clk); start = 1'b0;
+        // engine is now busy: violate
+        @(negedge clk); msg_we = 1'b1; msg_widx = t[1:0]; msg = $urandom;
+        @(negedge clk); msg_we = 1'b0;
+        @(negedge clk); key_we = 1'b1; key_widx = t[1:0]; key = $urandom;
+        @(negedge clk); key_we = 1'b0;
+        @(negedge clk); start = 1'b1;
+        @(negedge clk); start = 1'b0;
+        tt = 0;
+        while ((done !== 1'b1) && (tt < 2000)) begin @(posedge clk); tt = tt + 1; end
+        if (done !== 1'b1) begin
+          errors = errors + 1; $display("ERROR: CRV violation op timeout t=%0d", t);
+        end
+        if (!irq_seen) begin
+          errors = errors + 1; $display("ERROR: CRV no irq on busy violation t=%0d", t);
+        end
+        n_vio = n_vio + 1;
+      end
+      $display("CRV: 110 ops x2 (sha=%0d hmac=%0d b2b=%0d) + %0d violations",
+               n_sha, n_hmac, n_b2b, n_vio);
+    end
+`endif
+
     if (errors == 0) $display("TEST PASSED: Crypto___Security_Engine");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < CRY_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, CRY_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
+`ifdef VERILATOR
+  // chunked timeout guard
+  initial begin
+    repeat (8000) #1000;
+    $display("TIMEOUT"); $finish;
+  end
+`else
   // TIMEOUT guard
   initial begin
     #2000000;
     $display("TEST FAILED: TIMEOUT");
     $finish;
   end
+`endif
 
 endmodule

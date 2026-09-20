@@ -170,3 +170,13 @@ waiver ocpip-toggle-2 rtl/OCP_IP_Open_Core_Protocol_top.sv:89 toggle \
   reason="MBurstSeq[2:0]: constant 3'b000 tie-off (INCR-only master)."
 waiver ocpip-toggle-3 rtl/OCP_IP_Open_Core_Protocol_top.sv:73 toggle \
   reason="beat[3]/rcnt[4]: burst beat counters reach at most 7 (len<=8); upper bits never set."
+
+# ---- Crypto --- 
+waiver crypto-line-1 rtl/Crypto___Security_Engine_top.sv:70-73 line \
+  reason="5.006 attribution artifact on the hinit() case arms (function called in an unrolled loop); execution proven by NIST/RFC4231 vector digests matching."
+waiver crypto-line-2 rtl/Crypto___Security_Engine_top.sv:141-152 line \
+  reason="5.006 attribution artifact on msg1_byte/outer_byte arms; execution proven by the 56-byte NIST vector (two-block padding) and the RFC4231 HMAC vector."
+waiver crypto-line-3 rtl/Crypto___Security_Engine_top.sv:285 line \
+  reason="dead default: cs is a 3-bit FSM with encodings 0..4 cased explicitly."
+waiver crypto-toggle-1 rtl/Crypto___Security_Engine_top.sv:117 toggle \
+  reason="bitlen[2:0]: bit length is always a multiple of 8 ({len_q,3'b000} + 512); low 3 bits constant 0."

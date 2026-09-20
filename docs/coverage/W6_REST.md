@@ -35,6 +35,7 @@ Waivers: `scripts/verilator_cov/waiver_w6.vc`.
 | Wishbone | PASS | PASS | 82/84 (97.6%) | 219/220 (99.5%) | 3/3 | 3082/3082 | **closed (2L+1T waivers)** |
 | OCP    | PASS | PASS | 59/72 (81.9%) | 162/162 (100%) | 4/4 | 8992/8992 | **closed (2 waivers)** |
 | OCP_IP_Open_Core_Protocol | PASS | PASS | 99/102 (97.1%) | 522/551 (94.7%) | 6/6 | 13597/13597 | **closed (2L+3T waivers)** |
+| Crypto___Security_Engine | PASS | PASS | 167/177 (94.4%) | 1490/1493 (99.8%) | 5/5 | 260143/260143 | **closed (3L+1T waivers)** |
 
 CRV stimulus summary:
 - GPIO: 120 txns (output write+loopback / external input drive / illegal-address
@@ -104,6 +105,12 @@ CRV stimulus summary:
   recovery + shadow re-verify). to_cnt overshoots to 64 for one cycle on
   the abort cycle (internal counter, no functional impact; A5 bound set
   accordingly).
+
+- Crypto: 110 randomized SHA-256/HMAC ops, each run twice back-to-back
+  (bit-identical determinism check), HMAC != SHA cross-mode sanity, padding
+  boundary lengths 0/1/55/56/63/64, + 10 busy-violation injections
+  (msg/key/start while busy -> irq). No second SHA model in the TB; exact
+  correctness anchored by the directed NIST/RFC4231 vectors.
 
 ## RTL bugs recorded (NOT fixed, per wave discipline)
 
