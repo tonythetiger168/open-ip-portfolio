@@ -119,3 +119,21 @@ waiver sas-toggle-3 rtl/SAS_top.sv toggle \
   reason="counters bounded by frame geometry / simulation length: crc_err_cnt[7:15], mm_cnt[5:15], ok_cnt[7:15], oob_cnt[9] (max 318<512), brun[7] (max run 106<128), pay_idx[4] (len<=16), tx_bit_cnt[5], rx_bit_cnt[5] (0..31), bd_cnt[0] (BIT_CLKS=1 constant 0)."
 waiver sas-toggle-4 rtl/SAS_top.sv toggle \
   reason="wdata sequence high bits: sq_wdata/app_data/f_data/rsp_data/rsp_val/wr_data[26,29,31] — initiator data is 32'h5A5A_0000 + n*32'h0001_0101; bits 26/29/31 require n>=~33k writes, unreachable in any feasible simulation."
+
+# ---- SATA ----
+waiver sata-line-1 rtl/SATA_top.sv:67,274,320,368,483 line \
+  reason="Verilator 5.006 line-attribution artifacts (same class as nvme-line-3). Execution proven: crc32_dw XOR arm (67) runs for every frame dword (hundreds of frames, CRCs verified), ALIGN shifter (274) and bit_tick blocks (320/368) active every clk of link-up, HF_DONE host_req handshake (483) completes all 120+ CRV commands."
+waiver sata-line-2 rtl/SATA_top.sv:180,186,202 line \
+  reason="OOB retry arms (htmr==8000 -> HOB_RESET): in loopback COMINIT/COMWAKE detection always succeeds within ~200 clks (proven by htmr toggle: bits 9..13 never set), so the retry paths are unreachable in this config."
+waiver sata-line-3 rtl/SATA_top.sv:214,252,487,601 line \
+  reason="FSM default arms: hstate/dstate/hfstate/dfstate are fully-cased enums; default encodings unreachable."
+waiver sata-line-4 rtl/SATA_top.sv:261,265,266 line \
+  reason="bit_tick/bd_cnt: BIT_CLKS=1 makes bit_tick constant 1; bd_cnt else arm (266) dead, wire decl (261) constant-folded."
+waiver sata-line-5 rtl/SATA_top.sv:411,413 line \
+  reason="unknown-FIS-type rx_err arm: needs a valid-CRC frame with a FIS type outside {H2D,D2H,DATA}; the TX never sends one and any wire corruption is caught by CRC first. Unreachable in loopback (40 CRV poison injections confirm: all errors are CRC/SOF/EOF class)."
+waiver sata-toggle-1 rtl/SATA_top.sv toggle \
+  reason="frame-dw0 constant fields: hframe[0]/dframe[0]/tbuf[0]/rb0 bits that are hard constants in every FIS layout used ({1,7'h00,cmd,8'h00,27h}/{0,15'h0,8'h00,46h}/{err,sts,8'h00,34h}): FIS-type zero bits (3,4,7), reserved bytes 8..15 and 24..30, status-byte zero bits 17..19,21,23 and error-byte zero bits 24,25,27..30. Const under any stimulus."
+waiver sata-toggle-2 rtl/SATA_top.sv toggle \
+  reason="counter bits bounded by geometry/timeouts: align_bitcnt[5], tx_bitcnt[5], rbitcnt[5] (0..31), bd_cnt[0] (BIT_CLKS=1), dfstate[3] (8 states), dtmr[11] (DS_TMO=2000<2048), hstmr[13] (HS_TMO=5000<8192), hnd[0,1,5] (+=4, max 16), hseq[2:7] (dseq 0..3 in 6'b0 pad), longs[1]/shorts[1] (values 0/1 only), zrun[7] (max low run 192... low bursts <=64<128), host_status[7] (status in {50,51,7F})."
+waiver sata-toggle-3 rtl/SATA_top.sv toggle \
+  reason="htmr[9:13]: OOB retry timer always resets on successful detection within ~200 clks in loopback; values >=512 unreachable (retry path never taken, see sata-line-2)."

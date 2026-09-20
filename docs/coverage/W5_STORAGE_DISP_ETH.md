@@ -21,6 +21,7 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
 | Ethernet_AVB_TSN | PASS | PASS | 173/175 | 309/327 | 16/16 | all pass | **closed (2 line + 4 toggle waivers)** |
 | I2S_Audio | PASS | PASS | 125/127 | 336/340 | 4/4 | all pass | **closed (1 line + 2 toggle waivers)** |
 | SAS | PASS | PASS | 352/371 | 490/594 | 22/22 | all pass | **closed (5 line + 4 toggle waivers)** |
+| SATA | PASS | PASS | 420/437 | 1191/1279 | 31/31 | all pass | **closed (5 line + 3 toggle waivers)** |
 
 ## CRV stimulus summary
 
@@ -67,6 +68,16 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
   rdrsp=55 frames. Injection methodology note: arming must be edge-detected
   on TS_SOF and frame-skipped, otherwise every injection lands on the EOF of
   the in-flight read-response (arming moment is correlated with TX position).
+
+- **SATA**: 120 randomized host-command transactions vs a 64-dword shadow
+  sector model (seeded with the directed phase's surviving writes): ~45%
+  random write + read-back (lba 0..60, corners), ~19% poisoned write (one
+  random bit of a random dword incl. SOF of the command or data FIS -> host
+  timeout + errf + irq, buffer unpolluted, recovery write/read), ~14%
+  poisoned read, ~11% read-only of a written lba, ~11% unknown command
+  (device error status 8'h51 + errf). Gotcha: Verilator 5.006 duplicates
+  `$urandom_range` calls inlined in case expressions -- assign the selector
+  to a temp first.
 
 ## Suspected RTL issues (reported, NOT fixed — per SPEC)
 
