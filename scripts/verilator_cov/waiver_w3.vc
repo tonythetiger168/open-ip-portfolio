@@ -1,0 +1,20 @@
+# v2.5 W3 MIPI-family coverage waivers (verilator_coverage-style records)
+# One record per waived point: ID / file:line / metric / justification.
+# These points are provably unreachable or un-instrumentable; each is
+# cross-referenced in docs/coverage/W3_MIPI.md. Consumed by report tooling;
+# verilator_coverage 5.006 has no -waiver flag, so this file is the
+# source of truth for manual/tooling exclusion.
+
+# ---- RFFE ----
+waiver rffe-toggle-1 rtl/RFFE_top.sv:16  toggle \
+  reason="rx_addr[7:5]: rx_addr = {3'b000, shift_hold}; upper three bits are constant-tied to 0 and can never toggle."
+
+waiver rffe-toggle-2 rtl/RFFE_top.sv:37  toggle \
+  reason="bit_cnt[3]: frame bit-counter wraps at 4'd7, bit 3 never set by any reachable stimulus."
+
+# ---- MIPI_RFFE ----
+waiver mrffe-line-1 rtl/MIPI_RFFE_top.sv:122  line \
+  reason="if (ssc_cnt != 6'h3F) ssc_cnt <= ssc_cnt+1: Verilator 5.006 line-attribution artifact (count shifted to neighbouring lines). Execution proven: SSC detection gates every one of the ~350 passing transactions and requires ssc_cnt to count up to SSC_MIN."
+
+waiver mrffe-line-2 rtl/MIPI_RFFE_top.sv:264  line \
+  reason="default: state <= S_IDLE is dead; state is 3-bit with 7 used encodings cased explicitly, value 7 unreachable."
