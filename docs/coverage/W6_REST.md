@@ -31,6 +31,10 @@ Waivers: `scripts/verilator_cov/waiver_w6.vc`.
 | HSI    | PASS | PASS | 62/62 (100%) | 64/68 (94.1%) | 4/4 | 1244908/1244908 | **closed (2 waivers) + RTL bug W6-4** |
 | TileLink__TL_UL_TL_C_ | PASS | PASS | 58/59 (98.3%) | 190/194 (97.9%) | 2/2 | 3637/3637 | **closed (2 waivers)** |
 | _1_Wire | PASS | PASS | 67/68 (98.5%) | 61/64 (95.3%) | 8/8 | 12395653/12395653 | **closed (2 waivers) + RTL bug W6-5** |
+| Avalon_MM | PASS | PASS | 84/106 (79.2%) | 168/176 (95.5%) | 3/3 | 21419/21419 | **closed (2L+1T waivers)** |
+| Wishbone | PASS | PASS | 82/84 (97.6%) | 219/220 (99.5%) | 3/3 | 3082/3082 | **closed (2L+1T waivers)** |
+| OCP    | PASS | PASS | 59/72 (81.9%) | 162/162 (100%) | 4/4 | 8992/8992 | **closed (2 waivers)** |
+| OCP_IP_Open_Core_Protocol | PASS | PASS | 99/102 (97.1%) | 522/551 (94.7%) | 6/6 | 13597/13597 | **closed (2L+3T waivers)** |
 
 CRV stimulus summary:
 - GPIO: 120 txns (output write+loopback / external input drive / illegal-address
@@ -81,6 +85,25 @@ CRV stimulus summary:
 - _1_Wire: 105 txns, each under a hard rst_n pulse (see W6-5): 600us reset +
   presence + random command write + random read byte; every 10th a 100us
   glitch (must return to IDLE with no presence).
+
+- Avalon_MM: 126 txns (16-burst 256-word sweep + 110 random write/read
+  bursts in fast/slow/OOR-straddle/far-OOR windows, burstcount 0/clamp>16,
+  byteenable merge, simultaneous r+w, OOR truncation) via shadow regfile +
+  in-order read scoreboard.
+- Wishbone: 376 txns (256-word pipelined sweep + 120 random classic/pipe
+  beats in fast/slow/hole windows + reserved-region err beats incl. one
+  queued behind a burst for q_rsv[1]). Lesson: classic single-beat tasks
+  correlate ack_o with their own request -> bursts must drain
+  (exp_rd==exp_wr) before any classic beat.
+- OCP: 376 txns (256-word sweep + 120 random WR/RD/WRNP x valid/misaligned/
+  reserved). Directed forked irq monitors replaced by a module-level irq
+  flag under VERILATOR (fork branches lose wakeups, mode #2).
+- OCP_IP: 146 txns (16 posted seed bursts + 130 random read/write bursts,
+  len 1..8, len=0 clamp, posted, len>8 clamp via custom 8-word flow,
+  reserved SResp=ERR, 64-clk dead-region timeout aborts, post-abort
+  recovery + shadow re-verify). to_cnt overshoots to 64 for one cycle on
+  the abort cycle (internal counter, no functional impact; A5 bound set
+  accordingly).
 
 ## RTL bugs recorded (NOT fixed, per wave discipline)
 

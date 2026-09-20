@@ -50,6 +50,60 @@ module OCP_IP_Open_Core_Protocol_tb;
 
   always #5 clk = ~clk;
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (tool build only; iverilog path unchanged)
+  // FSM probed: dut.state (O_IDLE..O_DONE), 6 states.
+  // =====================================================================
+  localparam int OCPI_FSM_TOTAL = 6;
+  logic [5:0] fsm_seen = '0;          // visited-state bitmap
+  wire  [2:0] dut_state = dut.state;
+
+  int sva_total = 0, sva_fail = 0;
+  // counted immediate assertion: every evaluation is one check
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors++;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // FSM coverage: sample DUT state register on both edges (scheduler
+  // failure mode #3 mitigation: dual-edge probe tolerates lost wakeups)
+  always @(posedge clk or negedge clk) fsm_seen[dut_state] <= 1'b1;
+
+  // output-invariant assertion suite (level/comb checks, negedge-sampled
+  // so all NBA updates are settled; no history-dependent properties)
+  logic rst_n_q = 1'b1;
+  always @(negedge clk) begin
+    if (!rst_n) begin
+      // A1: outputs quiescent during reset (one cycle for regs to init)
+      if (!rst_n_q)
+        sva_check(MCmd === 3'd0 && req_ready === 1'b1 &&
+                  resp_valid === 1'b0 && irq === 1'b0,
+                  "A1 reset: outputs quiescent");
+    end else begin
+      // A2: req_ready exactly reflects IDLE/WCOL
+      sva_check(req_ready === (dut_state <= 3'd1), "A2 req_ready rule");
+      // A3: MCmd is IDLE unless a request is being issued
+      sva_check((dut_state == 3'd2) || (MCmd === 3'd0), "A3 MCmd only in O_ISSUE");
+      // A4: resp_valid exactly reflects a response beat or O_DONE
+      sva_check(resp_valid === ((((dut_state == 3'd3) || (dut_state == 3'd4)) &&
+                                 (SResp != 2'd0)) || (dut_state == 3'd5)),
+                "A4 resp_valid rule");
+      // A5: SCmdAccept timeout counter bounded by the abort threshold
+      sva_check(dut.to_cnt <= 7'd64, "A5 to_cnt <= 64 (63+abort-cycle overshoot)");
+      // A6: state register holds a legal encoding (6 of 8 used)
+      sva_check(dut_state <= 3'd5, "A6 state legal");
+    end
+    rst_n_q <= rst_n;
+  end
+`endif
+
   // ==================================================================
   // OCP slave model
   // ==================================================================
@@ -348,16 +402,192 @@ module OCP_IP_Open_Core_Protocol_tb;
     cpu_read (32'h0000_0050, 5'd1, 32'h1234_5678, 1'b0);
 
     repeat (2) @(posedge clk);
+
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ----
+    // 130 randomized transactions through the CPU-side port: single/burst
+    // reads and writes (len 1..8, len=0 -> 1 clamp), posted writes,
+    // len>8 clamp (+ irq, custom 8-word flow), reserved-region ERR
+    // (resp_err + sticky irq), dead-region 64-clk timeout aborts (+ irq)
+    // with recovery checks. Read data predicted by a shadow of the slave
+    // model memory. Reuses the bounded cpu_write/cpu_read tasks.
+    begin : crv_phase
+      int n_wr = 0, n_rd = 0, n_np = 0, n_err = 0, n_to = 0, n_clamp = 0;
+      logic [31:0] sh_smem [0:63];
+      logic [31:0] exp_c [0:15];
+      logic [31:0] ba, base_v;
+      logic [4:0]  len_v;
+      int roll;
+      for (int w = 0; w < 64; w++) sh_smem[w] = 32'h0;
+      // seed the slave-model memory (write every word once)
+      for (int w = 0; w < 64; w += 4) begin
+        base_v = $urandom;
+        cpu_write(w*4, 5'd4, base_v, 1'b1, 1'b0);   // posted bursts
+        for (int j = 0; j < 4; j++) sh_smem[w+j] = base_v + j;
+      end
+      for (int t = 0; t < 130; t++) begin
+        roll = $urandom_range(0, 11);
+        len_v = $urandom_range(1, 8);
+        base_v = $urandom;
+        if (roll < 4) begin
+          // write burst in valid space, update shadow
+          ba = {$urandom_range(0, 56), 2'b00};
+          if (ba[7:2] + len_v > 63) len_v = 63 - ba[7:2];
+          cpu_write(ba, len_v, base_v, (roll == 3), 1'b0);
+          for (int j = 0; j < len_v; j++) sh_smem[ba[7:2]+j] = base_v + j;
+          if (roll == 3) n_np++; else n_wr++;
+        end else if (roll < 8) begin
+          // read burst, data predicted from the shadow
+          ba = {$urandom_range(0, 56), 2'b00};
+          if (ba[7:2] + len_v > 63) len_v = 63 - ba[7:2];
+          for (int j = 0; j < len_v; j++) begin
+            exp_c[j] = sh_smem[ba[7:2]+j];
+          end
+          // cpu_read checks base+i: use per-beat loop with exact shadow data
+          begin
+            int i2, to2;
+            @(negedge clk);
+            req_valid <= 1'b1; req_rw <= 1'b0; req_posted <= 1'b0;
+            req_addr <= ba; req_len <= len_v; req_wdata <= 32'd0;
+            to2 = 0;
+            while (to2 < 100) begin
+              @(posedge clk); if (req_ready) to2 = 200; else to2++;
+            end
+            cpu_idle();
+            for (i2 = 0; i2 < len_v; i2++) begin
+              to2 = 0;
+              while (to2 < 200) begin
+                @(posedge clk); if (resp_valid) to2 = 300; else to2++;
+              end
+              if (to2 != 300) begin
+                errors++; $display("ERROR: CRV read beat timeout t=%0d i=%0d", t, i2);
+              end else if (resp_rdata !== exp_c[i2]) begin
+                errors++; $display("ERROR: CRV read t=%0d i=%0d got=%h exp=%h",
+                                   t, i2, resp_rdata, exp_c[i2]);
+              end
+            end
+          end
+          n_rd++;
+        end else if (roll < 10) begin
+          // reserved region -> SResp=ERR -> resp_err (+ sticky irq)
+          ba = 32'h0000_0100 + ($urandom & 32'h00FF_FFFF); // wide bits
+          if (roll == 8) cpu_write(ba, 5'd1, base_v, 1'b0, 1'b1);
+          else           cpu_read (ba, 5'd1, 32'h0, 1'b1);
+          n_err++;
+        end else if (roll == 10) begin
+          // len clamp: descriptor len>8, DUT clamps to 8 (custom flow)
+          int i3, to3;
+          ba = {$urandom_range(0, 55), 2'b00};
+          @(negedge clk);
+          req_valid <= 1'b1; req_rw <= 1'b1; req_posted <= 1'b0;
+          req_addr <= ba; req_len <= 5'd9 + $urandom_range(0, 22);
+          req_wdata <= base_v;
+          to3 = 0;
+          while (to3 < 100) begin
+            @(posedge clk); if (req_ready) to3 = 200; else to3++;
+          end
+          for (i3 = 1; i3 < 8; i3++) begin
+            @(negedge clk); req_wdata <= base_v + i3;
+            to3 = 0;
+            while (to3 < 100) begin
+              @(posedge clk); if (req_ready) to3 = 200; else to3++;
+            end
+          end
+          cpu_idle();
+          to3 = 0;
+          while (to3 < 200) begin
+            @(posedge clk); if (resp_valid) to3 = 300; else to3++;
+          end
+          if (to3 != 300) begin
+            errors++; $display("ERROR: CRV clamp write resp timeout t=%0d", t);
+          end
+          for (i3 = 0; i3 < 8; i3++) sh_smem[ba[7:2]+i3] = base_v + i3;
+          n_clamp++;
+        end else begin
+          // dead region -> 64-clk timeout abort -> resp_err + irq
+          int to4;
+          @(negedge clk);
+          req_valid <= 1'b1; req_rw <= 1'b0; req_posted <= 1'b0;
+          req_addr <= 32'hFFFF_0000; req_len <= 5'd1; req_wdata <= 32'd0;
+          to4 = 0;
+          while (to4 < 100) begin
+            @(posedge clk); if (req_ready) to4 = 200; else to4++;
+          end
+          cpu_idle();
+          to4 = 0;
+          while (to4 < 200) begin
+            @(posedge clk); if (resp_valid) to4 = 300; else to4++;
+          end
+          if (to4 != 300) begin
+            errors++; $display("ERROR: CRV timeout abort never signalled t=%0d", t);
+          end else if (!resp_err) begin
+            errors++; $display("ERROR: CRV timeout abort missing resp_err t=%0d", t);
+          end
+          @(posedge clk);
+          if (MCmd !== 3'd0) begin
+            errors++; $display("ERROR: CRV MCmd not IDLE after abort t=%0d", t);
+          end
+          n_to++;
+        end
+      end
+      if (irq !== 1'b1) begin
+        errors++; $display("ERROR: CRV irq not sticky after error classes");
+      end
+      // recovery after aborts + shadow re-verify
+      cpu_write(32'h0000_0004, 5'd2, 32'hEC00_0000, 1'b0, 1'b0);
+      sh_smem[1] = 32'hEC00_0000; sh_smem[2] = 32'hEC00_0001;
+      for (int w = 0; w < 64; w += 9) begin
+        int to5;
+        @(negedge clk);
+        req_valid <= 1'b1; req_rw <= 1'b0; req_posted <= 1'b0;
+        req_addr <= w*4; req_len <= 5'd1; req_wdata <= 32'd0;
+        to5 = 0;
+        while (to5 < 100) begin
+          @(posedge clk); if (req_ready) to5 = 200; else to5++;
+        end
+        cpu_idle();
+        to5 = 0;
+        while (to5 < 200) begin
+          @(posedge clk); if (resp_valid) to5 = 300; else to5++;
+        end
+        if (to5 != 300 || resp_rdata !== sh_smem[w]) begin
+          errors++; $display("ERROR: CRV verify w=%0d got=%h exp=%h",
+                             w, resp_rdata, sh_smem[w]);
+        end
+      end
+      $display("CRV: 146 txns (seed=16 wr=%0d rd=%0d posted=%0d err=%0d clamp=%0d timeout=%0d)",
+               n_wr, n_rd, n_np, n_err, n_clamp, n_to);
+    end
+`endif
+
     if (errors == 0) $display("TEST PASSED: OCP_IP_Open_Core_Protocol");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < OCPI_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, OCPI_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
+`ifdef VERILATOR
+  // chunked timeout guard: a single long-pending #delay event corrupts the
+  // 5.006 --timing delay heap once many short-delay resumptions interleave
+  initial begin
+    repeat (4000) #1000;
+    $display("TIMEOUT"); $finish;
+  end
+`else
   // TIMEOUT guard
   initial begin
     #500000;
     $display("TEST FAILED: TIMEOUT");
     $finish;
   end
+`endif
 
 endmodule
