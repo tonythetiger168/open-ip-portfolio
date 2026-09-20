@@ -174,3 +174,43 @@ waiver dsi-toggle-7 rtl/DSI_top.sv:69  toggle \
   reason="p_zero[3:1]: the zero-blanking flag is only set for the VLINE HBP slot; the remaining slots always carry real payload, so their p_zero bits are constant 0."
 waiver dsi-toggle-8 rtl/DSI_top.sv:67,71,95  toggle \
   reason="single residual toggle edges (p_long slot bit, cmd_dt bit, gap_cnt bit): all other bits/edges of these registers toggle; the single missing edges are the complementary transition of a bit whose value class only changes one way within the randomized mix."
+
+# ---- M_PHY ----
+waiver mphy-line-1 rtl/M_PHY_top.sv:220  line \
+  reason="default: tstate <= T_IDLE is dead; tstate is a 2-bit enum and all four encodings (T_IDLE/T_SHIFT/T_SAVE/T_WAKE) are cased explicitly."
+waiver mphy-line-2 rtl/M_PHY_top.sv:344  line \
+  reason="default: rstate <= H_HUNT is dead; rstate is a 2-bit enum whose three used encodings (H_HUNT/H_LOCK/H_HIB) are cased explicitly; encoding 3 never occurs."
+waiver mphy-toggle-1 rtl/M_PHY_top.sv:123  toggle \
+  reason="wake_cnt[3]: the HIBERN8 wake counter wraps at 7 (T_WAKE exits at wake_cnt==7), so bit 3 is constant-tied to 0 and can never toggle."
+waiver mphy-toggle-2 rtl/M_PHY_top.sv:137  toggle \
+  reason="e_ones4[2]: ones-count of the low nibble of every encodable 8b/10b word (D0.0-D7.0/K28.5 nibbles 0100/1011/1010/0101) never exceeds 3, so bit 2 (value >= 4) is constant-tied to 0."
+waiver mphy-toggle-3 rtl/M_PHY_top.sv:268  toggle \
+  reason="f_dec[6]: dec10 only produces data bytes 8'h00-8'h07 and 8'hBC, in which bit 6 is always 0; the bit is constant-tied to 0 for every legal decode."
+waiver mphy-toggle-4 rtl/M_PHY_top.sv:58  toggle \
+  reason="rx_data[6]: rx_data carries only the K28.5 comma (8'hBC) and decoder bytes 8'h00-8'h07, in which bit 6 is always 0; constant-tied for every legal stream."
+
+# ---- UniPro_Mem ----
+waiver upm-line-1 rtl/UniPro_Mem_top.sv:172  line \
+  reason="q1_valid <= 1'b1 (enq_rsp TC1 arm): Verilator 5.006 line-attribution artifact inside the inlined task. Execution proven: every TC1 response (directed QoS check + ~half of 126 CRV txns) is enqueued through this arm and all frames self-check."
+waiver upm-line-2 rtl/UniPro_Mem_top.sv:278  line \
+  reason="default: txs <= T_IDLE is dead; txs is a 1-bit enum and both encodings (T_IDLE/T_RUN) are cased explicitly."
+waiver upm-line-3 rtl/UniPro_Mem_top.sv:306  line \
+  reason="R_ESC0 else-if (rx_sym != SYM_ESC) -> R_IDLE: attribution artifact. Execution proven: the CRV rx-edge class sends ESC followed by a non-ESC/non-COF byte (the only exit from R_ESC0 besides COF) and the no-response/no-irq post-checks pass."
+waiver upm-line-4 rtl/UniPro_Mem_top.sv:331  line \
+  reason="rx_pay payload-write line: attribution artifact. Execution proven: memory writes land through rx_pay and every CRV read-back compares byte-exact against the TB memory model."
+waiver upm-line-5 rtl/UniPro_Mem_top.sv:396,409  line \
+  reason="PACP attr-OOB irq lines (GET/SET arms): attribution artifact. Execution proven: the CRV pacp-oob class sends idx>=16 for both opcodes and self-checks the irq pulse plus the ERR_OOB response frame."
+waiver upm-line-6 rtl/UniPro_Mem_top.sv:442  line \
+  reason="default: rxs <= R_IDLE is dead; rxs is a 2-bit enum and all four encodings (R_IDLE/R_ESC0/R_FRAME/R_DISCARD) are cased explicitly."
+waiver upm-toggle-1 rtl/UniPro_Mem_top.sv:82,92,107,122  toggle \
+  reason="q0_len/q1_len/rb_len/r_len/t_len[7:5]: every frame length is bounded by the 16-byte payload envelope (len <= 16), so bits 5-7 are constant-tied to 0."
+waiver upm-toggle-2 rtl/UniPro_Mem_top.sv:84  toggle \
+  reason="q0_timer[7]/q1_timer[7]: the read-response timeout counters are initialised to 100 and only count down, so bit 7 is constant-tied to 0."
+waiver upm-toggle-3 rtl/UniPro_Mem_top.sv:85,86,94,123  toggle \
+  reason="q0/q1/rb/t_pay[0][3:2]: response opcodes are only 0x01/0x81/0x82/0x90/0x91/0xE0/0x20, none of which sets payload-byte-0 bits 2 or 3; constant-tied to 0."
+waiver upm-toggle-4 rtl/UniPro_Mem_top.sv:85,86,94,123  toggle \
+  reason="q0/q1/rb/t_pay[1][7:4]: payload byte 1 carries only the address-high byte (0x00), error codes (0x01-0x03) or PACP indices (<= 15); bits 4-7 are constant-tied to 0."
+waiver upm-toggle-5 rtl/UniPro_Mem_top.sv:85,86,94,123  toggle \
+  reason="q0/q1/rb/t_pay[3][1:0],[7:4]: payload byte 3 carries only the length field (0x04/0x08/0x0C) or is left unwritten by shorter frames; bits 0,1,4-7 are constant-tied to 0."
+waiver upm-toggle-6 rtl/UniPro_Mem_top.sv:108  toggle \
+  reason="rx_pay[1][7:5] + rx_pay[3][7:4],[1]: request byte 1 carries only the address-high byte (0x00), attribute indices (<= 31) or NAC seqs (<= 15); request byte 3 carries only length values (0x04/0x05/0x08/0x0C, oversized ones are discarded before the payload write). Those bits are constant-tied to 0."
