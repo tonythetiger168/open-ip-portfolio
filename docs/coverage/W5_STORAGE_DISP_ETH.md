@@ -18,6 +18,7 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
 | FC | PASS | PASS | 123/138 | 440/495 | 5/5 | all pass | **closed (4 line + 4 toggle waivers)** |
 | Ethernet | PASS | PASS | 123/138 | 440/495 | 5/5 | all pass | **closed (4 line + 4 toggle waivers)** |
 | I2S | PASS | PASS | 50/50 (100%) | 156/157 | 2/2 | all pass | **closed (1 waiver: i2s-toggle-1)** |
+| Ethernet_AVB_TSN | PASS | PASS | 173/175 | 309/327 | 16/16 | all pass | **closed (2 line + 4 toggle waivers)** |
 
 ## CRV stimulus summary
 

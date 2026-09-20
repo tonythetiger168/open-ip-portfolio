@@ -77,3 +77,17 @@ waiver eth-toggle-4 rtl/Ethernet_top.sv     toggle reason="see nvme-toggle-4 (id
 # ---- I2S ----
 waiver i2s-toggle-1 rtl/I2S_top.sv:26  toggle \
   reason="bit_cnt[4]: word bit-counter wraps at DW-1=15, bit 4 never set by any reachable stimulus."
+
+# ---- Ethernet_AVB_TSN ----
+waiver avb-line-1 rtl/Ethernet_AVB_TSN_top.sv:131  line \
+  reason="default: tstate <= TX_IDLE is dead; tstate only takes encodings 0..7 (all explicitly cased), values 8..15 unreachable."
+waiver avb-line-2 rtl/Ethernet_AVB_TSN_top.sv:238  line \
+  reason="default: ; in the rstate case is dead; rstate only takes 0..7 (all cased), values 8..15 unreachable."
+waiver avb-toggle-1 rtl/Ethernet_AVB_TSN_top.sv    toggle \
+  reason="tstate[3], rstate[3]: frame-engine enums only use values 0..7; bit 3 never set."
+waiver avb-toggle-2 rtl/Ethernet_AVB_TSN_top.sv    toggle \
+  reason="run_cnt[3], rx_run[3]: stuff-run counters bounded by 5 (stuff bit at 5); bit 3 never set."
+waiver avb-toggle-3 rtl/Ethernet_AVB_TSN_top.sv    toggle \
+  reason="tmr[15:5]: baud phase timer runs 0..BAUD_DIV-1 (19); bits 5 and above never set."
+waiver avb-toggle-4 rtl/Ethernet_AVB_TSN_top.sv:56 toggle \
+  reason="tx_hdr[6:4]: constant header field bits (rtr/ide/r0) hard-wired 0 in tx_hdr <= {tx_id, 3'b0, tx_dlc}; never toggle."
