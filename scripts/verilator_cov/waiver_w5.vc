@@ -1,0 +1,31 @@
+# v2.5 W5 family coverage waivers (verilator_coverage-style records)
+# Scope: storage 9 + display/AV 5 + ethernet 6 (see docs/coverage/W5_STORAGE_DISP_ETH.md)
+# One record per waived point: ID / file:line / metric / justification.
+# Each point is provably unreachable or un-instrumentable; verilator_coverage
+# 5.006 has no -waiver flag, so this file is the source of truth for exclusion.
+
+# ---- GMII ----
+waiver gmii-line-1   rtl/GMII_top.sv:16  line \
+  reason="tx_er port declaration: driven by constant assign tx_er=1'b0 (line 54); constant-folded by Verilator, DA point unhittable. tx_er=0 verified by SVA A2 every clock."
+
+waiver gmii-toggle-1 rtl/GMII_top.sv:17  toggle \
+  reason="tx_er is hard-tied to 1'b0 (assign tx_er = 1'b0); can never toggle under any stimulus."
+
+# ---- XGMII ----
+waiver xgmii-line-1  rtl/XGMII_top.sv:32  line \
+  reason="lane[1:0] declaration: lane is dead state (assigned '0 at lines 35/44, never read); constant-folded, DA point unhittable."
+
+waiver xgmii-line-2  rtl/XGMII_top.sv:73-76  line \
+  reason="rxq lane writes: Verilator 5.006 line-coverage attribution artifact (counts shifted). Execution proven by 500+ scoreboard byte compares through exactly these writes (rxc==0 makes all four if-bodies run every data beat)."
+
+waiver xgmii-line-3  rtl/XGMII_top.sv:79-88  line \
+  reason="Partial-lane casez arms (4'b0001..4'b1100 + default) sit inside the 'else if (rxv_rise && rxc == 4'h0)' guard, so rxc is constant 0 in the body: every non-0000 arm is provably unreachable dead code."
+
+waiver xgmii-toggle-1 rtl/XGMII_top.sv     toggle \
+  reason="count[1:0] and rx_wr[1:0]: rx write pointer only advances by whole 32-bit words (+4 or +3/+2/+1 dead arms); with rxc==0 it always steps +4, so the low two bits are constant 0 and can never toggle."
+
+waiver xgmii-toggle-2 rtl/XGMII_top.sv     toggle \
+  reason="tx_rd[1:0]: TX read pointer only advances by +4 (one word per beat); low two bits constant 0, can never toggle."
+
+waiver xgmii-toggle-3 rtl/XGMII_top.sv:32  toggle \
+  reason="lane[1:0]: dead state, only assigned '0 at reset; can never toggle."
