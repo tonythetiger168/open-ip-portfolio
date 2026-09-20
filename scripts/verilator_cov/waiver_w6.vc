@@ -4,6 +4,18 @@
 # no -waiver flag, so this file is the source of truth for manual/tooling
 # exclusion, same convention as waiver.vc.
 
+# ---- UART ----
+waiver uart-line-1 rtl/UART_top.sv:83   line \
+  reason="default: tstate <= TX_IDLE is dead; tstate is 2-bit with all 4 encodings cased explicitly."
+waiver uart-line-2 rtl/UART_top.sv:134  line \
+  reason="default: rstate <= RX_IDLE is dead; rstate is 2-bit with all 4 encodings cased explicitly."
+waiver uart-toggle-1 rtl/UART_top.sv:24 toggle \
+  reason="div_cnt[15:5]: baud divider counts 0..DIV16-1 with DIV16=(CLK_FREQ/BAUD)/16=31 in the coverage build (BAUD=100k); upper bits are 16-bit generic headroom, unreachable at any practical baud (DIV16>=2^11 would need multi-ms bit times)."
+waiver uart-toggle-2 rtl/UART_top.sv:44 toggle \
+  reason="tbit[3]: TX bit counter wraps at 4'd7 (8N1), bit 3 never set by any reachable stimulus."
+waiver uart-toggle-3 rtl/UART_top.sv:101 toggle \
+  reason="rbit[3]: RX bit counter wraps at 4'd7 (8N1), bit 3 never set by any reachable stimulus."
+
 # ---- PWM ----
 waiver pwm-toggle-1 rtl/PWM_top.sv:24  toggle \
   reason="counter[31:22]: bit k of the free-running counter toggles only in a single period >= 2^(k+1) clocks; bits 22..31 need >= 4M..2G-cycle runs, impractical under --timing. Carry chain proven through bit 21 by the 2^22-period CRV long run."
