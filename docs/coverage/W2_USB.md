@@ -11,6 +11,7 @@ Methodology per docs/COVERAGE.md. Waivers for this wave live in
 | Protocol | iverilog sim | Verilator run | LINE | TOGGLE | FSM | SVA_CHECKS | status |
 |---|---|---|---|---|---|---|---|
 | USB3_2 | PASS | PASS | 123/138 (89.1%) + 5 waivers = 138/138 | 440/495 (88.9%) + 3 waivers = 495/495 | 5/5 | 8695683/8695683 | **closed (8 waivers)** |
+| USB4 | PASS | PASS | 132/138 (95.7%) + 5 waivers = 138/138 | 440/495 (88.9%) + 3 waivers = 495/495 | 5/5 | 8695683/8695683 | **closed (8 waivers)** |
 
 ## CRV stimulus summary
 
@@ -19,6 +20,9 @@ Methodology per docs/COVERAGE.md. Waivers for this wave live in
   payload bytes. Good frames: echo header/payload/LEN compare + irq pulse
   count. Bad frames: no echo, busy low, sticky rx_err verified. Deterministic
   wrong-STP probe at txn 2 proves rx_err 0->1 (line-159 waiver evidence).
+
+- **USB4**: 100 txns, same mix as USB3_2 (RTL identical except STP=8'hFB /
+  END=8'hFD). Same self-checks and same wrong-STP deterministic probe.
 
 ## Suspected RTL bugs (recorded, NOT fixed per v2.5 discipline)
 
@@ -29,3 +33,5 @@ Methodology per docs/COVERAGE.md. Waivers for this wave live in
    `tx_mem[0..3]`, so echoed header bytes 0-3 carry stale `buf_mem[18..21]`
    content. CRV echo compare excludes `hdr[0..3]` under Verilator with a
    comment pointing here.
+2. **USB4** `rtl/USB4_top.sv:196`: identical OOB echo-copy loop as USB3_2
+   (same `tx_mem[16..19]` aliasing, same CRV `hdr[0..3]` exclusion).

@@ -29,3 +29,28 @@ waiver usb32-toggle-2 rtl/USB3_2_top.sv toggle \
 
 waiver usb32-toggle-3 rtl/USB3_2_top.sv:121  toggle \
   reason="buf_mem[0], buf_mem[22], buf_mem[23] never written (receiver writes ridx 1..21 only; buf_mem[0] holds its reset value); buf_mem[1][7:6] never set: LEN byte <= 16 in valid frames."
+
+# ---- USB4 (RTL identical to USB3_2 except STP/END constants) ----
+waiver usb4-line-1  rtl/USB4_top.sv:159  line \
+  reason="Bad-STP rx_err assignment reports DA 0 (5.006 attribution artifact). Execution proven by deterministic wrong-STP probe: rx_err transitions 0->1 on a frame whose only defect is STP!=8'hFB (TB t==2 transaction); sticky rx_err verified by SVA A5."
+
+waiver usb4-line-2  rtl/USB4_top.sv:173,176  line \
+  reason="CRC-compare/rx_done lines report DA 0 (same artifact family). Execution proven: 60+ good frames echo with payload compare and irq_cnt==1 -- rx_done (line 176) can only pulse after the CRC compare passes; bad-END frames set rx_err with no echo."
+
+waiver usb4-line-3  rtl/USB4_top.sv:97  line \
+  reason="default: ; in tfld case is dead: tfld is 3-bit with values 0-5 explicitly cased, 6-7 unreachable."
+
+waiver usb4-line-4  rtl/USB4_top.sv:102  line \
+  reason="default: tstate <= T_IDLE is dead: tstate is 2-bit with values 0-2 explicitly cased, value 3 unreachable."
+
+waiver usb4-line-5  rtl/USB4_top.sv:186  line \
+  reason="default: rstate <= R_IDLE is dead: rstate is 2-bit with values 0-1 explicitly cased, values 2-3 unreachable."
+
+waiver usb4-toggle-1 rtl/USB4_top.sv:29,116  toggle \
+  reason="tmr[15:5] and rtmr[15:5] never toggle: both counters run 0..BAUD_DIV-1=19 with BAUD_DIV=20, bits [15:5] structurally unreachable under this parameterization."
+
+waiver usb4-toggle-2 rtl/USB4_top.sv toggle \
+  reason="Counter/enum high bits unreachable by construction: tbit[5] (counts 0..31), tlen[5]/len_q[5] (frame LEN<=HB+MAXB=16), ridx[5] (<=21), ta_cnt[3] (only assigned 6), rstate[1] (2-state enum)."
+
+waiver usb4-toggle-3 rtl/USB4_top.sv:121  toggle \
+  reason="buf_mem[0], buf_mem[22], buf_mem[23] never written (receiver writes ridx 1..21 only); buf_mem[1][7:6] never set: LEN byte <= 16 in valid frames."
