@@ -95,7 +95,9 @@ and size≠2 transactions to the CRV mix (no waivers needed).
 - [x] W0 infrastructure: `scripts/verilator_cov/` (sim_main template,
       run_cov.sh, parse_cov.py, waiver.vc).
 - [x] W0 pilots: I2C and AXI4 closed (4-metric loop + waiver list).
-- [ ] W1 AMBA (9) … W7 rest (38): per SPEC_V25_CRV.md wave plan.
+- [x] W1 AMBA (15/15 closed): see docs/coverage/W1_AMBA.md +
+      scripts/verilator_cov/waiver_w1.vc (57 waiver records).
+- [ ] W2 USB (9) … W7 rest (38): per SPEC_V25_CRV.md wave plan.
 
 ## FSM probe details
 
