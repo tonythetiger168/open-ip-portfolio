@@ -118,3 +118,21 @@ waiver can-fam-toggle-3 rtl/CAN_top.sv:53 rtl/FlexRay_top.sv:53 rtl/LIN_top.sv:5
   reason="tstate[3]/rstate[3]: 8-state FSMs in 4-bit registers; bit 3 constant 0."
 waiver can-fam-toggle-4 rtl/CAN_top.sv:56 rtl/FlexRay_top.sv:56 rtl/LIN_top.sv:56 toggle \
   reason="tx_hdr[6:4]: constant protocol control bits {rtr,ide,r0}=3'b000 loaded at frame start; never toggle."
+
+# ---- HSI ----
+waiver hsi-toggle-1 rtl/HSI_top.sv:37 toggle \
+  reason="bit_cnt[3]: bit counter wraps at 4'd7 (8-bit head/data fields), bit 3 never set."
+waiver hsi-toggle-2 rtl/HSI_top.sv:45 toggle \
+  reason="rx_addr[7:5]: constant zero-extension of the 5-bit captured register address."
+
+# ---- TileLink ----
+waiver tilelink-line-1 rtl/TileLink__TL_UL_TL_C__top.sv:101 line \
+  reason="dead default: state is a 1-bit enum with both encodings cased explicitly."
+waiver tilelink-toggle-1 rtl/TileLink__TL_UL_TL_C__top.sv:58 toggle \
+  reason="d_opcode[2:1]/d_opcode_q[2:1]: only response opcodes 0 (AccessAck) and 1 (AccessAckData) exist; upper bits constant."
+
+# ---- 1-Wire ----
+waiver onewire-line-1 rtl/_1_Wire_top.sv:104 line \
+  reason="dead default: state is a 3-bit enum with all 8 encodings cased explicitly."
+waiver onewire-toggle-1 rtl/_1_Wire_top.sv:33 toggle \
+  reason="timer[15:13]: longest timing window is the 600us reset pulse (6000 clks at US=10); bits 13..15 are 16-bit generic headroom."

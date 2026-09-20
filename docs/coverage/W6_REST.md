@@ -27,6 +27,10 @@ Waivers: `scripts/verilator_cov/waiver_w6.vc`.
 | CAN    | PASS | PASS | 173/175 (98.9%) | 309/327 (94.5%) | 16/16 (TX+RX) | 2857639/2857639 | **closed (2L+4T family waivers)** |
 | FlexRay | PASS | PASS | 173/175 (98.9%) | 309/327 (94.5%) | 16/16 (TX+RX) | 2857639/2857639 | **closed (family waivers)** |
 | LIN    | PASS | PASS | 173/175 (98.9%) | 309/327 (94.5%) | 16/16 (TX+RX) | 2857639/2857639 | **closed (family waivers)** |
+| Avalon_ST | PASS | PASS | 18/18 (100%) | 85/85 (100%) | N/A (no FSM: FIFO datapath) | 3101/3101 | **closed (no waivers)** |
+| HSI    | PASS | PASS | 62/62 (100%) | 64/68 (94.1%) | 4/4 | 1244908/1244908 | **closed (2 waivers) + RTL bug W6-4** |
+| TileLink__TL_UL_TL_C_ | PASS | PASS | 58/59 (98.3%) | 190/194 (97.9%) | 2/2 | 3637/3637 | **closed (2 waivers)** |
+| _1_Wire | PASS | PASS | 67/68 (98.5%) | 61/64 (95.3%) | 8/8 | 12395653/12395653 | **closed (2 waivers) + RTL bug W6-5** |
 
 CRV stimulus summary:
 - GPIO: 120 txns (output write+loopback / external input drive / illegal-address
@@ -65,6 +69,18 @@ CRV stimulus summary:
   for one 40-clk cell in the data phase — a *held* injected value misses when
   txd transitions mid-window, measured 5/10; live inversion is exact), 10
   recovery frames proving sticky rx_err clears on the next SOF.
+
+- Avalon_ST: 14 reset rounds x (1..16 random beats with eop/irq inline
+  checks + 2 overflow drops on full rounds + full readback), ~112 pushes.
+- HSI: 110 txns (45 writes / 45 reads / 20 wrong slave-address). Bit-banged
+  SSC + SA + PC + AD + data via single-coroutine #delay macros.
+- TileLink: 174 txns (64-entry regfile random write sweep + 4 sweep readbacks
+  + 110 random valid PutFull/PutPartial/Get with shadow-regfile check + 5
+  round-robin error classes with full-random addresses + 4 post-error
+  readbacks). a_param wiggled between txns (functionally unused input).
+- _1_Wire: 105 txns, each under a hard rst_n pulse (see W6-5): 600us reset +
+  presence + random command write + random read byte; every 10th a 100us
+  glitch (must return to IDLE with no presence).
 
 ## RTL bugs recorded (NOT fixed, per wave discipline)
 
@@ -113,6 +129,30 @@ CRV stimulus summary:
 - Minimal repro: send a valid LEN=8 frame; echo carries 24 data bytes.
 - CRV good/bad-STP frames use LEN 9..16 (LEN=8 exercises only the no-echo
   error injections). Documented, not fixed.
+
+### W6-4: HSI read: last data bit never driven (read LSB always 1)
+- File: rtl/HSI_top.sv:80-83 — in ST_DATA read at sclk_fall the block assigns
+  `sd_oe <= 1'b1; sd_out <= tx_byte[7-bit_cnt];` then, when bit_cnt==7,
+  `sd_oe <= 1'b0` in the same cycle (last assignment wins), so tx_byte[0] is
+  never driven onto sdata.
+- Failure signature: every read returns tx_byte | 8'h01 (the tri1 pullup
+  supplies the undriven LSB); 18/45 CRV reads with even tx_byte failed.
+- Latent in v2.4: the directed read used tx_byte=8'hC3 (LSB already 1).
+- Minimal repro: rffe_read with tx_byte even, e.g. 8'h02 -> reads 8'h03.
+- TB handling: CRV read shadow predicts d|8'h01. Candidate for v2.5.1.
+
+### W6-5: 1-Wire reset pulse only detected from ST_IDLE
+- File: rtl/_1_Wire_top.sv:50-51,70-71 — reset-pulse detection
+  (`ST_IDLE: if (!dq_s) -> ST_RESET_CNT`) exists only in ST_IDLE; in
+  ST_WAIT_SLOT a falling edge is interpreted as a write slot
+  (ST_W_SAMPLE), so a 600us bus reset after a completed read phase is
+  mis-sampled as a 0 data bit and the slave's bit_cnt desynchronises from
+  the master (real 1-Wire slaves detect the reset pulse from any state).
+- Minimal repro: run one full reset+write+read transaction, then issue a
+  second 600us reset pulse: the slave samples it as a write-0 bit
+  (bit_cnt advances) and the next command byte is misaligned.
+- TB handling: each CRV txn runs under a hard rst_n pulse; documented, not
+  fixed.
 
 ### Template OOB advisory (cross-wave notice)
 Lead advisory: echo-copy template `for (i=2; i<=21; i=i+1) tx_mem[i-2] <= buf_mem[i];`
