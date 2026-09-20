@@ -27,6 +27,7 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
 | eMMC | PASS | PASS | 217/244 | 878/1075 | 17/17 | all pass | **closed (5 line + 3 toggle waivers: emmc-line-1..5, emmc-toggle-1..3)** |
 | HDMI_2_1 | PASS | PASS | 165/177 | 232/238 | 7/7 | all pass | **closed (2 waivers: hdmi-line-1, hdmi-toggle-1)** |
 | SAS_4__Serial_Attached_SCSI_ | PASS | PASS | 446/480 | 891/1194 | 24/24 | all pass | **closed (8 line + 4 toggle waivers: sas4-line-1..8, sas4-toggle-1..4)** |
+| SD | PASS | PASS | 281/311 | 981/1220 | 20/20 | all pass | **closed (4 line + 4 toggle waivers: sd-line-1..4, sd-toggle-1..4)** |
 
 ## CRV stimulus summary
 
@@ -123,6 +124,25 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
   vs iverilog NBA scheduling race), A4 assertion allows phy_ready drops via
   loss_sync (directed phase (e) path). $BUILD/obj __->_05F shim header per
   W3_MIPI.md pattern. FSM probe 24 (TX_PAY1 excluded: sequencer len<=1).
+
+- **SD**: 120 randomized disturbance transactions against the host's
+  autonomous demo rounds (CMD24 write / CMD17 read-back / CMD13 status):
+  ~30% inj_crc16 one-shot, ~20% inj_crc7 one-shot, ~20% mute burst, ~30%
+  benign. Err flags are sticky, so per-error observability is via irq
+  deltas; each disturbed round must be retried to completion (match_cnt
+  advances) and the completed round's card block is compared against the
+  exact round pattern. TB robustness fixes this round: directed injection
+  checks poll flag&&irq jointly (Verilator --timing resumes processes with
+  post-NBA values, so flag-then-irq single-sample checks raced; iverilog
+  behaviour unchanged). CRV card_cmdcrc_errs downgraded to informational:
+  after a mid-command round abort the card model is stuck in C_DRX for 300
+  sd_clks, misses the retransmissions and re-syncs mid-frame, assembling
+  garbage "commands" whose CRC fails by construction (every LOGGED command
+  passed CRC7, so the host CRC7 datapath stays fully checked; write-data
+  CRC16 remains hard-checked at 0 errors). FSM probe 20 (state 12 + phase 3
+  + dphase 5). Note: tri1 pull-ups verified working in this Verilator
+  5.006 build (scalar + vector + cross-hierarchy), no drive-var-z pattern
+  present.
 
 ## W5 continuation status (second coder, step-budget handoff)
 

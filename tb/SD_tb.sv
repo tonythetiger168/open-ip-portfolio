@@ -71,6 +71,69 @@ module SD_tb;
   always @(posedge irq) irq_cnt = irq_cnt + 1;
   always @(posedge sd_clk) sdclk_cnt = sdclk_cnt + 1;
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
+  // =====================================================================
+  // FSM probe: state(12) + phase(3) + dphase(5) = 20
+  localparam int SD_FSM_TOTAL = 20;
+  logic [19:0] fsm_seen = '0;
+  always @(posedge sd_clk) begin
+    if (dut.state  < 12) fsm_seen[dut.state]        <= 1'b1;
+    if (dut.phase  < 3)  fsm_seen[12 + dut.phase]   <= 1'b1;
+    if (dut.dphase < 5)  fsm_seen[15 + dut.dphase]  <= 1'b1;
+  end
+
+  int sva_total = 0, sva_fail = 0;
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors = errors + 1;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // output-invariant assertion suite (sampled at posedge clk, pre-NBA)
+  int  rst_cyc = 0;
+  logic init_q = 1'b0;
+  logic [7:0] match_q = 8'd0;
+  logic [4:0] err_q = 5'd0;
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      // A1: post-reset state (H_CMD0) and clean flags
+      if (rst_cyc > 0)
+        sva_check((dut.state === 4'd0) && (irq === 1'b0) &&
+                  (dut.init_done === 1'b0), "A1 reset: CMD0/clean");
+      rst_cyc++;
+    end else begin
+      // A2: irq only fires together with a (sticky) error flag
+      if (irq)
+        sva_check(dut.err_crc7 | dut.err_crc16 | dut.err_timeout |
+                  dut.err_cmp | dut.err_r7, "A2 irq -> err flag set");
+      // A3: FSM state encoding in range
+      sva_check(dut.state < 12, "A3 state encoding valid");
+      // A4: init_done is sticky once the card is initialized
+      if (init_q) sva_check(dut.init_done === 1'b1, "A4 init_done sticky");
+      // A5: match_cnt advances by exactly one (mod 256)
+      if (dut.match_cnt !== match_q)
+        sva_check(dut.match_cnt === match_q + 8'd1, "A5 match_cnt +1 step");
+      // A6: error flags are sticky (only reset clears them)
+      sva_check((dut.err_crc7    || !err_q[0]) && (dut.err_crc16 || !err_q[1]) &&
+                (dut.err_timeout || !err_q[2]) && (dut.err_cmp   || !err_q[3]) &&
+                (dut.err_r7      || !err_q[4]), "A6 err flags sticky");
+      // A7: round and match_cnt advance in lockstep (both only on CMD13 ok)
+      sva_check(dut.round === dut.match_cnt, "A7 round == match_cnt");
+    end
+    init_q  <= dut.init_done;
+    match_q <= dut.match_cnt;
+    err_q   <= {dut.err_r7, dut.err_cmp, dut.err_timeout,
+                dut.err_crc16, dut.err_crc7};
+  end
+`endif
+
   // ------------------------- TB CRC helpers -------------------------------
   function automatic logic [6:0] crc7_40(input logic [39:0] d);
     logic [6:0] c;
@@ -433,7 +496,10 @@ module SD_tb;
     //     voltage/pattern; host must flag err_r7 + irq and restart init
     bad_volt  = 1'b1;
     irq_before = irq_cnt;
-    `WAIT_FLAG(dut.err_r7 === 1'b1, "host R7 voltage-mismatch detect")
+    // flag + irq are raised by the same NBA tick; polling the combined
+    // condition is robust against NBA-resume ordering in both simulators
+    `WAIT_FLAG(dut.err_r7 === 1'b1 && irq_cnt > irq_before,
+               "host R7 voltage-mismatch detect")
     if (dut.err_r7 === 1'b1) begin
       if (irq_cnt <= irq_before) begin
         $display("ERROR: no irq pulse on R7 voltage mismatch");
@@ -527,7 +593,8 @@ module SD_tb;
     // (e) error injection: card sends bad CRC16 on the round-1 read block
     irq_before = irq_cnt;
     inj_crc16  = 1'b1;
-    `WAIT_FLAG(dut.err_crc16 === 1'b1, "host CRC16 error detect")
+    `WAIT_FLAG(dut.err_crc16 === 1'b1 && irq_cnt > irq_before,
+               "host CRC16 error detect")
     inj_crc16  = 1'b0;
     if (irq_cnt <= irq_before) begin
       $display("ERROR: no irq pulse on bad CRC16 block");
@@ -547,7 +614,8 @@ module SD_tb;
     // (f) error injection: card sends R1 with bad CRC7
     irq_before = irq_cnt;
     inj_crc7   = 1'b1;
-    `WAIT_FLAG(dut.err_crc7 === 1'b1, "host CRC7 error detect")
+    `WAIT_FLAG(dut.err_crc7 === 1'b1 && irq_cnt > irq_before,
+               "host CRC7 error detect")
     inj_crc7   = 1'b0;
     if (irq_cnt <= irq_before) begin
       $display("ERROR: no irq pulse on bad CRC7 response");
@@ -574,8 +642,89 @@ module SD_tb;
       errors = errors + 1;
     end
 
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ----
+    // 120 randomized disturbance transactions against the host's autonomous
+    // demo rounds (CMD24 write / CMD17 read-back / CMD13 status per round):
+    //   ~30% inj_crc16 one-shot (card corrupts the read-block CRC16)
+    //   ~20% inj_crc7  one-shot (card corrupts an R1 response CRC7)
+    //   ~20% mute burst        (card withholds a command response)
+    //   ~30% benign            (no injection; round observed end-to-end)
+    // Per iteration: injected errors must pulse irq exactly (err flags are
+    // sticky, so the irq count is the per-error observable), the disturbed
+    // round must be retried to completion (match_cnt advances), and the
+    // completed round's card block must hold the exact round pattern.
+    begin : crv_phase
+      int n_c16 = 0, n_c7 = 0, n_mute = 0, n_ben = 0;
+      int match_before;
+      int sel;
+      logic [7:0] done_round;
+      for (int i = 0; i < 120; i++) begin
+        irq_before   = irq_cnt;
+        match_before = dut.match_cnt;
+        sel = $urandom_range(0, 9);
+        if (sel < 3)      inj_crc16 = 1'b1;
+        else if (sel < 5) inj_crc7  = 1'b1;
+        else if (sel < 7) mute      = 1'b1;
+        else              sel       = 9;          // benign
+        if (sel < 7) begin
+          `WAIT_FLAG(irq_cnt > irq_before, "CRV injection flagged by host")
+          inj_crc16 = 1'b0; inj_crc7 = 1'b0; mute = 1'b0;
+          match_before = dut.match_cnt;   // only retry rounds count below
+        end
+        `WAIT_FLAG(dut.match_cnt !== match_before, "CRV round completion")
+        if (dut.match_cnt === match_before) begin
+          $display("ERROR: CRV %0d round never completed", i);
+          errors = errors + 1;
+        end else begin
+          // the completed round rewrote its block with the round pattern
+          done_round = dut.round - 8'd1;
+          if (card_blk[done_round[1:0]] !== exp_blk_tb(done_round)) begin
+            $display("ERROR: CRV %0d card block%0d got=%h exp=%h", i,
+                     done_round[1:0], card_blk[done_round[1:0]],
+                     exp_blk_tb(done_round));
+            errors = errors + 1;
+          end
+        end
+        if (sel < 3)      n_c16++;
+        else if (sel < 5) n_c7++;
+        else if (sel < 7) n_mute++;
+        else              n_ben++;
+      end
+      // card_cmdcrc_errs is informational in the CRV phase: when the host
+      // aborts a round mid-command (crc7/timeout on CMD24), the card model
+      // is stuck in C_DRX for up to 300 sd_clks and cannot hear the
+      // retransmissions; it then re-synchronizes mid-frame and assembles a
+      // garbage "command" whose CRC fails by construction. Every command
+      // the card actually LOGGED passed CRC7 (logging happens only after
+      // the CRC gate), so the host CRC7 datapath is still fully checked.
+      // The host write-data CRC16 remains hard-checked: it never fails.
+      if (card_datcrc_errs != 0) begin
+        $display("ERROR: CRV card saw %0d bad-CRC16 host write blocks",
+                 card_datcrc_errs);
+        errors = errors + 1;
+      end
+      if (dut.err_cmp !== 1'b0) begin
+        $display("ERROR: CRV read-back compare mismatch flag set");
+        errors = errors + 1;
+      end
+      $display("CRV: 120 disturbance txns: crc16=%0d crc7=%0d mute=%0d benign=%0d, match_cnt=%0d irq_cnt=%0d desync_cmdcrc=%0d",
+               n_c16, n_c7, n_mute, n_ben, dut.match_cnt, irq_cnt,
+               card_cmdcrc_errs);
+    end
+`endif
+
     if (errors == 0) $display("TEST PASSED: SD");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < SD_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, SD_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
@@ -600,10 +749,20 @@ module SD_tb;
 `endif
 
   // ------------------------- timeout guard --------------------------------
+`ifdef VERILATOR
+  // Chunked timeout: Verilator 5.006 corrupts the --timing delay heap on a
+  // single long-pending #delay once many short-delay resumptions interleave.
+  initial begin
+    repeat (30000) #1000;   // 30 ms in 1-us chunks
+    $display("TIMEOUT");
+    $finish;
+  end
+`else
   initial begin
     #20_000_000;
     $display("TIMEOUT");
     $finish;
   end
+`endif
 
 endmodule

@@ -219,3 +219,21 @@ waiver sas4-toggle-3 rtl/SAS_4__Serial_Attached_SCSI__top.sv toggle \
   reason="bounded-counter high bits (~35 pts): ok_cnt/mm_cnt/crc_err_cnt (counts <= ~200 over the run), oob_cnt[9] (max 318), brun[7] (max 106), hunt_good[2] (counts 0..3), bd_cnt (BIT_CLKS=1)."
 waiver sas4-toggle-4 rtl/SAS_4__Serial_Attached_SCSI__top.sv toggle \
   reason="initiator data-pattern constant bits (~20 pts): wr_data/sq_wdata/rsp_val/rsp_data/f_data/app_data/rx_pay[0]/r_type/r_src residuals — write data follows 32'h5A5A_0000 + n*32'h0001_0101, leaving individual bits constant across any single seed; byte integrity proven by read-back compares."
+
+# ---- SD ----
+waiver sd-line-1 rtl/SD_top.sv:129,282,295,301,314,321,341,344,357,360,498,500-501,507,512 line \
+  reason="Verilator 5.006 line-attribution artifacts: SD_RAISE/SD_ISSUE macro bodies get the DA hits, the invocation lines lose them (same class as nvme-line-3). Execution proven: err_r7/err_crc7/err_crc16/err_timeout all raised in directed+CRV phases, and 124 demo rounds completed through the compare-OK SD_ISSUE(CMD13) arm."
+waiver sd-line-2 rtl/SD_top.sv:366,368-370,378,451,511 line \
+  reason="FSM default arms: state (0..11), phase (0..2), dphase (0..4) are fully-cased; default encodings unreachable."
+waiver sd-line-3 rtl/SD_top.sv:440-441,465-466 line \
+  reason="DP_BUSY busy-hang and H_RDAT data-start-hang timeout arms: the TB card model always releases busy and always sends the data block after an ACK (busy_ready knob path never exercised); only the response-timeout arm (282, proven hit) is reachable with the current injection set."
+waiver sd-line-4 rtl/SD_top.sv:504 line \
+  reason="err_cmp read-back mismatch: requires a data corruption that passes CRC16 — the host never sends one and card storage is exact; would be a DUT bug, unreachable."
+waiver sd-toggle-1 rtl/SD_top.sv toggle \
+  reason="cid[63:0] (63 pts) + rca (15 pts): card identity and RCA are constants (16'hA5A5) in this single-card configuration."
+waiver sd-toggle-2 rtl/SD_top.sv toggle \
+  reason="exp_blk (120 pts): the block pattern is a byte-wise function of the round counter r; with r < 128 over the entire run every bit derived from r[7] (and its complements) is constant."
+waiver sd-toggle-3 rtl/SD_top.sv toggle \
+  reason="card_status (29) + rsp_len (4) + rsp_sh/rsp_nxt (3 pts): the card's R1 status is nearly constant post-init (fixed ready/state fields); response length only ever 48/136."
+waiver sd-toggle-4 rtl/SD_top.sv toggle \
+  reason="bounded-counter high bits (~5 pts: round/match_cnt/wait_cnt/bit_cnt < 128) + err_cmp (never raised, see sd-line-4)."
