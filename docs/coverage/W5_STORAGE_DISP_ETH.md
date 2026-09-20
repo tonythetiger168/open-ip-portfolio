@@ -26,6 +26,7 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
 | SDIO | PASS | PASS | 201/206 | 613/650 | 12/12 | all pass | **closed (3 line + 3 toggle waivers: sdio-line-1..3, sdio-toggle-1..3)** |
 | eMMC | PASS | PASS | 217/244 | 878/1075 | 17/17 | all pass | **closed (5 line + 3 toggle waivers: emmc-line-1..5, emmc-toggle-1..3)** |
 | HDMI_2_1 | PASS | PASS | 165/177 | 232/238 | 7/7 | all pass | **closed (2 waivers: hdmi-line-1, hdmi-toggle-1)** |
+| SAS_4__Serial_Attached_SCSI_ | PASS | PASS | 446/480 | 891/1194 | 24/24 | all pass | **closed (8 line + 4 toggle waivers: sas4-line-1..8, sas4-toggle-1..4)** |
 
 ## CRV stimulus summary
 
@@ -105,6 +106,23 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
   4'h4..4'hF unreachable with the fixed AVI InfoFrame contents
   (hdmi-line-1); disparity LSBs structurally constant 0 (even-parity
   accumulator, hdmi-toggle-1).
+
+- **SAS_4** (128b/150b block-coded, self-synchronous scrambler): 120
+  randomized single-line-bit flips, frame-tracked on the TX engine
+  (edge-detected TX_SOF + frame-skip 0..2), targeting a random payload bit
+  (position 2..128) of a random block (HDR/PAY0/CRC/EOF) of a random frame
+  (write/read-req/read-rsp; PAY0 falls back to CRC on len-0 read requests).
+  Outcome classified at fire time: HDR/PAY0 hits MUST be flagged (a single
+  line-bit flip becomes a 3-bit odd-weight error after the self-synchronous
+  descrambler; CRC32 detects all odd-weight error patterns), CRC/EOF pad
+  hits (stream positions 32..112, don't-care bits behind the CRC gate) are
+  benign by construction and only require link-liveness, EOF tail hits are
+  ambiguous. Observed: 71 flagged / 49 pad-benign / 120 link-alive,
+  error classes crc=52 proto=23 tmo=59 on wr=37/rdreq=41/rdrsp=42 frames.
+  TB robustness fixes this round: loss-of-sync irq check is polled (Verilator
+  vs iverilog NBA scheduling race), A4 assertion allows phy_ready drops via
+  loss_sync (directed phase (e) path). $BUILD/obj __->_05F shim header per
+  W3_MIPI.md pattern. FSM probe 24 (TX_PAY1 excluded: sequencer len<=1).
 
 ## W5 continuation status (second coder, step-budget handoff)
 

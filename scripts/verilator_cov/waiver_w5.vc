@@ -193,3 +193,29 @@ waiver hdmi-line-1 rtl/HDMI_2_1_top.sv:133-144 line \
   reason="terc4() case arms 4'h4..4'hF + default: every terc4 input in this config is one of 4'h0..4'h3 — island guard sends {n_vs,n_hs,2'b11} with n_vs=n_hs=0 at the fixed island line 481 (<VS_B=490, x<HS_B), header nibble is {0,0,1'b0,AVI_HDR bit} (bit-serial), and AVI_SP1/2/3 are constant 0 so subpacket nibbles are {0,0,AVI_SP0 bit pair} <= 4'h3. Arms 4'h4+ unreachable with the fixed AVI InfoFrame contents; TERC4 coding of all reachable values verified on the wire by the TB's independent decoder."
 waiver hdmi-toggle-1 rtl/HDMI_2_1_top.sv toggle \
   reason="disp0[0], disp1[0], disp2[0], enc0[10], enc1[10], enc2[10]: TMDS running disparity is always even — every ncnt adjustment term (n1s=2*N1, 8, 2, 0) is a multiple of 2 and the accumulator starts at 0, so the disparity LSB is structurally constant 0 and can never toggle."
+
+# ---- SAS_4 (Serial Attached SCSI, 128b/150b) ----
+waiver sas4-line-1 rtl/SAS_4__Serial_Attached_SCSI__top.sv:116,164,167 line \
+  reason="Verilator 5.006 line-attribution artifacts (same class as nvme-line-3). Execution proven functionally: brun counts 0..106 during OOB bursts (116 — OOB completes, which requires brun>=OOB_DET_MIN detection), phy_ready reached via the OB_CI_IDLE->OB_DONE transition (164,167 — link_up observed, 848-clk bring-up)."
+waiver sas4-line-2 rtl/SAS_4__Serial_Attached_SCSI__top.sv:173,334,566,675 line \
+  reason="FSM default arms: oob_state/tx_state/rf_state/sq_state are fully-cased enums; default encodings unreachable."
+waiver sas4-line-3 rtl/SAS_4__Serial_Attached_SCSI__top.sv:214,218,219 line \
+  reason="bit_tick/bd_cnt: BIT_CLKS=1 makes bit_tick constant 1; bd_cnt else/incr arm dead, decl constant-folded (same as sata-line-4/emmc-line-2)."
+waiver sas4-line-4 rtl/SAS_4__Serial_Attached_SCSI__top.sv:250,439 line \
+  reason="constant-1 bit_tick guard lines lose their DA points (attribution artifact); the guarded logic executes every clk — TX/RX bit engines proven by 120+ verified loopback frames and 120 CRV injections."
+waiver sas4-line-5 rtl/SAS_4__Serial_Attached_SCSI__top.sv:310,313-316,319-322,365 line \
+  reason="TX_PAY1 path (f_len>4 arm, TX_PAY1 block, pay_blk decl): the built-in initiator sequencer only issues len 0/1 frames, so two-payload-block frames are unreachable in this configuration (datapath supports len<=8, never exercised)."
+waiver sas4-line-6 rtl/SAS_4__Serial_Attached_SCSI__top.sv:512-514 line \
+  reason="RF_PAY proto-error arm: requires a control block in a payload slot, i.e. a whole data block dropped via sync-header violation mid-frame. CRV deliberately flips payload bits only (sync flips collapse to loss-of-sync, covered by directed phase (e)); unreachable in this config."
+waiver sas4-line-7 rtl/SAS_4__Serial_Attached_SCSI__top.sv:532,540,548 line \
+  reason="Verilator 5.006 attribution artifacts on the T_WRITE/T_RDREQ/T_RDRSP accept-guard lines inside the CRC-pass dispatch (blocking temporaries in always_ff, cf. ufs-line-1). Execution proven: writes commit (wr_evt + A6 pattern check), reads return (rsp_evt, ok_cnt/mm_cnt advance through 120 CRV rounds)."
+waiver sas4-line-8 rtl/SAS_4__Serial_Attached_SCSI__top.sv:537,545,551,553 line \
+  reason="malformed-frame proto arms (WRITE len==0/dst>=16, RDREQ dst>=16, RDRSP len==0, unknown type): the r_type dispatch sits behind the CRC32 gate — any corruption fails CRC first (single-bit flip -> odd-weight error burst, always detected), and the built-in initiator only emits well-formed frames. Unreachable in loopback config without a DUT bug."
+waiver sas4-toggle-1 rtl/SAS_4__Serial_Attached_SCSI__top.sv toggle \
+  reason="rx_pay[1..7] (~188 pts): upper payload entries are written only by len>4 frames (pay_blk path); the initiator sequencer only issues len 0/1, so these entries are never written in this config (same root cause as sas4-line-5)."
+waiver sas4-toggle-2 rtl/SAS_4__Serial_Attached_SCSI__top.sv toggle \
+  reason="protocol-field constant bits (~70 pts): f_len/app_len/r_len upper bits (len only 0/1), f_type/app_type/r_type (only 01/02/83 on the wire), f_dst/app_dst/r_dst/rsp_dst upper nibble (4-bit register addresses), f_src/rsp_src (fixed initiator address 8'h01), pay_blk (sas4-line-5)."
+waiver sas4-toggle-3 rtl/SAS_4__Serial_Attached_SCSI__top.sv toggle \
+  reason="bounded-counter high bits (~35 pts): ok_cnt/mm_cnt/crc_err_cnt (counts <= ~200 over the run), oob_cnt[9] (max 318), brun[7] (max 106), hunt_good[2] (counts 0..3), bd_cnt (BIT_CLKS=1)."
+waiver sas4-toggle-4 rtl/SAS_4__Serial_Attached_SCSI__top.sv toggle \
+  reason="initiator data-pattern constant bits (~20 pts): wr_data/sq_wdata/rsp_val/rsp_data/f_data/app_data/rx_pay[0]/r_type/r_src residuals — write data follows 32'h5A5A_0000 + n*32'h0001_0101, leaving individual bits constant across any single seed; byte integrity proven by read-back compares."
