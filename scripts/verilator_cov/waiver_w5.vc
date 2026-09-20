@@ -237,3 +237,23 @@ waiver sd-toggle-3 rtl/SD_top.sv toggle \
   reason="card_status (29) + rsp_len (4) + rsp_sh/rsp_nxt (3 pts): the card's R1 status is nearly constant post-init (fixed ready/state fields); response length only ever 48/136."
 waiver sd-toggle-4 rtl/SD_top.sv toggle \
   reason="bounded-counter high bits (~5 pts: round/match_cnt/wait_cnt/bit_cnt < 128) + err_cmp (never raised, see sd-line-4)."
+
+# ---- DisplayPort2 ----
+waiver dp2-line-1 rtl/DisplayPort2_top.sv:133-139,161-163 line \
+  reason="scrambler symbol LUT arms: scr6 codes 18..29 + default and scr4 codes 2..6 + default. The training/video symbol stream only uses 6b codes 0..17 (D10.2/D28.5/TPS1 set) and 4b codes 0..1; the remaining LUT entries are unreachable with the fixed pattern set."
+waiver dp2-line-2 rtl/DisplayPort2_top.sv:282,453-456,477 line \
+  reason="Verilator 5.006 line-attribution artifacts (pattern-gen guard; AUX RX-timeout arm — proven executed by the sink-absent CRV sessions that reach train_fail only via this timeout; reply start-bit guard whose body is covered)."
+waiver dp2-line-3 rtl/DisplayPort2_top.sv:468,471-474,482-485,509-513 line \
+  reason="AUX receiver framing-error arms (bad SYNC bit / bad start bit / bad stop bit): the TB sink model always frames replies correctly and the Manchester-violation injection only corrupts mid-payload bits, so these protocol-error paths are unreachable with this injection set."
+waiver dp2-line-4 rtl/DisplayPort2_top.sv:586-589,599-602,625,638-641,663,679-682,697-700,709-712 line \
+  reason="per-LT-state retry/LT_FAIL duplicate arms: retry and retry-exhaustion are proven on the first AUX op state (its arms covered by the CRV NACK-storm sessions, 13 storm-fail + 13 absent-fail observed). The copies in later LT states each require failure injection targeted at that exact training phase — out of scope for the random first-op/all-op injection set."
+waiver dp2-line-5 rtl/DisplayPort2_top.sv:521,722 line \
+  reason="FSM default arms: aux_state (0..13) and lt_state (0..13) fully-cased; default encodings unreachable."
+waiver dp2-toggle-1 rtl/DisplayPort2_top.sv toggle \
+  reason="msa (109 pts): MSA packet bytes are constant for the fixed 64x48 video format streamed by this configuration."
+waiver dp2-toggle-2 rtl/DisplayPort2_top.sv toggle \
+  reason="AUX transaction-field constant bits (~101 pts): op_wdata/op_addr/op_len/op_cmd/op_rdata/a_rx_reply/a_byte_total/a_exp_len — the fixed DPCD training script uses ~5 addresses and a handful of write values; replies are only ACK/NACK with little data."
+waiver dp2-toggle-3 rtl/DisplayPort2_top.sv toggle \
+  reason="edid (16 pts): zero bits of the constant EDID header 64'h00FF_FFFF_FFFF_FF00 never toggle (register goes 0 -> header once)."
+waiver dp2-toggle-4 rtl/DisplayPort2_top.sv toggle \
+  reason="bounded-counter/encoding high bits (~10 pts): frame_cnt (few frames streamed), lt_state/pat/shreg/a_timeout value ranges."

@@ -144,6 +144,16 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
   5.006 build (scalar + vector + cross-hierarchy), no drive-var-z pattern
   present.
 
+- **DisplayPort2**: 120 randomized training sessions (full reset each):
+  ~50% benign (train + EDID header check + no irq), ~20% Manchester
+  violation on the first AUX reply (retry -> recovery), ~10% NACK storm
+  lifted after 1..2 injected NACKs (recovery), ~10% persistent NACK storm
+  (retries exhausted -> train_fail + irq, not trained), ~10% sink absent
+  (AUX timeouts -> train_fail + irq with >= 3 retry attempts). Observed
+  benign=55 viol=33 nack=6 storm-fail=13 absent-fail=13, all as expected.
+  New TB knob (ifdef VERILATOR): nack_storm forces NACK replies while set,
+  nack_fired counts deliveries. FSM probe 32 (lt 14 + pat 4 + aux 14).
+
 ## W5 continuation status (second coder, step-budget handoff)
 
 Closed this session (iverilog PASS + cov closed): I2S_Audio, SAS, SATA, UFS

@@ -45,6 +45,72 @@ module DisplayPort2_tb;
 
   always #5 clk = ~clk;
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
+  // =====================================================================
+  // FSM probe: lt_state(14) + pat(4) + aux_state(14) = 32
+  localparam int DP2_FSM_TOTAL = 32;
+  logic [31:0] fsm_seen = '0;
+  always @(posedge clk) begin
+    if (dut.lt_state  < 14) fsm_seen[dut.lt_state]        <= 1'b1;
+    if (dut.pat       < 4)  fsm_seen[14 + dut.pat]        <= 1'b1;
+    if (dut.aux_state < 14) fsm_seen[18 + dut.aux_state]  <= 1'b1;
+  end
+
+  int sva_total = 0, sva_fail = 0;
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors++;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  task automatic cchk(input bit cond, input string msg);
+    if (!cond) begin
+      errors++;
+      $display("ERROR: %s (t=%0t)", msg, $time);
+    end
+  endtask
+
+  // output-invariant assertion suite (sampled at posedge, pre-NBA coherent)
+  int  rst_cyc = 0;
+  logic fail_q = 1'b0, trained_q = 1'b0, edidv_q = 1'b0;
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      // A1: idle in reset
+      if (rst_cyc > 0)
+        sva_check((lane_valid === 1'b0) && (link_trained === 1'b0) &&
+                  (aux_tx_en === 1'b0) && (irq === 1'b0), "A1 reset: idle");
+      rst_cyc++;
+    end else begin
+      // A2: irq is exactly train_fail
+      sva_check(irq === train_fail, "A2 irq == train_fail");
+      // A3: failure and training success are mutually exclusive
+      sva_check(!(train_fail && link_trained), "A3 fail/trained exclusive");
+      // A4: train_fail is sticky until reset
+      if (fail_q) sva_check(train_fail === 1'b1, "A4 train_fail sticky");
+      // A5: link_trained is sticky until reset
+      if (trained_q) sva_check(link_trained === 1'b1, "A5 link_trained sticky");
+      // A6: edid_valid sticky + result is the EDID header constant
+      if (edidv_q) begin
+        sva_check(edid_valid === 1'b1, "A6 edid_valid sticky");
+        sva_check(edid === 64'h00FF_FFFF_FFFF_FF00, "A6b edid constant");
+      end
+      // A7: FSM encodings in range
+      sva_check((dut.lt_state < 14) && (dut.aux_state < 14) && (dut.pat < 4),
+                "A7 FSM encodings valid");
+    end
+    fail_q    <= train_fail;
+    trained_q <= link_trained;
+    edidv_q   <= edid_valid;
+  end
+`endif
+
   // ------------------------- 8b/10b reference (copy of DUT) -------------------------
   function automatic logic [10:0] enc_8b10b(input logic [7:0] d,
                                             input logic       k,
@@ -160,6 +226,12 @@ module DisplayPort2_tb;
   int           aux_nack_count = 0;
   logic         saw_tp_cr  = 0;
   logic         saw_tp_tps = 0;
+`ifdef VERILATOR
+  // v2.5 CRV knobs: while nack_storm is set every sink reply is a NACK
+  // (reply 4'h1, no data); nack_fired counts delivered injected NACKs.
+  logic         nack_storm = 0;
+  int           nack_fired = 0;
+`endif
 
   // byte i at [8*i +: 8]; first 8 bytes = real EDID header
   localparam logic [127:0] EDID_ROM = {64'h1234_5678_9ABC_DEF0,
@@ -444,6 +516,13 @@ module DisplayPort2_tb;
       end else begin
         do_corrupt = corrupt_armed;
         if (corrupt_armed) corrupt_armed = 1'b0;
+`ifdef VERILATOR
+        if (sink_enable && nack_storm) begin
+          // CRV NACK storm: every reply NACKed until the storm is lifted
+          nack_fired++;
+          aux_send(4'h1, 4'd0, 64'h0, 1'b0);
+        end else
+`endif
         if (sink_enable) begin
           case (cmd)
             4'h8: begin                       // native AUX write
@@ -615,17 +694,114 @@ module DisplayPort2_tb;
       errors++; $display("ERROR: irq stuck after recovery");
     end
 
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ----
+    // 120 randomized training sessions (full reset per session), sink
+    // behaviour randomized per session:
+    //   ~50% benign: clean training -> link_trained + EDID, no irq;
+    //   ~20% Manchester violation on the first AUX reply -> DUT retries
+    //        the op and still trains, no irq;
+    //   ~10% NACK storm lifted after 1..2 injected NACKs -> recovery;
+    //   ~10% persistent NACK storm -> retries exhausted, train_fail + irq;
+    //   ~10% sink absent (no replies) -> AUX timeouts, train_fail + irq
+    //        with >= 3 observed retry attempts.
+    begin : crv_phase
+      int n_ben = 0, n_viol = 0, n_nack = 0, n_fail = 0, n_absent = 0;
+      int sel, nn, t2, base;
+      for (int i = 0; i < 120; i++) begin
+        tb_reset();
+        sink_present = 1'b0;
+        rst_n = 1'b0;
+        repeat (5) @(negedge clk);
+        rst_n = 1'b1;
+        repeat (2) @(negedge clk);
+        corrupt_happened = 1'b0;
+        sink_enable = 1'b1;
+        sel = $urandom_range(0, 9);
+        if (sel <= 4) begin
+          sink_present = 1'b1;
+          for (t2 = 0; t2 < 80000 && link_trained !== 1'b1; t2++) @(negedge clk);
+          cchk(link_trained === 1'b1, "CRV benign: not trained");
+          cchk(edid_valid === 1'b1 && edid === 64'h00FF_FFFF_FFFF_FF00,
+               "CRV benign: EDID wrong");
+          cchk(irq === 1'b0, "CRV benign: irq asserted");
+          n_ben++;
+        end else if (sel <= 6) begin
+          corrupt_armed = 1'b1;
+          sink_present  = 1'b1;
+          for (t2 = 0; t2 < 80000 && link_trained !== 1'b1; t2++) @(negedge clk);
+          cchk(corrupt_happened, "CRV viol: injection never fired");
+          cchk(link_trained === 1'b1, "CRV viol: no recovery");
+          cchk(irq === 1'b0, "CRV viol: irq asserted");
+          n_viol++;
+        end else if (sel == 7) begin
+          nn   = $urandom_range(1, 2);
+          base = nack_fired;
+          nack_storm   = 1'b1;
+          sink_present = 1'b1;
+          for (t2 = 0; t2 < 80000 && (nack_fired - base) < nn; t2++)
+            @(negedge clk);
+          nack_storm = 1'b0;
+          cchk((nack_fired - base) == nn, "CRV nack: injection never fired");
+          for (t2 = 0; t2 < 80000 && link_trained !== 1'b1; t2++) @(negedge clk);
+          cchk(link_trained === 1'b1, "CRV nack: no recovery");
+          cchk(irq === 1'b0, "CRV nack: irq asserted");
+          n_nack++;
+        end else if (sel == 8) begin
+          nack_storm   = 1'b1;
+          sink_present = 1'b1;
+          for (t2 = 0; t2 < 120000 && irq !== 1'b1; t2++) @(negedge clk);
+          nack_storm = 1'b0;
+          cchk(irq === 1'b1 && train_fail === 1'b1, "CRV storm: no fail/irq");
+          cchk(link_trained !== 1'b1, "CRV storm: trained anyway");
+          n_fail++;
+        end else begin
+          sink_enable  = 1'b0;
+          sink_present = 1'b1;
+          base = aux_req_count;
+          for (t2 = 0; t2 < 120000 && irq !== 1'b1; t2++) @(negedge clk);
+          cchk(irq === 1'b1 && train_fail === 1'b1, "CRV absent: no fail/irq");
+          cchk(link_trained !== 1'b1, "CRV absent: trained anyway");
+          cchk(aux_req_count - base >= 3, "CRV absent: retries missing");
+          n_absent++;
+        end
+      end
+      $display("CRV: 120 training sessions: benign=%0d viol=%0d nack=%0d storm-fail=%0d absent-fail=%0d",
+               n_ben, n_viol, n_nack, n_fail, n_absent);
+    end
+`endif
+
     if (errors == 0) $display("TEST PASSED: DisplayPort2");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < DP2_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, DP2_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
   // TIMEOUT guard
+`ifdef VERILATOR
+  // Chunked timeout: Verilator 5.006 corrupts the --timing delay heap on a
+  // single long-pending #delay once many short-delay resumptions interleave.
+  initial begin
+    repeat (30000) #1000;   // 30 ms in 1-us chunks
+    $display("ERROR: TIMEOUT");
+    $display("TEST FAILED: %0d errors", errors + 1);
+    $finish;
+  end
+`else
   initial begin
     #5000000;
     $display("ERROR: TIMEOUT");
     $display("TEST FAILED: %0d errors", errors + 1);
     $finish;
   end
+`endif
 
 endmodule
