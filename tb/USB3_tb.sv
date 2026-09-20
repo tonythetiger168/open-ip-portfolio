@@ -406,6 +406,7 @@ module USB3_tb;
       bulk_out(blk[1:0], exp_seq_m[2:0], 1'b0, TP_ACK, 1'b0);
       crv_commit(blk);
       exp_seq_m = (exp_seq_m + 1) % 8;
+      check(dut.rx_exp === exp_seq_m[2:0], "CRV model/DUT rx_exp in sync");
     end
   endtask
 
@@ -441,7 +442,8 @@ module USB3_tb;
     int blk, sq;
     begin
       blk = $urandom_range(0, 3);
-      sq  = (exp_seq_m + $urandom_range(2, 7)) % 8;   // != exp, != exp-1
+      // +2..+6 mod 8: never exp (in-order) nor exp-1 (duplicate)
+      sq  = (exp_seq_m + $urandom_range(2, 6)) % 8;
       crv_fill;
       bulk_out(blk[1:0], sq[2:0], 1'b0, TP_NRDY, 1'b0);
       repeat (2) tx_sym(SYM_IDLE);

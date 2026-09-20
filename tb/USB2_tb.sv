@@ -355,6 +355,7 @@ module USB2_tb;
   // ---- constrained-random transaction tasks ---------------------------
   int          ep1_cnt_model;           // EP1 payload counter model
   bit          ep1_tgl_model;           // EP1 next DATA toggle model
+  bit          out_tgl_model;           // EP0 OUT next DATA toggle model
   logic [7:0]  setup_model [0:7];       // shadow of DUT setup_q
   int          uframe_model;            // microframe counter model
   logic [10:0] frame_model;             // frame number model
@@ -378,8 +379,11 @@ module USB2_tb;
 
   // SETUP with random request bytes + EP0 IN descriptor + ACK
   task automatic crv_setup_in;
+    bit ff;
     begin
-      for (int i = 0; i < 8; i++) h_pl[i] = $urandom_range(0, 255);
+      ff = ($urandom_range(0, 4) == 0);   // 20% all-ones payload: forces
+      for (int i = 0; i < 8; i++)         // host stuffing / DUT unstuffing
+        h_pl[i] = ff ? 8'hFF : $urandom_range(0, 255);
       h_token(P_SETUP, 7'd0, 4'd0, 1'b0);
       h_data(P_DATA0, 8, 1'b0);
       h_recv(600);
@@ -391,6 +395,7 @@ module USB2_tb;
         end
         setup_model[i] = h_pl[i];
       end
+      out_tgl_model = 1'b1;               // successful SETUP data: out_tgl<=1
       check(dut.ep0in_tgl === 1'b1, "CRV SETUP resets EP0 IN toggle");
       h_token(P_IN, 7'd0, 4'd0, 1'b0);
       for (int i = 0; i < 8; i++) exp_pl[i] = desc_byte(i);
@@ -453,7 +458,8 @@ module USB2_tb;
   task automatic crv_wrong_addr;
     logic [6:0] ad;
     begin
-      ad = $urandom_range(1, 127);
+      // 7'h7F carries seven 1s: exercises the RS_TOKEN stuffed-bit drop arm
+      ad = ($urandom_range(0, 2) == 0) ? 7'h7F : $urandom_range(1, 127);
       h_token(P_IN, ad, 4'd1, 1'b0);
       h_recv(300);
       check(rto, "CRV wrong-address token ignored");
@@ -474,6 +480,104 @@ module USB2_tb;
           errors++;
           $display("ERROR: CRV setup_q[%0d] overwritten by misordered data", i);
         end
+    end
+  endtask
+
+  // bad PID check-nibble: byte 8'h3F fails the nibble-complement test and
+  // carries six leading 1s (exercises the RS_PID stuffed-bit drop arm);
+  // device must drop the packet silently
+  task automatic crv_badpid;
+    logic [15:0] tf;
+    begin
+      tf = {$urandom_range(0, 31), $urandom_range(0, 15),
+            $urandom_range(0, 127)};
+      h_sop_sync;
+      h_byte(8'h3F);                          // not {~pid,pid}
+      for (int i = 0; i < 16; i++) h_raw_bit(tf[i]);
+      h_eop;
+      h_recv(300);
+      check(rto, "CRV bad PID nibble: no device response");
+    end
+  endtask
+
+  // truncated packets: SE0 inside SYNC / PID / token field; the token
+  // truncation is a short IN token -> crc-bad -> irq (cleared by a good IN)
+  task automatic crv_trunc;
+    begin
+      // (a) SE0 after 4 SYNC bits
+      h_ones = 0; h_lvl = 1'b1;
+      host_oe = 1; host_dp = 1; host_dm = 0;
+      @(negedge clk);
+      for (int i = 0; i < 4; i++) h_bit(1'b0);
+      h_eop;
+      h_recv(300);
+      check(rto, "CRV truncated SYNC: no device response");
+      // (b) SE0 after 4 PID bits
+      h_sop_sync;
+      for (int i = 0; i < 4; i++) h_raw_bit(P_IN[i]);
+      h_eop;
+      h_recv(300);
+      check(rto, "CRV truncated PID: no device response");
+      // (c) SE0 after 8 token bits (short IN token): bad CRC5 -> irq
+      h_sop_sync;
+      h_byte({~P_IN, P_IN});
+      for (int i = 0; i < 8; i++) h_raw_bit(1'b0);
+      h_eop;
+      h_recv(300);
+      check(rto, "CRV truncated token: no device response");
+      check(irq === 1'b1, "CRV truncated token: irq raised");
+      crv_ep1_in(1'b1);
+      check(irq === 1'b0, "CRV irq cleared after truncated token");
+    end
+  endtask
+
+  // OUT to an illegal endpoint + data stage -> STALL (pend_stall arm)
+  task automatic crv_stall_out;
+    logic [3:0] ep;
+    int         len;
+    begin
+      ep  = $urandom_range(2, 15);
+      len = $urandom_range(1, 8);
+      for (int i = 0; i < 8; i++) h_pl[i] = $urandom_range(0, 255);
+      h_token(P_OUT, 7'd0, ep, 1'b0);
+      h_data(P_DATA0, len, 1'b0);
+      h_recv(600);
+      check(!rto && rlen == 1 && rbuf[0] === B_STALL,
+            "CRV OUT illegal endpoint + data -> STALL");
+    end
+  endtask
+
+  // OUT to EP0 with in-sequence toggle: ACKed, out_tgl advances
+  task automatic crv_out_data;
+    int len;
+    begin
+      len = $urandom_range(0, 8);
+      for (int i = 0; i < 8; i++) h_pl[i] = $urandom_range(0, 255);
+      h_token(P_OUT, 7'd0, 4'd0, 1'b0);
+      h_data(out_tgl_model ? P_DATA1 : P_DATA0, len, 1'b0);
+      h_recv(600);
+      check(!rto && rlen == 1 && rbuf[0] === B_ACK, "CRV OUT data ACKed");
+      out_tgl_model = ~out_tgl_model;
+    end
+  endtask
+
+  // bit-stuff violation: 7 unstuffed 1s in the data stage -> stuff_err,
+  // data rejected (no handshake) + irq
+  task automatic crv_stuff_viol;
+    begin
+      h_token(P_SETUP, 7'd0, 4'd0, 1'b0);
+      h_sop_sync;
+      h_byte({~P_DATA0, P_DATA0});
+      for (int i = 0; i < 7; i++) h_bit(1'b1);   // no stuffed 0: violation
+      h_ones = 0;
+      h_bit(1'b0);
+      for (int i = 0; i < 24; i++) h_raw_bit($urandom_range(0, 1));
+      h_eop;
+      h_recv(300);
+      check(rto, "CRV bit-stuff violation: no handshake");
+      check(irq === 1'b1, "CRV bit-stuff violation: irq raised");
+      crv_ep1_in(1'b1);
+      check(irq === 1'b0, "CRV irq cleared after stuff violation");
     end
   endtask
 
@@ -575,6 +679,7 @@ module USB2_tb;
       // re-seed all models to the post-reset DUT state
       ep1_cnt_model = 0;
       ep1_tgl_model = 1'b0;
+      out_tgl_model = 1'b0;
       uframe_model  = 0;
       frame_model   = 11'd0;
       for (int i = 0; i < 8; i++) setup_model[i] = 8'h00;
@@ -781,40 +886,59 @@ module USB2_tb;
     // ---------------- v2.5 CRV random phase (directed above untouched) --
     begin : crv_phase
       int n_in = 0, n_lost = 0, n_su = 0, n_st = 0, n_c5 = 0, n_c16 = 0,
-          n_wa = 0, n_mo = 0, n_sof = 0, n_ch = 0;
+          n_wa = 0, n_mo = 0, n_sof = 0, n_ch = 0, n_bp = 0, n_tr = 0,
+          n_so = 0, n_od = 0, n_sv = 0;
       int roll;
       // models start from the directed-test end state
       ep1_cnt_model = 5;
       ep1_tgl_model = 1'b1;
+      out_tgl_model = 1'b1;              // last directed SETUP set out_tgl
       uframe_model  = 1;
       frame_model   = 11'h000;
       for (int i = 0; i < 8; i++) setup_model[i] = saved_rf[i];
+      // deterministic first pass: every rare error class seen at least once
+      crv_badpid;      n_bp++;
+      crv_trunc;       n_tr++;
+      crv_stall_out;   n_so++;
+      crv_out_data;    n_od++;
+      crv_stuff_viol;  n_sv++;
       for (int t = 0; t < 100; t++) begin
         roll = $urandom_range(0, 99);
-        if (roll < 25) begin
+        if (roll < 23) begin
           n_in++;   crv_ep1_in(1'b1);
-        end else if (roll < 35) begin
+        end else if (roll < 32) begin
           n_lost++; crv_ep1_in(1'b0); crv_ep1_in(1'b1);  // lost ACK + retry
-        end else if (roll < 53) begin
+        end else if (roll < 48) begin
           n_su++;   crv_setup_in;
-        end else if (roll < 61) begin
+        end else if (roll < 55) begin
           n_st++;   crv_stall;
-        end else if (roll < 69) begin
+        end else if (roll < 62) begin
           n_c5++;   crv_badcrc5;
-        end else if (roll < 77) begin
+        end else if (roll < 69) begin
           n_c16++;  crv_badcrc16;
-        end else if (roll < 82) begin
+        end else if (roll < 73) begin
           n_wa++;   crv_wrong_addr;
-        end else if (roll < 87) begin
+        end else if (roll < 77) begin
           n_mo++;   crv_misorder;
-        end else if (roll < 96) begin
+        end else if (roll < 85) begin
           n_sof++;  crv_sof;
-        end else begin
+        end else if (roll < 89) begin
           n_ch++;   crv_chirp;
+        end else if (roll < 92) begin
+          n_bp++;   crv_badpid;
+        end else if (roll < 94) begin
+          n_tr++;   crv_trunc;
+        end else if (roll < 96) begin
+          n_so++;   crv_stall_out;
+        end else if (roll < 98) begin
+          n_od++;   crv_out_data;
+        end else begin
+          n_sv++;   crv_stuff_viol;
         end
       end
-      $display("CRV: 100 txns (ep1_in=%0d lost_ack=%0d setup_in=%0d stall=%0d bad_crc5=%0d bad_crc16=%0d wrong_addr=%0d misorder=%0d sof=%0d chirp=%0d)",
-               n_in, n_lost, n_su, n_st, n_c5, n_c16, n_wa, n_mo, n_sof, n_ch);
+      $display("CRV: 105 txns (ep1_in=%0d lost_ack=%0d setup_in=%0d stall=%0d bad_crc5=%0d bad_crc16=%0d wrong_addr=%0d misorder=%0d sof=%0d chirp=%0d bad_pid=%0d trunc=%0d stall_out=%0d out_data=%0d stuff_viol=%0d)",
+               n_in, n_lost, n_su, n_st, n_c5, n_c16, n_wa, n_mo, n_sof,
+               n_ch, n_bp, n_tr, n_so, n_od, n_sv);
     end
 `endif
     // ---------------- summary ----------------

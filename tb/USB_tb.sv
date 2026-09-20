@@ -340,6 +340,7 @@ module USB_tb;
   // ---- constrained-random transaction tasks ---------------------------
   int         ep1_cnt_model;            // EP1 payload counter model
   bit         ep1_tgl_model;            // EP1 next DATA toggle model
+  bit         out_tgl_model;            // EP0 OUT next DATA toggle model
   logic [7:0] setup_model [0:7];        // shadow of DUT setup_q
 
   // EP1 interrupt IN, model-checked; optionally ACK (advance) or drop ACK
