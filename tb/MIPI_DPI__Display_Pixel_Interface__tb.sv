@@ -118,8 +118,9 @@ module MIPI_DPI__Display_Pixel_Interface__tb;
                             : 24'h0), "A4 rgb pipeline");
       // A5: irq only when an enable was rejected (ctrl still disabled)
       sva_check(!irq || (dut.ctrl == 3'b000), "A5 irq implies rejected enable");
-      // A6: frame_cnt never decreases
-      sva_check(frame_cnt >= fc_q, "A6 frame_cnt monotone");
+      // A6: frame_cnt never decreases (16'hFFFF -> 0 wrap is legal)
+      sva_check(frame_cnt >= fc_q || (fc_q == 16'hFFFF && frame_cnt == 16'h0),
+                "A6 frame_cnt monotone");
       // A7: sync and active-video never overlap
       sva_check(!(de && (hsync || vsync)), "A7 de excludes syncs");
       // A8: legal region encoding only
@@ -367,6 +368,55 @@ module MIPI_DPI__Display_Pixel_Interface__tb;
       pxor = 24'h0;
       $display("CRV: 110 config txns (valid=%0d invalid=%0d)", n_ok, n_bad);
     end
+
+    // ---- coverage-closure phase (open items from W3_MIPI.md) -----------
+    // (a) reg_rdata mux for addr 9/10/11 (rtl :144-146): read frame_cnt /
+    //     hcnt / vcnt while disabled (hcnt/vcnt are 0, frame_cnt held).
+    // (b) 16-bit timing-register sweep (0xFFFF/0x5A5A/0xA5A5/0x0000):
+    //     toggles every treg / reg_wdata / reg_rdata bit both ways plus
+    //     the derived h/v timing wires (hs_start/hs_end/htotal/...).
+    // (c) one wide line (HTOT > 16'h8000): hcnt[15:0] walk incl. bit15.
+    // (d) one tall frame (VTOT > 16'h8000, min line): vcnt[15:0] walk.
+    // (e) free-running tiny frames until frame_cnt wraps 0xFFFF->0:
+    //     all 16 frame_cnt bits toggle both directions.
+    begin : cov_closure
+      reg_write(4'd8, 16'h0);                        // ensure disabled
+      repeat (3) @(negedge clk);
+      reg_check(4'd9,  frame_cnt, "cc frame_cnt rb");
+      reg_check(4'd10, 16'h0,     "cc hcnt rb");
+      reg_check(4'd11, 16'h0,     "cc vcnt rb");
+      for (int a = 0; a < 8; a++) begin
+        reg_write(4'(a), 16'hFFFF);
+        reg_write(4'(a), 16'h5A5A);
+        reg_write(4'(a), 16'hA5A5);
+        reg_write(4'(a), 16'h0000);
+      end
+      for (int a = 0; a < 8; a++) reg_check(4'(a), 16'h0, "cc sweep0 rb");
+      for (int a = 0; a < 8; a++) begin
+        reg_write(4'(a), 16'hFFFF);
+        reg_check(4'(a), 16'hFFFF, "cc sweep1 rb");
+      end
+      // wide line: hcnt counts 0..16'h8000 then wraps (bit15 both edges)
+      set_cfg(16'h1000, 16'h1000, 16'h1000, 16'h5001, 1, 1, 1, 1);
+      reg_write(4'd8, 16'h1);
+      repeat (16'h8020) @(negedge clk);
+      reg_write(4'd8, 16'h0);
+      repeat (2) @(negedge clk);
+      // tall frame: vcnt counts 0..16'h8000 (4 cycles per line)
+      set_cfg(1, 1, 1, 1, 16'h1000, 16'h1000, 16'h1000, 16'h5001);
+      reg_write(4'd8, 16'h1);
+      repeat (131200) @(negedge clk);
+      reg_write(4'd8, 16'h0);
+      repeat (2) @(negedge clk);
+      // tiny frames: frame_cnt walks the full 16-bit range and wraps
+      set_cfg(1, 1, 1, 1, 1, 1, 1, 1);               // 16 cycles / frame
+      reg_write(4'd8, 16'h1);
+      repeat (1050000) @(negedge clk);               // > 65536 frames
+      reg_write(4'd8, 16'h0);
+      repeat (2) @(negedge clk);
+      check(irq === 1'b0, "cc: no irq during closure sweeps");
+      $display("COV_CLOSURE: reg9-11 readback + reg sweep + wide/tall/tiny frames done (frame_cnt=%0d)", frame_cnt);
+    end
 `endif
 
     // ---- report ----
@@ -451,7 +501,8 @@ module MIPI_DPI__Display_Pixel_Interface__tb;
   // resumptions interleave with it (processes lose wakeups and the long
   // event fires early). 1-us chunks keep all heap entries short-lived.
   initial begin
-    repeat (10000) #1000;   // 10 ms in 1-us chunks
+    repeat (40000) #1000;   // 40 ms in 1-us chunks (coverage-closure
+                            // frame_cnt wrap phase needs ~12 ms sim time)
     $display("TEST FAILED: %0d errors", errors + 1);
     $finish;
   end

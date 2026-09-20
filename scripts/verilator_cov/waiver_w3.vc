@@ -95,3 +95,7 @@ waiver mi3c-toggle-5 rtl/MIPI_I3C_top.sv:30  toggle \
 
 waiver mi3c-toggle-6 rtl/MIPI_I3C_top.sv:59  toggle \
   reason="state[4]: 15 legal states (0..14), bit 4 never set."
+
+# ---- MIPI_DPI ----
+waiver mdpi-line-1 rtl/MIPI_DPI__Display_Pixel_Interface__top.sv:94  line \
+  reason="else if (reg_addr == 4'd8): Verilator 5.006 line-attribution artifact (branch shifted to the neighbouring line). Execution proven: every one of the ~230 ctrl writes (enables, disables, shutdown/resume, invalid-config rejections) passes through this arm and their registered effects are all self-checked."
