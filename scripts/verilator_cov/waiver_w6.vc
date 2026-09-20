@@ -30,3 +30,25 @@ waiver qspi-toggle-1 rtl/QSPI_top.sv:27 toggle \
 # ---- PWM ----
 waiver pwm-toggle-1 rtl/PWM_top.sv:24  toggle \
   reason="counter[31:22]: bit k of the free-running counter toggles only in a single period >= 2^(k+1) clocks; bits 22..31 need >= 4M..2G-cycle runs, impractical under --timing. Carry chain proven through bit 21 by the 2^22-period CRV long run."
+
+# ---- UALink / UCIe (identical template, same waivers) ----
+waiver ualink-line-1 rtl/UALink_top.sv:87-88 line \
+  reason="C_SEND-arm line-coverage attribution artifact (5.006); execution proven by 110 received response flits (opcode/txnID/data self-checked)."
+waiver ualink-line-2 rtl/UALink_top.sv:93 line \
+  reason="default: cstate <= C_IDLE is dead; cstate is 2-bit with all 3 used encodings cased."
+waiver ualink-toggle-1 rtl/UALink_top.sv:44 toggle \
+  reason="rxrspflit[33:30]: constant response opcode 5'b00001, upper 4 bits never toggle."
+waiver ualink-toggle-2 rtl/UALink_top.sv:31 toggle \
+  reason="crd_timer[3]: credit timer wraps at 4'd7, bit 3 never set."
+waiver ualink-toggle-3 rtl/UALink_top.sv:38 toggle \
+  reason="lat_cnt[3]: RSP_LAT=4, counter only takes values 4..0, bit 3 never set."
+waiver ucie-line-1 rtl/UCIe_top.sv:87-88 line \
+  reason="same as ualink-line-1 (identical template): C_SEND-arm attribution artifact, execution proven by 110 self-checked responses."
+waiver ucie-line-2 rtl/UCIe_top.sv:93 line \
+  reason="same as ualink-line-2: dead default arm (2-bit state, 3 encodings cased)."
+waiver ucie-toggle-1 rtl/UCIe_top.sv:44 toggle \
+  reason="same as ualink-toggle-1: constant response opcode upper bits."
+waiver ucie-toggle-2 rtl/UCIe_top.sv:31 toggle \
+  reason="same as ualink-toggle-2: crd_timer wraps at 4'd7."
+waiver ucie-toggle-3 rtl/UCIe_top.sv:38 toggle \
+  reason="same as ualink-toggle-3: lat_cnt max value 4, bit 3 never set."
