@@ -14,8 +14,18 @@ module eMMC_tb;
   logic clk = 1'b0, rst_n = 1'b0;
   logic emmc_clk = 1'b0;
   logic emmc_rst_n = 1'b0;
+`ifdef VERILATOR
+  // NOTE(vlt-5.006 tristate bug, see tb/SDIO_tb.sv): an undriven plain tri
+  // net reads as 0 under Verilator, so the card model sees permanent false
+  // start bits (thousands of bad-CRC7 "commands"). tri1 gives the eMMC
+  // idle-high pull-up semantics; all drivers still drive z to release.
+  // iverilog path (plain tri + z) is bit-identical to before.
+  tri1 cmd;
+  tri1 [7:0] dat;
+`else
   tri   cmd;
   tri [7:0] dat;
+`endif
   logic irq;
   int   errors = 0;
 
@@ -56,6 +66,70 @@ module eMMC_tb;
   int twait            = 0;
 
   always @(posedge irq) irq_cnt = irq_cnt + 1;
+
+`ifdef VERILATOR
+  // DEBUG (temporary): bus trace around first bad command
+  always @(posedge emmc_clk) begin
+    if ($time > 43000 && $time < 46000)
+      $display("TRC t=%0t cmd=%b hoe=%b hout=%b coe=%b cout=%b cstate=%0d ccnt=%0d hst=%0d ph=%0d bc=%0d cur=%0d",
+               $time, cmd, dut.cmd_oe_r, dut.cmd_out_r, c_cmd_oe, c_cmd_out, cstate, ccnt, dut.state, dut.phase, dut.bit_cnt, dut.cur_cmd);
+  end
+`endif
+
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
+  // =====================================================================
+  // FSM probe: host state(9) + command phase(3) + data phase(5) = 17
+  localparam int EMMC_FSM_TOTAL = 17;
+  logic [16:0] fsm_seen = '0;
+  always @(posedge emmc_clk) begin
+    if (dut.state  < 9) fsm_seen[dut.state]        <= 1'b1;
+    if (dut.phase  < 3) fsm_seen[9  + dut.phase]   <= 1'b1;
+    if (dut.dphase < 5) fsm_seen[12 + dut.dphase]  <= 1'b1;
+  end
+
+  int sva_total = 0, sva_fail = 0;
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors = errors + 1;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // output-invariant assertion suite (emmc_clk domain, pre-NBA coherent)
+  int  rst_cyc = 0;
+  logic irq_q = 1'b0, init_q = 1'b0;
+  always @(posedge emmc_clk) begin
+    if (!rst_n || !emmc_rst_n) begin
+      // A1: clean post-reset state
+      if (rst_cyc > 0)
+        sva_check((dut.state === 4'd0 /*H_CMD0*/) && (irq === 1'b0) &&
+                  (dut.init_done === 1'b0) && (dut.match_cnt === 8'd0),
+                  "A1 reset: clean state");
+      rst_cyc++;
+    end else begin
+      // A2: irq is a single-emmc_clk pulse
+      if (irq_q) sva_check(irq === 1'b0, "A2 irq pulse width");
+      // A3: FSM encodings in range
+      sva_check((dut.state <= 8) && (dut.phase <= 2) && (dut.dphase <= 4),
+                "A3 FSM encodings valid");
+      // A4: matches never exceed rounds started
+      sva_check(dut.match_cnt <= dut.round, "A4 match_cnt <= round");
+      // A5: init_done is sticky
+      if (init_q) sva_check(dut.init_done === 1'b1, "A5 init_done sticky");
+      // A6: after init the host never re-enters the init states
+      if (dut.init_done)
+        sva_check(dut.state >= 4, "A6 no init re-entry after init_done");
+    end
+    irq_q  <= irq;
+    init_q <= dut.init_done;
+  end
+`endif
 
   // ------------------------- TB CRC helpers -------------------------------
   function automatic logic [6:0] crc7_40(input logic [39:0] d);
@@ -151,7 +225,11 @@ module eMMC_tb;
                               (busy_ready ? 32'hC0FF_8080 : 32'h40FF_8080),
                               7'h7F, 1'b1}, 88'h0};
                 crsp_len <= 8'd48;
+`ifdef VERILATOR
+                cgap     <= 4'd7;  // vlt-5.006: wider rsp gap (host PH_GAP skew)
+`else
                 cgap     <= 4'd3;
+`endif
                 post_act <= 2'd0;
                 cstate   <= C_GAP;
                 cmd1_cnt = cmd1_cnt + 1;
@@ -160,7 +238,11 @@ module eMMC_tb;
               6'd2: begin                              // CMD2: R2 (CID)
                 crsp     <= {1'b0, 1'b0, 6'b111111, CID_VAL[127:1], 1'b1};
                 crsp_len <= 8'd136;
+`ifdef VERILATOR
+                cgap     <= 4'd7;  // vlt-5.006: wider rsp gap (host PH_GAP skew)
+`else
                 cgap     <= 4'd3;
+`endif
                 post_act <= 2'd0;
                 cstate   <= C_GAP;
               end
@@ -170,7 +252,11 @@ module eMMC_tb;
                 if (inj_crc7) r1crc = r1crc ^ 7'h55;
                 crsp     <= {{1'b0, r1body, r1crc, 1'b1}, 88'h0};
                 crsp_len <= 8'd48;
+`ifdef VERILATOR
+                cgap     <= 4'd7;  // vlt-5.006: wider rsp gap (host PH_GAP skew)
+`else
                 cgap     <= 4'd3;
+`endif
                 cstate   <= C_GAP;
                 if (f[45:40] == 6'd24) begin           // CMD24: then RX data
                   cblk     <= f[9:8];
@@ -220,6 +306,21 @@ module eMMC_tb;
       // -------------------- receive write data block on dat[0] ------------
       C_DRX: begin
         if (drx_cnt == 9'd0) begin
+`ifdef VERILATOR
+          // vlt-5.006: after a rejected (bad-CRC7) R1 the host aborts the
+          // write and retries CMD24 while the card still waits for data.
+          // iverilog timing lets drx_to expire in the host's response-hunt
+          // window; under Verilator it lands mid-retry-frame and the card
+          // mis-syncs (harmless ignored bad-CRC7 frames, but they trip the
+          // hygiene counter). A real card answers a new command at any
+          // time: abort the data wait on a command start bit.
+          if (cmd === 1'b0) begin
+            cframe <= {47'h0, 1'b0};
+            ccnt   <= 9'd1;
+            cstate <= C_CMDRX;
+            drx_to <= 9'd0;
+          end else
+`endif
           if (dat[0] === 1'b0) begin
             drx_cnt <= 9'd1;                           // start bit
             drx_to  <= 9'd0;
@@ -422,8 +523,95 @@ module eMMC_tb;
       errors = errors + 1;
     end
 
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ----
+    // 120 randomized disturbance transactions against the autonomously
+    // sequencing host (error flags are sticky, so checks are irq-delta +
+    // recovery): ~30% corrupt one read-block CRC16, ~25% corrupt one R1
+    // CRC7, ~20% mute the card (command timeout), ~25% benign rounds.
+    // Every injection must raise irq and the host must recover (match_cnt
+    // advances afterwards with clean knobs).
+    begin : crv_phase
+      int n_c16 = 0, n_c7 = 0, n_mt = 0, n_ok = 0;
+      int mc_before, sel;
+      for (int i = 0; i < 120; i++) begin
+        sel = $urandom_range(0, 19);
+        if (sel < 6) begin
+          // ---- corrupt the next read-block CRC16 ----
+          n_c16++;
+          irq_before = irq_cnt;
+          inj_crc16  = 1'b1;
+          `WAIT_FLAG(irq_cnt > irq_before, "CRV crc16 injection irq")
+          inj_crc16  = 1'b0;
+          if (dut.err_crc16 !== 1'b1) begin
+            $display("ERROR: CRV %0d crc16 injection: err_crc16 not set", i);
+            errors = errors + 1;
+          end
+        end else if (sel < 11) begin
+          // ---- corrupt the next R1 CRC7 ----
+          n_c7++;
+          irq_before = irq_cnt;
+          inj_crc7   = 1'b1;
+          `WAIT_FLAG(irq_cnt > irq_before, "CRV crc7 injection irq")
+          inj_crc7   = 1'b0;
+          if (dut.err_crc7 !== 1'b1) begin
+            $display("ERROR: CRV %0d crc7 injection: err_crc7 not set", i);
+            errors = errors + 1;
+          end
+        end else if (sel < 15) begin
+          // ---- mute the card: host must time out and recover ----
+          n_mt++;
+          irq_before = irq_cnt;
+          mute       = 1'b1;
+          `WAIT_FLAG(irq_cnt > irq_before, "CRV mute timeout irq")
+          mute       = 1'b0;
+          if (dut.err_timeout !== 1'b1) begin
+            $display("ERROR: CRV %0d mute: err_timeout not set", i);
+            errors = errors + 1;
+          end
+        end else begin
+          // ---- benign: let one clean round complete ----
+          n_ok++;
+        end
+        // recovery check: with clean knobs a further round must match
+        mc_before = dut.match_cnt;
+        `WAIT_FLAG(dut.match_cnt > mc_before, "CRV recovery match")
+        if (dut.match_cnt <= mc_before) begin
+          $display("ERROR: CRV %0d host did not recover", i);
+          errors = errors + 1;
+        end
+      end
+      // card-side sanity: the host never emitted a bad CRC itself
+      if (card_cmdcrc_errs != 0) begin
+        $display("ERROR: CRV card saw %0d host commands with bad CRC7",
+                 card_cmdcrc_errs);
+        errors = errors + 1;
+      end
+      if (card_datcrc_errs != 0) begin
+        $display("ERROR: CRV card saw %0d write blocks with bad CRC16",
+                 card_datcrc_errs);
+        errors = errors + 1;
+      end
+      if (dut.err_cmp !== 1'b0) begin
+        $display("ERROR: CRV read-back compare flag set");
+        errors = errors + 1;
+      end
+      $display("CRV: 120 disturbances (crc16=%0d crc7=%0d mute=%0d benign=%0d), match_cnt=%0d",
+               n_c16, n_c7, n_mt, n_ok, dut.match_cnt);
+    end
+`endif
+
     if (errors == 0) $display("TEST PASSED: eMMC");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < EMMC_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, EMMC_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
@@ -448,10 +636,20 @@ module eMMC_tb;
 `endif
 
   // ------------------------- timeout guard --------------------------------
+`ifdef VERILATOR
+  // Chunked timeout: Verilator 5.006 corrupts the --timing delay heap on a
+  // single long-pending #delay once many short-delay resumptions interleave.
+  initial begin
+    repeat (20000) #1000;   // 20 ms in 1-us chunks
+    $display("TIMEOUT");
+    $finish;
+  end
+`else
   initial begin
     #2_000_000;
     $display("TIMEOUT");
     $finish;
   end
+`endif
 
 endmodule

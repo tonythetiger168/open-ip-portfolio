@@ -48,6 +48,100 @@ module SAS_4__Serial_Attached_SCSI__tb;
 
   always @(posedge clk) if (rst_n && irq) irq_cnt++;
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
+  // =====================================================================
+  // FSM probe: oob(5) + tx(6, TX_PAY1 excluded: sequencer never issues
+  // len>4 frames, so PAY1 is unreachable in this configuration) +
+  // rx_lock(2) + rf(5) + sequencer(6) = 24 states
+  localparam int SAS4_FSM_TOTAL = 24;
+  logic [23:0] fsm_seen = '0;
+  always @(posedge clk) begin
+    if (dut.oob_state < 5)  fsm_seen[dut.oob_state]       <= 1'b1;
+    if (dut.tx_state  < 7 && dut.tx_state != 4)
+      fsm_seen[5 + ((dut.tx_state > 4) ? dut.tx_state - 1 : dut.tx_state)]
+                                                            <= 1'b1;
+    if (dut.rx_lock   < 2)  fsm_seen[11 + dut.rx_lock]    <= 1'b1;
+    if (dut.rf_state  < 5)  fsm_seen[13 + dut.rf_state]   <= 1'b1;
+    if (dut.sq_state  < 6)  fsm_seen[18 + dut.sq_state]   <= 1'b1;
+  end
+
+  int sva_total = 0, sva_fail = 0;
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors++;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // output-invariant assertion suite (sampled at posedge, pre-NBA coherent)
+  int  rst_cyc = 0;
+  logic pulse_q = 1'b0, phy_q = 1'b0, ls_q = 1'b0;
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      // A1: line idle and link down in reset
+      if (rst_cyc > 0)
+        sva_check((tx_p === 1'b0) && (dut.phy_ready === 1'b0) &&
+                  (irq === 1'b0), "A1 reset: idle/down");
+      rst_cyc++;
+    end else begin
+      // A2: complementary differential drive
+      sva_check(tx_n === ~tx_p, "A2 tx_n == ~tx_p");
+      // A3: irq is exactly the registered error-pulse OR
+      sva_check(irq === pulse_q, "A3 irq is registered err pulse");
+      // A4: phy_ready may only fall together with a loss_sync pulse
+      // (directed phase (e) forces exactly that path)
+      if (phy_q && !dut.phy_ready)
+        sva_check(ls_q || dut.loss_sync, "A4 phy drop only via loss_sync");
+      // A5: FSM state encodings in range
+      sva_check((dut.oob_state < 5) && (dut.tx_state < 7) &&
+                (dut.rf_state < 5) && (dut.sq_state < 6),
+                "A5 FSM encodings valid");
+      // A6: committed write data always follows the initiator pattern
+      if (dut.wr_evt)
+        sva_check(((dut.wr_data - 32'h5A5A_0000) % 32'h0001_0101) === 32'd0,
+                  "A6 wr_data sequence pattern");
+    end
+    pulse_q <= dut.crc_err_pulse | dut.proto_err_pulse |
+               dut.tmo_err_pulse | dut.loss_sync;
+    phy_q   <= dut.phy_ready;
+    ls_q    <= dut.loss_sync;
+  end
+
+  // generalized CRV bit-flip injection: one random payload bit of a random
+  // block (HDR/PAY0/CRC/EOF) of a random frame (write / read-req /
+  // read-rsp, via frame-skip 0..2).  Sync-header bits are excluded: a bad
+  // sync only raises viol_cnt (loss-of-sync after 8 in a row is covered by
+  // directed phase (e)).  Any payload-bit flip is guaranteed to be flagged:
+  // the self-synchronous descrambler turns it into a <=16-bit burst (or a
+  // 3-bit odd-weight error), which CRC32 always detects; a corrupted SOF
+  // drop surfaces as a sequencer timeout; a corrupted EOF as proto error.
+  logic        crv_armed = 1'b0, crv_fired = 1'b0;
+  logic [1:0]  crv_class = 2'd0;  // expected outcome class (see below)
+  logic [6:0]  crv_bit = 7'd0;    // payload bit position 3..129
+  logic [2:0]  crv_tgt = 3'd0;    // target block: tx_state code 2/3/5/6
+  logic [1:0]  crv_skip = 2'd0;   // frames to skip after arming
+  logic        in_frame = 1'b0;
+  logic [2:0]  txs_q = 3'd0;      // state edge detect (negedge domain)
+  // len-0 frames (read requests) have no PAY0 block: fall back to CRC
+  wire  [2:0]  crv_eff = ((crv_tgt == 3'd3) && (dut.f_len == 8'd0)) ?
+                         3'd5 : crv_tgt;
+
+  // error-class counters (diagnostics + CRV self-check)
+  int ce_n = 0, pe_n = 0, te_n = 0;
+  int ft_w = 0, ft_rd = 0, ft_rs = 0, ft_x = 0;
+  always @(posedge clk) begin
+    if (rst_n && dut.crc_err_pulse)   ce_n++;
+    if (rst_n && dut.proto_err_pulse) pe_n++;
+    if (rst_n && dut.tmo_err_pulse)   te_n++;
+  end
+`endif
+
   // -------- scoreboard model of the DUT initiator sequencer -----------------
   // txn n writes reg[n % 16] with 32'h5A5A_0000 + n*32'h0001_0101
   function automatic logic [31:0] exp_data(input int n);
@@ -314,6 +408,48 @@ module SAS_4__Serial_Attached_SCSI__tb;
 
   always @(negedge clk) begin
     corrupt <= 1'b0;
+`ifdef VERILATOR
+    // frame-tracked CRV injection: edge-detect TX_SOF entry, frame-skip,
+    // then fire on the crv_bit-th line position of the target block
+    if (crv_armed) begin
+      txs_q <= dut.tx_state;
+      if ((dut.tx_state == 3'd1 /*TX_SOF*/) && (txs_q != 3'd1)) begin
+        if (crv_skip == 2'd0) in_frame <= 1'b1;
+        else                  crv_skip <= crv_skip - 2'd1;
+      end else if (dut.tx_state == 3'd0 /*TX_IDLE*/) begin
+        in_frame <= 1'b0;
+      end
+      if (in_frame && (dut.tx_state == crv_eff) && (dut.tx_cnt == crv_bit)) begin
+        corrupt   <= 1'b1;     // corrupts the bit sampled next posedge
+        crv_armed <= 1'b0;
+        crv_fired <= 1'b1;
+        // expected outcome class: the flipped line bit is payload-stream
+        // position crv_bit-3; blk[127:96] (positions 0..31) is the only
+        // meaningful field of CRC/EOF blocks, positions 32..127 are
+        // don't-care pad (not CRC-checked, not decoded).
+        //   0 = must flag (irq):  HDR/PAY0 anywhere (single line-bit flip
+        //      -> 3 descrambled errors, odd weight -> CRC32 always
+        //      detects), CRC/EOF code-field hits, CRC tail -> bad EOF.
+        //   1 = benign pad hit: frame must complete normally, no flag.
+        //   2 = EOF tail hit: flag iff the next block is a SOF (ambiguous).
+        if ((dut.tx_state == 3'd5 || dut.tx_state == 3'd6) &&
+            (crv_bit >= 7'd35) && (crv_bit <= 7'd115))
+          crv_class <= 2'd1;
+        else if ((dut.tx_state == 3'd6) && (crv_bit >= 7'd116))
+          crv_class <= 2'd2;
+        else
+          crv_class <= 2'd0;
+        case (dut.f_type)
+          8'h01:   ft_w++;
+          8'h02:   ft_rd++;
+          8'h83:   ft_rs++;
+          default: ft_x++;
+        endcase
+      end
+    end else begin
+      in_frame <= 1'b0;
+    end
+`endif
     // (d) flip one payload line bit of a write frame's PAY0 block
     if (arm_crc && dut.phy_ready && dut.tx_state == TX_PAY0_CODE &&
         dut.f_type == T_WRITE && dut.tx_cnt == 8'd65) begin
@@ -447,6 +583,10 @@ module SAS_4__Serial_Attached_SCSI__tb;
       errors++; $display("ERROR: fewer than 8 sync violations injected (%0d)",
                          sync_inj_cnt);
     end
+    // loss_sync -> registered irq pulse may land a couple of clks after the
+    // phy_ready drop that ended the wait above; poll instead of sampling once
+    t = 0;
+    while (irq_cnt == irq_before && t < 100) begin @(posedge clk); t++; end
     if (irq_cnt == irq_before) begin
       errors++; $display("ERROR: no irq on loss-of-sync");
     end
@@ -474,16 +614,97 @@ module SAS_4__Serial_Attached_SCSI__tb;
     $display("INFO: resync complete, ok_cnt=%0d crc_err=%0d irq_cnt=%0d",
              dut.ok_cnt, dut.crc_err_cnt, irq_cnt);
 
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ----
+    // 120 randomized error-injection transactions: the DUT initiator runs
+    // its write/read-verify sequence over the loopback link; each iteration
+    // flips one random payload bit of a random block (HDR/PAY0/CRC/EOF) of
+    // a random frame (write / read-request / read-response, frame-skip
+    // 0..2).  Checks per iteration: injection fired, DUT flagged the bad
+    // frame (irq from crc/proto/timeout error), link stayed alive (a later
+    // transaction completed, ok or caught-mismatch).
+    begin : crv_phase
+      int n_inj = 0, n_irq = 0, n_alive = 0, n_benign = 0;
+      int okmm_before, irq_b;
+      int t2, sel;
+      for (int i = 0; i < 120; i++) begin
+        crv_bit  = 7'd3 + $urandom_range(0, 126);
+        sel      = $urandom_range(0, 3);
+        crv_skip = $urandom_range(0, 2);
+        case (sel)                       // selector stored first (V5.006)
+          0: crv_tgt = 3'd2;             // HDR
+          1: crv_tgt = 3'd3;             // PAY0 (CRC fallback on len-0)
+          2: crv_tgt = 3'd5;             // CRC
+          default: crv_tgt = 3'd6;       // EOF
+        endcase
+        irq_b       = irq_cnt;
+        okmm_before = dut.ok_cnt + dut.mm_cnt;
+        crv_fired   = 1'b0;
+        crv_armed   = 1'b1;
+        t2 = 0;
+        while (!crv_fired && t2 < 8000) begin @(posedge clk); t2++; end
+        crv_armed = 1'b0;
+        if (!crv_fired) begin
+          errors++; $display("ERROR: CRV %0d injection window never occurred", i);
+          continue;
+        end
+        n_inj++;
+        // DUT must flag the corrupted frame unless the flip landed in a
+        // CRC/EOF pad region (crv_class 1) or an ambiguous EOF tail (2)
+        if (crv_class == 2'd0) begin
+          // crc/proto are prompt; a SOF-drop surfaces as a sequencer
+          // timeout after at most SQ_TMO clks
+          t2 = 0;
+          while (irq_cnt == irq_b && t2 < 7000) begin @(posedge clk); t2++; end
+          if (irq_cnt == irq_b) begin
+            errors++; $display("ERROR: CRV %0d no irq after bit-flip injection", i);
+          end else n_irq++;
+        end else n_benign++;
+        // link must stay alive: a later transaction completes
+        t2 = 0;
+        while ((dut.ok_cnt + dut.mm_cnt) == okmm_before && t2 < 12000) begin
+          @(posedge clk); t2++;
+        end
+        if ((dut.ok_cnt + dut.mm_cnt) == okmm_before) begin
+          errors++; $display("ERROR: CRV %0d link stuck after injection", i);
+        end else n_alive++;
+      end
+      $display("CRV: %0d bit-flip injections, %0d flagged, %0d pad-benign, %0d link-alive, crc_err_cnt=%0d",
+               n_inj, n_irq, n_benign, n_alive, dut.crc_err_cnt);
+      $display("CRV: error classes crc=%0d proto=%0d tmo=%0d; frames wr=%0d rdreq=%0d rdrsp=%0d x=%0d",
+               ce_n, pe_n, te_n, ft_w, ft_rd, ft_rs, ft_x);
+    end
+`endif
+
     // (f) summary
     if (errors == 0) $display("TEST PASSED: SAS_4__Serial_Attached_SCSI_");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < SAS4_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, SAS4_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
+`ifdef VERILATOR
+  // Chunked timeout: Verilator 5.006 corrupts the --timing delay heap on a
+  // single long-pending #delay once many short-delay resumptions interleave.
+  initial begin
+    repeat (60000) #1000;   // 60 ms in 1-us chunks
+    $display("TIMEOUT");
+    $finish;
+  end
+`else
   initial begin
     #4000000;
     $display("TIMEOUT");
     $finish;
   end
+`endif
 
 endmodule

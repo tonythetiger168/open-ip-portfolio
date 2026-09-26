@@ -30,6 +30,93 @@ module SATA_tb;
   // irq pulse counter
   always @(posedge clk) if (irq) irq_cnt <= irq_cnt + 1;
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
+  // =====================================================================
+  // FSM probe: host-OOB(7) + device-OOB(7) + rx-engine(4) + host-cmd(5)
+  // + device-cmd(8) = 31 states
+  localparam int SATA_FSM_TOTAL = 31;
+  logic [30:0] fsm_seen = '0;
+  always @(posedge clk) begin
+    if (dut.hstate  < 7) fsm_seen[dut.hstate]         <= 1'b1;
+    if (dut.dstate  < 7) fsm_seen[7  + dut.dstate]    <= 1'b1;
+    if (dut.rxw     < 4) fsm_seen[14 + dut.rxw]       <= 1'b1;
+    if (dut.hfstate < 5) fsm_seen[18 + dut.hfstate]   <= 1'b1;
+    if (dut.dfstate < 8) fsm_seen[23 + dut.dfstate]   <= 1'b1;
+  end
+
+  int sva_total = 0, sva_fail = 0;
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors++;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // output-invariant assertion suite (sampled at posedge, pre-NBA coherent)
+  int  rst_cyc = 0;
+  logic err_q = 1'b0, link_q = 1'b0;
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      // A1: link down and no errors after reset
+      if (rst_cyc > 0)
+        sva_check((dut.link_ready === 1'b0) && (irq === 1'b0) &&
+                  (dut.host_done === 1'b0), "A1 reset: link down/idle");
+      rst_cyc++;
+    end else begin
+      // A2: complementary differential drive
+      sva_check(tx_n === ~tx_p, "A2 tx_n == ~tx_p");
+      // A3: irq is exactly the registered error OR
+      sva_check(irq === err_q, "A3 irq is registered err pulse");
+      // A4: link_ready is sticky once up
+      if (link_q) sva_check(dut.link_ready === 1'b1, "A4 link_ready sticky");
+      // A5: FSM encodings in range
+      sva_check((dut.hstate <= 6) && (dut.dstate <= 6) &&
+                (dut.hfstate <= 4) && (dut.dfstate <= 7),
+                "A5 FSM encodings valid");
+      // A6: captured-dword counter bounded by the 16-dword IDENTIFY
+      sva_check(dut.hnd <= 6'd16, "A6 hnd <= 16");
+    end
+    err_q  <= dut.rx_err | dut.e_proto;
+    link_q <= dut.link_ready;
+  end
+
+  // CRV FIS-poison injector: one random bit of a random dword (SOF/dw0..dw4 /
+  // CRC / EOF; widx 0=SOF) of the (crv_skip+1)-th host-source frame.
+  logic       crv_armed = 1'b0, crv_fired = 1'b0;
+  logic [2:0] crv_widx = 3'd0;
+  logic [5:0] crv_bit  = 6'd0;
+  logic       crv_skip = 1'b0;
+  logic       in_hfrm  = 1'b0, busy_q = 1'b0;
+  always @(negedge clk) begin
+    busy_q <= dut.tx_busy;
+    if (crv_armed) begin
+      if (dut.tx_busy && !busy_q && dut.tx_src_host) begin
+        if (crv_skip) crv_skip <= 1'b0;
+        else          in_hfrm  <= 1'b1;
+      end
+      if (!dut.tx_busy) in_hfrm <= 1'b0;
+      // widx==0 targets the SOF dword: fire at frame start (the bit index
+      // into SOF is pseudo-random from the arming-time phase anyway)
+      if (in_hfrm && dut.tx_busy && (dut.tx_widx == crv_widx) &&
+          ((crv_widx == 3'd0) || (dut.tx_bitcnt == crv_bit))) begin
+        inj       <= 1'b1;      // flips the bit sampled next posedge
+        crv_armed <= 1'b0;
+        crv_fired <= 1'b1;
+      end
+    end
+    if (crv_fired && !crv_armed) begin
+      inj       <= 1'b0;        // one-clk pulse (directed phase has ended)
+      crv_fired <= 1'b0;
+    end
+  end
+`endif
+
   // expected IDENTIFY device info dword k (mirrors RTL ident_dw)
   function automatic logic [31:0] ident_exp(input int k);
     ident_exp = {8'hEC, 8'h5A, k[7:0], ~k[7:0]};
@@ -186,14 +273,183 @@ module SATA_tb;
     check_rd(32'hFACE_0001, 32'hFACE_0002, 32'hFACE_0003, 32'hFACE_0004,
              "recovery");
 
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ----
+    // 120 randomized transactions against a 64-dword shadow model:
+    //  - ~45% random write + read-back (lba 0..60, random data + corners)
+    //  - ~25% poisoned write: one bit flip in the command or data FIS ->
+    //    host must time out with errf, irq must pulse, buffer unpolluted,
+    //    link must recover (verified by write+read-back after)
+    //  - ~10% poisoned read command (same checks)
+    //  - ~10% read-back of a previously written random lba
+    //  - ~10% unknown host command -> device error status (errf, 8'h51)
+    begin : crv_phase
+      logic [31:0] shadow [0:63];
+      bit          written [0:63];
+      logic [31:0] dw [0:3];
+      logic [5:0]  lba;
+      logic [7:0]  ucmd;
+      int n_rw = 0, n_pw = 0, n_pr = 0, n_ro = 0, n_uc = 0;
+      int t2, wlba, sel;
+      for (int i = 0; i < 64; i++) begin shadow[i] = 32'h0; written[i] = 0; end
+      // seed the shadow with the directed phase's surviving writes
+      shadow[8]=32'h1111_0001; shadow[9]=32'h2222_0002;
+      shadow[10]=32'h3333_0003; shadow[11]=32'h4444_0004;
+      shadow[16]=32'hFACE_0001; shadow[17]=32'hFACE_0002;
+      shadow[18]=32'hFACE_0003; shadow[19]=32'hFACE_0004;
+      shadow[40]=32'hCAFE_0001; shadow[41]=32'hCAFE_0002;
+      shadow[42]=32'hCAFE_0003; shadow[43]=32'hCAFE_0004;
+      for (int i = 0; i < 64; i++)
+        if ((i>=8 && i<12) || (i>=16 && i<20) || (i>=40 && i<44)) written[i]=1;
+      for (int i = 0; i < 120; i++) begin
+        // NB: assign the random selector to a temp first -- Verilator 5.006
+        // duplicates $urandom_range calls inlined in case expressions
+        sel = $urandom_range(0, 19);
+        case (sel)
+          0,1,2,3,4,5,6,7,8: begin
+            // ---- random write + read-back ----
+            n_rw++;
+            lba = $urandom_range(0, 60);
+            for (int j = 0; j < 4; j++) begin
+              dw[j] = $urandom();
+              if ($urandom_range(0, 11) == 0) dw[j] = 32'h0;
+              if ($urandom_range(0, 11) == 0) dw[j] = 32'hFFFF_FFFF;
+            end
+            sata_cmd(8'h35, lba, dw[0], dw[1], dw[2], dw[3]);
+            check_status(8'h50, "CRV write");
+            for (int j = 0; j < 4; j++) shadow[lba + j] = dw[j];
+            written[lba] = 1;
+            sata_cmd(8'h25, lba, 32'h0, 32'h0, 32'h0, 32'h0);
+            check_status(8'h50, "CRV read-back");
+            check_rd(shadow[lba], shadow[lba+1], shadow[lba+2], shadow[lba+3],
+                     "CRV rw");
+          end
+          9,10,11,12,13: begin
+            // ---- poisoned write (cmd FIS or data FIS) ----
+            n_pw++;
+            lba = $urandom_range(0, 60);
+            for (int j = 0; j < 4; j++) dw[j] = $urandom();
+            crv_widx  = $urandom_range(0, 7);
+            crv_bit   = $urandom_range(0, 31);
+            crv_skip  = $urandom_range(0, 1);
+            crv_armed = 1'b1;
+            irq_before = irq_cnt;
+            sata_cmd(8'h35, lba, dw[0], dw[1], dw[2], dw[3]);
+            t2 = 0; while (!crv_fired && t2 < 100) begin @(posedge clk); t2++; end
+            if (crv_armed) begin
+              errors++; $display("ERROR: CRV %0d poison window never occurred", i);
+              crv_armed = 1'b0;
+            end
+            if (irq_cnt == irq_before) begin
+              errors++; $display("ERROR: CRV %0d poisoned write raised no irq", i);
+            end
+            if (dut.host_errf !== 1'b1) begin
+              errors++; $display("ERROR: CRV %0d poisoned write not errf", i);
+            end
+            // buffer unpolluted + link alive: read-back must give shadow
+            sata_cmd(8'h25, lba, 32'h0, 32'h0, 32'h0, 32'h0);
+            check_status(8'h50, "CRV unpolluted read");
+            check_rd(shadow[lba], shadow[lba+1], shadow[lba+2], shadow[lba+3],
+                     "CRV unpolluted");
+            // recovery: fresh write + read-back
+            for (int j = 0; j < 4; j++) dw[j] = $urandom();
+            sata_cmd(8'h35, lba, dw[0], dw[1], dw[2], dw[3]);
+            check_status(8'h50, "CRV recovery write");
+            for (int j = 0; j < 4; j++) shadow[lba + j] = dw[j];
+            written[lba] = 1;
+            sata_cmd(8'h25, lba, 32'h0, 32'h0, 32'h0, 32'h0);
+            check_status(8'h50, "CRV recovery read");
+            check_rd(shadow[lba], shadow[lba+1], shadow[lba+2], shadow[lba+3],
+                     "CRV recovery");
+          end
+          14,15: begin
+            // ---- poisoned read command ----
+            n_pr++;
+            wlba = 8;
+            for (int j = 0; j < 64; j++) if (written[j]) wlba = j;
+            lba = $urandom_range(0, 60);
+            if (written[lba]) wlba = lba;
+            crv_widx  = $urandom_range(0, 7);
+            crv_bit   = $urandom_range(0, 31);
+            crv_skip  = 1'b0;
+            crv_armed = 1'b1;
+            irq_before = irq_cnt;
+            sata_cmd(8'h25, wlba[5:0], 32'h0, 32'h0, 32'h0, 32'h0);
+            t2 = 0; while (!crv_fired && t2 < 100) begin @(posedge clk); t2++; end
+            if (crv_armed) begin
+              errors++; $display("ERROR: CRV %0d rd-poison window never occurred", i);
+              crv_armed = 1'b0;
+            end
+            if (irq_cnt == irq_before) begin
+              errors++; $display("ERROR: CRV %0d poisoned read raised no irq", i);
+            end
+            if (dut.host_errf !== 1'b1) begin
+              errors++; $display("ERROR: CRV %0d poisoned read not errf", i);
+            end
+            // link alive: plain read-back
+            sata_cmd(8'h25, wlba[5:0], 32'h0, 32'h0, 32'h0, 32'h0);
+            check_status(8'h50, "CRV rd-poison recovery");
+            check_rd(shadow[wlba], shadow[wlba+1], shadow[wlba+2],
+                     shadow[wlba+3], "CRV rd-poison recovery data");
+          end
+          16,17: begin
+            // ---- read-back of a previously written lba ----
+            n_ro++;
+            wlba = 8;
+            for (int j = 0; j < 64; j++) if (written[j]) wlba = j;
+            lba = $urandom_range(0, 60);
+            if (written[lba]) wlba = lba;
+            sata_cmd(8'h25, wlba[5:0], 32'h0, 32'h0, 32'h0, 32'h0);
+            check_status(8'h50, "CRV read-only");
+            check_rd(shadow[wlba], shadow[wlba+1], shadow[wlba+2],
+                     shadow[wlba+3], "CRV read-only data");
+          end
+          default: begin
+            // ---- unknown host command -> device error status ----
+            n_uc++;
+            do ucmd = $urandom_range(0, 255);
+            while (ucmd == 8'hEC || ucmd == 8'h25 || ucmd == 8'h35);
+            sata_cmd(ucmd, 6'd0, 32'h0, 32'h0, 32'h0, 32'h0);
+            if (dut.host_errf !== 1'b1 || dut.host_status !== 8'h51) begin
+              errors++;
+              $display("ERROR: CRV %0d unknown cmd %h status got=%h errf=%b",
+                       i, ucmd, dut.host_status, dut.host_errf);
+            end
+          end
+        endcase
+      end
+      $display("CRV: 120 txns (rw=%0d poison-wr=%0d poison-rd=%0d rd-only=%0d unknown-cmd=%0d)",
+               n_rw, n_pw, n_pr, n_ro, n_uc);
+    end
+`endif
+
     if (errors == 0) $display("TEST PASSED: SATA");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < SATA_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, SATA_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
+`ifdef VERILATOR
+  // Chunked timeout: Verilator 5.006 corrupts the --timing delay heap on a
+  // single long-pending #delay once many short-delay resumptions interleave.
+  initial begin
+    repeat (40000) #1000;   // 40 ms in 1-us chunks
+    $display("TIMEOUT");
+    $finish;
+  end
+`else
   initial begin
     #20_000_000;
     $display("TIMEOUT");
     $finish;
   end
+`endif
 endmodule

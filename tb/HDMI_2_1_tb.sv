@@ -38,6 +38,57 @@ module HDMI_2_1_tb;
 
   always #5 clk = ~clk;
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
+  // =====================================================================
+  // FSM probe: 7 transmit modes (combinational mode decoder)
+  localparam int HDMI_FSM_TOTAL = 7;
+  logic [6:0] fsm_seen = '0;
+  always @(posedge clk) if (dut.mode < 7) fsm_seen[dut.mode] <= 1'b1;
+
+  int sva_total = 0, sva_fail = 0;
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors++;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // output-invariant assertion suite (sampled at posedge, pre-NBA coherent)
+  int  rst_cyc = 0;
+  logic hpd_q = 1'b0;
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      // A1: fully idle after reset
+      if (rst_cyc > 0)
+        sva_check((tmds_d === 3'b000) && (tmds_clk === 1'b0) &&
+                  (de === 1'b0) && (irq === 1'b0) &&
+                  (dut.ever_hpd === 1'b0), "A1 reset: idle");
+      rst_cyc++;
+    end else begin
+      // A2: irq is exactly the ever_hpd && !hpd level
+      sva_check(irq === (dut.ever_hpd && !hpd), "A2 irq level identity");
+      // A3: with hpd low for 2+ cycles the outputs are parked idle
+      if (!hpd && !hpd_q)
+        sva_check((tmds_d === 3'b000) && (tmds_clk === 1'b0) &&
+                  (de === 1'b0) && (hsync === 1'b0) && (vsync === 1'b0),
+                  "A3 hpd loss: outputs parked");
+      // A4: de is only asserted while hpd was high last cycle
+      if (de) sva_check(hpd_q === 1'b1, "A4 de implies hpd");
+      // A5: timing counters bounded by the frame geometry
+      sva_check((dut.x < 800) && (dut.y < 525), "A5 counters bounded");
+      // A6: serializer bit counter bounded by the 10-bit slot
+      sva_check(dut.bit_cnt <= 9, "A6 bit_cnt <= 9");
+    end
+    hpd_q <= hpd;
+  end
+`endif
+
   // ------------------------- reference timing -------------------------
   localparam int HACT = 640, HFP = 16, HSW = 96;
   localparam int VACT = 480, VFP = 10, VSW = 2;
@@ -308,6 +359,11 @@ module HDMI_2_1_tb;
       @(posedge de);
       @(negedge clk);        // skip trailing bit of the previous slot
       px = 0; py = 0;
+      // stream resync: the encoder parks/resets its TMDS disparity state
+      // while hpd is low, so the TB's running-disparity window must also
+      // restart here (otherwise a residual from the previous stream can
+      // trip the |disp|<=16 bound by +/-1 right after a replug).
+      disp_run[0] = 0; disp_run[1] = 0; disp_run[2] = 0;
       alive = 1'b1;
       while (alive) begin
         get_pixel(c0, c1, c2, fde, fhs, fvs, fck, alive);
@@ -385,17 +441,87 @@ module HDMI_2_1_tb;
                island_count);
     end
 
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ----
+    // 120 randomized hot-unplug/replug transactions: drop hpd at a random
+    // frame phase, hold it low for a random interval, then restore.
+    // Per txn: TMDS must park idle within 2 clks, irq must assert (level),
+    // irq must clear on restore, and the link must restart cleanly at
+    // pixel (0,0) (the background monitor re-verifies every pixel of every
+    // restarted frame continuously, so any restart corruption is caught).
+    begin : crv_phase
+      int n_drop = 0;
+      int hold, lead, tw, fr0;
+      fr0 = frames_done;
+      for (int i = 0; i < 120; i++) begin
+        lead = $urandom_range(2000, 80000);      // random frame phase
+        repeat (lead) @(negedge clk);
+        hpd = 1'b0;
+        repeat (4) @(negedge clk);
+        if (tmds_d !== 3'b000 || tmds_clk !== 1'b0 || de !== 1'b0) begin
+          errors++;
+          $display("ERROR: CRV %0d TMDS not parked after hpd loss d=%b ck=%b de=%b",
+                   i, tmds_d, tmds_clk, de);
+        end
+        if (irq !== 1'b1) begin
+          errors++;
+          $display("ERROR: CRV %0d irq not asserted on hpd loss", i);
+        end
+        hold = $urandom_range(5, 400);
+        repeat (hold) @(negedge clk);
+        hpd = 1'b1;
+        repeat (4) @(negedge clk);
+        if (irq !== 1'b0) begin
+          errors++;
+          $display("ERROR: CRV %0d irq not cleared after hpd restore", i);
+        end
+        // link must restart at (0,0): de must rise within two lines
+        tw = 0;
+        while (de !== 1'b1 && tw < 20000) begin @(negedge clk); tw++; end
+        if (de !== 1'b1) begin
+          errors++;
+          $display("ERROR: CRV %0d link did not restart after replug", i);
+        end
+        n_drop++;
+      end
+      // let the monitor re-verify one full restarted frame
+      wait (frames_done > fr0);
+      $display("CRV: %0d hpd drop/replug cycles, frames_done=%0d",
+               n_drop, frames_done);
+    end
+`endif
+
     if (errors == 0) $display("TEST PASSED: HDMI_2_1");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < HDMI_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, HDMI_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
   // TIMEOUT guard
+`ifdef VERILATOR
+  // Chunked timeout: Verilator 5.006 corrupts the --timing delay heap on a
+  // single long-pending #delay once many short-delay resumptions interleave.
+  initial begin
+    repeat (300000) #1000;  // 300 ms in 1-us chunks
+    $display("ERROR: TIMEOUT");
+    $display("TEST FAILED: %0d errors", errors + 1);
+    $finish;
+  end
+`else
   initial begin
     #300000000;
     $display("ERROR: TIMEOUT");
     $display("TEST FAILED: %0d errors", errors + 1);
     $finish;
   end
+`endif
 
 endmodule

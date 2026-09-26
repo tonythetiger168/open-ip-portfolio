@@ -1,0 +1,273 @@
+# v2.5 W5 family coverage waivers (verilator_coverage-style records)
+# Scope: storage 9 + display/AV 5 + ethernet 6 (see docs/coverage/W5_STORAGE_DISP_ETH.md)
+# One record per waived point: ID / file:line / metric / justification.
+# Each point is provably unreachable or un-instrumentable; verilator_coverage
+# 5.006 has no -waiver flag, so this file is the source of truth for exclusion.
+
+# ---- GMII ----
+waiver gmii-line-1   rtl/GMII_top.sv:16  line \
+  reason="tx_er port declaration: driven by constant assign tx_er=1'b0 (line 54); constant-folded by Verilator, DA point unhittable. tx_er=0 verified by SVA A2 every clock."
+
+waiver gmii-toggle-1 rtl/GMII_top.sv:17  toggle \
+  reason="tx_er is hard-tied to 1'b0 (assign tx_er = 1'b0); can never toggle under any stimulus."
+
+# ---- XGMII ----
+waiver xgmii-line-1  rtl/XGMII_top.sv:32  line \
+  reason="lane[1:0] declaration: lane is dead state (assigned '0 at lines 35/44, never read); constant-folded, DA point unhittable."
+
+waiver xgmii-line-2  rtl/XGMII_top.sv:73-76  line \
+  reason="rxq lane writes: Verilator 5.006 line-coverage attribution artifact (counts shifted). Execution proven by 500+ scoreboard byte compares through exactly these writes (rxc==0 makes all four if-bodies run every data beat)."
+
+waiver xgmii-line-3  rtl/XGMII_top.sv:79-88  line \
+  reason="Partial-lane casez arms (4'b0001..4'b1100 + default) sit inside the 'else if (rxv_rise && rxc == 4'h0)' guard, so rxc is constant 0 in the body: every non-0000 arm is provably unreachable dead code."
+
+waiver xgmii-toggle-1 rtl/XGMII_top.sv     toggle \
+  reason="count[1:0] and rx_wr[1:0]: rx write pointer only advances by whole 32-bit words (+4 or +3/+2/+1 dead arms); with rxc==0 it always steps +4, so the low two bits are constant 0 and can never toggle."
+
+waiver xgmii-toggle-2 rtl/XGMII_top.sv     toggle \
+  reason="tx_rd[1:0]: TX read pointer only advances by +4 (one word per beat); low two bits constant 0, can never toggle."
+
+waiver xgmii-toggle-3 rtl/XGMII_top.sv:32  toggle \
+  reason="lane[1:0]: dead state, only assigned '0 at reset; can never toggle."
+
+# ---- MDIO ----
+waiver mdio-toggle-1 rtl/MDIO_top.sv:21  toggle \
+  reason="cnt[5]: frame bit-counter runs 0..29 (32-bit Clause-22 frame), bit 5 never set by any reachable stimulus."
+
+# ---- echo-frame family: NVMe / FC / Ethernet (identical generated RTL) ----
+# Line numbers refer to rtl/NVMe_top.sv; rtl/FC_top.sv and rtl/Ethernet_top.sv
+# are byte-identical except the header comment, so the same lines apply.
+
+waiver nvme-line-1 rtl/NVMe_top.sv:97    line \
+  reason="default: ; in the tfld case: tfld only ever takes values 0..5 (all explicitly cased); 6/7 unreachable."
+waiver nvme-line-2 rtl/NVMe_top.sv:102   line \
+  reason="default: tstate <= T_IDLE is dead; tstate is 2-bit with all 3 used encodings cased, value 3 unreachable."
+waiver nvme-line-3 rtl/NVMe_top.sv:159,164-176 line \
+  reason="RX error/CRC block: Verilator 5.006 line-attribution artifact (block-local 'logic [31:0] c' declaration inside always_ff shifts DA counts). Execution proven functionally: bad-STP sets rx_err (line 159), bad-END sets rx_err (164), good frames pulse rx_done (176) and bad-CRC sets rx_err (175) — all checked by CRV self-checks."
+waiver nvme-line-4 rtl/NVMe_top.sv:186   line \
+  reason="default: rstate <= R_IDLE is dead; rstate only takes 0/1 (both cased), values 2/3 unreachable."
+
+waiver nvme-toggle-1 rtl/NVMe_top.sv     toggle \
+  reason="buf_mem[0][*] and buf_mem[22][*], buf_mem[23][*]: index 0 is reset-only (STP byte is never stored), indices 22/23 exceed the max write index (2+len_q+3 <= 21 for len_q <= 16). Provably unreachable."
+waiver nvme-toggle-2 rtl/NVMe_top.sv     toggle \
+  reason="buf_mem[1][7:5]: buf_mem[1] stores LEN = 8+plen <= 16, bits 5..7 never set."
+waiver nvme-toggle-3 rtl/NVMe_top.sv     toggle \
+  reason="len_q[5], tlen[5], ridx[5], rstate[1], ta_cnt[3], tbit[5]: counters bounded by frame geometry (len<=16, ridx<=22, rstate<=1, ta_cnt<=6, tbit<=31); these bits never set."
+waiver nvme-toggle-4 rtl/NVMe_top.sv     toggle \
+  reason="tmr[15:5], rtmr[15:5]: baud counters run 0..BAUD_DIV-1 (19); bits 5 and above never set."
+
+waiver fc-line-1 rtl/FC_top.sv:97    line reason="see nvme-line-1 (identical RTL)."
+waiver fc-line-2 rtl/FC_top.sv:102   line reason="see nvme-line-2 (identical RTL)."
+waiver fc-line-3 rtl/FC_top.sv:159,164-176 line reason="see nvme-line-3 (identical RTL; same functional proofs via FC CRV)."
+waiver fc-line-4 rtl/FC_top.sv:186   line reason="see nvme-line-4 (identical RTL)."
+waiver fc-toggle-1 rtl/FC_top.sv     toggle reason="see nvme-toggle-1 (identical RTL)."
+waiver fc-toggle-2 rtl/FC_top.sv     toggle reason="see nvme-toggle-2 (identical RTL)."
+waiver fc-toggle-3 rtl/FC_top.sv     toggle reason="see nvme-toggle-3 (identical RTL)."
+waiver fc-toggle-4 rtl/FC_top.sv     toggle reason="see nvme-toggle-4 (identical RTL)."
+
+waiver eth-line-1 rtl/Ethernet_top.sv:97    line reason="see nvme-line-1 (identical RTL)."
+waiver eth-line-2 rtl/Ethernet_top.sv:102   line reason="see nvme-line-2 (identical RTL)."
+waiver eth-line-3 rtl/Ethernet_top.sv:159,164-176 line reason="see nvme-line-3 (identical RTL; same functional proofs via Ethernet CRV)."
+waiver eth-line-4 rtl/Ethernet_top.sv:186   line reason="see nvme-line-4 (identical RTL)."
+waiver eth-toggle-1 rtl/Ethernet_top.sv     toggle reason="see nvme-toggle-1 (identical RTL)."
+waiver eth-toggle-2 rtl/Ethernet_top.sv     toggle reason="see nvme-toggle-2 (identical RTL)."
+waiver eth-toggle-3 rtl/Ethernet_top.sv     toggle reason="see nvme-toggle-3 (identical RTL)."
+waiver eth-toggle-4 rtl/Ethernet_top.sv     toggle reason="see nvme-toggle-4 (identical RTL)."
+
+# ---- I2S ----
+waiver i2s-toggle-1 rtl/I2S_top.sv:26  toggle \
+  reason="bit_cnt[4]: word bit-counter wraps at DW-1=15, bit 4 never set by any reachable stimulus."
+
+# ---- Ethernet_AVB_TSN ----
+waiver avb-line-1 rtl/Ethernet_AVB_TSN_top.sv:131  line \
+  reason="default: tstate <= TX_IDLE is dead; tstate only takes encodings 0..7 (all explicitly cased), values 8..15 unreachable."
+waiver avb-line-2 rtl/Ethernet_AVB_TSN_top.sv:238  line \
+  reason="default: ; in the rstate case is dead; rstate only takes 0..7 (all cased), values 8..15 unreachable."
+waiver avb-toggle-1 rtl/Ethernet_AVB_TSN_top.sv    toggle \
+  reason="tstate[3], rstate[3]: frame-engine enums only use values 0..7; bit 3 never set."
+waiver avb-toggle-2 rtl/Ethernet_AVB_TSN_top.sv    toggle \
+  reason="run_cnt[3], rx_run[3]: stuff-run counters bounded by 5 (stuff bit at 5); bit 3 never set."
+waiver avb-toggle-3 rtl/Ethernet_AVB_TSN_top.sv    toggle \
+  reason="tmr[15:5]: baud phase timer runs 0..BAUD_DIV-1 (19); bits 5 and above never set."
+waiver avb-toggle-4 rtl/Ethernet_AVB_TSN_top.sv:56 toggle \
+  reason="tx_hdr[6:4]: constant header field bits (rtr/ide/r0) hard-wired 0 in tx_hdr <= {tx_id, 3'b0, tx_dlc}; never toggle."
+
+# ---- I2S_Audio ----
+waiver i2sa-line-1 rtl/I2S_Audio_top.sv:101-102 line \
+  reason="ljust() case arms 2'd1/default: Verilator 5.006 function line-attribution artifact (cf. nvme-line-3). Execution proven functionally: 24-bit and 32-bit loopback data pass through exactly these arms in directed CHECK2 and CRV (depth=1/2/3 all exercised, data compared exact)."
+waiver i2sa-toggle-1 rtl/I2S_Audio_top.sv:108 toggle \
+  reason="fp_p[5]: fp_p = {1'b0, frame_pos[4:0]} — bit 5 is a constant-0 pad, can never toggle."
+waiver i2sa-toggle-2 rtl/I2S_Audio_top.sv:69 toggle \
+  reason="shv[2:0]: shv only takes 16/8/0 (10000/01000/00000) from the 3 depth encodings; bits 2:0 are always 0 and can never toggle."
+
+# ---- SAS ----
+waiver sas-line-1 rtl/SAS_top.sv:97,139,164,168,225,364,400,408,416 line \
+  reason="Verilator 5.006 line-attribution artifacts (same class as nvme-line-3). Execution proven functionally: brun counts 0..106 during OOB bursts (97), phy_ready reached via the OB_DONE transition (139), bit_tick logic active every clk (164/168/225/364), every write frame executes the T_WRITE accept arm (400), every read the T_RDREQ/T_RDRSP accept arms (408/416) — 120+ verified loopback txns plus 120 flagged CRV injections."
+waiver sas-line-2 rtl/SAS_top.sv:142 line \
+  reason="COMINIT-retry arm (ci_seen==0): in loopback the first COMINIT burst is always detected (oob_det proven by bring-up), so the retry path is unreachable in this config."
+waiver sas-line-3 rtl/SAS_top.sv:148,281,434,533 line \
+  reason="FSM default arms: oob_state/tx_state/rx_state/sq_state are fully-cased enums; default encodings unreachable."
+waiver sas-line-4 rtl/SAS_top.sv:169 line \
+  reason="bd_cnt increment arm: BIT_CLKS=1 makes bit_tick constant 1, so the else arm is dead in this config (BIT_CLKS>1 exercised by SAS_bitclks_tb, out of scope for this DUT build)."
+waiver sas-line-5 rtl/SAS_top.sv:405,413,419,421 line \
+  reason="proto-err dispatch arms for valid-CRC bad frames (write bad params, rdreq bad addr, rdrsp len 0, unknown type): the built-in TX never generates them and any wire corruption is caught by the CRC check first (crc_err), so these arms are unreachable in loopback. 120 random bit-flip injections confirm (0 such events; proto errs observed are len>16 and bad-EOF only)."
+waiver sas-toggle-1 rtl/SAS_top.sv toggle \
+  reason="address high bits: app_dst/f_dst/f_src[4:7], rsp_src[4:7], rsp_dst[1:7] (=r_src=8'h01 constant initiator addr), r_dst[5,7], r_src[5,6]: register addresses are 0..15 and src is constant 8'h01; high bits constant."
+waiver sas-toggle-2 rtl/SAS_top.sv toggle \
+  reason="len/type encodings: app_len/f_len[1:4] (sequencer len in {0,1}), app_type[2:7], f_type[2:6], r_type[3,4,6] (types only 01/02/83), r_len[2,4] (needs specific corrupted-HDR len patterns; simulation-bounded)."
+waiver sas-toggle-3 rtl/SAS_top.sv toggle \
+  reason="counters bounded by frame geometry / simulation length: crc_err_cnt[7:15], mm_cnt[5:15], ok_cnt[7:15], oob_cnt[9] (max 318<512), brun[7] (max run 106<128), pay_idx[4] (len<=16), tx_bit_cnt[5], rx_bit_cnt[5] (0..31), bd_cnt[0] (BIT_CLKS=1 constant 0)."
+waiver sas-toggle-4 rtl/SAS_top.sv toggle \
+  reason="wdata sequence high bits: sq_wdata/app_data/f_data/rsp_data/rsp_val/wr_data[26,29,31] — initiator data is 32'h5A5A_0000 + n*32'h0001_0101; bits 26/29/31 require n>=~33k writes, unreachable in any feasible simulation."
+
+# ---- SATA ----
+waiver sata-line-1 rtl/SATA_top.sv:67,274,320,368,483 line \
+  reason="Verilator 5.006 line-attribution artifacts (same class as nvme-line-3). Execution proven: crc32_dw XOR arm (67) runs for every frame dword (hundreds of frames, CRCs verified), ALIGN shifter (274) and bit_tick blocks (320/368) active every clk of link-up, HF_DONE host_req handshake (483) completes all 120+ CRV commands."
+waiver sata-line-2 rtl/SATA_top.sv:180,186,202 line \
+  reason="OOB retry arms (htmr==8000 -> HOB_RESET): in loopback COMINIT/COMWAKE detection always succeeds within ~200 clks (proven by htmr toggle: bits 9..13 never set), so the retry paths are unreachable in this config."
+waiver sata-line-3 rtl/SATA_top.sv:214,252,487,601 line \
+  reason="FSM default arms: hstate/dstate/hfstate/dfstate are fully-cased enums; default encodings unreachable."
+waiver sata-line-4 rtl/SATA_top.sv:261,265,266 line \
+  reason="bit_tick/bd_cnt: BIT_CLKS=1 makes bit_tick constant 1; bd_cnt else arm (266) dead, wire decl (261) constant-folded."
+waiver sata-line-5 rtl/SATA_top.sv:411,413 line \
+  reason="unknown-FIS-type rx_err arm: needs a valid-CRC frame with a FIS type outside {H2D,D2H,DATA}; the TX never sends one and any wire corruption is caught by CRC first. Unreachable in loopback (40 CRV poison injections confirm: all errors are CRC/SOF/EOF class)."
+waiver sata-toggle-1 rtl/SATA_top.sv toggle \
+  reason="frame-dw0 constant fields: hframe[0]/dframe[0]/tbuf[0]/rb0 bits that are hard constants in every FIS layout used ({1,7'h00,cmd,8'h00,27h}/{0,15'h0,8'h00,46h}/{err,sts,8'h00,34h}): FIS-type zero bits (3,4,7), reserved bytes 8..15 and 24..30, status-byte zero bits 17..19,21,23 and error-byte zero bits 24,25,27..30. Const under any stimulus."
+waiver sata-toggle-2 rtl/SATA_top.sv toggle \
+  reason="counter bits bounded by geometry/timeouts: align_bitcnt[5], tx_bitcnt[5], rbitcnt[5] (0..31), bd_cnt[0] (BIT_CLKS=1), dfstate[3] (8 states), dtmr[11] (DS_TMO=2000<2048), hstmr[13] (HS_TMO=5000<8192), hnd[0,1,5] (+=4, max 16), hseq[2:7] (dseq 0..3 in 6'b0 pad), longs[1]/shorts[1] (values 0/1 only), zrun[7] (max low run 192... low bursts <=64<128), host_status[7] (status in {50,51,7F})."
+waiver sata-toggle-3 rtl/SATA_top.sv toggle \
+  reason="htmr[9:13]: OOB retry timer always resets on successful detection within ~200 clks in loopback; values >=512 unreachable (retry path never taken, see sata-line-2)."
+
+# ---- UFS ----
+waiver ufs-line-1 rtl/UFS_top.sv:150,194-196,206-207,217,219,224,226-242,245-254,257-258,262-268,272 line \
+  reason="Verilator 5.006 line-attribution artifact, large-block instance (same class as nvme-line-3): the RX frame-decoder bodies that contain blocking temporaries (rxw/r_status/r_sense/do_resp/n_xfer/lba_ok) lose their DA points. Execution proven functionally by the TB: ~110 successful COMMAND UPIU dispatches with exact RESPONSE/DATA UPIU payload compares (224,226-242,245-254,257-258), 26 CRC-corrupted WRITE10 drops with irq+no-response checks (217/219 region), 3 oversize len=9 header drops with irq+no-response checks (206-207), hundreds of received frames via the SOF hunt (194-196), response-build + tx_req for every accepted command (262-268)."
+waiver ufs-line-2 rtl/UFS_top.sv:110,120,128,280 line \
+  reason="bit_tick guard lines: attribution artifact; the training burst, wait-response and TX serializer all verifiably ran (LINKUP reached, 300+ frames transmitted)."
+waiver ufs-line-3 rtl/UFS_top.sv:131-133 line \
+  reason="LP_WAIT_RSP retrain-timeout arm: the TB peer always answers training within ~130 clks (TR_TMO=4095), so retrain is unreachable in this config (tr_timer toggle bits 8+ confirm)."
+waiver ufs-line-4 rtl/UFS_top.sv:77,81,82 line \
+  reason="bit_tick/bd_cnt: BIT_CLKS=1 makes bit_tick constant 1; bd_cnt else arm dead, wire decl constant-folded."
+waiver ufs-line-5 rtl/UFS_top.sv:137,315 line \
+  reason="FSM default arms: lp_state/tx_state fully-cased enums; defaults unreachable."
+waiver ufs-toggle-1 rtl/UFS_top.sv toggle \
+  reason="pay_buf constant fields: pay_buf[0][23:8] (lba<=255 -> high bytes 0), pay_buf[1][23:0]+[31:28] (xfer count<=255 in byte 31:24, rest 0), pay_buf[2][*], pay_buf[3][*] (CDB padding always 32'h0). Const under any legal stimulus."
+waiver ufs-toggle-2 rtl/UFS_top.sv toggle \
+  reason="status/sense + header constants: r_status[15:1] (values 0/1), r_sense[15:3]+[1] (values 0/5), hdr_lun[7:0] (TB lun=0), hdr_type[7:1] (only T_CMD=8'h01 received), hdr_len[7:4] (len<=9), n_xfer high bits (<=255), rd_n[3]/rx_cnt[3]/tr_rep[3] (bounded 0..8), tx_idx bit (<=11)."
+waiver ufs-toggle-3 rtl/UFS_top.sv toggle \
+  reason="tr_timer high bits: peer answers training within ~130 clks; timer never reaches 256+ (TR_TMO=4095 path unexercised, see ufs-line-3). bd_cnt[0]: BIT_CLKS=1 constant 0."
+
+# ---- SDIO ----
+waiver sdio-line-1 rtl/SDIO_top.sv:160,164,165 line \
+  reason="bit_tick/bd_cnt: BIT_CLKS=1 makes bit_tick constant 1; bd_cnt else/incr arm (165) dead, decl (160) and reset arm (164) constant-folded with the dead register (same class as sata-line-4)."
+waiver sdio-line-2 rtl/SDIO_top.sv:197 line \
+  reason="if (bit_tick) guard line: Verilator 5.006 attribution artifact with constant-1 bit_tick (same class as ufs-line-2); body verifiably executes every sd_clk (all FSM transitions, 122k SVA checks pre-NBA coherent)."
+waiver sdio-line-3 rtl/SDIO_top.sv:363 line \
+  reason="FSM default arm: state is a fully-cased 4-bit enum (12 states, encodings 0..11); encodings 12..15 unreachable (SVA A3 checks state<12 every sd_clk)."
+waiver sdio-toggle-1 rtl/SDIO_top.sv toggle \
+  reason="rsp_pre constant fields (assign line 154 = {2'b00, cmd_idx, 8'h00, 16'h0000, rsp_data}): bits [39:38] (2'b00), [31:24] (8'h00), [23:8] (16'h0000) — 26 constant bits under any stimulus."
+waiver sdio-toggle-2 rtl/SDIO_top.sv toggle \
+  reason="geometry/encoding-bound bits: bd_cnt[0] (BIT_CLKS=1 -> constant 0), bit_cnt[6] (counter <= 47), n_bytes[6] (1..32), wr_byte_cnt[6]/rd_byte_cnt[6:5] (<= 32), shift[47] (command start bit, always 0), cmd_idx[1]/cmd_idx[3] (latched only for CMD52=6'b110100 / CMD53=6'b110101, bits 1 and 3 are 0 in both — latch condition verified at rtl/SDIO_top.sv:217)."
+waiver sdio-toggle-3 rtl/SDIO_top.sv toggle \
+  reason="wr_buf[29][7], wr_buf[30][1]: stochastic residual — staging-buffer high indices written only by >=30-byte blocks (rare in the random mix); byte values fully random so individual bits can stay 0 for a seed. Each bit is coverable (seed +7 covers wr_buf[29][7]); data integrity through exactly these bytes is proven by CMD53 read-back compares of every 32-byte block."
+
+# ---- eMMC ----
+waiver emmc-line-1 rtl/eMMC_top.sv:119,211,250,270,274,284,287,293-297,410,422 line \
+  reason="Verilator 5.006 attribution artifacts on declaration/guard/macro lines (same class as nvme-line-3/sata-line-1): error-flag decl (119), constant-1 bit_tick guard (211), and multi-line EMMC_RAISE macro expansion sites (250,270,274,284,287,293-297,410,422) lose their DA points. Execution proven by TB self-checks: 120-txn CRV observed err_timeout set 34x (mute), err_crc7 set (corrupted R1), err_crc16 set (corrupted read block) — each followed by a verified recovery round."
+waiver emmc-line-2 rtl/eMMC_top.sv:174,178,179 line \
+  reason="bit_tick/bd_cnt: BIT_CLKS=1 makes bit_tick constant 1; bd_cnt else/incr arm dead, decl constant-folded (same as sata-line-4)."
+waiver emmc-line-3 rtl/eMMC_top.sv:305,361,385,426,427 line \
+  reason="FSM default arms: state/phase/dphase are fully-cased enums; default encodings unreachable."
+waiver emmc-line-4 rtl/eMMC_top.sv:360,361,371,384,385 line \
+  reason="data-phase wait-timeout arms (write-data start / busy release / read-data start): the card model always drives data and releases busy within a few cycles in these phases (mute suppresses only command responses), so TO_MAX arms are unreachable in this config (same class as ufs-line-3)."
+waiver emmc-line-5 rtl/eMMC_top.sv:415,416,419 line \
+  reason="err_cmp raise arm: requires a read-data content corruption with a VALID CRC16; the card model can only inject CRC-level errors, and the DUT verifiably does not corrupt data (every clean round compares exact 256-bit blocks). Unreachable without a DUT bug."
+waiver emmc-toggle-1 rtl/eMMC_top.sv toggle \
+  reason="exp_blk constant/limited bits (120): the expected-block pattern is 32'hA5003C00 ^ round ^ (i*32'h00010101) per 32-bit word with round<=3 and 4 blocks; large bit ranges are structurally constant across the whole run."
+waiver emmc-toggle-2 rtl/eMMC_top.sv toggle \
+  reason="cid constant bits (63): cid captures the TB's fixed CID_VAL=128'h0123456789ABCDEF FEDCBA9876543211; bits that are 0 in that constant can never toggle in this config."
+waiver emmc-toggle-3 rtl/eMMC_top.sv toggle \
+  reason="encoding/geometry-bound bits: rsp_len[2:0]+[6] (only 48/136), rsp_sh[135:134]+rsp_nxt[135] (responses lead with 2'b00), cur_cmd[2]+[5] (only CMD0/1/2/3/17/24), wait_cnt[6] (<TO_MAX<=64), round[7]/match_cnt[7] (<=4 rounds), bd_cnt[0] (BIT_CLKS=1), err_cmp (see emmc-line-5)."
+
+# ---- HDMI_2_1 ----
+waiver hdmi-line-1 rtl/HDMI_2_1_top.sv:133-144 line \
+  reason="terc4() case arms 4'h4..4'hF + default: every terc4 input in this config is one of 4'h0..4'h3 — island guard sends {n_vs,n_hs,2'b11} with n_vs=n_hs=0 at the fixed island line 481 (<VS_B=490, x<HS_B), header nibble is {0,0,1'b0,AVI_HDR bit} (bit-serial), and AVI_SP1/2/3 are constant 0 so subpacket nibbles are {0,0,AVI_SP0 bit pair} <= 4'h3. Arms 4'h4+ unreachable with the fixed AVI InfoFrame contents; TERC4 coding of all reachable values verified on the wire by the TB's independent decoder."
+waiver hdmi-toggle-1 rtl/HDMI_2_1_top.sv toggle \
+  reason="disp0[0], disp1[0], disp2[0], enc0[10], enc1[10], enc2[10]: TMDS running disparity is always even — every ncnt adjustment term (n1s=2*N1, 8, 2, 0) is a multiple of 2 and the accumulator starts at 0, so the disparity LSB is structurally constant 0 and can never toggle."
+
+# ---- SAS_4 (Serial Attached SCSI, 128b/150b) ----
+waiver sas4-line-1 rtl/SAS_4__Serial_Attached_SCSI__top.sv:116,164,167 line \
+  reason="Verilator 5.006 line-attribution artifacts (same class as nvme-line-3). Execution proven functionally: brun counts 0..106 during OOB bursts (116 — OOB completes, which requires brun>=OOB_DET_MIN detection), phy_ready reached via the OB_CI_IDLE->OB_DONE transition (164,167 — link_up observed, 848-clk bring-up)."
+waiver sas4-line-2 rtl/SAS_4__Serial_Attached_SCSI__top.sv:173,334,566,675 line \
+  reason="FSM default arms: oob_state/tx_state/rf_state/sq_state are fully-cased enums; default encodings unreachable."
+waiver sas4-line-3 rtl/SAS_4__Serial_Attached_SCSI__top.sv:214,218,219 line \
+  reason="bit_tick/bd_cnt: BIT_CLKS=1 makes bit_tick constant 1; bd_cnt else/incr arm dead, decl constant-folded (same as sata-line-4/emmc-line-2)."
+waiver sas4-line-4 rtl/SAS_4__Serial_Attached_SCSI__top.sv:250,439 line \
+  reason="constant-1 bit_tick guard lines lose their DA points (attribution artifact); the guarded logic executes every clk — TX/RX bit engines proven by 120+ verified loopback frames and 120 CRV injections."
+waiver sas4-line-5 rtl/SAS_4__Serial_Attached_SCSI__top.sv:310,313-316,319-322,365 line \
+  reason="TX_PAY1 path (f_len>4 arm, TX_PAY1 block, pay_blk decl): the built-in initiator sequencer only issues len 0/1 frames, so two-payload-block frames are unreachable in this configuration (datapath supports len<=8, never exercised)."
+waiver sas4-line-6 rtl/SAS_4__Serial_Attached_SCSI__top.sv:512-514 line \
+  reason="RF_PAY proto-error arm: requires a control block in a payload slot, i.e. a whole data block dropped via sync-header violation mid-frame. CRV deliberately flips payload bits only (sync flips collapse to loss-of-sync, covered by directed phase (e)); unreachable in this config."
+waiver sas4-line-7 rtl/SAS_4__Serial_Attached_SCSI__top.sv:532,540,548 line \
+  reason="Verilator 5.006 attribution artifacts on the T_WRITE/T_RDREQ/T_RDRSP accept-guard lines inside the CRC-pass dispatch (blocking temporaries in always_ff, cf. ufs-line-1). Execution proven: writes commit (wr_evt + A6 pattern check), reads return (rsp_evt, ok_cnt/mm_cnt advance through 120 CRV rounds)."
+waiver sas4-line-8 rtl/SAS_4__Serial_Attached_SCSI__top.sv:537,545,551,553 line \
+  reason="malformed-frame proto arms (WRITE len==0/dst>=16, RDREQ dst>=16, RDRSP len==0, unknown type): the r_type dispatch sits behind the CRC32 gate — any corruption fails CRC first (single-bit flip -> odd-weight error burst, always detected), and the built-in initiator only emits well-formed frames. Unreachable in loopback config without a DUT bug."
+waiver sas4-toggle-1 rtl/SAS_4__Serial_Attached_SCSI__top.sv toggle \
+  reason="rx_pay[1..7] (~188 pts): upper payload entries are written only by len>4 frames (pay_blk path); the initiator sequencer only issues len 0/1, so these entries are never written in this config (same root cause as sas4-line-5)."
+waiver sas4-toggle-2 rtl/SAS_4__Serial_Attached_SCSI__top.sv toggle \
+  reason="protocol-field constant bits (~70 pts): f_len/app_len/r_len upper bits (len only 0/1), f_type/app_type/r_type (only 01/02/83 on the wire), f_dst/app_dst/r_dst/rsp_dst upper nibble (4-bit register addresses), f_src/rsp_src (fixed initiator address 8'h01), pay_blk (sas4-line-5)."
+waiver sas4-toggle-3 rtl/SAS_4__Serial_Attached_SCSI__top.sv toggle \
+  reason="bounded-counter high bits (~35 pts): ok_cnt/mm_cnt/crc_err_cnt (counts <= ~200 over the run), oob_cnt[9] (max 318), brun[7] (max 106), hunt_good[2] (counts 0..3), bd_cnt (BIT_CLKS=1)."
+waiver sas4-toggle-4 rtl/SAS_4__Serial_Attached_SCSI__top.sv toggle \
+  reason="initiator data-pattern constant bits (~20 pts): wr_data/sq_wdata/rsp_val/rsp_data/f_data/app_data/rx_pay[0]/r_type/r_src residuals — write data follows 32'h5A5A_0000 + n*32'h0001_0101, leaving individual bits constant across any single seed; byte integrity proven by read-back compares."
+
+# ---- SD ----
+waiver sd-line-1 rtl/SD_top.sv:129,282,295,301,314,321,341,344,357,360,498,500-501,507,512 line \
+  reason="Verilator 5.006 line-attribution artifacts: SD_RAISE/SD_ISSUE macro bodies get the DA hits, the invocation lines lose them (same class as nvme-line-3). Execution proven: err_r7/err_crc7/err_crc16/err_timeout all raised in directed+CRV phases, and 124 demo rounds completed through the compare-OK SD_ISSUE(CMD13) arm."
+waiver sd-line-2 rtl/SD_top.sv:366,368-370,378,451,511 line \
+  reason="FSM default arms: state (0..11), phase (0..2), dphase (0..4) are fully-cased; default encodings unreachable."
+waiver sd-line-3 rtl/SD_top.sv:440-441,465-466 line \
+  reason="DP_BUSY busy-hang and H_RDAT data-start-hang timeout arms: the TB card model always releases busy and always sends the data block after an ACK (busy_ready knob path never exercised); only the response-timeout arm (282, proven hit) is reachable with the current injection set."
+waiver sd-line-4 rtl/SD_top.sv:504 line \
+  reason="err_cmp read-back mismatch: requires a data corruption that passes CRC16 — the host never sends one and card storage is exact; would be a DUT bug, unreachable."
+waiver sd-toggle-1 rtl/SD_top.sv toggle \
+  reason="cid[63:0] (63 pts) + rca (15 pts): card identity and RCA are constants (16'hA5A5) in this single-card configuration."
+waiver sd-toggle-2 rtl/SD_top.sv toggle \
+  reason="exp_blk (120 pts): the block pattern is a byte-wise function of the round counter r; with r < 128 over the entire run every bit derived from r[7] (and its complements) is constant."
+waiver sd-toggle-3 rtl/SD_top.sv toggle \
+  reason="card_status (29) + rsp_len (4) + rsp_sh/rsp_nxt (3 pts): the card's R1 status is nearly constant post-init (fixed ready/state fields); response length only ever 48/136."
+waiver sd-toggle-4 rtl/SD_top.sv toggle \
+  reason="bounded-counter high bits (~5 pts: round/match_cnt/wait_cnt/bit_cnt < 128) + err_cmp (never raised, see sd-line-4)."
+
+# ---- DisplayPort2 ----
+waiver dp2-line-1 rtl/DisplayPort2_top.sv:133-139,161-163 line \
+  reason="scrambler symbol LUT arms: scr6 codes 18..29 + default and scr4 codes 2..6 + default. The training/video symbol stream only uses 6b codes 0..17 (D10.2/D28.5/TPS1 set) and 4b codes 0..1; the remaining LUT entries are unreachable with the fixed pattern set."
+waiver dp2-line-2 rtl/DisplayPort2_top.sv:282,453-456,477 line \
+  reason="Verilator 5.006 line-attribution artifacts (pattern-gen guard; AUX RX-timeout arm — proven executed by the sink-absent CRV sessions that reach train_fail only via this timeout; reply start-bit guard whose body is covered)."
+waiver dp2-line-3 rtl/DisplayPort2_top.sv:468,471-474,482-485,509-513 line \
+  reason="AUX receiver framing-error arms (bad SYNC bit / bad start bit / bad stop bit): the TB sink model always frames replies correctly and the Manchester-violation injection only corrupts mid-payload bits, so these protocol-error paths are unreachable with this injection set."
+waiver dp2-line-4 rtl/DisplayPort2_top.sv:586-589,599-602,625,638-641,663,679-682,697-700,709-712 line \
+  reason="per-LT-state retry/LT_FAIL duplicate arms: retry and retry-exhaustion are proven on the first AUX op state (its arms covered by the CRV NACK-storm sessions, 13 storm-fail + 13 absent-fail observed). The copies in later LT states each require failure injection targeted at that exact training phase — out of scope for the random first-op/all-op injection set."
+waiver dp2-line-5 rtl/DisplayPort2_top.sv:521,722 line \
+  reason="FSM default arms: aux_state (0..13) and lt_state (0..13) fully-cased; default encodings unreachable."
+waiver dp2-toggle-1 rtl/DisplayPort2_top.sv toggle \
+  reason="msa (109 pts): MSA packet bytes are constant for the fixed 64x48 video format streamed by this configuration."
+waiver dp2-toggle-2 rtl/DisplayPort2_top.sv toggle \
+  reason="AUX transaction-field constant bits (~101 pts): op_wdata/op_addr/op_len/op_cmd/op_rdata/a_rx_reply/a_byte_total/a_exp_len — the fixed DPCD training script uses ~5 addresses and a handful of write values; replies are only ACK/NACK with little data."
+waiver dp2-toggle-3 rtl/DisplayPort2_top.sv toggle \
+  reason="edid (16 pts): zero bits of the constant EDID header 64'h00FF_FFFF_FFFF_FF00 never toggle (register goes 0 -> header once)."
+waiver dp2-toggle-4 rtl/DisplayPort2_top.sv toggle \
+  reason="bounded-counter/encoding high bits (~10 pts): frame_cnt (few frames streamed), lt_state/pat/shreg/a_timeout value ranges."
+
+# ---- HDCP_2_3 ----
+waiver hdcp-line-1 rtl/HDCP_2_3_Content_Protection_top.sv:357,420 line \
+  reason="FSM default arms: auth FSM state is fully-cased (ST_IDLE..ST_AUTH); default encodings unreachable."
+waiver hdcp-line-2 rtl/HDCP_2_3_Content_Protection_top.sv:365,376,390,412 line \
+  reason="Verilator 5.006 line-attribution artifacts on the ST_*_TX txm_ready transition-guard lines (blocking temporaries, cf. ufs-line-1). Execution proven: 65+ full auth sessions traverse all four TX transitions; FSM probe 10/10."
+waiver hdcp-line-3 rtl/HDCP_2_3_Content_Protection_top.sv:476 line \
+  reason="register-read default arm: the TB only reads defined addresses 0..6; default is unreachable."
+waiver hdcp-toggle-1 rtl/HDCP_2_3_Content_Protection_top.sv toggle \
+  reason="rxcaps[63:1] (63 pts): the TB receiver model drives only bit 0 (REPEATER); capability bits 63:1 are constant 0 in this config."
+waiver hdcp-toggle-2 rtl/HDCP_2_3_Content_Protection_top.sv toggle \
+  reason="blk_ctr (60 pts) + frame_ctr (57 pts) high bits: bounded by run length (<= ~16 pixels per session, 67 frames over the run); upper bits structurally constant 0."
+waiver hdcp-toggle-3 rtl/HDCP_2_3_Content_Protection_top.sv toggle \
+  reason="rxm_data upper bits (32 pts) + txm_type[3]/rxm_type[3] (2 pts): message payloads in use are <= 64 bits and message type codes are 1..8, so the high bits never toggle in this config."

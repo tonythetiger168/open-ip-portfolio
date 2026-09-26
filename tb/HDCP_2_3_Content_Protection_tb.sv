@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
+/*verilator coverage_off*/
+// ^ TB-internal coverage points are never collected (run_cov parses only
+// rtl/HDCP_2_3_Content_Protection_top.sv); the per-statement coverage
+// counters double the initial-coroutine TU and OOMed cc1plus on the 5GB
+// box. Comment-only for iverilog; no behavioural change.
 // ============================================================================
 // Self-checking testbench for HDCP_2_3_Content_Protection_top -- SystemVerilog
 // TB plays the HDCP receiver (sink): answers AKE/pairing/locality/SKE
@@ -46,6 +51,60 @@ module HDCP_2_3_Content_Protection_tb;
 
   always #5 clk = ~clk;
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
+  // =====================================================================
+  // FSM probe: auth FSM states IDLE..AUTH = 10 states
+  localparam int HDCP_FSM_TOTAL = 10;
+  logic [9:0] fsm_seen = '0;
+  always @(posedge clk) if (dut.state < 10) fsm_seen[dut.state] <= 1'b1;
+
+  int sva_total = 0, sva_fail = 0;
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors++;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // output-invariant assertion suite (sampled at posedge, pre-NBA coherent)
+  int rst_cyc = 0;
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      // A1: idle in reset
+      if (rst_cyc > 0)
+        sva_check((dut.state === 4'd0) && (txm_valid === 1'b0) &&
+                  (enc_valid === 1'b0) && (irq === 1'b0), "A1 reset: idle");
+      rst_cyc++;
+    end else begin
+      // A2: irq is exactly the error-flag OR
+      sva_check(irq === (dut.err_flags != 3'b000), "A2 irq == err_flags!=0");
+      // A3: txm_valid exactly in the four TX message states, type matches
+      sva_check(txm_valid === ((dut.state == 4'd1) || (dut.state == 4'd3) ||
+                               (dut.state == 4'd5) || (dut.state == 4'd7)),
+                "A3 txm_valid states");
+      if (txm_valid)
+        sva_check(txm_type === {1'b0, dut.state[2:0]}, "A3b txm_type==state");
+      // A4: rxm_ready exactly in the four RX-wait states
+      sva_check(rxm_ready === ((dut.state == 4'd2) || (dut.state == 4'd4) ||
+                               (dut.state == 4'd6) || (dut.state == 4'd8)),
+                "A4 rxm_ready states");
+      // A5/A6: pixel handshake only while authenticated
+      if (pix_ready) sva_check(dut.state === 4'd9, "A5 pix_ready in AUTH");
+      if (enc_valid) sva_check(dut.state === 4'd9, "A6 enc_valid in AUTH");
+      // A7: failure always parks the FSM in IDLE
+      if (dut.fail) sva_check(dut.state === 4'd0, "A7 fail -> IDLE");
+      // A8: FSM encoding in range
+      sva_check(dut.state < 10, "A8 state encoding valid");
+    end
+  end
+`endif
+
   // message types (mirror RTL)
   localparam logic [3:0] MT_AKE_INIT = 4'd1, MT_AKE_CERT = 4'd2,
                          MT_AKE_EKM  = 4'd3, MT_PAIR_ACK = 4'd4,
@@ -66,6 +125,10 @@ module HDCP_2_3_Content_Protection_tb;
   // derive ks / E_km / H' / CTR keystream on the receiver side.
   // ====================================================================
   function automatic logic [7:0] sbox(input logic [7:0] x);
+    /*verilator no_inline_task*/
+    // ^ compile the 256-entry S-box once instead of inlining it at every
+    // unrolled call site (was a single 39MB TU that OOMed cc1plus on the
+    // 5GB box). Comment-only for iverilog; no behavioural change.
     case (x)
       8'h00: sbox=8'h63; 8'h01: sbox=8'h7c; 8'h02: sbox=8'h77; 8'h03: sbox=8'h7b;
       8'h04: sbox=8'hf2; 8'h05: sbox=8'h6b; 8'h06: sbox=8'h6f; 8'h07: sbox=8'hc5;
@@ -372,7 +435,10 @@ module HDCP_2_3_Content_Protection_tb;
         // --- locality challenge ---
         tx_expect(MT_LC_INIT, m);
         cap_l = m[63:0];
-        if (fail_mode != 1) begin
+        if (fail_mode == 3) begin
+          // wrong locality response value -> locality mismatch failure
+          rx_send(MT_LC_RESP, {64'h0, (cap_l ^ ks_exp[63:0]) ^ 64'h1});
+        end else if (fail_mode != 1) begin
           rx_send(MT_LC_RESP, {64'h0, cap_l ^ ks_exp[63:0]});
 
           // --- session key exchange: Eks = ks XOR km ---
@@ -506,18 +572,104 @@ module HDCP_2_3_Content_Protection_tb;
     chk(rb === 8'h00, "FSM not back to IDLE after pairing fail");
     $display("INFO: check 6 (pairing failure injection) done");
 
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ----
+    // 120 randomized authentication transactions: each iteration randomizes
+    // the receiver identity (hrx, REPEATER bit), optionally re-programs a
+    // fresh random master key km through the register window (~25%), then
+    // runs one session of a random class:
+    //   60% good session: full AKE/pairing/locality/SKE (repeater or not),
+    //          TB independently derives ks with its own AES-128, then a
+    //          random-length burst (1..12) of random pixel words is checked
+    //          word-by-word against the AES-128-CTR keystream (frame
+    //          counter tracked across sessions);
+    //   20% bad pairing ack -> ERR[1] + irq + FSM back to IDLE;
+    //   10% locality response withheld -> 20-clk timeout, ERR[0] + irq;
+    //   10% wrong locality response value -> ERR[2] + irq.
+    // Every error session ends with CTRL.irq_clr + irq deassertion check.
+    begin : crv_phase
+      int n_good = 0, n_pair = 0, n_lctmo = 0, n_lcbad = 0;
+      int b, p, npix, cls;
+      longint unsigned frame_no = 3;   // directed phase used frames 1,2
+      bit rep;
+      for (int i = 0; i < 120; i++) begin
+        if ($urandom_range(0, 3) == 0) begin
+          rx_km = {$urandom, $urandom, $urandom, $urandom};
+          for (b = 0; b < 16; b++) begin
+            reg_write(3'd4, b[3:0]);
+            reg_write(3'd5, rx_km[b*8 +: 8]);
+          end
+        end
+        rx_hrx = $urandom;
+        rep    = $urandom_range(0, 1);
+        cls    = $urandom_range(0, 9);
+        reg_write(3'd0, 8'h01);                        // CTRL.start
+        if (cls <= 5) begin
+          auth_sequence(rep, 0);
+          wait_auth(1'b1);
+          npix = $urandom_range(1, 12);
+          for (p = 0; p < npix; p++)
+            pixel_xfer($urandom, ks_exp, frame_no[63:0], p);
+          frame_no++;
+          n_good++;
+        end else begin
+          if (cls <= 7)      begin auth_sequence(rep, 2); n_pair++;  end
+          else if (cls == 8) begin auth_sequence(rep, 1); n_lctmo++; end
+          else               begin auth_sequence(rep, 3); n_lcbad++; end
+          if (cls == 8) repeat (40) @(negedge clk);      // let timer expire
+          else          repeat (4)  @(negedge clk);
+          reg_read(3'd1, rb);
+          chk(rb[3] === 1'b1, "CRV fail not set after error session");
+          chk(rb[1] === 1'b0, "CRV authenticated wrongly set");
+          reg_read(3'd3, rb);
+          if (cls <= 7)      chk(rb[1] === 1'b1, "CRV ERR pairing bit");
+          else if (cls == 8) chk(rb[0] === 1'b1, "CRV ERR locality-timeout bit");
+          else               chk(rb[2] === 1'b1, "CRV ERR locality-mismatch bit");
+          chk(irq === 1'b1, "CRV irq not asserted on error session");
+          reg_read(3'd6, rb);
+          chk(rb === 8'h00, "CRV FSM not back to IDLE after error session");
+          reg_write(3'd0, 8'h04);                        // CTRL.irq_clr
+          @(negedge clk);
+          chk(irq === 1'b0, "CRV irq not cleared by CTRL.irq_clr");
+        end
+      end
+      $display("CRV: 120 sessions, good=%0d pair-fail=%0d lc-timeout=%0d lc-bad=%0d, last frame=%0d",
+               n_good, n_pair, n_lctmo, n_lcbad, frame_no - 1);
+    end
+`endif
+
     // ---------------- result ----------------
     if (errors == 0) $display("TEST PASSED: HDCP_2_3_Content_Protection");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < HDCP_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, HDCP_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
   // ------------------- timeout guard --------------------------------------
+`ifdef VERILATOR
+  // Chunked timeout: Verilator 5.006 corrupts the --timing delay heap on a
+  // single long-pending #delay once many short-delay resumptions interleave.
+  initial begin
+    repeat (4000) #1000;   // 4 ms in 1-us chunks
+    $display("TIMEOUT");
+    $display("TEST FAILED: %0d errors", errors + 1);
+    $finish;
+  end
+`else
   initial begin
     #2_000_000;
     $display("TIMEOUT");
     $display("TEST FAILED: %0d errors", errors + 1);
     $finish;
   end
+`endif
 
 endmodule
