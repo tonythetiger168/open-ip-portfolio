@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
+/*verilator coverage_off*/
+// ^ TB-internal coverage points are never collected (run_cov parses only
+// rtl/HDCP_2_3_Content_Protection_top.sv); the per-statement coverage
+// counters double the initial-coroutine TU and OOMed cc1plus on the 5GB
+// box. Comment-only for iverilog; no behavioural change.
 // ============================================================================
 // Self-checking testbench for HDCP_2_3_Content_Protection_top -- SystemVerilog
 // TB plays the HDCP receiver (sink): answers AKE/pairing/locality/SKE
@@ -120,6 +125,10 @@ module HDCP_2_3_Content_Protection_tb;
   // derive ks / E_km / H' / CTR keystream on the receiver side.
   // ====================================================================
   function automatic logic [7:0] sbox(input logic [7:0] x);
+    /*verilator no_inline_task*/
+    // ^ compile the 256-entry S-box once instead of inlining it at every
+    // unrolled call site (was a single 39MB TU that OOMed cc1plus on the
+    // 5GB box). Comment-only for iverilog; no behavioural change.
     case (x)
       8'h00: sbox=8'h63; 8'h01: sbox=8'h7c; 8'h02: sbox=8'h77; 8'h03: sbox=8'h7b;
       8'h04: sbox=8'hf2; 8'h05: sbox=8'h6b; 8'h06: sbox=8'h6f; 8'h07: sbox=8'hc5;

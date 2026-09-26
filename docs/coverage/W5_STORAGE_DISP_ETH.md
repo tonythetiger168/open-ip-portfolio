@@ -28,6 +28,8 @@ probe (`FSM_COV`), SVA from the counted immediate-assertion suite
 | HDMI_2_1 | PASS | PASS | 165/177 | 232/238 | 7/7 | all pass | **closed (2 waivers: hdmi-line-1, hdmi-toggle-1)** |
 | SAS_4__Serial_Attached_SCSI_ | PASS | PASS | 446/480 | 891/1194 | 24/24 | all pass | **closed (8 line + 4 toggle waivers: sas4-line-1..8, sas4-toggle-1..4)** |
 | SD | PASS | PASS | 281/311 | 981/1220 | 20/20 | all pass | **closed (4 line + 4 toggle waivers: sd-line-1..4, sd-toggle-1..4)** |
+| DisplayPort2 | PASS | PASS | 440/497 | 258/493 | 32/32 | all pass | **closed (5 line + 4 toggle waivers: dp2-line-1..5, dp2-toggle-1..4)** |
+| HDCP_2_3_Content_Protection | PASS | PASS | 270/277 | 1667/1881 | 10/10 | all pass | **closed (3 line + 3 toggle waivers: hdcp-line-1..3, hdcp-toggle-1..3)** |
 
 ## CRV stimulus summary
 
@@ -213,20 +215,33 @@ Resolved this session (third coder):
 
   operation. Logged for the orchestrator; no RTL change made.
 
-## Fourth-coder final status (HDCP_2_3 Verilator-build blocker)
+## Fourth-coder final status — ALL 20/20 CLOSED
 
-Closed this round: HDMI_2_1, SAS_4, SD, DisplayPort2 (all iverilog PASS +
-run_cov PASS + waivers). **HDCP_2_3 is the only open item**: iverilog
-`make -f Makefile.HDCP_2_3_Content_Protection sim` PASSES with the full CRV
-TB (120 randomized auth sessions: 60% good + random pixel burst verified
-word-by-word vs TB AES-128-CTR, 20% pairing-fail, 10% locality-timeout,
-10% wrong-locality-value; random km/hrx/repeater per session; FSM probe
-10 + 8-assertion SVA suite). The Verilator coverage build repeatedly OOMs:
-the fully-unrolled combinational AES-128 produces a single 39 MB TU
-(VHDCP..._DepSet_h9991c3dd__0.cpp) whose cc1plus needs >3 GB; the box has
-5 GB shared with other waves' builds (VUSB etc.), so `run_cov.sh` (-j 4)
-and even serial -O0 compiles were SIGKILLed. Next coder: rerun
-`bash scripts/verilator_cov/run_cov.sh HDCP_2_3_Content_Protection` when
-the box is quiet (or verilate manually with `--output-split-cfuncs 1000`
-added to split the giant TU, then make + run + parse per run_cov.sh tail),
-then collect waivers + doc row. TB edits are committed (fd59008).
+Closed this round: HDMI_2_1, SAS_4, SD, DisplayPort2, HDCP_2_3 (all
+iverilog PASS + coverage PASS + waivers).
+
+**HDCP_2_3 Verilator-build OOM workaround (toolchain note, reused later)**:
+the TB's reference AES-128 (256-entry sbox case, 10 rounds unrolled) was
+inlined into the initial coroutine, producing a single 39 MB TU whose
+cc1plus needs >3 GB (5 GB box shared with other waves). Fix committed in
+the TB (comment-only metacomments, iverilog path bit-identical):
+`/*verilator no_inline_task*/` on `sbox` (8-bit return is the max allowed
+for non-inlined functions) and `/*verilator coverage_off*/` at the TB file
+top (TB-internal coverage points are never collected — run_cov parses only
+the RTL — and the per-statement `__Vcoverage[].fetch_add` counters were
+~30% of the TU). Result: coroutine 39 -> 27 MB, compiles at
+`-O0 --param ggc-min-expand=5 --param ggc-min-heapsize=16384` in ~4 min.
+Build was done manually (run_cov.sh as-is still OOMs at -Os -j4):
+verilate with `--output-split-cfuncs 1000` added, compile the giant
+`DepSet_h9991c3dd__0.cpp` with the -O0 recipe above, then
+`make -f V....mk -j 2`, run binary, parse_cov.py per run_cov.sh tail.
+Result: 120 CRV sessions (good=65 pair-fail=26 lc-timeout=15 lc-bad=14),
+FSM 10/10, SVA 29681/29681, TEST PASSED.
+
+Environment note: post-reset tool restore — apt's http method hangs
+system-wide; used direct .deb download (curl + resume loop) + `dpkg-deb -x`
+(no locks). verilator 5.006-3 from bookworm pool; iverilog is the base
+image's 11.0 (all waves' PASS results were produced with it; the bookworm
+12.0-2+b1 deb needs GLIBCXX_3.4.32 which this glibc lacks — do NOT install
+it, it broke /usr/lib/.../ivl consistency once). ~/bin/verilator
+-Wno-BLKLOOPINIT wrapper recreated.
