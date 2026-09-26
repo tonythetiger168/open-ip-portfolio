@@ -227,7 +227,7 @@ for m in Makefile.*; do make -f $m sim; done
 unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
 ```
 
-## Verification status (v2.5)
+## Verification status (v2.5.1)
 
 - Constrained-random verification: **117/117 protocols closed** on all
   four coverage metrics (LINE / TOGGLE / FSM / SVA-subset assertions);
@@ -243,9 +243,16 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
 - Synthesis: **117/117 PASS** (yosys 0.23), zero errors
 - CRV found 16 real RTL bugs (echo-copy out-of-bounds in 11 protocols,
   serial-read LSB/MSB drive bugs, QSPI MOSI contention, CXL-family
-  STP/LEN framing, SPMI bus wedge, 1-Wire reset detection, ...), all
-  recorded with minimal repros and **scheduled for v2.5.1** — see the
-  RTL bug table in [docs/COVERAGE.md](docs/COVERAGE.md)
+  STP/LEN framing, SPMI bus wedge, 1-Wire reset detection, ...). In
+  **v2.5.1 all 16 are fixed** (fix groups A/B/C), each proven by a
+  mutant check (reverting the fix re-fails the testbench) plus full
+  iverilog + Verilator-coverage regression — see the RTL bug table in
+  [docs/COVERAGE.md](docs/COVERAGE.md). Post-fix CXL-family raw LINE is
+  124/139 (89.2%) on all five clones (CXL was 95.7% in v2.5, clones
+  89.1%): the v2.5.1 stimulus re-rolled the Verilator 5.006
+  attribution-artifact region (rx_err arms now zero-attributed, lines
+  159-176 waived with execution proven by shadow-verified echo frames);
+  waiver-adjusted closure remains 100%
 - Highlights: real AES-128 (CSE, NIST vectors) reused by HDCP 2.3;
   real SHA-256+HMAC (Crypto, RFC 4231 vectors); parameterized serial bit
   rate (`BIT_CLKS`) on SAS/SATA/SDIO/UFS/eMMC/SAS-4 with functional

@@ -24,6 +24,16 @@ Waivers: `scripts/verilator_cov/waiver_w6.vc`.
 | UEC    | PASS | PASS | 123/138 (89.1%) | 458/495 (92.5%) | 5/5 (TX+RX) | 10674441/10674441 | **closed (family waivers)** |
 | Interlaken_v1_2 | PASS | PASS | 123/138 (89.1%) | 458/495 (92.5%) | 5/5 (TX+RX) | 10674441/10674441 | **closed (family waivers)** |
 | JESD204C | PASS | PASS | 123/138 (89.1%) | 458/495 (92.5%) | 5/5 (TX+RX) | 10674441/10674441 | **closed (family waivers)** |
+
+> **v2.5.1 re-run (CXL family x5, post-fix)**: all five PASS with
+> LINE 124/139 (89.2%), TOGGLE 458/495 (92.5%), FSM 5/5, SVA
+> 10501961/10501961. Raw LINE moved CXL 95.7%→89.2% and the four clones
+> 89.1%→89.2%: the v2.5.1 stimulus (STP fix + LEN=8 lock) re-rolled the
+> Verilator 5.006 attribution-artifact region, so waiver `cxl-fam-line-4`
+> was widened 164-176→159-176 (line 159 is the bad-STP rx_err arm,
+> execution proven by the CRV bad-STP rx_err check). Waiver-adjusted
+> closure remains 100% for all five; uncovered line/toggle points were
+> re-verified to be exactly the waived set.
 | CAN    | PASS | PASS | 173/175 (98.9%) | 309/327 (94.5%) | 16/16 (TX+RX) | 2857639/2857639 | **closed (2L+4T family waivers)** |
 | FlexRay | PASS | PASS | 173/175 (98.9%) | 309/327 (94.5%) | 16/16 (TX+RX) | 2857639/2857639 | **closed (family waivers)** |
 | LIN    | PASS | PASS | 173/175 (98.9%) | 309/327 (94.5%) | 16/16 (TX+RX) | 2857639/2857639 | **closed (family waivers)** |

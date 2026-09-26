@@ -184,11 +184,11 @@ waiver (W4 BLOCKER-1).
 | JTAG | 62/63 +1w | 71/71 | 16/16 (TAP) | 35041/35041 | 1 |
 | UALink | 35/37 +2w | 142/148 +3w | 3/3 | 6278/6278 | 5 |
 | UCIe | 35/37 +2w | 142/148 +3w | 3/3 | 6278/6278 | 5 |
-| CXL | 132/138 +6w | 458/495 +8w | 5/5 (TX+RX) | 10431401/10431401 | 6L+8T (family) |
-| PCIe | 123/138 | 458/495 | 5/5 (TX+RX) | 10674441/10674441 | family waivers |
-| UEC | 123/138 | 458/495 | 5/5 (TX+RX) | 10674441/10674441 | family waivers |
-| Interlaken_v1_2 | 123/138 | 458/495 | 5/5 (TX+RX) | 10674441/10674441 | family waivers |
-| JESD204C | 123/138 | 458/495 | 5/5 (TX+RX) | 10674441/10674441 | family waivers |
+| CXL | 124/139 +15w (v2.5.1; was 132/138 95.7% in v2.5) | 458/495 +8w | 5/5 (TX+RX) | 10501961/10501961 | 4L+8T (family) |
+| PCIe | 124/139 (v2.5.1; was 123/138 89.1%) | 458/495 | 5/5 (TX+RX) | 10501961/10501961 | family waivers |
+| UEC | 124/139 (v2.5.1; was 123/138 89.1%) | 458/495 | 5/5 (TX+RX) | 10501961/10501961 | family waivers |
+| Interlaken_v1_2 | 124/139 (v2.5.1; was 123/138 89.1%) | 458/495 | 5/5 (TX+RX) | 10501961/10501961 | family waivers |
+| JESD204C | 124/139 (v2.5.1; was 123/138 89.1%) | 458/495 | 5/5 (TX+RX) | 10501961/10501961 | family waivers |
 | CAN | 173/175 +2w | 309/327 +4w | 16/16 (TX+RX) | 2857639/2857639 | 2L+4T (family) |
 | FlexRay | 173/175 | 309/327 | 16/16 (TX+RX) | 2857639/2857639 | family waivers |
 | LIN | 173/175 | 309/327 | 16/16 (TX+RX) | 2857639/2857639 | family waivers |
@@ -358,31 +358,32 @@ v2.4 TBs) and stays green.
     page; `run_cov.sh` never forwards `$VFLAGS` (the BLKLOOPINIT flag
     lives in the `$HOME/bin/verilator` wrapper).
 
-## RTL bugs found by CRV (recorded, NOT fixed — scheduled for v2.5.1)
+## RTL bugs found by CRV (all 16 FIXED in v2.5.1)
 
-Per v2.5 discipline no RTL functional change was made; every bug is
-locked by a minimal repro and worked around TB-side (rejection
-sampling, shadow-model prediction, or a documented comparison mask).
+All 16 v2.5-recorded bugs were fixed in v2.5.1 in three groups
+(A: echo-copy OOB x11 + MEMCH mux; B: serial interfaces; C: USB2_0/USB3/
+CXL-family/WTB). Every fix is locked by a mutant self-proof (reverting
+the fix re-fails the TB) plus iverilog + verilator_cov regression.
 11 of these are the same echo-copy template instantiated per protocol.
 
-| # | Protocol(s) | File:line | Root cause (one line) | Wave |
-|---|---|---|---|---|
-| 1 | RFFE (+ clones DigRF, MIPI_SLIMbus, MIPI_SoundWire, MIPI_DBI) | rtl/RFFE_top.sv:79-85 (identical RTL in the 4 clones) | read path parks the bus at `bit_cnt==7` instead of driving `tx_byte[0]` → read LSB always floats to 1 | [W3](coverage/W3_MIPI.md) BUG-W3-1 |
-| 2 | SPMI | rtl/SPMI_top.sv:92-98 | `sd_oe` not cleared on ACKP→IDLE after a read with `tx_byte[0]=0` → slave holds SDATA low forever, SSC never re-detected (permanent bus wedge) | [W3](coverage/W3_MIPI.md) BUG-W3-2 |
-| 3 | I3C | rtl/I3C_top.sv:86-92 | first read byte drives `tx_byte[6]` first (index `6-bit_cnt` at bit_cnt=0) → MSB never driven, reads return `tx_byte OR 8'h80` | [W3](coverage/W3_MIPI.md) BUG-W3-3 |
-| 4 | NVMe, FC, Ethernet | rtl/NVMe_top.sv:196, rtl/FC_top.sv:196, rtl/Ethernet_top.sv:196 | echo-copy loop `i < HB+MAXB+6` writes `tx_mem[16..19]` OOB (`tx_mem[0:15]`); bound should be `HB+MAXB+2` (iverilog drops, Verilator masks onto `tx_mem[0..3]`) | [W5](coverage/W5_STORAGE_DISP_ETH.md) W5-RTL-1 |
-| 5 | USB3_2, USB4 | rtl/USB3_2_top.sv:196, rtl/USB4_top.sv:196 | identical echo-copy OOB template (`tx_mem[16..19]` aliases onto `[0..3]` under Verilator) | [W2](coverage/W2_USB.md) bugs 1-2 |
-| 6 | CXL, PCIe, UEC, Interlaken_v1_2, JESD204C | rtl/<P>_top.sv:196-197 (all five) | identical echo-copy OOB template | [W6](coverage/W6_REST.md) W6-1 |
-| 7 | ONFI | rtl/ONFI_top.sv:196-197 | identical echo-copy OOB template (echo `hdr[0..3]` carry `buf_mem[18..21]` = CRC bytes when plen=8) | [W4](coverage/W4_MEMORY.md) BUG-ONFI-1 |
-| 8 | QSPI | rtl/QSPI_top.sv:30 | 4-bit `io_oe` used as a boolean → std mode drives all four io bits; slave contends MOSI (`io_out[0]=tx_q[4]`) against the master | [W6](coverage/W6_REST.md) QSPI-1 |
-| 9 | USB2_0 | rtl/USB2_0_top.sv:98 | TX `run_cnt` not reset at the SYNC→PID boundary → spurious stuff bit when PID nibble=F (spec 7.1.9 restarts run-counting after SYNC) | [W2](coverage/W2_USB.md) bug 3 |
-| 10 | MEMCH (all 20 memory wrappers) | rtl/MEMCH_top.sv:77-82 | output muxes index per-channel arrays with `haddr[8+:CHW]` even when NCH==1 → `haddr[8]=1` is an OOB read (Verilator sim hang; potential X-prop at gate level) | [W4](coverage/W4_MEMORY.md) BUG-MEMCH-1 |
-| 11 | CXL family (same five as #6) | rtl/<P>_top.sv:60-64 | T_IDLE→T_PKT never loads `tx_shift` with STP → first wire byte is stale 8'h00 instead of STP; a real link partner rejects every echo | [W6](coverage/W6_REST.md) W6-2 |
-| 12 | CXL family (same five) | rtl/<P>_top.sv:90 | data-end compare `tcur == tlen[3:0]-1` is never true for LEN=8 (zero payload) → TX overruns 16 data bytes onto the wire | [W6](coverage/W6_REST.md) W6-3 |
-| 13 | HSI | rtl/HSI_top.sv:80-83 | ST_DATA read assigns `sd_oe<=1` then `sd_oe<=0` in the same cycle at bit_cnt==7 → `tx_byte[0]` never driven, read LSB always 1 | [W6](coverage/W6_REST.md) W6-4 |
-| 14 | _1_Wire | rtl/_1_Wire_top.sv:50-51,70-71 | reset-pulse detection exists only in ST_IDLE → a 600 us reset after a read is mis-sampled as a write-0 slot, bit_cnt desynchronises | [W6](coverage/W6_REST.md) W6-5 |
-| 15 | WTB | rtl/WTB_top.sv:369 | `tok_irq` is assigned 0 every cycle and never set → dead interrupt source (token events silently dropped; rx_bad/cfg_irq paths unaffected) | [W6](coverage/W6_REST.md) W6-6 |
-| 16 | USB3 | rtl/USB3_top.sv:224-232 + 493-495 | give-up path does not suppress the already-launched retransmission → 5th DPP on the wire and `await_ack` re-armed with `in_active==0` until a stray ACK retires it | [W2](coverage/W2_USB.md) bug 4 |
+| # | Protocol(s) | File:line | Root cause (one line) | Wave | v2.5.1 status / fix commit |
+|---|---|---|---|---|---|
+| 1 | RFFE (+ clones DigRF, MIPI_SLIMbus, MIPI_SoundWire, MIPI_DBI) | rtl/RFFE_top.sv:79-85 (identical RTL in the 4 clones) | read path parks the bus at `bit_cnt==7` instead of driving `tx_byte[0]` → read LSB always floats to 1 | [W3](coverage/W3_MIPI.md) BUG-W3-1 | ✅ FIXED in v2.5.1 — 5452f21 |
+| 2 | SPMI | rtl/SPMI_top.sv:92-98 | `sd_oe` not cleared on ACKP→IDLE after a read with `tx_byte[0]=0` → slave holds SDATA low forever, SSC never re-detected (permanent bus wedge) | [W3](coverage/W3_MIPI.md) BUG-W3-2 | ✅ FIXED in v2.5.1 — ccd7825 |
+| 3 | I3C | rtl/I3C_top.sv:86-92 | first read byte drives `tx_byte[6]` first (index `6-bit_cnt` at bit_cnt=0) → MSB never driven, reads return `tx_byte OR 8'h80` | [W3](coverage/W3_MIPI.md) BUG-W3-3 | ✅ FIXED in v2.5.1 — bcff16e |
+| 4 | NVMe, FC, Ethernet | rtl/NVMe_top.sv:196, rtl/FC_top.sv:196, rtl/Ethernet_top.sv:196 | echo-copy loop `i < HB+MAXB+6` writes `tx_mem[16..19]` OOB (`tx_mem[0:15]`); bound should be `HB+MAXB+2` (iverilog drops, Verilator masks onto `tx_mem[0..3]`) | [W5](coverage/W5_STORAGE_DISP_ETH.md) W5-RTL-1 | ✅ FIXED in v2.5.1 — a2cfe0d |
+| 5 | USB3_2, USB4 | rtl/USB3_2_top.sv:196, rtl/USB4_top.sv:196 | identical echo-copy OOB template (`tx_mem[16..19]` aliases onto `[0..3]` under Verilator) | [W2](coverage/W2_USB.md) bugs 1-2 | ✅ FIXED in v2.5.1 — a2cfe0d |
+| 6 | CXL, PCIe, UEC, Interlaken_v1_2, JESD204C | rtl/<P>_top.sv:196-197 (all five) | identical echo-copy OOB template | [W6](coverage/W6_REST.md) W6-1 | ✅ FIXED in v2.5.1 — a2cfe0d |
+| 7 | ONFI | rtl/ONFI_top.sv:196-197 | identical echo-copy OOB template (echo `hdr[0..3]` carry `buf_mem[18..21]` = CRC bytes when plen=8) | [W4](coverage/W4_MEMORY.md) BUG-ONFI-1 | ✅ FIXED in v2.5.1 — a2cfe0d |
+| 8 | QSPI | rtl/QSPI_top.sv:30 | 4-bit `io_oe` used as a boolean → std mode drives all four io bits; slave contends MOSI (`io_out[0]=tx_q[4]`) against the master | [W6](coverage/W6_REST.md) QSPI-1 | ✅ FIXED in v2.5.1 — bffc0f5 |
+| 9 | USB2_0 | rtl/USB2_0_top.sv:98 | TX `run_cnt` not reset at the SYNC→PID boundary → spurious stuff bit when PID nibble=F (spec 7.1.9 restarts run-counting after SYNC) | [W2](coverage/W2_USB.md) bug 3 | ✅ FIXED in v2.5.1 — c061501 |
+| 10 | MEMCH (all 20 memory wrappers) | rtl/MEMCH_top.sv:77-82 | output muxes index per-channel arrays with `haddr[8+:CHW]` even when NCH==1 → `haddr[8]=1` is an OOB read (Verilator sim hang; potential X-prop at gate level) | [W4](coverage/W4_MEMORY.md) BUG-MEMCH-1 | ✅ FIXED in v2.5.1 — 2f97fbe |
+| 11 | CXL family (same five as #6) | rtl/<P>_top.sv:60-64 | T_IDLE→T_PKT never loads `tx_shift` with STP → first wire byte is stale 8'h00 instead of STP; a real link partner rejects every echo | [W6](coverage/W6_REST.md) W6-2 | ✅ FIXED in v2.5.1 — 922c6a3 |
+| 12 | CXL family (same five) | rtl/<P>_top.sv:90 | data-end compare `tcur == tlen[3:0]-1` is never true for LEN=8 (zero payload) → TX overruns 16 data bytes onto the wire | [W6](coverage/W6_REST.md) W6-3 | ✅ FIXED in v2.5.1 — 922c6a3 |
+| 13 | HSI | rtl/HSI_top.sv:80-83 | ST_DATA read assigns `sd_oe<=1` then `sd_oe<=0` in the same cycle at bit_cnt==7 → `tx_byte[0]` never driven, read LSB always 1 | [W6](coverage/W6_REST.md) W6-4 | ✅ FIXED in v2.5.1 — 5452f21 |
+| 14 | _1_Wire | rtl/_1_Wire_top.sv:50-51,70-71 | reset-pulse detection exists only in ST_IDLE → a 600 us reset after a read is mis-sampled as a write-0 slot, bit_cnt desynchronises | [W6](coverage/W6_REST.md) W6-5 | ✅ FIXED in v2.5.1 — 3fc6a2a |
+| 15 | WTB | rtl/WTB_top.sv:369 | `tok_irq` is assigned 0 every cycle and never set → dead interrupt source (token events silently dropped; rx_bad/cfg_irq paths unaffected) | [W6](coverage/W6_REST.md) W6-6 | ✅ FIXED in v2.5.1 — 97004d7 |
+| 16 | USB3 | rtl/USB3_top.sv:224-232 + 493-495 | give-up path does not suppress the already-launched retransmission → 5th DPP on the wire and `await_ack` re-armed with `in_active==0` until a stray ACK retires it | [W2](coverage/W2_USB.md) bug 4 | ✅ FIXED in v2.5.1 — 8d4c041 |
 
 Also logged (harmless dead code, no functional impact): XGMII
 partial-lane `rxc` casez arms unreachable behind the `rxc==4'h0` guard
