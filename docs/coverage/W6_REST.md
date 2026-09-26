@@ -174,6 +174,9 @@ CRV stimulus summary:
 - TB handling: VERILATOR-path shadow buf_mem model predicts the masked result;
   105 echoes byte-verified, 0 mismatches. Same root cause as the previously
   confirmed NVMe/FC/Ethernet/USB3_2/USB4 instances.
+- v2.5.1 FIXED: loop bound corrected to `HB + MAXB + 2` in all five RTLs;
+  TB shadow now predicts the exact copy (`exp_mem[k] = sh_buf[k+2]`).
+  iverilog + Verilator run_cov PASS, 4 metrics unchanged; mutant FAILs.
 
 ### W6-2: CXL-family TX never transmits STP (stale shift register)
 - Files: rtl/<P>_top.sv:60-64 (same five) — T_IDLE -> T_PKT transition sets

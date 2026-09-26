@@ -199,16 +199,12 @@ module NVMe_tb;
       int plen, roll;
       int n_ok = 0, n_min = 0, n_max = 0, n_bcrc = 0, n_bstp = 0, n_bend = 0;
       // ------------------------------------------------------------------
-      // Echo model. rtl/NVMe_top.sv:196 copies buf_mem[2..21] into
-      // tx_mem[0..19], but tx_mem has only 16 entries: the last four
-      // writes are out of bounds. iverilog drops them (correct echo);
-      // under Verilator the index is masked, so tx_mem[0..3] are clobbered
-      // by buf_mem[18..21] on every rx_done (logged as RTL issue W5-RTL-1,
-      // NOT fixed per SPEC). sh_buf shadows the DUT buf_mem exactly (TB
-      // knows every byte on the wire), so the expected echo under this
-      // deterministic artifact is:
-      //   echoed hdr[0..3] = sh_buf[18..21], hdr[4..7] = sent hdr[4..7],
-      //   payload = sent payload.
+      // Echo model. v2.5.1 FIXED (W5-RTL-1): rtl/NVMe_top.sv echo-copy
+      // loop bound is now HB+MAXB+2, so tx_mem[0..15] is an exact copy of
+      // buf_mem[2..17] in both iverilog and Verilator. sh_buf still
+      // shadows the DUT buf_mem exactly (TB knows every byte on the
+      // wire); the expected echo is simply the sent frame:
+      //   echoed hdr[0..7] = sent hdr[0..7], payload = sent payload.
       // ------------------------------------------------------------------
       logic [7:0] sh_buf [0:23];
       logic [7:0] eh     [0:7];
@@ -292,9 +288,8 @@ module NVMe_tb;
             if (rlen !== plen) begin
               errors++; $display("ERROR: CRV bad-STP plen got=%0d exp=%0d", rlen, plen);
             end
-            // expected echo incl. the W5-RTL-1 artifact (see above)
-            for (int i = 0; i < 4; i++) eh[i]   = sh_buf[18+i];
-            for (int i = 4; i < 8; i++) eh[i]   = exp_hdr[i];
+            // expected echo: exact copy of the sent frame (v2.5.1 fixed)
+            for (int i = 0; i < 8; i++) eh[i]   = exp_hdr[i];
             for (int i = 0; i < 8; i++)
               if (hdr[i] !== eh[i]) begin
                 errors++; $display("ERROR: CRV bad-STP hdr[%0d] got=%h exp=%h", i, hdr[i], eh[i]);
@@ -315,9 +310,8 @@ module NVMe_tb;
             if (rlen !== plen) begin
               errors++; $display("ERROR: CRV plen got=%0d exp=%0d", rlen, plen);
             end
-            // expected echo incl. the W5-RTL-1 artifact (see above)
-            for (int i = 0; i < 4; i++) eh[i]   = sh_buf[18+i];
-            for (int i = 4; i < 8; i++) eh[i]   = exp_hdr[i];
+            // expected echo: exact copy of the sent frame (v2.5.1 fixed)
+            for (int i = 0; i < 8; i++) eh[i]   = exp_hdr[i];
             for (int i = 0; i < 8; i++)
               if (hdr[i] !== eh[i]) begin
                 errors++; $display("ERROR: CRV hdr[%0d] got=%h exp=%h", i, hdr[i], eh[i]);

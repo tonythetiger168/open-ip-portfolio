@@ -36,12 +36,10 @@ module ONFI_tb;
   //   dut.tstate (T_IDLE/T_CALC/T_DATA, 3 states)
   //   dut.rstate (R_IDLE/R_DATA, 2 states)
   //
-  // Shadow model for BUG-ONFI-1 (rtl/ONFI_top.sv:196-197, recorded in
-  // docs/coverage/W4_MEMORY.md): the echo-copy loop writes tx_mem[0..19]
-  // but tx_mem is declared [0:15]; under Verilator the out-of-bounds
-  // indices are masked so tx_mem[0..3] are overwritten with
-  // buf_mem[18..21] (CRC bytes for plen=8 frames, stale bytes for
-  // shorter frames). exp_txm predicts the echoed bytes the DUT will
+  // Shadow model (BUG-ONFI-1 v2.5.1 FIXED, rtl/ONFI_top.sv echo-copy):
+  // the loop bound is now HB+MAXB+2, so tx_mem[0..15] is an exact copy
+  // of buf_mem[2..17] in both simulators (no OOB-mask clobber of
+  // tx_mem[0..3]). exp_txm predicts the echoed bytes the DUT will
   // actually send; sh_buf tracks the DUT receive buffer across frames.
   // =====================================================================
   localparam int CRV_FSM_TOTAL = 5;   // tstate(3) + rstate(2)
@@ -127,14 +125,14 @@ module ONFI_tb;
       end
       c = ~c;
 `ifdef VERILATOR
-      // BUG-ONFI-1 shadow: track the DUT receive buffer and predict the
-      // echoed bytes (tx_mem[0..3] are clobbered by buf_mem[18..21])
+      // v2.5.1 FIXED shadow: track the DUT receive buffer and predict
+      // the echoed bytes (exact tx_mem[0..15] = buf_mem[2..17] copy)
       sh_buf[1] = HB + plen;
       for (int i = 0; i < HB; i++)   sh_buf[2 + i] = hdr[i];
       for (int i = 0; i < plen; i++) sh_buf[HB + 2 + i] = pl[i];
       for (int k = 0; k < 4; k++)    sh_buf[2 + HB + plen + k] = c[8*k +: 8];
       for (int j = 0; j < HB + plen; j++)
-        exp_txm[j] = (j < 4) ? sh_buf[18 + j] : sh_buf[2 + j];
+        exp_txm[j] = sh_buf[2 + j];
       exp_len = HB + plen;
 `endif
       for (int i=0;i<32;i++) begin host_val=c[0]; c=c>>1; `BDLY(BIT); end

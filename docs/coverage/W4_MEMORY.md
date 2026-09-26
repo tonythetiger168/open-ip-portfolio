@@ -42,6 +42,8 @@ toggle: `init_cnt[7:5]` (cnt only 0..31), `lp_cnt[1]` (cnt only 0..1), `unused`.
   even when NCH==1; driving haddr[8]=1 is an out-of-bounds read (sim hang
   under Verilator; potential X-propagation at gate level). Legal
   single-channel traffic keeps the bit 0, so it never triggers in practice.
+  v2.5.1 FIXED: muxes now index via `sel_c = (sel < NCH) ? sel : '0`
+  (clamp into `[0:NCH-1]`); all 20 memory wrappers iverilog PASS.
 - BUG-ONFI-1: rtl/ONFI_top.sv:196-197 — echo-copy loop
   `for (i=2; i<HB+MAXB+6; i++) tx_mem[i-2] <= buf_mem[i]` writes tx_mem[0..19]
   into tx_mem[0:15]; Verilator masks indices, clobbering tx_mem[0..3] with
@@ -49,6 +51,9 @@ toggle: `init_cnt[7:5]` (cnt only 0..31), `lp_cnt[1]` (cnt only 0..1), `unused`.
   header bytes 0-3 corrupted. Same template family as W2/W5 findings.
   TB predicts actual echo with a shadow model (exp_txm/sh_buf in ONFI_tb).
   Repro: send any plen=8 frame; echo hdr[0..3] == sent CRC bytes.
+  v2.5.1 FIXED: loop bound corrected to `HB + MAXB + 2`; exp_txm shadow
+  simplified to exact copy. iverilog + Verilator run_cov PASS, 4 metrics
+  unchanged; mutant (revert bound) FAILs.
 
 ## Tool workarounds
 - BLKLOOPINIT (NBA-to-array in for-loops, MEMCORE/NAND reset loops):

@@ -231,10 +231,9 @@ module Interlaken_v1_2_tb;
         else if (ftype == 3) n_badend++;
         else n_zlen++;
         if (ftype == 0 || ftype == 2 || ftype == 5) begin
-          // ---- predict tx_mem after rx_done (OOB-masked echo copy) ----
+          // ---- predict tx_mem after rx_done ----
+          // v2.5.1 FIXED: exact copy, no OOB-mask clobber of tx_mem[0..3]
           for (int k = 0; k < 16; k++) exp_mem[k] = sh_buf[k+2];
-          exp_mem[0] = sh_buf[18]; exp_mem[1] = sh_buf[19];
-          exp_mem[2] = sh_buf[20]; exp_mem[3] = sh_buf[21];
           // echo data length: LEN=8 TX-overrun avoided above; len_q==0
           // sends tx_mem[8..15] after the 8 HDR bytes (16 data bytes)
           edat = (dlen == 0) ? 16 : dlen;
