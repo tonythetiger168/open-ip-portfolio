@@ -129,6 +129,13 @@ module QSPI_tb;
     rd(4'd0, got);
     if (d1 !== 8'h3C) begin errors++; $display("ERROR: QSPI std MISO got=%h exp=3C", d1); end
 
+    // v2.5.1 regression: std-mode tx_q[4]=1 must not disturb master MOSI
+    wr(4'd0, 8'h10);
+    std_xfer(8'hA5, d1);
+    rd(4'd0, got);
+    if (got !== 8'hA5) begin errors++; $display("ERROR: QSPI std MOSI (tx_q[4]=1) got=%h exp=A5", got); end
+    if (d1 !== 8'h10) begin errors++; $display("ERROR: QSPI std MISO (tx_q[4]=1) got=%h exp=10", d1); end
+
     // quad mode: read slave tx, then write
     wr(4'd2, 8'h01);
     wr(4'd0, 8'hA7);
@@ -152,16 +159,13 @@ module QSPI_tb;
       logic [3:0] ra;
       logic [1:0] md;
       int roll;
-      // NOTE (suspected RTL bug, recorded in docs/coverage/W6_REST.md):
-      // in std mode the DUT drives io[0] with tx_q[4] because the assign
-      // uses io_oe as a boolean, contending with master MOSI. The random
-      // std-mode tx values below therefore reject bit4=1; a dedicated
-      // demonstration of the corruption runs after the loop.
+      // v2.5.1: the std-mode io[0] contention (io_oe used as a boolean)
+      // is fixed; std-mode tx values are no longer constrained to bit4=0,
+      // and the post-loop demo now checks the corrected behaviour.
       for (int t = 0; t < 120; t++) begin
         roll = $urandom_range(0, 11);
         tv = $urandom_range(0, 255);
         dv = $urandom_range(0, 255);
-        tv[4] = 1'b0;   // avoid the std-mode io[0] contention (see NOTE)
         if (roll < 1) begin
           // error injection: unimplemented address write/read, ignored
           n_ill++;
@@ -220,9 +224,9 @@ module QSPI_tb;
       end
       $display("CRV: 120 txns (std=%0d quad_rd=%0d quad_wr=%0d illegal=%0d)",
                n_std, n_qr, n_qw, n_ill);
-      // RTL-bug demonstration (recorded, NOT fixed; see W6_REST.md): with
-      // tx_q[4]=1 the DUT drives io[0] high in std mode and every sampled
-      // MOSI bit reads back 1 under this toolchain's tri resolution.
+      // v2.5.1 regression lock (was the RTL-bug demo, see W6_REST.md):
+      // with tx_q[4]=1 the fixed per-bit OE leaves io[0] to the master,
+      // so MOSI shifts in cleanly and MISO returns tx_q.
       begin
         logic [7:0] demo_d, demo_g;
         wr(4'd2, 8'h00);
@@ -230,11 +234,13 @@ module QSPI_tb;
         repeat (2) @(posedge clk);
         std_xfer(8'hA5, demo_d);
         rd(4'd0, demo_g);
-        if (demo_g !== 8'hFF) begin
+        if (demo_g !== 8'hA5) begin
           errors++;
-          $display("ERROR: CRV io0-contention demo got=%h exp=ff", demo_g);
-        end else begin
-          $display("NOTE: RTL-BUG demo: std-mode io[0] driven with tx_q[4] (MOSI->FF)");
+          $display("ERROR: CRV std MOSI with tx_q[4]=1 got=%h exp=a5", demo_g);
+        end
+        if (demo_d !== 8'h10) begin
+          errors++;
+          $display("ERROR: CRV std MISO with tx_q[4]=1 got=%h exp=10", demo_d);
         end
       end
     end

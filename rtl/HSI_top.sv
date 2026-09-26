@@ -80,7 +80,9 @@ module HSI_top #(
             sd_oe <= 1'b1;
             sd_out <= tx_byte[7-bit_cnt];
             if (bit_cnt == 4'd7) begin
-              bit_cnt <= '0; sd_oe <= 1'b0; state <= ST_PARK;
+              // v2.5.1 fix: keep sd_oe asserted so tx_byte[0] is driven;
+              // ST_PARK releases the bus on the next sclk fall
+              bit_cnt <= '0; state <= ST_PARK;
             end else bit_cnt <= bit_cnt + 1'b1;
           end
         end

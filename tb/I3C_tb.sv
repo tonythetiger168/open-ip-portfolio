@@ -149,7 +149,7 @@ module I3C_tb;
   logic ack;
   logic [7:0] rb;
   initial begin
-    tx_byte = 8'hC3;
+    tx_byte = 8'h73;   // v2.5.1: MSB=0 locks the first-byte MSB fix
     rst_n = 0; repeat(10) @(posedge clk);
     rst_n = 1; repeat(10) @(posedge clk);
     if (int_n !== 1'b1) begin errors++; $display("ERROR: I3C int_n not idle-high"); end
@@ -171,15 +171,15 @@ module I3C_tb;
     i3c_wbyte(8'h55, ack);                  // addr 0x2A + R
     if (!ack) begin errors++; $display("ERROR: I3C no ACK addr R"); end
     i3c_rbyte(1'b0, rb);
-    if (rb !== 8'hC3) begin errors++; $display("ERROR: I3C read got=%h exp=C3", rb); end
+    if (rb !== 8'h73) begin errors++; $display("ERROR: I3C read got=%h exp=73", rb); end
     i3c_stop;
 
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ----
     // 150 randomized transactions: ~40% write (rx_byte compared, IBI
-    // asserted after STOP), ~40% read (IBI cleared by START; byte1
-    // compared with the documented MSB mask, byte2 of a 2-byte read
-    // compared in full), ~20% wrong address (NACK, stay idle).
+    // asserted after STOP), ~40% read (IBI cleared by START; v2.5.1: all
+    // bytes compared in full now that the first-byte MSB is driven),
+    // ~20% wrong address (NACK, stay idle).
     // Fully inlined via the macros above (single coroutine).
     begin : crv_phase
       int n_wr = 0, n_rd = 0, n_wa = 0;
@@ -216,14 +216,10 @@ module I3C_tb;
           end
         end else if (roll < 8) begin
           // ---- random read: IBI cleared by START, data compared ----
-          // NOTE: byte1 bit7 is excluded from the compare -- documented
-          // RTL bug (recorded, not fixed per v2.5 rules): I3C_top drives
-          // tx_byte[6] as the first bit after ST_ACK->ST_TX, so the
-          // first read bit is always the pull-up value 1 (verified with a
-          // directed read of 8'h73 under iverilog: returns 8'hF3). The
-          // second byte of a multi-byte read goes through the ST_TXACK
-          // re-entry path which drives tx_byte[7] correctly, so byte2 is
-          // compared in full.
+          // v2.5.1: first-byte MSB bug fixed -- byte1 now compares in
+          // full (was: bit7 masked, always read the pull-up 1). The
+          // MSB=0 branch keeps the 2-byte read so the ST_TXACK re-entry
+          // path stays covered.
           n_rd++;
           tx_byte = v;
           `I3C_M_START
@@ -234,17 +230,16 @@ module I3C_tb;
           `I3C_M_WBYTE(dat_c)                    // addr 0x2A + R
           if (!ack_c) begin errors++; $display("ERROR: CRV no ACK on addr R"); end
           if (v[7] === 1'b1) begin
-            // MSB=1: single-byte read is fully comparable
+            // MSB=1: single-byte read
             `I3C_M_RBYTE(rd_c, 1'b0)             // NACK after byte
             if (rd_c !== v) begin
               errors++; $display("ERROR: CRV read got=%h exp=%h", rd_c, v);
             end
           end else begin
-            // MSB=0: 2-byte read; byte1 masked, byte2 full compare
+            // MSB=0: 2-byte read; both bytes full compare
             `I3C_M_RBYTE(rd_c, 1'b1)             // ACK byte1
-            if (rd_c !== {1'b1, v[6:0]}) begin
-              errors++; $display("ERROR: CRV read b1 got=%h exp=%h (MSB bug masked)",
-                                 rd_c, {1'b1, v[6:0]});
+            if (rd_c !== v) begin
+              errors++; $display("ERROR: CRV read b1 got=%h exp=%h", rd_c, v);
             end
             `I3C_M_RBYTE(rd2_c, 1'b0)            // NACK byte2
             if (rd2_c !== v) begin

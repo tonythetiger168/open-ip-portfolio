@@ -27,7 +27,14 @@ module QSPI_top (
 
   // output drive: std drives io[1]; quad drives io[3:0] with tx nibbles
   logic [3:0] io_oe, io_out;
-  assign io = io_oe ? io_out : 4'bzzzz;
+  // v2.5.1 fix: per-bit output enable -- io_oe is a 4-bit mask, not a
+  // boolean; the old boolean assign drove all four io bits whenever any
+  // OE bit was set (std mode io_oe=4'b0010 drove io[0]=tx_q[4] against
+  // master MOSI)
+  assign io[0] = io_oe[0] ? io_out[0] : 1'bz;
+  assign io[1] = io_oe[1] ? io_out[1] : 1'bz;
+  assign io[2] = io_oe[2] ? io_out[2] : 1'bz;
+  assign io[3] = io_oe[3] ? io_out[3] : 1'bz;
 
   wire std_mode = (mode == 2'd0);
 

@@ -7,7 +7,7 @@ module MIPI_SoundWire_tb;
   logic sclk = 0;
   logic m_oe = 0, m_val = 1;
   logic [7:0] rx_byte, rx_addr;
-  logic [7:0] tx_byte = 8'hC3;   // init value preserves directed checks
+  logic [7:0] tx_byte = 8'hC2;   // v2.5.1: LSB=0 locks the read-LSB fix
   logic rx_valid, busy;
   logic rx_seen = 0;
   int errors = 0;
@@ -108,8 +108,10 @@ module MIPI_SoundWire_tb;
       sva_check(busy === (dut_state != 2'd0), "A3 busy mirrors state");
       // A4: rx_valid is a single-cycle pulse
       sva_check(!(rx_valid && rx_valid_q), "A4 rx_valid single-cycle pulse");
-      // A5: slave drives SDATA only in the DATA phase
-      sva_check(!dut_sdoe || (dut_state == 2'd2), "A5 SDATA drive only in DATA");
+      // A5: slave drives SDATA only in the DATA phase (and the PARK entry
+      // holding the last read bit -- v2.5.1 fix holds sd_oe into ST_PARK)
+      sva_check(!dut_sdoe || (dut_state == 2'd2) || (dut_state == 2'd3),
+                "A5 SDATA drive only in DATA/PARK");
       // A6: rx_byte changes only on the cycle rx_valid is high
       sva_check((rx_byte === rx_byte_q) || rx_valid, "A6 rx_byte stable");
       // A7: rx_valid only mid-transaction (byte completes under busy)
@@ -146,7 +148,7 @@ module MIPI_SoundWire_tb;
     if (rx_addr !== 5'h03) begin errors++; $display("ERROR: MIPI SoundWire rx_addr=%h exp=03", rx_addr); end
 
     rffe_read (2'b01, 5'h03, rb);
-    if (rb !== 8'hC3) begin errors++; $display("ERROR: MIPI SoundWire read got=%h exp=C3", rb); end
+    if (rb !== 8'hC2) begin errors++; $display("ERROR: MIPI SoundWire read got=%h exp=C2", rb); end
 
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ----
@@ -199,17 +201,11 @@ module MIPI_SoundWire_tb;
           for (int i = 7; i >= 0; i--) begin `SW_M_RBIT(bb) rd_c[i] = bb; end
           `SW_M_BIT(1'b1)                                       // bus park
           m_oe = 0; #600;
-          // NOTE: rd_c[0] is excluded from the compare -- documented RTL
-          // bug (recorded, not fixed per v2.5 rules): MIPI_SoundWire_top drives
-          // tx_byte[7:1] only; tx_byte[0] is never driven during reads
-          // (bit_cnt==7 parks the bus one bit early), so the LSB always
-          // reads back as the pull-up value 1. Verified with a directed
-          // read of 8'hC2 under iverilog (returns 8'hC3).
-          if (rd_c[7:1] !== v[7:1]) begin
+          // v2.5.1: read-LSB bug fixed -- tx_byte[0] is now driven on the
+          // last read bit, so the full byte compares (was: rd_c[0]
+          // excluded, LSB always read back as the tri1 pull-up).
+          if (rd_c !== v) begin
             errors++; $display("ERROR: CRV read got=%h exp=%h", rd_c, v);
-          end
-          if (rd_c[0] !== 1'b1) begin
-            errors++; $display("ERROR: CRV read LSB=%b (parked bus pull-up exp 1)", rd_c[0]);
           end
         end else begin
           // ---- wrong slave address: must be ignored ----

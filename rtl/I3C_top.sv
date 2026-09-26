@@ -73,7 +73,15 @@ module I3C_top #(
             if (scl_fall) ack_low <= 1'b1;
           end else if (scl_fall) begin
             ack_low <= 1'b0;
-            state <= rw ? ST_TX : ST_RX;
+            if (rw) begin
+              // v2.5.1 fix: present MSB of the first byte at this fall
+              // (same class as the I2C first-byte fix); ST_TX then
+              // indexes tx_byte[6-bit_cnt]
+              ack_low <= (tx_byte[7] == 1'b0);
+              state   <= ST_TX;
+            end else begin
+              state   <= ST_RX;
+            end
           end
         end
         ST_RX: if (scl_rise) begin

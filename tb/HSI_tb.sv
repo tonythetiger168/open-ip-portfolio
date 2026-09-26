@@ -7,7 +7,7 @@ module HSI_tb;
   logic sclk = 0;
   logic m_oe = 0, m_val = 1;
   logic [7:0] rx_byte, rx_addr;
-  logic [7:0] tx_byte = 8'hC3;
+  logic [7:0] tx_byte = 8'hC2;   // v2.5.1: LSB=0 locks the read-LSB fix
   logic rx_valid, busy;
   logic rx_seen = 0;
   int errors = 0;
@@ -102,8 +102,11 @@ module HSI_tb;
       sva_check(busy === (dut_state != 2'd0), "A2 busy == !ST_IDLE");
       // A3: irq mirrors rx_valid
       sva_check(dut.irq === rx_valid, "A3 irq == rx_valid");
-      // A4: the slave drives SDATA only during a read data phase
-      sva_check(!dut.sd_oe || (dut_state == 2'd2), "A4 SDATA drive only in ST_DATA");
+      // A4: the slave drives SDATA only during a read data phase (and the
+      // PARK entry holding the last read bit -- v2.5.1 fix holds sd_oe
+      // into ST_PARK)
+      sva_check(!dut.sd_oe || (dut_state == 2'd2) || (dut_state == 2'd3),
+                "A4 SDATA drive only in ST_DATA/PARK");
       // A5: rx_valid only pulses mid-transaction (state advances to PARK)
       sva_check(!rx_valid || busy, "A5 rx_valid implies busy");
       // A6: captured register address is a 5-bit value zero-extended
@@ -125,7 +128,7 @@ module HSI_tb;
     if (rx_addr !== 5'h03) begin errors++; $display("ERROR: HSI rx_addr=%h exp=03", rx_addr); end
 
     rffe_read (2'b01, 5'h03, rb);
-    if (rb !== 8'hC3) begin errors++; $display("ERROR: HSI read got=%h exp=C3", rb); end
+    if (rb !== 8'hC2) begin errors++; $display("ERROR: HSI read got=%h exp=C2", rb); end
 
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ----
@@ -188,12 +191,10 @@ module HSI_tb;
           end
           `HSI_BIT(1'b1)
           m_oe = 0; #600;
-          // RTL-BUG (recorded as W6-4, not fixed): at bit_cnt==7 the DUT
-          // deasserts sd_oe in the same cycle it would drive tx_byte[0]
-          // (rtl/HSI_top.sv:80-83), so the last read bit is never driven and
-          // the tri1 pullup reads 1. Shadow model predicts d_v | 8'h01.
-          if (g_v !== (d_v | 8'h01)) begin
-            errors++; $display("ERROR: CRV rd data t=%0d got=%h exp=%h", t, g_v, d_v | 8'h01);
+          // v2.5.1: W6-4 fixed -- the last read bit is driven, so the
+          // shadow model predicts d_v in full (was: d_v | 8'h01).
+          if (g_v !== d_v) begin
+            errors++; $display("ERROR: CRV rd data t=%0d got=%h exp=%h", t, g_v, d_v);
           end
           if (rx_seen) begin
             errors++; $display("ERROR: CRV rx_valid on read t=%0d", t);

@@ -33,6 +33,10 @@ module _1_Wire_top #(
   logic [15:0] timer;
   logic [2:0]  bit_cnt;
   logic [7:0]  rx_shift, tx_shift;
+  logic [15:0] low_cnt;   // v2.5.1: continuous bus-low watchdog
+  // v2.5.1 fix: a reset pulse (>480us low) must be recognized from ANY
+  // state (real 1-Wire slave behaviour), not only from ST_IDLE
+  wire reset_det = (low_cnt > 16'd480*US);
 
   assign dq     = (state == ST_PRESENCE || (state == ST_R_DRIVE && !tx_shift[0]))
                   ? 1'b0 : 1'bz;
@@ -43,10 +47,19 @@ module _1_Wire_top #(
     if (!rst_n) begin
       state <= ST_IDLE; timer <= '0; bit_cnt <= '0;
       rx_shift <= '0; rx_byte <= '0; rx_valid <= 1'b0;
-      tx_shift <= '0;
+      tx_shift <= '0; low_cnt <= '0;
     end else begin
       rx_valid <= 1'b0;
-      case (state)
+      // v2.5.1 fix: track continuous bus-low time in every state
+      // (wrap at 16'hFFFF is harmless: reset_det trips at 4800 clks)
+      if (dq_s) low_cnt <= '0;
+      else low_cnt <= low_cnt + 1'b1;
+      if (reset_det && (state == ST_WAIT_SLOT || state == ST_W_SAMPLE ||
+                        state == ST_TX_BYTE   || state == ST_R_DRIVE)) begin
+        // reset pulse arriving mid-transaction: abandon the current slot
+        // and wait for bus release to answer with a presence pulse
+        state <= ST_RESET_REL; bit_cnt <= '0; timer <= '0;
+      end else case (state)
         ST_IDLE: if (!dq_s) begin
           state <= ST_RESET_CNT; timer <= '0;
         end
