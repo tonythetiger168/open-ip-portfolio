@@ -34,6 +34,55 @@ module CPRI_v8_0__eCPRI_over_CPR__tb;
 
   always #5 clk = ~clk;
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (tool build only; iverilog path unchanged)
+  // FSM probed: dut.sync_st (ST_HUNT/ST_ALIGN/ST_SYNC), 3 states.
+  // =====================================================================
+  localparam int CPRI_FSM_TOTAL = 3;
+  logic [2:0] fsm_seen = '0;          // visited-state bitmap
+  wire  [1:0] dut_state = dut.sync_st;
+
+  int sva_total = 0, sva_fail = 0;
+  // counted immediate assertion: every evaluation is one check
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors = errors + 1;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // FSM coverage: sample DUT state register on both edges (scheduler
+  // failure mode #3 mitigation: dual-edge probe tolerates lost wakeups)
+  always @(posedge clk or negedge clk) fsm_seen[dut_state] <= 1'b1;
+
+  // output-invariant assertion suite (level/comb checks, negedge-sampled
+  // so all NBA updates are settled; no history-dependent properties)
+  logic rst_n_q = 1'b1;
+  always @(negedge clk) begin
+    if (!rst_n) begin
+      // A1: outputs quiescent during reset (one cycle for regs to init)
+      if (!rst_n_q)
+        sva_check(dut_state == 2'd0 && dut.iq_cnt == 6'd0 && irq === 1'b0,
+                  "A1 reset: HUNT + empty buffer + no irq");
+    end else begin
+      // A2: state register holds a legal encoding (3 of 4 used)
+      sva_check(dut_state <= 2'd2, "A2 sync_st legal");
+      // A3: irq output is exactly the OR of the two sticky sources
+      sva_check(irq === (dut.irq_los | dut.irq_cv), "A3 irq == los|cv");
+      // A4: IQ occupancy bounded by the 32-entry buffer
+      sva_check(dut.iq_cnt <= 6'd32, "A4 iq_cnt <= 32");
+      // A5: loss-of-sync miss counter bounded (declares LOS at 4)
+      sva_check(dut.miss_cnt <= 3'd4, "A5 miss_cnt <= 4");
+    end
+    rst_n_q <= rst_n;
+  end
+`endif
+
   // ------------------------------------------------------------------
   // 8b/10b model (independent copy of the line code)
   // ------------------------------------------------------------------
@@ -358,12 +407,22 @@ module CPRI_v8_0__eCPRI_over_CPR__tb;
   // ------------------------------------------------------------------
   // TIMEOUT guard
   // ------------------------------------------------------------------
+`ifdef VERILATOR
+  // chunked timeout guard
+  initial begin
+    repeat (4000) #1000;
+    $display("ERROR: CPRI TB TIMEOUT");
+    $display("TEST FAILED: %0d errors", errors + 1);
+    $finish;
+  end
+`else
   initial begin
     #3000000;
     $display("ERROR: CPRI TB TIMEOUT");
     $display("TEST FAILED: %0d errors", errors + 1);
     $finish;
   end
+`endif
 
   // ------------------------------------------------------------------
   // main test sequence
@@ -512,8 +571,86 @@ module CPRI_v8_0__eCPRI_over_CPR__tb;
       errors++; $display("ERROR: CPRI irq_los not cleared");
     end
 
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ----
+    // Random stimulus: (b) 80 random config-register write+readback txns,
+    // (c) 30 random status/reserved reads, (d) 8 random code-violation
+    // injections with sticky-irq set/clear. All cpu transactions self-checked.
+    // (The peer IQ stream stays the deterministic iq_pat: the TB's iq_log is
+    // an 8192-entry circular model, so only a 256-periodic stream aliases
+    // correctly across wraps -- a $urandom stream cannot be self-checked by
+    // CHECK 6. The config-register randomisation below varies the L1/vendor
+    // bytes the DUT transmits instead.)
+    begin : crv_phase
+      int n_cfg = 0, n_rd = 0, n_cv = 0;
+      logic [3:0]  a_v;
+      logic [31:0] w_v;
+      logic [31:0] rr;
+      // (b) random config writes + readback (cfg[0..7] hold the low byte).
+      // Full 32-bit random wdata toggles every cpu_wdata input bit; the DUT
+      // stores only cpu_wdata[7:0], so readback is checked against w_v[7:0].
+      for (int t = 0; t < 80; t++) begin
+        a_v = $urandom_range(7, 0);
+        w_v = $urandom;
+        cpu_wr(a_v, w_v);
+        cpu_rd(a_v, rr);
+        n_cfg++;
+        if (rr !== {24'h0, w_v[7:0]}) begin
+          errors++; $display("ERROR: CRV cfg[%0d] rd %h exp %02h", a_v, rr, w_v[7:0]);
+        end
+      end
+      // (c) random status / vendor / reserved reads (read-mux coverage)
+      for (int t = 0; t < 30; t++) begin
+        a_v = $urandom_range(15, 8);
+        cpu_rd(a_v, rr);
+        n_rd++;
+        if (a_v >= 4'd14 && rr !== 32'h0) begin
+          errors++; $display("ERROR: CRV reserved addr %0d rd %h exp 0", a_v, rr);
+        end
+        if (^rr === 1'bx) begin
+          errors++; $display("ERROR: CRV X on read addr %0d", a_v);
+        end
+      end
+      // (d2) random iq-buffer reads (addr 10) toggle the wide read-mux bits
+      for (int t = 0; t < 24; t++) begin
+        cpu_rd(4'd10, rr);
+        n_rd++;
+        if (^rr === 1'bx) begin
+          errors++; $display("ERROR: CRV X on iq read t=%0d", t);
+        end
+      end
+      // (d) random code-violation injections -> irq_cv set, then clear
+      for (int t = 0; t < 8; t++) begin
+        cv_inject = 1;
+        wait (cv_inject == 0);
+        repeat (4) @(negedge clk);
+        if (irq !== 1'b1) begin
+          errors++; $display("ERROR: CRV no irq on code violation t=%0d", t);
+        end
+        cpu_rd(4'd13, rr);
+        if (rr[1] !== 1'b1) begin
+          errors++; $display("ERROR: CRV irq_cv status not set t=%0d", t);
+        end
+        cpu_wr(4'd13, 32'h2);
+        repeat (2) @(negedge clk);
+        n_cv++;
+      end
+      $display("CRV: cfg=%0d rd=%0d cv=%0d (total %0d txns)",
+               n_cfg, n_rd, n_cv, n_cfg + n_rd + n_cv);
+    end
+`endif
+
     if (errors == 0) $display("TEST PASSED: CPRI_v8_0__eCPRI_over_CPR_");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < CPRI_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, CPRI_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 

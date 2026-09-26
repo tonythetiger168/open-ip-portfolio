@@ -35,6 +35,62 @@ module OCP_tb;
   );
 
   always #5 clk = ~clk;
+  logic irq_mon = 1'b0;
+  always @(posedge clk) if (irq) irq_mon <= 1'b1;
+
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (tool build only; iverilog path unchanged)
+  // FSM probed: dut.state (S_IDLE/S_ACCEPT/S_LAT/S_RESP), 4 states.
+  // =====================================================================
+  localparam int OCP_FSM_TOTAL = 4;
+  logic [3:0] fsm_seen = '0;          // visited-state bitmap
+  wire  [1:0] dut_state = dut.state;
+  logic irq_seen_c = 1'b0;
+
+  int sva_total = 0, sva_fail = 0;
+  // counted immediate assertion: every evaluation is one check
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors++;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // FSM coverage: sample DUT state register on both edges (scheduler
+  // failure mode #3 mitigation: dual-edge probe tolerates lost wakeups)
+  always @(posedge clk or negedge clk) fsm_seen[dut_state] <= 1'b1;
+  always @(posedge clk) if (irq) irq_seen_c <= 1'b1;
+
+  // output-invariant assertion suite (level/comb checks, negedge-sampled
+  // so all NBA updates are settled; no history-dependent properties)
+  logic rst_n_q = 1'b1;
+  always @(negedge clk) begin
+    if (!rst_n) begin
+      // A1: outputs quiescent during reset (one cycle for regs to init)
+      if (!rst_n_q)
+        sva_check(sresp === 2'b00 && scmdaccept === 1'b0 && irq === 1'b0,
+                  "A1 reset: outputs quiescent");
+    end else begin
+      // A2: SResp is NULL outside the response state
+      sva_check((dut_state == 2'd3) || (sresp === 2'b00), "A2 sresp NULL unless S_RESP");
+      // A3: SData/SThreadID mirror their holding registers
+      sva_check(sdata === dut.rdata_q && sthreadid === dut.thread_q,
+                "A3 S outputs mirror regs");
+      // A4: SCmdAccept exactly reflects S_ACCEPT (ACCEPT_DLY=1 build)
+      sva_check(scmdaccept === (dut_state == 2'd1), "A4 scmdaccept == S_ACCEPT");
+      // A5: SResp=ERR only for a request captured as bad-address
+      sva_check((sresp !== 2'b10) || dut.err_q, "A5 ERR implies err_q");
+      // A6: state register holds a legal encoding (all 4 used)
+      sva_check(dut_state <= 2'd3, "A6 state legal");
+    end
+    rst_n_q <= rst_n;
+  end
+`endif
 
   // ------------------------------------------------------------------
   // OCP master model: drive command until SCmdAccept, return latency
@@ -201,6 +257,25 @@ module OCP_tb;
     ocp_read(32'h0C4, 32'hB2B_0002, 2'b00, 2'b01);
 
     // CHECK 6: error injection - reserved region (>=0x400) read & write
+`ifdef VERILATOR
+    // forked irq monitors lose wakeups under the 5.006 timing scheduler
+    // (mode #2); the module-level irq_mon flag replaces them here. The
+    // iverilog path keeps the original fork structure bit-identical.
+    irq_mon = 0;
+    ocp_read(32'h800, '0, 2'b01, 2'b10);   // expect SResp=ERR
+    repeat (2) @(posedge clk);
+    if (!irq_mon) begin
+      errors++;
+      $display("ERROR: OCP reserved RD: no irq pulse");
+    end
+    irq_mon = 0;
+    ocp_write(32'hFFC, 32'hDEAD_DEAD, 4'hF, 2'b00, 2'b10); // expect ERR
+    repeat (2) @(posedge clk);
+    if (!irq_mon) begin
+      errors++;
+      $display("ERROR: OCP reserved WR: no irq pulse");
+    end
+`else
     begin
       logic irq_seen;
       irq_seen = 0;
@@ -235,6 +310,7 @@ module OCP_tb;
         $display("ERROR: OCP reserved WR: no irq pulse");
       end
     end
+`endif
 
     // CHECK 7: error injection - misaligned address
     ocp_read(32'h002, '0, 2'b00, 2'b10);       // expect SResp=ERR
@@ -243,15 +319,94 @@ module OCP_tb;
     ocp_read(32'h000, 32'hA500_0000, 2'b00, 2'b01);
 
     repeat (5) @(posedge clk);
+
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ----
+    // 256-word write sweep (mem toggle) + 120 randomized transactions:
+    // WR / RD / WRNP with random byte-enables and thread ids across valid /
+    // misaligned / reserved address classes. Errors expect SResp=ERR + irq
+    // pulse; shadow regfile predicts every read. Reuses the bounded master
+    // tasks (fixed 2-cycle DVA latency checked per transaction).
+    begin : crv_phase
+      int n_wr = 0, n_rd = 0, n_np = 0, n_err = 0;
+      logic [31:0] sh_mem [0:255];
+      logic [31:0] ba, db;
+      logic [3:0]  be_v;
+      logic [1:0]  tid_v;
+      int roll, cls;
+      irq_seen_c = 1'b0;
+      for (int w = 0; w < 256; w++) begin
+        sh_mem[w] = $urandom;
+        ocp_write(w*4, sh_mem[w], 4'hF, w[1:0], 2'b01);
+      end
+      for (int t = 0; t < 120; t++) begin
+        roll = $urandom_range(0, 9);
+        db = $urandom; tid_v = $urandom_range(0, 3);
+        be_v = (t % 3 == 0) ? 4'hF : (4'h1 << $urandom_range(0, 3));
+        cls  = $urandom_range(0, 3);
+        if (cls == 3)      ba = 32'h400 + $urandom;              // reserved
+        else if (cls == 2) ba = {$urandom_range(0, 255), 2'b00} |
+                                $urandom_range(1, 3);            // misaligned
+        else               ba = {$urandom_range(0, 255), 2'b00}; // valid
+        if (roll < 4) begin
+          // write (or posted write): errors get SResp=ERR / silent irq
+          if (ba[31:10] == 0 && ba[1:0] == 0) begin
+            for (int b = 0; b < 4; b++)
+              if (be_v[b]) sh_mem[ba[9:2]][b*8 +: 8] = db[b*8 +: 8];
+          end
+          if (roll == 3) begin
+            ocp_write_np(ba, db);
+            n_np++;
+          end else begin
+            ocp_write(ba, db, be_v, tid_v,
+                      (ba[31:10] != 0 || ba[1:0] != 0) ? 2'b10 : 2'b01);
+            n_wr++;
+          end
+          if (ba[31:10] != 0 || ba[1:0] != 0) n_err++;
+        end else begin
+          ocp_read(ba, (ba[31:10] == 0 && ba[1:0] == 0) ? sh_mem[ba[9:2]] : 32'h0,
+                   tid_v, (ba[31:10] != 0 || ba[1:0] != 0) ? 2'b10 : 2'b01);
+          n_rd++;
+          if (ba[31:10] != 0 || ba[1:0] != 0) n_err++;
+        end
+      end
+      if (!irq_seen_c) begin
+        errors++; $display("ERROR: CRV irq never pulsed on error classes");
+      end
+      // regfile must be intact after the error classes
+      for (int w = 1; w < 256; w += 31) ocp_read(w*4, sh_mem[w], 2'b00, 2'b01);
+      $display("CRV: 376 txns (sweep=256 wr=%0d rd=%0d wrnp=%0d err=%0d)",
+               n_wr, n_rd, n_np, n_err);
+    end
+`endif
+
     if (errors == 0) $display("TEST PASSED: OCP");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < OCP_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, OCP_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
+`ifdef VERILATOR
+  // chunked timeout guard: a single long-pending #delay event corrupts the
+  // 5.006 --timing delay heap once many short-delay resumptions interleave
+  initial begin
+    repeat (4000) #1000;
+    $display("TIMEOUT"); $finish;
+  end
+`else
   initial begin
     #200000;
     $display("TIMEOUT");
     $display("TEST FAILED: %0d errors", errors + 1);
     $finish;
   end
+`endif
 endmodule

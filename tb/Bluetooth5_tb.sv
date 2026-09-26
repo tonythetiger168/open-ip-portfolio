@@ -45,6 +45,60 @@ module Bluetooth5_tb;
   );
 
   always #5 clk = ~clk;
+
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (tool build only; iverilog path unchanged)
+  // FSMs probed: RX engine (4) + TX engine (2) + link state (2) = 8 states.
+  // =====================================================================
+  localparam int BT5_FSM_TOTAL = 8;
+  logic [3:0] rx_seen = '0;
+  logic [1:0] tx_seen = '0;
+  logic [1:0] ll_seen = '0;
+  wire  [2:0] rx_st = dut.rxs;
+  wire        tx_st = dut.txs;
+  wire        ll_st = dut.ll_state;
+
+  int sva_total = 0, sva_fail = 0;
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors = errors + 1;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // FSM coverage: dual-edge probe (scheduler failure mode #3 mitigation)
+  always @(posedge clk or negedge clk) begin
+    if (rx_st < 3'd4) rx_seen[rx_st] <= 1'b1;
+    tx_seen[tx_st] <= 1'b1;
+    ll_seen[ll_st] <= 1'b1;
+  end
+
+  // output-invariant assertion suite (negedge-sampled, NBA settled)
+  logic rst_n_q = 1'b1;
+  always @(negedge clk) begin
+    if (!rst_n) begin
+      if (!rst_n_q)
+        sva_check(txd === 1'b0 && tx_act === 1'b0 && irq === 1'b0,
+                  "A1 reset: outputs quiescent");
+    end else begin
+      // A2: received data-payload length is bounded by the 16-byte buffer
+      // (oversize packets are dropped at RXS_HDR before rx_dlen updates)
+      sva_check(dut.rx_dlen <= 5'd16, "A2 rx_dlen <= 16");
+      // A3: RX engine state holds a legal encoding (4 of 8 used)
+      sva_check(rx_st <= 3'd3, "A3 rxs legal");
+      // A4: advertising interval counter bounded by ADV_INTV
+      sva_check(dut.adv_timer <= 12'd1200, "A4 adv_timer <= ADV_INTV");
+      // A5: connection-event counter bounded by the negotiated interval
+      sva_check(dut.conn_timer <= dut.conn_interval, "A5 conn_timer <= interval");
+    end
+    rst_n_q <= rst_n;
+  end
+`endif
   always @(posedge clk) if (rst_n && irq) irq_cnt++;
 
   // ---------------- reference models (same construction as DUT) ------------
@@ -493,16 +547,216 @@ module Bluetooth5_tb;
     end
     $display("INFO: bad-CRC data PDU discarded + irq");
 
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ----
+    // Re-reset into advertising, then: random adv payloads (decode+CRC cmp),
+    // random SCAN_REQ->SCAN_RSP, unknown-PDU / bad-CRC injections, reconnect,
+    // random data-channel PDUs with SN tracking (ack + rx_buf payload cmp +
+    // rx_evt count), reserved-LLID and bad-CRC data injections. Self-checked
+    // with the shared m_send/m_recv/crc24/whitening models.
+    begin : crv_phase
+      int n_adv=0, n_scan=0, n_unk=0, n_badc=0, n_data=0, n_rsvd=0;
+      logic [7:0] rp [0:15];
+      logic [7:0] pdu_h0;
+      logic       m_sn;
+      int         evt_model;
+      int         len_v, ib;
+
+      // ---- re-enter advertising state ----
+      rst_n = 1'b0; repeat (6) @(posedge clk);
+      rst_n = 1'b1; repeat (6) @(posedge clk);
+
+      // (a) 10 random advertising payloads -> ADV_IND decode + CRC + byte cmp
+      for (int r=0; r<10; r++) begin
+        for (int i=0; i<16; i++) begin rp[i]=$urandom_range(255,0); cfg_write(i[4:0], rp[i]); end
+        m_recv(4000, ADV_WSEED);
+        if (!r_got) begin errors++; $display("ERROR: CRV no ADV_IND r=%0d", r); end
+        else begin
+          if (r_aa !== ADV_AA) begin errors++; $display("ERROR: CRV adv AA %h", r_aa); end
+          for (int i=0; i<16; i++)
+            if (dec_b[7+i] !== rp[i]) begin
+              errors++; $display("ERROR: CRV adv pay[%0d] %h exp %h", i, dec_b[7+i], rp[i]);
+            end
+          if (!crc_ok(16, ADV_CRCI)) begin errors++; $display("ERROR: CRV adv CRC"); end
+        end
+        n_adv++;
+      end
+      cfg_write(5'd16, 8'h00);   // adv_en=0: stop periodic ADV_IND (rx_en=!tx_act)
+
+      // (b) 5 random SCAN_REQ -> SCAN_RSP (fixed 8'h53+i payload)
+      for (int r=0; r<5; r++) begin
+        wait_tx_idle;
+        for (int i=0; i<12; i++) mp_pay[i]=$urandom_range(255,0);
+        m_send(ADV_AA, 8'h03, 8'd12, 12, ADV_CRCI, ADV_WSEED, 1'b0);
+        scan_rsp_seen = 0;
+        for (int n=0; n<7 && !scan_rsp_seen; n++) begin
+          m_recv(3200, ADV_WSEED);
+          if (r_got && r_h0[3:0]==4'h4) begin
+            scan_rsp_seen = 1;
+            for (int i=0; i<16; i++)
+              if (dec_b[7+i] !== (8'h53+i[7:0])) begin
+                errors++; $display("ERROR: CRV scan_rsp[%0d] %h", i, dec_b[7+i]);
+              end
+            if (!crc_ok(16, ADV_CRCI)) begin errors++; $display("ERROR: CRV scan_rsp CRC"); end
+          end
+        end
+        if (!scan_rsp_seen) begin errors++; $display("ERROR: CRV no SCAN_RSP r=%0d", r); end
+        n_scan++;
+      end
+
+      // (c) 4 unknown advertising PDU types (7..15) -> discard + irq
+      for (int r=0; r<4; r++) begin
+        irq_before = irq_cnt;
+        wait_tx_idle;
+        m_send(ADV_AA, {4'h0, 4'(7 + $urandom_range(8,0))}, 8'd0, 0, ADV_CRCI, ADV_WSEED, 1'b0);
+        t = 0;
+        while (irq_cnt == irq_before && t < 1500) begin @(posedge clk); t++; end
+        if (irq_cnt == irq_before) begin
+          errors++; $display("ERROR: CRV no irq on unknown PDU r=%0d", r);
+        end
+        n_unk++;
+      end
+
+      // (d) 3 bad-CRC SCAN_REQ -> discard + irq, no SCAN_RSP
+      for (int r=0; r<3; r++) begin
+        irq_before = irq_cnt;
+        wait_tx_idle;
+        for (int i=0; i<12; i++) mp_pay[i]=$urandom_range(255,0);
+        m_send(ADV_AA, 8'h03, 8'd12, 12, ADV_CRCI, ADV_WSEED, 1'b1);
+        scan_rsp_seen = 0;
+        for (int n=0; n<5; n++) begin
+          m_recv(2500, ADV_WSEED);
+          if (r_got && r_h0[3:0]==4'h4) scan_rsp_seen = 1;
+        end
+        if (scan_rsp_seen) begin errors++; $display("ERROR: CRV SCAN_RSP for bad CRC r=%0d", r); end
+        if (irq_cnt == irq_before) begin errors++; $display("ERROR: CRV no irq bad CRC scan r=%0d", r); end
+        n_badc++;
+      end
+
+      // ---- reconnect (fresh CONNECT_REQ) ----
+      wait_tx_idle;
+      mp_pay[0]=CONN_AA[7:0];   mp_pay[1]=CONN_AA[15:8];
+      mp_pay[2]=CONN_AA[23:16]; mp_pay[3]=CONN_AA[31:24];
+      mp_pay[4]=CONN_CRCI[7:0]; mp_pay[5]=CONN_CRCI[15:8]; mp_pay[6]=CONN_CRCI[23:16];
+      mp_pay[7]=CONN_INTV[7:0]; mp_pay[8]=CONN_INTV[15:8];
+      mp_pay[9]=8'd0; mp_pay[10]=8'd0;
+      mp_pay[11]=8'hB8; mp_pay[12]=8'h0B;
+      mp_pay[13]=8'd5; mp_pay[14]=8'd9;
+      m_send(ADV_AA, 8'h05, 8'd15, 15, ADV_CRCI, ADV_WSEED, 1'b0);
+      repeat (50) @(posedge clk);
+      if (dut.ll_state !== LS_CONN_CODE) begin
+        errors++; $display("ERROR: CRV no reconnect");
+      end
+
+      // (e) 30 random data-channel PDUs with SN tracking
+      m_sn      = 1'b0;
+      evt_model = dut.rx_evt_cnt;
+      for (int k=0; k<30; k++) begin
+        len_v = (k % 5 == 0) ? 16 : (1 + $urandom_range(15, 0));  // ensure len=16 hits
+        for (int i=0; i<16; i++) mp_pay[i]=$urandom_range(255,0);
+        // hdr0: llid=01, nesn=0 (keeps tx_sn==0), sn=m_sn; randomise the
+        // md/rfu high nibble (ignored by the DUT) to toggle hdr0_r[7:4]
+        pdu_h0 = {4'($urandom_range(15,0)), 1'b0, m_sn, 2'b01};
+        m_send(CONN_AA, pdu_h0, 8'(len_v), len_v, CONN_CRCI, DSEED, 1'b0);
+        m_recv(800, DSEED);
+        if (!r_got) begin errors++; $display("ERROR: CRV no data ack k=%0d", k); end
+        else begin
+          if (r_h0[1:0] !== 2'b01 || r_h1 !== 8'd0) begin
+            errors++; $display("ERROR: CRV data ack not empty PDU k=%0d h0=%h h1=%h", k, r_h0, r_h1);
+          end
+          if (!crc_ok(0, CONN_CRCI)) begin errors++; $display("ERROR: CRV data ack CRC k=%0d", k); end
+        end
+        evt_model = evt_model + 1;
+        if (dut.rx_evt_cnt !== 16'(evt_model)) begin
+          errors++; $display("ERROR: CRV rx_evt_cnt %0d exp %0d k=%0d", dut.rx_evt_cnt, evt_model, k);
+        end
+        if (dut.rx_dlen !== 5'(len_v)) begin
+          errors++; $display("ERROR: CRV rx_dlen %0d exp %0d k=%0d", dut.rx_dlen, len_v, k);
+        end
+        for (int i=0; i<len_v; i++)
+          if (dut.rx_buf[i] !== mp_pay[i]) begin
+            errors++; $display("ERROR: CRV rx_buf[%0d] %h exp %h k=%0d", i, dut.rx_buf[i], mp_pay[i], k);
+          end
+        m_sn = ~m_sn;
+        n_data++;
+      end
+
+      // (f) 3 reserved-LLID (2'b00) data PDUs -> protocol error + irq
+      for (int r=0; r<3; r++) begin
+        irq_before = irq_cnt;
+        for (int i=0; i<4; i++) mp_pay[i]=$urandom_range(255,0);
+        m_sn = ~m_sn;
+        m_send(CONN_AA, {3'b000, 1'b0, 1'b0, m_sn, 2'b00}, 8'd4, 4, CONN_CRCI, DSEED, 1'b0);
+        t = 0;
+        while (irq_cnt == irq_before && t < 600) begin @(posedge clk); t++; end
+        if (irq_cnt == irq_before) begin
+          errors++; $display("ERROR: CRV no irq on reserved LLID r=%0d", r);
+        end
+        n_rsvd++;
+      end
+
+      // (g) 3 bad-CRC data PDUs -> discard + irq
+      for (int r=0; r<3; r++) begin
+        irq_before = irq_cnt;
+        for (int i=0; i<4; i++) mp_pay[i]=$urandom_range(255,0);
+        m_send(CONN_AA, {3'b000, 1'b0, 1'b0, m_sn, 2'b01}, 8'd4, 4, CONN_CRCI, DSEED, 1'b1);
+        t = 0;
+        while (irq_cnt == irq_before && t < 600) begin @(posedge clk); t++; end
+        if (irq_cnt == irq_before) begin
+          errors++; $display("ERROR: CRV no irq on bad-CRC data r=%0d", r);
+        end
+        n_badc++;
+      end
+      // (h) 8 random CONNECT_REQ cycles: each re-resets then connects with a
+      // fully random LLData, toggling the captured connection-parameter
+      // registers (conn_aa/crci/interval/latency/timeout/chm/hop + *_cur).
+      for (int c=0; c<8; c++) begin
+        rst_n = 1'b0; repeat (6) @(posedge clk);
+        rst_n = 1'b1; repeat (6) @(posedge clk);
+        cfg_write(5'd16, 8'h00);                 // adv off
+        for (int i=0; i<15; i++) mp_pay[i]=$urandom_range(255,0);
+        m_send(ADV_AA, 8'h05, 8'd15, 15, ADV_CRCI, ADV_WSEED, 1'b0);
+        t = 0;
+        while (dut.ll_state !== LS_CONN_CODE && t < 400) begin @(posedge clk); t++; end
+        if (dut.ll_state !== LS_CONN_CODE) begin
+          errors++; $display("ERROR: CRV random connect %0d failed", c);
+        end
+      end
+            $display("CRV: adv=%0d scan=%0d unk=%0d data=%0d rsvd=%0d badc=%0d",
+               n_adv, n_scan, n_unk, n_data, n_rsvd, n_badc);
+    end
+`endif
+
     // summary
     if (errors == 0) $display("TEST PASSED: Bluetooth5");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s=0; s<4; s++) visited += rx_seen[s];
+      for (int s=0; s<2; s++) visited += tx_seen[s];
+      for (int s=0; s<2; s++) visited += ll_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, BT5_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
+`ifdef VERILATOR
+  // chunked timeout guard
+  initial begin
+    repeat (6000) #1000;
+    $display("TIMEOUT");
+    $finish;
+  end
+`else
   initial begin
     #4000000;
     $display("TIMEOUT");
     $finish;
   end
+`endif
 
 endmodule
