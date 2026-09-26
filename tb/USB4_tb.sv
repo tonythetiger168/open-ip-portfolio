@@ -194,12 +194,10 @@ module USB4_tb;
         if (rl !== plen) begin
           errors++; $display("ERROR: CRV plen got=%0d exp=%0d", rl, plen);
         end
-        // hdr[0..3] excluded: SUSPECTED RTL BUG (recorded, not fixed) --
-        // rtl/USB4_top.sv:196 echo-copy loop runs i=2..21, writing
-        // tx_mem[16..19] out of bounds (tx_mem is [0:15]); iverilog drops
-        // the OOB writes, Verilator aliases them onto tx_mem[0..3], so the
-        // echoed header bytes 0-3 carry stale buf_mem[18..21] content.
-        for (int i=4;i<HB;i++)
+        // v2.5.1 FIXED (rtl/USB4_top.sv echo-copy loop): bound is now
+        // HB+MAXB+2 so tx_mem[0..15] = buf_mem[2..17] exactly; hdr[0..3]
+        // are no longer clobbered, all 8 header bytes are checked.
+        for (int i=0;i<HB;i++)
           if (hdr[i] !== exp_hdr[i]) begin
             errors++; $display("ERROR: CRV hdr[%0d] got=%h exp=%h", i, hdr[i], exp_hdr[i]);
           end

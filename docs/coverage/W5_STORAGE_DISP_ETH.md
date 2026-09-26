@@ -207,6 +207,9 @@ Resolved this session (third coder):
   `HB + MAXB + 2`. The v2.5.1 fix should repair all three protocols
   together. The CRV phases predict the deterministic Verilator behavior
   with an exact `sh_buf` shadow of `buf_mem` (agreed with orchestrator).
+- **v2.5.1 FIXED (W5-RTL-1)**: bound corrected to `HB + MAXB + 2` in
+  NVMe/FC/Ethernet; TB echo model simplified to exact-frame compare.
+  iverilog + Verilator run_cov PASS, 4 metrics unchanged; mutant FAILs.
 - **XGMII**: partial-lane control-column arms (`rxc ∉ {0,F}`) are
   unreachable dead code (guarded by `rxc == 4'h0`); lane stores use
   constant offsets that would hole-clobber `rxq` if reachable. Harmless

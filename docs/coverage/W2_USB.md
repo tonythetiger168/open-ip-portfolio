@@ -99,6 +99,10 @@ PASS; every remaining coverage point is waived in
    comment pointing here.
 2. **USB4** `rtl/USB4_top.sv:196`: identical OOB echo-copy loop as USB3_2
    (same `tx_mem[16..19]` aliasing, same CRV `hdr[0..3]` exclusion).
+
+> v2.5.1 FIXED (bugs 1-2): loop bound corrected to `HB + MAXB + 2`;
+> CRV echo compare now checks all 8 header bytes. iverilog + Verilator
+> run_cov PASS, 4 metrics unchanged; mutant (revert bound) FAILs.
 3. **USB2_0** `rtl/USB2_0_top.sv:98`: TX `run_cnt` is not reset at the
    SYNC->PID boundary (SYNC bit7=1 leaves `run_cnt`=2 entering the PID
    field), so with `pid_b=8'h0F` (PID nibble F) the count reaches 6 after

@@ -193,7 +193,8 @@ module FC_top #(
   always_ff @(posedge clk) begin
     if (rx_done) begin
       tlen <= len_q;
-      for (int i = 2; i < HB + MAXB + 6; i++)
+      // v2.5.1 fix: bound HB+MAXB+2 keeps tx_mem[i-2] within tx_mem[0:15]
+      for (int i = 2; i < HB + MAXB + 2; i++)
         tx_mem[i-2] <= buf_mem[i];
       ta_cnt <= 4'd6; ta_arm <= 1'b1;
     end
