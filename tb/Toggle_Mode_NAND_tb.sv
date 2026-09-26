@@ -38,6 +38,67 @@ module Toggle_Mode_NAND_tb;
 
   always #5 clk = ~clk;
 
+`ifdef VERILATOR
+  // =====================================================================
+  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
+  // Tool notes (Verilator 5.006): no native FSM/SVA coverage and
+  // randomize() ignores constraint blocks -> procedural constraints
+  // ($urandom_range + rejection sampling), TB FSM probe, immediate
+  // assertions. The timeout guard is chunked (see bottom of file).
+  //
+  // FSM probe path (DUT is not a wrapper; probe the RTL directly):
+  //   dut.state -- state_t, 10 states ST_CMD..ST_STOUT
+  // =====================================================================
+  localparam int CRV_FSM_TOTAL = 10;  // ST_CMD..ST_STOUT
+  logic [9:0] fsm_seen = '0;          // visited-state bitmap
+  wire  [3:0] dut_state = dut.state;
+
+  int sva_total = 0, sva_fail = 0;
+  // counted immediate assertion: every evaluation is one check
+  task automatic sva_check(input bit cond, input string name);
+    begin
+      sva_total++;
+      if (!cond) begin
+        sva_fail++;
+        errors++;
+        $display("SVA_FAIL: %s @%0t", name, $time);
+      end
+    end
+  endtask
+
+  // FSM coverage: sample DUT state register every clock
+  always @(posedge clk) fsm_seen[dut_state] <= 1'b1;
+
+  // output-invariant assertion suite (sampled coherently pre-NBA)
+  int rst_cyc = 0;   // consecutive reset clocks (skip the fall-edge cycle)
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      // A1: outputs quiescent during reset (from the 2nd reset clock on)
+      if (rst_cyc >= 1)
+        sva_check(rb_n === 1'b1 && irq === 1'b0 && dut_state === 4'd0,
+                  "A1 reset: rb_n high, irq low, ST_CMD");
+      rst_cyc <= rst_cyc + 1;
+    end else begin
+      rst_cyc <= 0;
+      // A2: state register holds a legal enum encoding
+      sva_check(dut_state <= 4'd9, "A2 state encoding legal");
+      // A3: rb_n low only in the busy state
+      sva_check(rb_n === 1'b1 || (dut_state == 4'd8), "A3 rb_n low implies BUSY");
+      // A4: dq pad driven only in data-output states
+      sva_check(!dut.drive_en || (dut_state == 4'd2) || (dut_state == 4'd8) ||
+                (dut_state == 4'd9), "A4 dq drive only in output states");
+      // A5: outside BUSY the target is always ready
+      sva_check((dut_state == 4'd8) || (rb_n === 1'b1), "A5 ready outside BUSY");
+      // A6: dqs is driven only when dq is driven
+      sva_check((dqs === 1'bz) || (dq !== 8'hzz), "A6 dqs driven implies dq driven");
+      // A7: address-cycle counter within the 5-cycle protocol bound
+      sva_check(dut.addr_cnt <= 3'd4, "A7 addr_cnt <= 4");
+      // A8: busy counter within the erase-time bound
+      sva_check(dut.busy_cnt <= 10'd999, "A8 busy_cnt <= 999");
+    end
+  end
+`endif
+
   task automatic check(input logic cond, input string msg);
     begin
       if (!cond) begin errors++; $display("ERROR: %s (time %0t)", msg, $time); end
@@ -61,10 +122,25 @@ module Toggle_Mode_NAND_tb;
     begin
       @(negedge clk); ce_n = 0; cle = 0; ale = 0; host_oe = 0; re_n = 1;
       repeat (2) @(negedge clk); re_n = 0;
+`ifdef VERILATOR
+      // Drift-immune sampling: with Verilator 5.006 --timing, coroutine
+      // resumes can lag clock edges by whole cycles in bursts (scheduler
+      // pathology), so fixed edge counts drift out of the DUT drive
+      // window (dq reads back as 2-state 00). drive_en and re_n are
+      // levels, so waiting on them is skew-immune; dq is stable for the
+      // whole window and ptr advances as re_s rises (drive_en falls).
+      wait (dut.drive_en === 1'b1);
+      #1;
+      d = dq;                                       // sample while driven
+      re_n = 1;
+      wait (dut.drive_en === 1'b0);                 // ptr has advanced
+      repeat (2) @(negedge clk);
+`else
       repeat (4) @(negedge clk);                    // pad turnaround + sync
       d = dq;                                       // sample while re_n low
       @(negedge clk); re_n = 1;
       repeat (4) @(negedge clk);                    // let ptr advance
+`endif
     end
   endtask
 
@@ -164,6 +240,60 @@ module Toggle_Mode_NAND_tb;
     end
   endtask
 
+`ifdef VERILATOR
+  // ---- v2.5 CRV helpers ------------------------------------------------
+  // page read with compare against the CRV scoreboard model (the directed
+  // page_read task checks against its own pattern/fill arguments instead)
+  task automatic crv_read_cmp(input logic [3:0] page, input logic [5:0] col,
+                              input int n, ref logic [7:0] model [0:15][0:63]);
+    logic [7:0] b;
+    int bw;
+    begin
+      h_cmd(8'h00);
+      h_addr({2'b00, col});
+      h_addr(8'h00);
+      h_addr({4'b0000, page});
+      h_addr(8'h00);
+      h_addr(8'h00);
+      h_cmd(8'h30);
+      busy_width(bw);
+      if (bw < 20 || bw > 30) begin
+        errors++; $display("ERROR: CRV read busy %0d clk (expected ~25)", bw);
+      end
+      for (int i = 0; i < n; i++) begin
+        h_rd(b);
+        if (b !== model[page][6'(col + i)]) begin
+          errors++;
+          $display("ERROR: CRV RD p%0d col%0d got=%h exp=%h",
+                   page, col + i, b, model[page][6'(col + i)]);
+        end
+      end
+    end
+  endtask
+
+  // block erase with model update (pages 4b..4b+3 become known-erased)
+  task automatic crv_erase(input logic [1:0] blk,
+                           ref logic [7:0] model [0:15][0:63],
+                           ref logic [15:0] known);
+    int bw;
+    begin
+      h_cmd(8'h60);
+      h_addr({6'b000000, blk, 2'b00});    // row = first page of block
+      h_addr(8'h00);
+      h_addr(8'h00);
+      h_cmd(8'hD0);
+      busy_width(bw);
+      if (bw < 990 || bw > 1010) begin
+        errors++; $display("ERROR: CRV erase busy %0d clk (expected ~1000)", bw);
+      end
+      for (int p = 0; p < 4; p++) begin
+        for (int i = 0; i < 64; i++) model[{blk, 2'(p)}][i] = 8'hFF;
+        known[{blk, 2'(p)}] = 1'b1;
+      end
+    end
+  endtask
+`endif
+
   logic [7:0] st;
   int  bw;
 
@@ -228,15 +358,173 @@ module Toggle_Mode_NAND_tb;
     read_id;                                        // target still alive
     check(irq === 1'b0, "irq set at end of test");
 
+`ifdef VERILATOR
+    // ---- v2.5 CRV random phase (directed tests above untouched) ----
+    // 130 randomized transactions over a page-granular scoreboard model
+    // with 1->0 program semantics:
+    //   ~15% block erase (blocks 0..2; model := FF, page becomes known)
+    //   ~25% page program on known pages (random col/len/seed; model &=)
+    //   ~30% page read on known pages (compare vs model)
+    //   ~15% read status (fail bit must stay clear on legal ops)
+    //   ~15% error injection: unknown opcode / out-of-sequence abort at
+    //         rotating FSM sites (irq must set; 0xFF reset must clear)
+    //   + 1 protected-block erase (status fail) with 0xFF cleanup
+    begin : crv_phase
+      logic [7:0] model [0:15][0:63];
+      logic [15:0] known;
+      logic [7:0] seed, b, s;
+      int n_er = 0, n_pg = 0, n_rd = 0, n_st = 0, n_bad = 0;
+      int roll, page, col, len, site, nkw;
+      logic [7:0] badops [0:7];
+      badops[0] = 8'h01; badops[1] = 8'h31; badops[2] = 8'h61;
+      badops[3] = 8'h71; badops[4] = 8'h81; badops[5] = 8'h91;
+      badops[6] = 8'hAB; badops[7] = 8'hD1;
+      known = '0;
+      for (int t = 0; t < 130; t++) begin
+        roll = $urandom_range(0, 19);
+        nkw = 0;
+        for (int p = 0; p < 16; p++) nkw += known[p];
+        if (roll < 3 || nkw == 0) begin
+          // block erase on blocks 0..2 (protected block 3 covered below)
+          n_er++;
+          crv_erase(2'($urandom_range(0, 2)), model, known);
+        end else if (roll < 8) begin
+          // page program on a random known page, boundary-weighted col
+          n_pg++;
+          page = $urandom_range(0, 15);
+          while (!known[page]) page = $urandom_range(0, 15);
+          col  = $urandom_range(0, 63);
+          if ($urandom_range(0, 9) < 3) col = ($urandom_range(0, 1) == 0) ? 0 : 60;
+          len  = 1 + $urandom_range(0, 7);
+          if (col + len > 64) len = 64 - col;
+          seed = $urandom_range(0, 255);
+          page_program(4'(page), 6'(col), seed, len, bw);
+          for (int i = 0; i < len; i++)
+            model[page][6'(col + i)] = model[page][6'(col + i)] & pat(seed, i);
+        end else if (roll < 14) begin
+          // page read + model compare
+          n_rd++;
+          page = $urandom_range(0, 15);
+          while (!known[page]) page = $urandom_range(0, 15);
+          col  = $urandom_range(0, 63);
+          if ($urandom_range(0, 9) < 3) col = ($urandom_range(0, 1) == 0) ? 0 : 60;
+          len  = 1 + $urandom_range(0, 7);
+          if (col + len > 64) len = 64 - col;
+          crv_read_cmp(4'(page), 6'(col), len, model);
+        end else if (roll < 17) begin
+          // read status: ready=1, fail=0 after legal operations
+          n_st++;
+          read_status(s);
+          if (s !== 8'h40) begin
+            errors++; $display("ERROR: CRV status got=%h exp=40", s);
+          end
+        end else begin
+          // error injection: unknown opcode in idle, or out-of-sequence
+          // abort at a rotating FSM site; irq must set and 0xFF must clear
+          n_bad++;
+          site = n_bad % 6;
+          case (site)
+            0: begin                               // unknown opcode in ST_CMD
+              h_cmd(badops[$urandom_range(0, 7)]);
+            end
+            1: begin                               // abort Read ID addr phase
+              h_cmd(8'h90);
+              h_cmd(badops[$urandom_range(0, 7)]);
+            end
+            2: begin                               // abort read addr phase
+              h_cmd(8'h00);
+              h_addr(8'h00);
+              h_cmd(badops[$urandom_range(0, 7)]);
+            end
+            3: begin                               // abort WAIT30 confirm
+              h_cmd(8'h00);
+              h_addr(8'h00); h_addr(8'h00); h_addr(8'h00);
+              h_addr(8'h00); h_addr(8'h00);
+              h_cmd(badops[$urandom_range(0, 7)]);
+            end
+            4: begin                               // abort program data phase
+              h_cmd(8'h80);
+              h_addr(8'h00); h_addr(8'h00); h_addr(8'h00);
+              h_addr(8'h00); h_addr(8'h00);
+              h_din(8'h55);
+              h_cmd(badops[$urandom_range(0, 7)]);
+            end
+            default: begin                         // abort erase confirm
+              h_cmd(8'h60);
+              h_addr(8'h00); h_addr(8'h00); h_addr(8'h00);
+              h_cmd(badops[$urandom_range(0, 7)]);
+            end
+          endcase
+          repeat (2) @(negedge clk);
+          if (irq !== 1'b1) begin
+            errors++; $display("ERROR: CRV bad cmd site %0d: irq not raised", site);
+          end
+          h_cmd(8'hFF);                            // reset clears irq
+          busy_width(bw);
+          if (irq !== 1'b0) begin
+            errors++; $display("ERROR: CRV irq not cleared by 0xFF");
+          end
+        end
+      end
+      // protected-block erase: status fail bit, array untouched; then
+      // 0xFF reset clears the fail flag (directed covers protected prog)
+      begin
+        int bw2;
+        h_cmd(8'h60);
+        h_addr(8'h0C);                            // row = page 12 (block 3)
+        h_addr(8'h00);
+        h_addr(8'h00);
+        h_cmd(8'hD0);
+        busy_width(bw2);
+        if (bw2 < 990 || bw2 > 1010) begin
+          errors++; $display("ERROR: CRV prot erase busy %0d clk", bw2);
+        end
+        read_status(s);
+        if (s !== 8'h41) begin
+          errors++; $display("ERROR: CRV status after prot erase got=%h exp=41", s);
+        end
+        h_cmd(8'hFF);
+        busy_width(bw2);
+        read_status(s);
+        if (s !== 8'h40) begin
+          errors++; $display("ERROR: CRV status after 0xFF got=%h exp=40", s);
+        end
+      end
+      $display("CRV: 130 txns (erase=%0d prog=%0d read=%0d status=%0d bad=%0d) + prot-erase",
+               n_er, n_pg, n_rd, n_st, n_bad);
+    end
+`endif
+
     if (errors == 0) $display("TEST PASSED: Toggle_Mode_NAND");
     else             $display("TEST FAILED: %0d errors", errors);
+`ifdef VERILATOR
+    begin
+      int visited;
+      visited = 0;
+      for (int s = 0; s < CRV_FSM_TOTAL; s++) visited += fsm_seen[s];
+      $display("FSM_COV: %0d/%0d", visited, CRV_FSM_TOTAL);
+      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+    end
+`endif
     $finish;
   end
 
+`ifdef VERILATOR
+  // Random phase adds traffic: extend the guard. The timeout is chunked
+  // into 1-us delays: with Verilator 5.006 a single long-pending #delay
+  // event corrupts the --timing delay heap once many short-delay
+  // resumptions interleave with it (see docs/COVERAGE.md note 1).
+  initial begin
+    repeat (80) #100000;  // 8 ms in 100-us chunks
+    $display("TIMEOUT");
+    $finish;
+  end
+`else
   initial begin
     #5000000;
     $display("TIMEOUT");
     $finish;
   end
+`endif
 
 endmodule
