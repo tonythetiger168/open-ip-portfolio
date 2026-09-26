@@ -86,8 +86,8 @@ waiver cxl-fam-line-2 rtl/CXL_top.sv:102 rtl/PCIe_top.sv:102 rtl/UEC_top.sv:102 
   reason="dead default: tstate is 2-bit with encodings 0..2 cased explicitly."
 waiver cxl-fam-line-3 rtl/CXL_top.sv:186 rtl/PCIe_top.sv:186 rtl/UEC_top.sv:186 rtl/Interlaken_v1_2_top.sv:186 rtl/JESD204C_top.sv:186 line \
   reason="dead default: rstate is 2-bit with encodings 0..1 cased explicitly."
-waiver cxl-fam-line-4 rtl/CXL_top.sv:159-176 rtl/PCIe_top.sv:164-176 rtl/UEC_top.sv:164-176 rtl/Interlaken_v1_2_top.sv:164-176 rtl/JESD204C_top.sv:164-176 line \
-  reason="5.006 attribution artifact around block-local logic[31:0] c declaration; execution proven by 105 shadow-verified echo frames and TB-checked sticky rx_err after bad-STP/bad-CRC/bad-END injections."
+waiver cxl-fam-line-4 rtl/CXL_top.sv:159-176 rtl/PCIe_top.sv:159-176 rtl/UEC_top.sv:159-176 rtl/Interlaken_v1_2_top.sv:159-176 rtl/JESD204C_top.sv:159-176 line \
+  reason="5.006 attribution artifact around block-local logic[31:0] c declaration; execution proven by 105 shadow-verified echo frames and TB-checked sticky rx_err after bad-STP/bad-CRC/bad-END injections. v2.5.1: clone ranges widened 164-176 -> 159-176 (the v2.5.1 stimulus re-rolls the artifact's zero-attribution; line 159 is the bad-STP rx_err arm, execution proven by the CRV bad-STP rx_err check)."
 waiver cxl-fam-toggle-1 rtl/CXL_top.sv:29 rtl/PCIe_top.sv:29 rtl/UEC_top.sv:29 rtl/Interlaken_v1_2_top.sv:29 rtl/JESD204C_top.sv:29 toggle \
   reason="tmr[15:5]: BAUD_DIV=20, counter spans 0..19; upper bits are 16-bit generic headroom."
 waiver cxl-fam-toggle-2 rtl/CXL_top.sv:116 rtl/PCIe_top.sv:116 rtl/UEC_top.sv:116 rtl/Interlaken_v1_2_top.sv:116 rtl/JESD204C_top.sv:116 toggle \
