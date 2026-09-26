@@ -144,9 +144,14 @@ module ONFI_tb;
   endtask
 
 `ifdef VERILATOR
-  // runtime-bound clock wait: keeps Verilator from unrolling the loop
+  // runtime-bound clock wait: keeps Verilator from unrolling the loop.
+  // Waits on the NEGATIVE edge: posedge resumptions contend with the DUT
+  // always_ff wakeups under the 5.006 timing scheduler and intermittently
+  // land a full clock late (bit-cell skew -> corrupted frames, RISK-1);
+  // negedge is scheduler-quiet and also places host drives / TB samples
+  // half a cycle away from the DUT's posedge sampling grid.
   task automatic bdly(input int n);
-    repeat (n) @(posedge clk);
+    repeat (n) @(negedge clk);
   endtask
 `endif
   logic b; logic [7:0] sh;
@@ -159,7 +164,7 @@ module ONFI_tb;
       // are lost intermittently. Poll the level on clock edges instead,
       // bounded so a missing echo reports diagnostics instead of parking.
       wto = 0;
-      while (tx !== 1'b0 && wto < 200000) begin @(posedge clk); wto++; end
+      while (tx !== 1'b0 && wto < 200000) begin @(negedge clk); wto++; end
       if (tx !== 1'b0) begin
         errors++;
         $display("ERROR: no echo (rx_err=%b tstate=%0d rstate=%0d ridx=%0d rbitc=%0d)",
@@ -186,6 +191,15 @@ module ONFI_tb;
         end
       end
       `BDLY(BIT*40);
+`ifdef VERILATOR
+      // Echo drain (RISK-1 root cause): the fixed tail above is not
+      // cycle-exact against the DUT TX grid (extra T_END cell + tick phase),
+      // so the next host frame can begin while tstate != T_IDLE; its start
+      // edge then fails the start_edge guard and the frame is never armed
+      // (rx_err + no echo). Wait for the TX FSM to drain on the quiet edge.
+      wto = 0;
+      while (dut.tstate !== 2'd0 && wto < 200000) begin @(negedge clk); wto++; end
+`endif
     end
   endtask
 
@@ -269,7 +283,6 @@ module ONFI_tb;
     end
     if (dut.rx_err !== 1'b0) begin errors++; $display("ERROR: ONFI rx_err set"); end
 `ifdef VERILATOR
-    $display("DBG: directed done @%0t", $time);
     // ---- v2.5 CRV random phase (directed test above untouched) ----
     // 110 frames: random header/payload, random payload length 0..8
     // (rejection-weighted boundaries 0 and 8), echo compared against the
@@ -280,7 +293,6 @@ module ONFI_tb;
       int n_ok = 0, n_bad = 0;
       for (int i = 0; i < 23; i++) sh_buf[i] = 8'h00;   // 2-state init
       for (int t = 0; t < 110; t++) begin
-        if (t % 10 == 0) $display("DBG: frame %0d @%0t", t, $time);
         for (int i = 0; i < HB; i++) hdr[i] = $urandom_range(0, 255);
         for (int i = 0; i < 8; i++)  pl[i]  = $urandom_range(0, 255);
         rlen = $urandom_range(0, 8);
@@ -300,14 +312,13 @@ module ONFI_tb;
         end else begin
           n_ok++;
           send_tlp(rlen);
-          $display("DBG: frame %0d sent @%0t", t, $time);
           crv_recv_cmp(rlen, t);
-          $display("DBG: frame %0d recv @%0t", t, $time);
         end
       end
       // recovery: reset clears rx_err, device still echoes correctly
-      rst_n = 0; repeat(5) @(posedge clk);
-      rst_n = 1; repeat(5) @(posedge clk);
+      // (deassert on the quiet edge, away from the DUT sampling grid)
+      rst_n = 0; repeat(5) @(negedge clk);
+      rst_n = 1; repeat(5) @(negedge clk);
       if (dut.rx_err !== 1'b0) begin
         errors++; $display("ERROR: CRV rx_err not cleared by reset");
       end
