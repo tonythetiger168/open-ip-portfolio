@@ -293,13 +293,11 @@ module USB2_0_tb;
         roll  = $urandom_range(0, 9);
         len_c = $urandom_range(0, 8);           // payload 0..8 bytes (0 = header-only)
         pid_c = $urandom_range(0, 15);          // any PID nibble (echoed)
-        // rejection: PID=F excluded from echo-compared frames --
-        // SUSPECTED RTL BUG (recorded, not fixed): rtl/USB2_0_top.sv TX
-        // run_cnt is not reset at the SYNC->PID boundary (SYNC bit7=1
-        // leaves run_cnt=2), so with pid_b=8'h0F the count hits 6 after
-        // the four leading PID ones and the DUT inserts a spurious stuff
-        // bit, shifting every following echo bit by one.
-        if (roll < 5 && pid_c == 4'hF) pid_c = 4'hE;
+        // v2.5.1 FIXED: PID=F is now echo-compared like any other nibble --
+        // rtl/USB2_0_top.sv TX run_cnt is reset at the SYNC->PID boundary,
+        // so pid_b=8'h0F no longer inserts a spurious stuff bit (was RTL
+        // bug 3 in docs/coverage/W2_USB.md).
+        if (roll < 5 && pid_c == 4'hF) pid_c = 4'hF;
         for (int i = 0; i < 8; i++) txp[i] = $urandom_range(0, 255);
         if (t == 0) begin
           n_good++; crv_txn(4'h3, 1, 0);        // force min payload boundary
@@ -314,6 +312,8 @@ module USB2_0_tb;
             errors++; $display("ERROR: CRV rx_err set before first bad frame");
           end
           n_badpid++; crv_txn(pid_c, len_c, 2);
+        end else if (t == 4) begin
+          n_good++; crv_txn(4'hF, 2, 0);        // v2.5.1: deterministic PID=F lock
         end else if (roll < 5) begin
           n_good++;   crv_txn(pid_c, len_c, 0);
         end else if (roll < 7) begin
