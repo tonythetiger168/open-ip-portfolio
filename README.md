@@ -125,7 +125,7 @@ setup_tools.sh           installs iverilog / yosys if missing
 | Protocol | Build | Standalone package |
 |---|---|---|
 | DisplayPort 2 | `make -f Makefile.DisplayPort2 sim` | [open_ip_DisplayPort2.zip](releases/open_ip_DisplayPort2.zip) |
-| HDCP 2.3 (Content Protection) | `make -f Makefile.HDCP_2_3_Content_Protection sim` | [open_ip_HDCP_2_3_Content_Protection.zip](releases/open_ip_HDCP_2_3_Content_Protection.zip) |
+| HDCP 2.3 (Content Protection) ⚠️¹ | `make -f Makefile.HDCP_2_3_Content_Protection sim` | [open_ip_HDCP_2_3_Content_Protection.zip](releases/open_ip_HDCP_2_3_Content_Protection.zip) |
 | HDMI 2.1 | `make -f Makefile.HDMI_2_1 sim` | [open_ip_HDMI_2_1.zip](releases/open_ip_HDMI_2_1.zip) |
 | I2S | `make -f Makefile.I2S sim` | [open_ip_I2S.zip](releases/open_ip_I2S.zip) |
 | I2S Audio | `make -f Makefile.I2S_Audio sim` | [open_ip_I2S_Audio.zip](releases/open_ip_I2S_Audio.zip) |
@@ -207,6 +207,9 @@ setup_tools.sh           installs iverilog / yosys if missing
 | SPI | `make -f Makefile.SPI sim` | [open_ip_SPI.zip](releases/open_ip_SPI.zip) |
 | UART | `make -f Makefile.UART sim` | [open_ip_UART.zip](releases/open_ip_UART.zip) |
 
+> ¹ **HDCP 2.3 requires a separate license from DCP LLC for any commercial
+> implementation** — this repository contains no such license and no device
+> keys. See [Protocol licensing notice](#protocol-licensing-notice-important).
 
 ## Quick start
 
@@ -256,3 +259,28 @@ Every source file carries an SPDX short identifier
 (`// SPDX-License-Identifier: Apache-2.0`), following the Linux kernel and
 OpenTitan convention, so automated license scanners (FOSSology, scancode,
 GitHub) detect compliance without parsing full headers.
+
+### Protocol licensing notice (important)
+
+The Apache-2.0 license covers **this repository's RTL code only**. Some
+protocols are additionally governed by their respective consortiums, and
+**shipping a compliant product may require a separate license or membership
+that this repository does not grant**:
+
+- **HDCP 2.3** — implementing HDCP in a product requires a license from
+  **DCP LLC** (https://www.digital-cp.com). This repository contains no such
+  license and no HDCP device keys. The RTL here is provided for
+  **education, research, and interoperability evaluation only**.
+- **USB (USB 2.0/3.x/4/PD/Type-C)** — the USB-IF trademark and logo program
+  is members-only; the trademark does not restrict implementing the
+  protocol, but branding/certifying a product as "USB" requires USB-IF
+  membership and compliance certification.
+- **MIPI (CSI-2/DSI/I3C/SPMI/RFFE/UniPro/…)** — MIPI Alliance specifications
+  are distributed to members; implementing the protocols is not restricted
+  by trademark law, but claiming MIPI conformance requires membership.
+- Similar considerations may apply to HDMI (HDMI LA), Bluetooth (Bluetooth
+  SIG), CAN (ISO/Bosch), DisplayPort (VESA), JEDEC memory standards, and
+  others — **it is the adopter's responsibility to obtain whatever
+  protocol-level licenses their product needs**.
+
+Nothing in this section limits your Apache-2.0 rights to the code itself.
