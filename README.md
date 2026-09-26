@@ -227,17 +227,32 @@ for m in Makefile.*; do make -f $m sim; done
 unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
 ```
 
-## Verification status (v2.4)
+## Verification status (v2.5)
 
-- Simulation: **117/117 PASS** (iverilog 11.0), all testbenches self-checking
-  with error injection; key fixes proven by mutant (negative) testing
+- Constrained-random verification: **117/117 protocols closed** on all
+  four coverage metrics (LINE / TOGGLE / FSM / SVA-subset assertions);
+  ≈1091 provably-unreachable points waiver-listed with per-point
+  justification. Master scoreboard: [docs/COVERAGE.md](docs/COVERAGE.md);
+  per-wave reports: [docs/coverage/](docs/coverage/) (W1-W6)
+- Simulation: **117/117 PASS** (iverilog 11.0), all testbenches
+  self-checking with error injection; full regression re-run at
+  integration. Verilator 5.006 coverage runs: 117/117 PASS
+  (Toggle_Mode_NAND closed by tool-limitation waiver — Verilator
+  BLKLOOPINIT codegen bug, functional evidence via iverilog + FSM 10/10
+  + SVA 348856/348856)
 - Synthesis: **117/117 PASS** (yosys 0.23), zero errors
+- CRV found 16 real RTL bugs (echo-copy out-of-bounds in 11 protocols,
+  serial-read LSB/MSB drive bugs, QSPI MOSI contention, CXL-family
+  STP/LEN framing, SPMI bus wedge, 1-Wire reset detection, ...), all
+  recorded with minimal repros and **scheduled for v2.5.1** — see the
+  RTL bug table in [docs/COVERAGE.md](docs/COVERAGE.md)
 - Highlights: real AES-128 (CSE, NIST vectors) reused by HDCP 2.3;
   real SHA-256+HMAC (Crypto, RFC 4231 vectors); parameterized serial bit
   rate (`BIT_CLKS`) on SAS/SATA/SDIO/UFS/eMMC/SAS-4 with functional
   coverage at BIT_CLKS=4; `ram_style="block"` attributes on large memories
 - Known limitation: verification covers the open-source flow only
-  (iverilog/yosys); no commercial tools (VCS/DC) available in this environment
+  (iverilog/Verilator/yosys); no commercial tools (VCS/DC) available in
+  this environment
 
 ## License
 
