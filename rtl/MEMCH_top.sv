@@ -74,11 +74,15 @@ module MEMCH_top #(
     end
   endgenerate
 
-  assign hready      = hready_v[sel];
-  assign hdone       = hdone_v[sel];
-  assign hrdata      = hrdata_v[sel];
-  assign trace_valid = tv_v[sel];
-  assign trace_cmd   = tc_v[sel];
-  assign trace_addr  = ta_v[sel];
+  // v2.5.1 fix: clamp channel select into [0:NCH-1] so NCH==1 (or a
+  // non-power-of-2 NCH) never reads the per-channel arrays out of bounds
+  wire [CHW-1:0] sel_c = (sel < NCH) ? sel : '0;
+
+  assign hready      = hready_v[sel_c];
+  assign hdone       = hdone_v[sel_c];
+  assign hrdata      = hrdata_v[sel_c];
+  assign trace_valid = tv_v[sel_c];
+  assign trace_cmd   = tc_v[sel_c];
+  assign trace_addr  = ta_v[sel_c];
 
 endmodule
