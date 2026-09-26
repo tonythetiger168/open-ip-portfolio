@@ -175,20 +175,21 @@ module JESD204C_tb;
         // ---- frame class selection ----
         if (t < 100) begin
           ftype = 0;                              // good frame
-          lenb  = 9 + $urandom_range(0, 7);       // LEN 9..16 (8 hits the
-                                                  // LEN=8 TX-overrun RTL bug)
+          lenb  = 8 + $urandom_range(0, 8);       // v2.5.1: full LEN 8..16
+                                                  // (LEN=8 overrun fixed, W6-3)
+          if (t == 10) lenb = 8;                  // deterministic LEN=8 lock
         end else if (t < 102) begin
           ftype = 2;                              // bad STP -> echo anyway
-          lenb  = 9 + $urandom_range(0, 7);
+          lenb  = 8 + $urandom_range(0, 8);
         end else if (t < 110) begin
           ftype = 1;                              // bad CRC -> no echo
-          lenb  = 9 + $urandom_range(0, 7);
+          lenb  = 8 + $urandom_range(0, 8);
         end else if (t < 122) begin
           ftype = 1;                              // long frames, bad CRC
           lenb  = 17 + ((t - 110) % 2);           // LEN 17 / 18 (buf_mem[22:23])
         end else if (t < 124) begin
           ftype = 3;                              // bad END -> no echo
-          lenb  = 9 + $urandom_range(0, 7);
+          lenb  = 8 + $urandom_range(0, 8);
         end else begin
           ftype = 5;                              // LEN byte with bits[7:6]
           lenb  = (t == 124) ? 8'h40 : (t == 125) ? 8'h80 : 8'hC0;  // len_q=0
@@ -234,8 +235,9 @@ module JESD204C_tb;
           // ---- predict tx_mem after rx_done ----
           // v2.5.1 FIXED: exact copy, no OOB-mask clobber of tx_mem[0..3]
           for (int k = 0; k < 16; k++) exp_mem[k] = sh_buf[k+2];
-          // echo data length: LEN=8 TX-overrun avoided above; len_q==0
-          // sends tx_mem[8..15] after the 8 HDR bytes (16 data bytes)
+          // echo data length: v2.5.1 -- LEN=8 now sends 0 payload bytes
+          // (W6-3 fixed); len_q==0 still sends tx_mem[8..15] after the
+          // 8 HDR bytes (16 data bytes)
           edat = (dlen == 0) ? 16 : dlen;
           enf  = edat + 7;
           ce = 32'hFFFFFFFF;
@@ -262,11 +264,10 @@ module JESD204C_tb;
                 end
               end
             end
-            // rcv[0]: RTL-BUG (recorded, not fixed) — T_IDLE never loads
-            // tx_shift with STP, so the first wire byte is the stale shift
-            // register (deterministically 8'h00 after the previous frame's
-            // END byte shifts out). Shadow model predicts 8'h00.
-            if (rcv[0] !== 8'h00 || rcv[1] !== dlen[7:0] ||
+            // rcv[0]: v2.5.1 FIXED (was W6-2) — T_IDLE now loads tx_shift
+            // with STP, so the first wire byte is STP, not the stale shift
+            // register (was deterministically 8'h00).
+            if (rcv[0] !== STP || rcv[1] !== dlen[7:0] ||
                 rcv[enf-1] !== END_B) begin
               errors++;
               $display("ERROR: CRV echo frame t=%0d stp=%h len=%h(exp=%0d) end=%h",

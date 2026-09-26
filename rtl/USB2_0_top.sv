@@ -99,7 +99,10 @@ module USB2_0_top #(
                 tx_shift <= tx_shift >> 1;
               end
               if (tfld == 2'd0) begin
-                if (tbit == 6'd6) begin tfld <= 2'd1; tx_shift <= pid_b; tbit <= '0; end
+                // v2.5.1 fix: restart bit-stuff run-counting at the SYNC->PID
+                // boundary (spec 7.1.9); SYNC bit7=1 otherwise leaves
+                // run_cnt=2 and a PID nibble of F inserts a spurious stuff bit
+                if (tbit == 6'd6) begin tfld <= 2'd1; tx_shift <= pid_b; tbit <= '0; run_cnt <= '0; end
                 else tbit <= tbit + 1'b1;
               end else if (tfld == 2'd1) begin
                 if (tbit == 6'd7) begin

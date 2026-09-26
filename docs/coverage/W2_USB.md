@@ -111,6 +111,10 @@ PASS; every remaining coverage point is waived in
    run-counting after SYNC; the DUT's own RX does reset `rrun`). CRV
    rejection-samples PID=F out of echo-compared frames with a comment
    pointing here.
+   **v2.5.1 FIXED** (branch fix-v251-c): `run_cnt <= '0` at the SYNC->PID
+   boundary; TB rejection removed + deterministic PID=F echo lock (t==4).
+   iverilog + verilator_cov PASS (metrics unchanged); mutant reverts to
+   TEST FAILED (16 errors).
 4. **USB3** `rtl/USB3_top.sv:224-232` + `493-495`: the give-up path does not
    suppress the retransmission the TX FSM already launched. On the 4th
    consecutive failed IN attempt the RX path sets `resend_req`; the TX FSM
@@ -122,3 +126,9 @@ PASS; every remaining coverage point is waived in
    retires it. CRV `crv_giveup` absorbs the extra DPP and retires
    `await_ack` with a cleanup ACK, and A7 is gated by `giveup_window` over
    this documented window only, with comments pointing here.
+   **v2.5.1 FIXED** (branch fix-v251-c): TX_IDLE no longer launches the 5th
+   DPP when `retry_cnt==3` (give-up cycle), and `await_ack` arms only while
+   `in_active`. TB workaround removed (strict A7, no extra-DPP absorb).
+   iverilog + verilator_cov PASS (LINE 369/380 = 97.1%, TOGGLE 94.4%, FSM
+   36/36 -- unchanged); waiver_w2.vc USB3 line refs re-based. Mutant
+   reverts to TEST FAILED (41 errors, A7 x40).

@@ -59,7 +59,7 @@ module JESD204C_top #(
         case (tstate)
           T_IDLE: if (tx_go) begin
             tx_go <= 1'b0; oe_q <= 1'b1; out_q <= 1'b0;
-            tbit <= '0; tfld <= '0;
+            tbit <= '0; tfld <= '0; tx_shift <= STP; // v2.5.1 fix: load STP -- tfld==0 otherwise shifts the stale register (8'h00), partner rejects every echo (W6-2)
             tstate <= T_PKT;
           end
           T_PKT: begin
@@ -83,9 +83,9 @@ module JESD204C_top #(
                 3'd1: begin tx_shift <= tx_mem[0]; tfld <= 3'd2;
                             tx_crc <= 32'hFFFFFFFF; tcur <= '0; end
                 3'd2: begin
-                  if (tcur == 4'd7) begin tx_shift <= tx_mem[8]; tfld <= 3'd3; tcur <= 4'd8; end
-                  else begin tcur <= tcur + 4'd1; tx_shift <= tx_mem[tcur + 4'd1]; end
-                end
+                  if (tcur == 4'd7) begin if (tlen == 6'd8) begin tfld <= 3'd4; crc_snap <= crc32_u(tx_crc, tx_shift[0]); end // v2.5.1 fix (W6-3): LEN=8 zero-payload -> CRC; old `tcur==tlen[3:0]-1` compare never fired (16B overrun)
+                    else begin tx_shift <= tx_mem[8]; tfld <= 3'd3; tcur <= 4'd8; end end
+                  else begin tcur <= tcur + 4'd1; tx_shift <= tx_mem[tcur + 4'd1]; end end
                 3'd3: begin
                   if (tcur == (tlen[3:0] - 4'd1)) begin
                     tfld <= 3'd4;

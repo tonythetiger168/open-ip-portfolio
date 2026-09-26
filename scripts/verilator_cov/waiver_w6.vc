@@ -86,8 +86,8 @@ waiver cxl-fam-line-2 rtl/CXL_top.sv:102 rtl/PCIe_top.sv:102 rtl/UEC_top.sv:102 
   reason="dead default: tstate is 2-bit with encodings 0..2 cased explicitly."
 waiver cxl-fam-line-3 rtl/CXL_top.sv:186 rtl/PCIe_top.sv:186 rtl/UEC_top.sv:186 rtl/Interlaken_v1_2_top.sv:186 rtl/JESD204C_top.sv:186 line \
   reason="dead default: rstate is 2-bit with encodings 0..1 cased explicitly."
-waiver cxl-fam-line-4 rtl/CXL_top.sv:159-176 rtl/PCIe_top.sv:164-176 rtl/UEC_top.sv:164-176 rtl/Interlaken_v1_2_top.sv:164-176 rtl/JESD204C_top.sv:164-176 line \
-  reason="5.006 attribution artifact around block-local logic[31:0] c declaration; execution proven by 105 shadow-verified echo frames and TB-checked sticky rx_err after bad-STP/bad-CRC/bad-END injections."
+waiver cxl-fam-line-4 rtl/CXL_top.sv:159-176 rtl/PCIe_top.sv:159-176 rtl/UEC_top.sv:159-176 rtl/Interlaken_v1_2_top.sv:159-176 rtl/JESD204C_top.sv:159-176 line \
+  reason="5.006 attribution artifact around block-local logic[31:0] c declaration; execution proven by 105 shadow-verified echo frames and TB-checked sticky rx_err after bad-STP/bad-CRC/bad-END injections. v2.5.1: clone ranges widened 164-176 -> 159-176 (the v2.5.1 stimulus re-rolls the artifact's zero-attribution; line 159 is the bad-STP rx_err arm, execution proven by the CRV bad-STP rx_err check)."
 waiver cxl-fam-toggle-1 rtl/CXL_top.sv:29 rtl/PCIe_top.sv:29 rtl/UEC_top.sv:29 rtl/Interlaken_v1_2_top.sv:29 rtl/JESD204C_top.sv:29 toggle \
   reason="tmr[15:5]: BAUD_DIV=20, counter spans 0..19; upper bits are 16-bit generic headroom."
 waiver cxl-fam-toggle-2 rtl/CXL_top.sv:116 rtl/PCIe_top.sv:116 rtl/UEC_top.sv:116 rtl/Interlaken_v1_2_top.sv:116 rtl/JESD204C_top.sv:116 toggle \
@@ -244,6 +244,8 @@ waiver ecpri-toggle-9 rtl/eCPRI_over_Ethernet_top.sv toggle \
   reason="tq_a/tq_b sparse descriptor bits: only read-response descriptors carry addr/data and the queue is shallow, so a few per-entry data bits are data-timing dependent and stay constant."
 
 # ---- WTB ----
+# v2.5.1: wtb-line-5 / wtb-toggle-5 withdrawn -- tok_irq now pulses on token
+# acquisition (W6-6 fixed) and is covered; line refs re-based below.
 waiver wtb-line-1 rtl/WTB_top.sv:95 line \
   reason="dead default: cpu_addr is 2-bit, addrs 1/2/3 cased and addr 0 pre-guarded by the push path; default unreachable."
 waiver wtb-line-2 rtl/WTB_top.sv:221 line \
@@ -252,11 +254,9 @@ waiver wtb-line-3 rtl/WTB_top.sv:257-259 line \
   reason="5.006 attribution artifact on the pay_byte case arms; every select i=0..3 is exercised by the 4-byte data frames (payload compared in CRV)."
 waiver wtb-line-4 rtl/WTB_top.sv:349 line \
   reason="dead default: tstate is a 4-bit TX FSM with all 12 used states cased explicitly; execution proven by FSM_COV 26/26."
-waiver wtb-line-5 rtl/WTB_top.sv:369 line \
-  reason="dead irq source: the station FSM never asserts tok_irq (held at 0 every cycle); irq is driven by rx_bad/cfg_irq (both exercised)."
-waiver wtb-line-6 rtl/WTB_top.sv:412 line \
+waiver wtb-line-6 rtl/WTB_top.sv:417 line \
   reason="5.006 attribution artifact on the hold_cnt increment guard; hold_cnt increments throughout every HOLD window (token rounds in CRV)."
-waiver wtb-line-7 rtl/WTB_top.sv:465 line \
+waiver wtb-line-7 rtl/WTB_top.sv:472 line \
   reason="dead default: sstate is a 3-bit station FSM with all 5 used states cased explicitly; execution proven by FSM_COV 26/26."
 waiver wtb-toggle-1 rtl/WTB_top.sv toggle \
   reason="tfc[2:7]/tx_fc_in[2:7]: the DUT only transmits frame-control 0 (claim), 1 (token), 2 (data); upper FC bits structurally constant."
@@ -266,8 +266,7 @@ waiver wtb-toggle-3 rtl/WTB_top.sv toggle \
   reason="tpay_cnt[2]: payload byte counter wraps at 3 (4-byte word); bit 2 structurally unreachable."
 waiver wtb-toggle-4 rtl/WTB_top.sv toggle \
   reason="fr_sent[2]: the 200-clk hold window fits at most 2 four-byte frames, so the frames-sent counter never reaches 4."
-waiver wtb-toggle-5 rtl/WTB_top.sv toggle \
-  reason="tok_irq: dead irq source (never asserted by the station FSM); see wtb-line-5."
+# (wtb-toggle-5 withdrawn in v2.5.1: tok_irq toggles on token acquisition)
 
 # ---- Bluetooth5 ----
 waiver bt5-line-1 rtl/Bluetooth5_top.sv:98 line \

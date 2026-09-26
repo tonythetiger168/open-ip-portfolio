@@ -196,6 +196,9 @@ CRV stimulus summary:
   every echo with rx_err (bad STP).
 - Latent in v2.4: the directed TB discards the first received byte.
 - Minimal repro: send any valid frame; observe echo byte0 == 8'h00.
+- **v2.5.1 FIXED** (branch fix-v251-c): T_IDLE->T_PKT loads `tx_shift <= STP`
+  (line-count-neutral edit). TB now checks echo byte0 == STP. iverilog +
+  verilator_cov PASS x5; mutant (CXL) reverts to TEST FAILED.
 
 ### W6-3: CXL-family LEN=8 (zero-payload) TX data overrun
 - Files: rtl/<P>_top.sv:90 (same five) — data-field end compare is
@@ -205,6 +208,11 @@ CRV stimulus summary:
 - Minimal repro: send a valid LEN=8 frame; echo carries 24 data bytes.
 - CRV good/bad-STP frames use LEN 9..16 (LEN=8 exercises only the no-echo
   error injections). Documented, not fixed.
+- **v2.5.1 FIXED** (branch fix-v251-c): at the HDR->DATA boundary
+  (`tcur==7`), `tlen==8` now goes straight to CRC instead of entering the
+  DATA field. TB restored to full LEN 8..16 + deterministic LEN=8 lock
+  (t==10). iverilog + verilator_cov PASS x5; mutant (CXL) reverts to TEST
+  FAILED.
 
 ### W6-4: HSI read: last data bit never driven (read LSB always 1)
 
@@ -256,6 +264,13 @@ CRV stimulus summary:
 - Impact: none functional (the irq output still pulses on frame errors and
   FIFO overflow via rx_bad/cfg_irq), but any token-related event intended to
   raise tok_irq is silently dropped. Observation only; not fixed.
+- **v2.5.1 FIXED** (branch fix-v251-c): tok_irq pulses for one cycle on all
+  three entries to ST_HOLD (token received in LISTEN / CLAIM_WAIT, claim
+  self-elect win) -- intent inferred from the signal name and the irq
+  composition (minimal reasonable hookup). TB adds a tok_seen_c monitor +
+  directed checks; waivers wtb-line-5/wtb-toggle-5 withdrawn (now covered).
+  iverilog + verilator_cov PASS (LINE 97.5%, TOGGLE 97.0%, FSM 26/26, SVA
+  all pass -- no decrease); mutant reverts to TEST FAILED (2 errors).
 
 ### Template OOB advisory (cross-wave notice)
 Lead advisory: echo-copy template `for (i=2; i<=21; i=i+1) tx_mem[i-2] <= buf_mem[i];`

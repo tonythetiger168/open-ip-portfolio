@@ -104,6 +104,13 @@ module WTB_tb;
   end
 `endif
 
+  // v2.5.1: tok_irq must pulse on token acquisition (was stuck-at-0, W6-6);
+  // monitored in both the iverilog directed phase and the Verilator CRV phase
+  logic tok_seen_c = 1'b0;
+  always @(posedge clk) begin
+    if (dut.tok_irq) tok_seen_c <= 1'b1;
+  end
+
   // ------------------------------------------------------------------
   // CRC16 (poly 0x1021, init 0xFFFF), byte-wise -- same as DUT
   // ------------------------------------------------------------------
@@ -271,8 +278,14 @@ module WTB_tb;
     cpu_wr(2'd2, 32'h33);
 
     // CHECK 2: empty FIFO - token in, token passed to NS
+    tok_seen_c = 1'b0;
     send_frame(8'h01, MY, TB, 0, '0, 1'b0, 1'b0);
     expect_frame(8'h01, NS, MY, 8'd0, '0, "empty token pass");
+    // v2.5.1: token acquisition must pulse tok_irq (W6-6 was stuck-at-0)
+    if (!tok_seen_c) begin
+      errors++;
+      $display("ERROR: WTB token acquisition: no tok_irq pulse");
+    end
 
     // CHECK 3: queue 3 words -> 2 token rounds (holding window <=200 clk)
     cpu_wr(2'd0, 32'hAABB_CC01);
@@ -353,7 +366,13 @@ module WTB_tb;
     cpu_wr(2'd3, 32'h1);   // claim_en
     expect_frame(8'h00, 8'hFF, MY, 8'd0, '0, "claim_token");
     // no contender replies -> self-elect -> empty FIFO -> pass token to NS
+    tok_seen_c = 1'b0;
     expect_frame(8'h01, NS, MY, 8'd0, '0, "self-elect token pass");
+    // v2.5.1: self-election (claim win) acquires the token -> tok_irq pulse
+    if (!tok_seen_c) begin
+      errors++;
+      $display("ERROR: WTB claim self-elect: no tok_irq pulse");
+    end
     cpu_wr(2'd3, 32'h0);   // stop claiming
 
     repeat (10) @(posedge clk);

@@ -398,6 +398,11 @@ module WTB_top #(
             sstate   <= ST_HOLD;
             hold_cnt <= '0;
             fr_sent  <= '0;
+            // v2.5.1 fix: token acquired -- pulse tok_irq (was stuck-at-0,
+            // W6-6). Design intent inferred from the signal name and the
+            // irq composition (rx_bad | cfg_irq | tok_irq): token events
+            // raise a single-cycle interrupt.
+            tok_irq  <= 1'b1;
           end else if (claim_en && idle_cnt >= IDLE_TO[15:0] && !tx_busy) begin
             // bus silent: contend for the token
             tx_start  <= 1'b1;
@@ -449,6 +454,7 @@ module WTB_top #(
               sstate   <= ST_HOLD;          // someone passed us the token
               hold_cnt <= '0;
               fr_sent  <= '0;
+              tok_irq  <= 1'b1;             // v2.5.1 fix: token acquired
             end else if (rx_fc == FC_CLAIM && rx_sa < my_addr) begin
               sstate <= ST_LISTEN;          // lower address wins: back off
             end else begin
@@ -459,6 +465,7 @@ module WTB_top #(
             sstate   <= ST_HOLD;
             hold_cnt <= '0;
             fr_sent  <= '0;
+            tok_irq  <= 1'b1;               // v2.5.1 fix: token acquired
           end
         end
 
