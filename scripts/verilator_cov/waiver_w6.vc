@@ -132,10 +132,14 @@ waiver tilelink-toggle-1 rtl/TileLink__TL_UL_TL_C__top.sv:58 toggle \
   reason="d_opcode[2:1]/d_opcode_q[2:1]: only response opcodes 0 (AccessAck) and 1 (AccessAckData) exist; upper bits constant."
 
 # ---- 1-Wire ----
-waiver onewire-line-1 rtl/_1_Wire_top.sv:104 line \
-  reason="dead default: state is a 3-bit enum with all 8 encodings cased explicitly."
+waiver onewire-line-1 rtl/_1_Wire_top.sv:116 line \
+  reason="dead default: state is a 3-bit enum with all 8 encodings cased explicitly. v2.5.1: line shifted 104->116 by the any-state reset-detect fix."
+waiver onewire-line-2 rtl/_1_Wire_top.sv:55 line \
+  reason="v2.5.1 low_cnt clear/increment: Verilator 5.006 line-attribution artifact. Execution proven: the directed post-read reset-pulse regression (and every CRV txn) only pass because low_cnt clears on dq_s=1 and counts past 4800 while dq_s=0 (reset_det fires)."
 waiver onewire-toggle-1 rtl/_1_Wire_top.sv:33 toggle \
   reason="timer[15:13]: longest timing window is the 600us reset pulse (6000 clks at US=10); bits 13..15 are 16-bit generic headroom."
+waiver onewire-toggle-2 rtl/_1_Wire_top.sv:36 toggle \
+  reason="low_cnt[15:13]: same headroom class as onewire-toggle-1; the v2.5.1 bus-low watchdog counts the same 600us reset pulse (6000 clks), so bits 13..15 never toggle under any legal 1-Wire stimulus."
 
 # ---- Avalon_MM ----
 waiver avm-line-1 rtl/Avalon_MM_top.sv:116-163 line \

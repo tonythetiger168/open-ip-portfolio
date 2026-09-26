@@ -140,6 +140,20 @@ module _1_Wire_tb;
     end
     if (rb !== 8'h5A) begin errors++; $display("ERROR: 1-Wire read got=%h exp=5A", rb); end
 
+    // v2.5.1: a bus reset after a completed read phase must be detected
+    // from any state (W6-5) -- no hard rst_n between transactions
+    ow_reset(presence);
+    if (!presence) begin errors++; $display("ERROR: 1-Wire no presence after post-read reset"); end
+    begin : send_cmd2
+      logic [7:0] cmd2;
+      cmd2 = 8'h33;
+      rx_seen = 1'b0;
+      for (int i = 0; i < 8; i++) ow_write_bit(cmd2[i]);
+    end
+    repeat(5) @(posedge clk);
+    if (!rx_seen)  begin errors++; $display("ERROR: 1-Wire rx_valid never pulsed after post-read reset"); end
+    if (rx_byte !== 8'h33) begin errors++; $display("ERROR: 1-Wire post-reset rx=%h exp=33", rx_byte); end
+
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ----
     // 105 randomized transactions. Each txn re-resets the DUT (rst_n
