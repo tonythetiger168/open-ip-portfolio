@@ -7,7 +7,7 @@ module SPMI_tb;
   logic sclk = 0;
   logic m_low = 0;
   logic [7:0] rx_byte, rx_addr;
-  logic [7:0] tx_byte = 8'hC3;   // init value preserves directed checks
+  logic [7:0] tx_byte = 8'hC2;   // v2.5.1: LSB=0 locks the bus-wedge fix
   logic rx_valid, busy;
   logic rx_seen = 0;
   int errors = 0;
@@ -115,11 +115,11 @@ module SPMI_tb;
                 "A3 busy mirrors state");
       // A4: rx_valid is a single-cycle pulse
       sva_check(!(rx_valid && rx_valid_q), "A4 rx_valid single-cycle pulse");
-      // A5: slave drives SDATA low only in the ACK/read phase or while
-      // parked in IDLE after a read whose LSB was 0 (documented RTL
-      // behaviour: sd_oe is not cleared on the ACKP->IDLE transition)
+      // A5: slave drives SDATA low only in the ACK/read phase or briefly
+      // in IDLE while the last read bit drains (v2.5.1: sd_oe is released
+      // on the first sclk fall after the ACKP->IDLE transition)
       sva_check(!dut_sdoe || (dut_state == 3'd4) || (dut_state == 3'd0),
-                "A5 drive only in ACKP/IDLE-park");
+                "A5 drive only in ACKP/IDLE-drain");
       // A6: rx_byte changes only on the cycle rx_valid is high
       sva_check((rx_byte === rx_byte_q) || rx_valid, "A6 rx_byte stable");
       // A7: rx_valid only mid-transaction (byte completes under busy)
@@ -156,7 +156,15 @@ module SPMI_tb;
     if (rx_addr !== 8'h03) begin errors++; $display("ERROR: SPMI rx_addr=%h exp=03", rx_addr); end
 
     spmi_read (4'h5, 8'h03, rb);
-    if (rb !== 8'hC3) begin errors++; $display("ERROR: SPMI read got=%h exp=C3", rb); end
+    if (rb !== 8'hC2) begin errors++; $display("ERROR: SPMI read got=%h exp=C2", rb); end
+
+    // v2.5.1: after a read with tx_byte[0]=0 the slave must release SDATA
+    // -- a following write must still be received (bus-wedge regression)
+    rx_seen = 1'b0;
+    spmi_write(4'h5, 8'h04, 8'hA5);
+    repeat(5) @(posedge clk);
+    if (!rx_seen) begin errors++; $display("ERROR: SPMI bus wedge: post-read write ignored"); end
+    if (rx_byte !== 8'hA5) begin errors++; $display("ERROR: SPMI post-read rx=%h exp=A5", rx_byte); end
 
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ----
@@ -207,15 +215,11 @@ module SPMI_tb;
           end
         end else if (roll < 16) begin
           // ---- random read: DUT must return tx_byte ----
-          // NOTE: read values are rejection-sampled to LSB=1 -- documented
-          // RTL bug (recorded, not fixed per v2.5 rules): SPMI_top does
-          // not clear sd_oe on the ACKP->IDLE transition, so after a read
-          // whose tx_byte[0]=0 the slave keeps SDATA parked low forever
-          // and no further SSC can ever be detected (bus wedge; verified
-          // with an iverilog probe: post-read state=IDLE, sd_oe=1,
-          // sdata=0, next write ignored).
+          // v2.5.1: bus-wedge bug fixed (sd_oe is released on the sclk
+          // fall after the last read bit), so read values are no longer
+          // rejection-sampled to LSB=1.
           n_rd++;
-          tx_byte = v | 8'h01;
+          tx_byte = v;
           `SPMI_M_SSC
           bb = 1'b0; `SPMI_M_BIT(bb) bb = 1'b1; `SPMI_M_BIT(bb)
           bb = 1'b0; `SPMI_M_BIT(bb) bb = 1'b1; `SPMI_M_BIT(bb)   // SA = 4'h5
@@ -224,8 +228,8 @@ module SPMI_tb;
           for (int i = 7; i >= 0; i--) begin bb = ad[i];   `SPMI_M_BIT(bb) end
           for (int i = 7; i >= 0; i--) begin `SPMI_M_RBIT(bb) rd_c[i] = bb; end
           #600;
-          if (rd_c !== (v | 8'h01)) begin
-            errors++; $display("ERROR: CRV read got=%h exp=%h", rd_c, (v | 8'h01));
+          if (rd_c !== v) begin
+            errors++; $display("ERROR: CRV read got=%h exp=%h", rd_c, v);
           end
         end else if (roll < 18) begin
           // ---- wrong slave address: must be ignored ----

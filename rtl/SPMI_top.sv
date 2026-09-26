@@ -98,6 +98,10 @@ module SPMI_top #(
             end
           end else state <= ST_IDLE;
         end
+        // v2.5.1 fix: release SDATA on the clock fall after the last read
+        // bit (previously sd_oe stayed set after a read with tx_byte[0]=0,
+        // wedging the bus low and blocking any further SSC)
+        ST_IDLE: if (sclk_fall) sd_oe <= 1'b0;
         default: ;
       endcase
     end
