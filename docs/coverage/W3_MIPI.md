@@ -47,6 +47,15 @@ every class is guaranteed to run.
 ## RTL bugs found (RECORDED ONLY — not fixed, per v2.5 rules)
 
 ### BUG-W3-1: RFFE_top — read never drives tx_byte[0] (LSB always reads 1)
+
+> **v2.5.1 FIXED** (branch fix-v251-b, commit 5452f21): the read arm no
+> longer deasserts `sd_oe` at `bit_cnt==7`; tx_byte[0] is driven and the
+> bus is released by ST_PARK on the next sclk fall. Same edit applied to
+> the 4 clones (DigRF/MIPI_SLIMbus/MIPI_SoundWire/MIPI_DBI) and to the
+> identical HSI RTL (W6-4). TBs: directed vector 8'hC3->8'hC2, CRV read
+> compare full-byte, drive-state assertion extended to ST_PARK. Mutant
+> revert -> directed TEST FAILED on all 6. Metrics unchanged (62/62,
+> 64/68, 4/4, SVA all pass).
 - File: rtl/RFFE_top.sv:79-85 (`ST_DATA` read arm).
 - Root cause: the slave drives the next read bit on `sclk_fall` while
   `bit_cnt < 7`; at `bit_cnt == 4'd7` it parks the bus (`sd_oe <= 0`,
@@ -61,6 +70,14 @@ every class is guaranteed to run.
 - CRV handles it by comparing read data[7:1] and asserting read LSB==1.
 
 ### BUG-W3-2: SPMI_top — sd_oe not cleared on ACKP->IDLE (bus wedge)
+
+> **v2.5.1 FIXED** (branch fix-v251-b, commit ccd7825): new ST_IDLE arm
+> releases SDATA on the first sclk fall after the read data phase. TB:
+> directed read vector 8'hC3->8'hC2 plus a post-read write wedge
+> regression; CRV reads no longer rejection-sampled to LSB=1. Mutant
+> revert -> directed TEST FAILED (post-read write ignored). Metrics:
+> LINE 69/71 (2 waived, unchanged), TOGGLE 74/75 (1 waiver), FSM 6/6,
+> SVA all pass.
 - File: rtl/SPMI_top.sv:92-98 (`ST_ACKP` read arm) + missing `sd_oe`
   assignment on the transition to ST_IDLE.
 - Root cause: after the 8th read bit, `sd_oe <= (tx_byte[0]==0)` and
@@ -75,6 +92,15 @@ every class is guaranteed to run.
   in the TB) — the wedge itself is locked by the probe above.
 
 ### BUG-W3-3: I3C_top — first read byte drives tx_byte[6] first (MSB lost)
+
+> **v2.5.1 FIXED** (branch fix-v251-b, commit bcff16e): on the
+> ST_ACK->ST_TX transition the first scl fall now presents tx_byte[7]
+> (same pattern as the I2C first-byte fix); ST_TX keeps indexing
+> tx_byte[6-bit_cnt]. TB: directed vector 8'hC3->8'h73, CRV byte1 full
+> compare (MSB mask removed; 2-byte read kept for ST_TXACK coverage).
+> waiver_w3.vc i3c-line-1 re-pointed 102->110. Mutant revert -> directed
+> TEST FAILED (got=f3 exp=73). Metrics: LINE 81/82 (sole miss = waived
+> const-fold), TOGGLE 57/58, FSM 7/7, SVA all pass.
 - File: rtl/I3C_top.sv:86-92 (`ST_TX`): on entry from ST_ACK the first
   `scl_fall` drives `ack_low <= (tx_byte[6-bit_cnt]==0)` with bit_cnt=0,
   i.e. tx_byte[6]; tx_byte[7] is never driven for the first byte. The

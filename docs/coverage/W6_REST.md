@@ -150,6 +150,14 @@ CRV stimulus summary:
 ## RTL bugs recorded (NOT fixed, per wave discipline)
 
 ### QSPI-1: std-mode MOSI contention (slave drives io[0])
+
+> **v2.5.1 FIXED** (branch fix-v251-b, commit bffc0f5): the boolean
+> `assign io = io_oe ? io_out : 4'bzzzz;` replaced with per-bit ternary
+> assigns, so std mode drives only io[1] (MISO). TB: std CRV tx values no
+> longer reject bit4=1; the post-loop RTL-bug demo is now a regression
+> lock (tx_q=0x10, MOSI=0xA5 must read back 0xA5); matching directed
+> regression added. Mutant revert -> directed TEST FAILED (MOSI got=XX).
+> Metrics: LINE 61/61, TOGGLE 69/70 (1 waiver), SVA 41044/41044.
 - File: rtl/QSPI_top.sv:32 — `assign io = io_oe ? io_out : 4'bzzzz;`
 - Root cause: the 4-bit `io_oe` vector is used as a *boolean*, so whenever any
   OE bit is set (std mode io_oe=4'b0010) the DUT drives **all four** io bits.
@@ -196,6 +204,13 @@ CRV stimulus summary:
   error injections). Documented, not fixed.
 
 ### W6-4: HSI read: last data bit never driven (read LSB always 1)
+
+> **v2.5.1 FIXED** (branch fix-v251-b, commit 5452f21): same root cause
+> and same one-line-class fix as BUG-W3-1 (identical RTL template) —
+> sd_oe stays asserted through the bit_cnt==7 fall so tx_byte[0] is
+> driven; ST_PARK releases the bus. TB: directed 8'hC3->8'hC2, CRV shadow
+> predicts d_v in full (was d_v|8'h01), A4 extended to ST_PARK. Mutant
+> revert -> directed TEST FAILED. Metrics unchanged (62/62, 64/68, 4/4).
 - File: rtl/HSI_top.sv:80-83 — in ST_DATA read at sclk_fall the block assigns
   `sd_oe <= 1'b1; sd_out <= tx_byte[7-bit_cnt];` then, when bit_cnt==7,
   `sd_oe <= 1'b0` in the same cycle (last assignment wins), so tx_byte[0] is
@@ -207,6 +222,17 @@ CRV stimulus summary:
 - TB handling: CRV read shadow predicts d|8'h01. Candidate for v2.5.1.
 
 ### W6-5: 1-Wire reset pulse only detected from ST_IDLE
+
+> **v2.5.1 FIXED** (branch fix-v251-b, commit 3fc6a2a): a continuous
+> bus-low watchdog (low_cnt) now runs in every state; >480us low while in
+> ST_WAIT_SLOT/ST_W_SAMPLE/ST_TX_BYTE/ST_R_DRIVE jumps to ST_RESET_REL so
+> the reset is answered with a presence pulse. TB: directed phase adds a
+> back-to-back bus reset after the read phase (no hard rst_n) + a second
+> command byte. waiver_w6.vc: onewire-line-1 re-pointed 104->116, new
+> artifact waiver for the low_cnt clear line, new toggle waiver for
+> low_cnt[15:13]. Mutant revert -> directed TEST FAILED (no presence;
+> rx=66 exp=33 desync). Metrics: LINE 73/75 (2 waived), TOGGLE 75/81
+> (6 waived, all headroom class), FSM 8/8, SVA all pass.
 - File: rtl/_1_Wire_top.sv:50-51,70-71 — reset-pulse detection
   (`ST_IDLE: if (!dq_s) -> ST_RESET_CNT`) exists only in ST_IDLE; in
   ST_WAIT_SLOT a falling edge is interpreted as a write slot
