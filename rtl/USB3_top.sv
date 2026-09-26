@@ -230,7 +230,9 @@ module USB3_top #(
           retry_cnt <= retry_cnt + 2'd1;
         end
       end
-      if (in_sent) begin
+      // v2.5.1 fix: never (re-)arm the ACK watchdog outside an active IN
+      // transfer (invariant: watchdog only runs while in_active)
+      if (in_sent && in_active) begin
         await_ack <= 1'b1;
         ack_timer <= 8'd0;
       end else if (await_ack) begin
@@ -493,7 +495,13 @@ module USB3_top #(
           end else if (in_pend || resend_req) begin
             in_taken     <= in_pend;
             resend_taken <= ~in_pend;
-            tx_state     <= TX_DH0;
+            // v2.5.1 fix: the 4th consecutive failed attempt gives up
+            // (housekeeping clears in_active/raises irq on this same
+            // resend_taken pulse) -- do not launch a 5th DPP
+            if (resend_req && !in_pend && retry_cnt == 2'd3)
+              tx_state <= TX_IDLE;
+            else
+              tx_state <= TX_DH0;
           end
         end
 

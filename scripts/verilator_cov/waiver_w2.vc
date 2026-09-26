@@ -167,12 +167,13 @@ waiver usb2-toggle-3 rtl/USB2_top.sv toggle \
   reason="Counter high bits unreachable by construction: same 5-bit/4-bit counter set as USB (tbt[3], bt[3], eop_cnt[4], wait_cnt[4], total_cnt[4], dlen[4], bcnt[4], byte_ptr[4], rx_plen[4]), plus ch_cnt[7:6]: the chirp timer counts to CHIRP_DET-1 = 47 or CHIRP_LEN-1 = 31, both < 64, so bits [7:6] never toggle."
 
 # ---- USB3 (SuperSpeed-style link) ----
-# Final coverage.dat (post give-up scenario fix, Verilator 5.006):
-# LINE 367/378, TOGGLE 354/375. Uncovered set cross-checked against the dat.
-waiver usb3-line-1  rtl/USB3_top.sv:116,266,269,372-373,388,394,396,472  line \
+# Final coverage.dat (v2.5.1 give-up RTL fix, line refs re-based, Verilator
+# 5.006): LINE 369/380 (97.1%), TOGGLE 354/375 (94.4%) -- both metric
+# percentages unchanged from v2.5. Uncovered set cross-checked against the dat.
+waiver usb3-line-1  rtl/USB3_top.sv:116,266,269,374-375,390,396,398,474  line \
   reason="Lines report DA 0 (5.006 attribution artifact for condition lines in multi-line if/else-if constructs; the guarded bodies or sibling arms show hits). Execution proven functionally: LFPS burst-length guard (116) -- increment at 117 hit, rx_bursts reaches 4 and link_up asserts; DPH type check/drop (266,269) -- good DATA headers reach RX_PS (267 hit) and the unsupported-type CRV txn exercises the drop arm with no irq change; bad-END TP irq (372-373) -- bad_tp CRV txns raise irq, checked; host-ACK IN completion (388) -- every good IN transfer advances tx_seq, model-checked; LBAD retransmit arms (394,396) -- in_lbad and give-up CRV txns drive retransmissions, payload re-checked; LFPS TX burst guard (472) -- increment at 473 hit, tx_bursts reaches 4 during polling."
 
-waiver usb3-line-2  rtl/USB3_top.sv:404,575  line \
+waiver usb3-line-2  rtl/USB3_top.sv:406,583  line \
   reason="dead defaults: rx_state is 4-bit with values 0-14 explicitly cased, value 15 unreachable (404); tx_state is 5-bit with values 0-17 explicitly cased, values 18-31 unreachable (575)."
 
 waiver usb3-toggle-1 rtl/USB3_top.sv toggle \
