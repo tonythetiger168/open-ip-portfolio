@@ -1,8 +1,18 @@
 # open-ip-portfolio
 
-Open-source SystemVerilog protocol IP portfolio (Apache-2.0) — 117 protocols,
-each with a synthesizable RTL design, a self-checking testbench, and
-open-toolchain build flows (Icarus Verilog simulation + Yosys synthesis).
+Open-source SystemVerilog protocol IP portfolio (Apache-2.0) — 117 protocol
+configurations covering **81 distinct RTL core designs**, each with a
+synthesizable RTL top, a self-checking testbench, and open-toolchain build
+flows (Icarus Verilog simulation + Yosys synthesis).
+
+> **Scope, honestly.** Every design here is an *educational slice*: a
+> compact, readable implementation of the protocol's core transaction flow —
+> not a full-spec, production-hardened controller. Some catalog entries are
+> **parameterized variants of a shared core** rather than independent
+> implementations (e.g. DDR4/DDR5/HBM3 are timing-parameter shells over the
+> common `MEMCH` memory-controller core). 117 catalog entries = 81 distinct
+> cores + 36 shared-core variants, itemized
+> [below](#design-organization-cores-vs-variants).
 
 ## Directory layout
 
@@ -210,6 +220,37 @@ setup_tools.sh           installs iverilog / yosys if missing
 > ¹ **HDCP 2.3 requires a separate license from DCP LLC for any commercial
 > implementation** — this repository contains no such license and no device
 > keys. See [Protocol licensing notice](#protocol-licensing-notice-important).
+
+## Design organization: cores vs. variants
+
+The catalog has **117 entries** but **81 distinct RTL cores**. 36 entries are
+parameter shells or rename-siblings over a shared core (verified by
+statement-level diff: siblings differ only in the module name, header
+comment, and timing parameters). Their verification is still real — each
+variant has its own testbench, its own `make` target, and its own coverage
+closure — but the *logic* is shared, so a bug in a shared core affects the
+whole family (as happened with the v2.5.1 echo-copy fix, which touched 11
+variants of one template).
+
+| Shared core | Variants in catalog | Count |
+|---|---|---|
+| `MEMCH_top` + `MEMCORE_top` (multi-channel memory controller) | DDR, DDR4, DDR5, DDR6, DDR7, GDDR5, GDDR6, GDDR7, HBM, HBM2, HBM3, HBM3E, HBM4, HBM5, LPDDR, LPDDR4, LPDDR5, LPDDR5X, LPDDR6, LPDDR7 | 20 → 1 |
+| `CXL_top` (echo/TLP template) | CXL, PCIe, UEC, Interlaken v1.2, JESD204C | 5 → 1 |
+| `RFFE_top` (2-wire serial register IF) | RFFE, DigRF, MIPI SLIMbus, MIPI SoundWire, MIPI DBI | 5 → 1 |
+| `CHI_top` (credit-based flit link) | CHI, CCIX, CXS, ARM LTI | 4 → 1 |
+| `NVMe_top` (echo template) | NVMe, FC, Ethernet | 3 → 1 |
+| `CAN_top` (frame/CRC template) | CAN, FlexRay, LIN | 3 → 1 |
+| `UALink_top` | UALink, UCIe | 2 → 1 |
+| `USB3_2_top` | USB 3.2, USB4 | 2 → 1 |
+| **Total** | | **44 → 8** |
+
+The remaining **73 catalog entries are independent implementations** (117 − 44 = 73; 73 + 8 shared cores = 81 distinct designs).
+
+Note the distinction from *same-family different implementations*, which are
+**not** counted as clones: e.g. `RFFE` vs `MIPI_RFFE`, `SPMI` vs `MIPI_SPMI`,
+`I3C` vs `MIPI_I3C`, `USB` vs `USB2` vs `USB2_0`, `SD` vs `SDIO` vs `eMMC`,
+`SAS` vs `SAS_4` vs `SATA` vs `UFS` — these share a protocol family but have
+substantively different RTL (100+ differing statements each).
 
 ## Quick start
 
