@@ -236,7 +236,10 @@ module eMMC_tb;
                 busy_ready <= 1'b1;                    // ready after 1st poll
               end
               6'd2: begin                              // CMD2: R2 (CID)
-                crsp     <= {1'b0, 1'b0, 6'b111111, CID_VAL[127:1], 1'b1};
+                // v2.5.1-review F7: spec R2 = start + tx + 6 reserved
+                // + full 128-bit CID (no end bit).  Must change together
+                // with eMMC_top.sv.
+                crsp     <= {1'b0, 1'b0, 6'b111111, CID_VAL};
                 crsp_len <= 8'd136;
 `ifdef VERILATOR
                 cgap     <= 4'd7;  // vlt-5.006: wider rsp gap (host PH_GAP skew)

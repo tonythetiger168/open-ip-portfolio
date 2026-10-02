@@ -307,7 +307,11 @@ module SD_top #(
                         `SD_ISSUE(H_ACMD, 6'd55, 32'h0000_0000, 8'd48)
                     end
                     6'd2: begin                    // R2: capture 128-bit CID
-                      cid <= {rsp_nxt[127:1], 1'b1};
+                      // v2.5.1-review F7: R2 carries the full 128-bit CID
+                      // with NO end bit -- the old {rsp_nxt[127:1], 1'b1}
+                      // framing (mirrored by the TB) silently forced cid[0]
+                      // to 1 and only worked because CID_VAL[0] == 1.
+                      cid <= rsp_nxt[127:0];
                       `SD_ISSUE(H_CMD3, 6'd3, 32'h0000_0000, 8'd48)
                     end
                     6'd3: begin                    // R6: capture RCA -> CMD7

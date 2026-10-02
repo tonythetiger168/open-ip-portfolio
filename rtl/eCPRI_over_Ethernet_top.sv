@@ -310,7 +310,12 @@ module eCPRI_over_Ethernet_top #(
               MT_IQ: begin
                 for (int w = 0; w < 8; w++) begin
                   if ((w[3:0] < iq_nw) && ({2'b00, w} < iq_avail)) begin
-                    iq_mem[iq_wptr + w[4:0]] <= {rx_pay[4+4*w], rx_pay[5+4*w],
+                    // Finding #11 fix: wrap the write index modulo 32 --
+                    // iq_wptr can sit at 25..31 after wrap-around pushes/
+                    // pops and the avail-count guard bounds the word count,
+                    // not the address space, so the unmasked index wrote
+                    // iq_mem[32..38] out of bounds.
+                    iq_mem[(iq_wptr + w[4:0]) & 5'h1F] <= {rx_pay[4+4*w], rx_pay[5+4*w],
                                                  rx_pay[6+4*w], rx_pay[7+4*w]};
                   end
                 end

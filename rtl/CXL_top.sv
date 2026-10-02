@@ -159,7 +159,13 @@ module CXL_top #(
                 if (nb !== STP) rx_err <= 1'b1;
                 ridx <= 1;
               end else if (ridx == 1) begin
+                // Finding #2 defensive guard: only LEN 8..16 is well-defined
+              // (HDR 8 + payload up to MAXB 8); anything else is dropped.
+              if ((nb < 8'd8) || (nb > 8'd16)) begin
+                rx_err <= 1'b1; rstate <= R_IDLE;
+              end else begin
                 buf_mem[1] <= nb; len_q <= nb[5:0]; ridx <= 2;
+              end
               end else if (ridx == (6'd2 + len_q + 6'd4)) begin
                 if (nb !== END_B) rx_err <= 1'b1;
                 else begin
