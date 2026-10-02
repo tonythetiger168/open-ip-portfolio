@@ -58,6 +58,10 @@ module Ethernet_top #(
       if (tick && !phase) begin
         case (tstate)
           T_IDLE: if (tx_go) begin
+            // v2.5.1 backport (922c6a3, W6-2): load STP -- tfld==0 otherwise
+            // shifts the stale register (8'h00 / last END_B), partner rejects
+            // every echo.
+            tx_shift <= STP;
             tx_go <= 1'b0; oe_q <= 1'b1; out_q <= 1'b0;
             tbit <= '0; tfld <= '0;
             tstate <= T_PKT;
@@ -83,7 +87,20 @@ module Ethernet_top #(
                 3'd1: begin tx_shift <= tx_mem[0]; tfld <= 3'd2;
                             tx_crc <= 32'hFFFFFFFF; tcur <= '0; end
                 3'd2: begin
-                  if (tcur == 4'd7) begin tx_shift <= tx_mem[8]; tfld <= 3'd3; tcur <= 4'd8; end
+                  // v2.5.1 backport (922c6a3, W6-3): LEN=8 has zero payload
+                  // -- jump straight to the CRC field, otherwise tcur == 8
+                  // never equals tlen[3:0]-1 == 7 and 16 spurious payload
+                  // bytes are emitted.
+                  if (tcur == 4'd7) begin
+                    if (tlen == 6'd8) begin
+                      tfld <= 3'd4;
+                      crc_snap <= tx_crc;
+                    end else begin
+                      tfld <= 3'd3;
+                    end
+                    tcur <= 4'd8;
+                    tx_shift <= tx_mem[8];
+                  end
                   else begin tcur <= tcur + 4'd1; tx_shift <= tx_mem[tcur + 4'd1]; end
                 end
                 3'd3: begin
