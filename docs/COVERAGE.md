@@ -431,3 +431,40 @@ six wave reports.
 | axi4-line-2 | rtl/AXI4_top.sv:141,143 | early/missing-wlast SLVERR assignment | same artifact family (multi-line `if`; line 142 not instrumented at all). Execution proven by directed check 8: bresp=SLVERR + irq can only come from line 143 |
 | axi4-line-3 | rtl/AXI4_top.sv:155 | `default: wstate <= W_IDLE` | dead: `wstate` is 2-bit with all 3 used encodings cased; value 3 unreachable |
 | axi4-line-4 | rtl/AXI4_top.sv:210 | `default: rstate <= R_IDLE` | dead: `rstate` is 1-bit; both encodings cased explicitly |
+
+## Review addendum (2026-09-28, external RTL review of v2.5.1)
+
+### Waiver status vs the v2.5.1 fixes
+Rows #1-#13 of the waiver table above describe bugs that v2.5.1
+subsequently fixed (each locked by a mutant self-proof, per the v2.5.1
+release notes).  None of them describes live RTL behaviour at v2.5.1.
+For the record:
+
+| waiver row | subject | fixed by |
+|---|---|---|
+| #1-#2 | I3C first-bit-after-ACK | `bcff16e` |
+| #3-#4 | SPMI / RFFE-family read drive | `ccd7825`, `5452f21` |
+| #4-#7 | echo-copy loop bound (NVMe/FC/Ethernet, USB3_2/USB4, CXL five, ONFI) | `a2cfe0d` |
+| #8 | QSPI 4-bit `io_oe` boolean | `bffc0f5` |
+| #9 | 1-Wire watchdog | `3fc6a2a` |
+| #10 | MEMCH channel-select mux | `2f97fbe` |
+| #11-#12 | CXL-family STP load / LEN=8 fast path | `922c6a3` |
+| #13 | HSI read data drive | `5452f21` |
+
+### Known-unfixed at v2.5.1 -- siblings of #11/#12 never listed above
+The #11/#12 defects also live in six echo-template cores that were never
+fixed and never appeared in this table: **NVMe, FC, Ethernet, USB3_2,
+USB4, ONFI** (USB3_2 differs from the NVMe template only in its
+STP/END_B constants).  Their testbenches mask the defects (`rx_err` is
+not an output port; their echo stimulus never uses LEN=8 and never
+checks the STP byte on the wire).  Fix: `f1_backport_922c6a3.patch`
+(review deliverable, 2026-09-28).
+
+### Review fixes delivered alongside (2026-09-28)
+- `f11_ecpri_iq_wrap.patch` -- eCPRI IQ circular-buffer write index wrap.
+- `f2_defensive_len_guards.patch` -- LEN/payload clamps for the echo
+  template, USB2_0 and SAS (malformed-input protection; UFS already had
+  the guard and needed no change).
+- `f6_f7_memcore_sd_emmc.patch` -- SD/eMMC R2 now carries the full
+  128-bit CID (RTL and testbenches changed together); MEMCORE releases
+  the command pins in D_IDLE after a PRE.
