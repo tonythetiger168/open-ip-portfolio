@@ -223,11 +223,13 @@ setup_tools.sh           installs iverilog / yosys if missing
 
 ## Design organization: cores vs. variants
 
-The catalog has **117 entries** but **75 distinct RTL cores**. 49 entries are
+The catalog has **121 entries** but **97 distinct RTL cores**. 29 entries are
 parameter shells or rename-siblings over a shared core (verified by
 statement-level diff: siblings differ only in the module name, header
 comment, and timing parameters; re-verified 2026-09-28 by byte-level
-clustering of all 119 rtl/ files -- see the table corrections below). Their verification is still real — each
+clustering of all 119 rtl/ files; updated 2026-10-02 for v2.6 -- the 20
+memory entries are now 20 independent designs and 4 standalone Lite cores
+(DDR4_Lite, LPDDR5X_Lite, HBM3E_Lite, GDDR7_Lite) were added. Their verification is still real — each
 variant has its own testbench, its own `make` target, and its own coverage
 closure — but the *logic* is shared, so a bug in a shared core affects the
 whole family (as happened with the v2.5.1 echo-copy fix, which touched 11
@@ -235,16 +237,16 @@ variants of one template).
 
 | Shared core | Variants in catalog | Count |
 |---|---|---|
-| `MEMCH_top` + `MEMCORE_top` (multi-channel memory controller) | DDR, DDR4, DDR5, DDR6, DDR7, GDDR5, GDDR6, GDDR7, HBM, HBM2, HBM3, HBM3E, HBM4, HBM5, LPDDR, LPDDR4, LPDDR5, LPDDR5X, LPDDR6, LPDDR7 | 20 → 1 |
+| memory family (20 independent IPs) | DDR, DDR4, DDR5, DDR6, DDR7, LPDDR, LPDDR4, LPDDR5, LPDDR5X, LPDDR6, LPDDR7, GDDR5, GDDR6, GDDR7, HBM, HBM2, HBM3, HBM3E, HBM4, HBM5 | 20 → 20 |
 | `CXL_top` (echo/TLP template) | CXL, PCIe, UEC, Interlaken v1.2, JESD204C | 5 → 1 |
 | `RFFE_top` (2-wire serial register IF) | RFFE, DigRF, HSI, MIPI SLIMbus, MIPI SoundWire, MIPI DBI | 6 → 1 |
 | `CHI_top` (credit-based flit link) | CHI, CCIX, CXS, UALink, UCIe, ARM LTI | 6 → 1 |
 | `NVMe_top` (echo template) | NVMe, FC, Ethernet, ONFI, USB4; USB 3.2 is the same template with different STP/END_B constants | 6 → 1 |
 | `CAN_top` (frame/CRC template) | CAN, Ethernet AVB/TSN, FlexRay, LIN | 4 → 1 |
 | `UART_top` (8N1 UART) | UART, ARM SWD | 2 → 1 |
-| **Total** | | **49 → 7** |
+| **Total** | | **29 → 5** |
 
-The remaining **68 catalog entries are independent implementations** (117 − 49 = 68; 68 + 7 shared cores = 75 distinct designs).
+The remaining **92 catalog entries are independent implementations** (121 − 29 = 92; 92 + 5 shared cores = 97 distinct designs).
 
 Note the distinction from *same-family different implementations*, which are
 **not** counted as clones: e.g. `RFFE` vs `MIPI_RFFE`, `SPMI` vs `MIPI_SPMI`,
