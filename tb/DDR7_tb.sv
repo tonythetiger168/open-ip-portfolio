@@ -28,7 +28,7 @@ module DDR7_tb;
   // FSM probe path: DDR7_top is a MEMCH wrapper (no state register of
   // its own); the command FSM lives in MEMCORE_top.dstate (7 states,
   // D_IDLE..D_PRE), reached through the MEMCH channel-0 generate scope:
-  //   dut.core.g_ch[0].g_drv.core.dstate
+  //   dut.dstate
   // Output-mux note: hready/hdone/hrdata/trace_* are muxed by the channel
   // select haddr[8 +: CHW], so state-related assertions are only
   // evaluated while channel 0 is selected (crv_sel0).
@@ -37,7 +37,7 @@ module DDR7_tb;
   localparam int CRV_CHW = (CRV_NCH <= 2) ? 1 : $clog2(CRV_NCH);
   localparam int CRV_FSM_TOTAL = 7;   // D_IDLE..D_PRE (rtl/MEMCORE_top.sv)
   logic [6:0] fsm_seen = '0;          // visited-state bitmap
-  wire  [2:0] dut_state = dut.core.g_ch[0].g_drv.core.dstate;
+  wire  [2:0] dut_state = dut.dstate;
   wire        crv_sel0  = (haddr[8 +: CRV_CHW] == '0);  // ch0 selected
 
   int sva_total = 0, sva_fail = 0;
