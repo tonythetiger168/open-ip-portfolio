@@ -236,8 +236,13 @@ module USB2_0_top #(
                 if (rx_sample_bit) rrun <= rrun + 1'b1;
                 else rrun <= 4'd1;
                 if (rbit == 3'd7) begin
-                  buf_mem[ridx[5:0]] <= {rx_sample_bit, rshift[7:1]};
-                  ridx <= ridx + 6'd1;
+                  // Finding #2 defensive guard: clamp the received length so
+                  // buf_mem[0:19] and the echo copy into tx_mem[0:15] stay
+                  // in bounds (bytes beyond a 16-byte payload are dropped).
+                  if (ridx < 6'd19) begin
+                    buf_mem[ridx[5:0]] <= {rx_sample_bit, rshift[7:1]};
+                    ridx <= ridx + 6'd1;
+                  end
                   rbit <= '0;
                 end else rbit <= rbit + 1'b1;
               end
