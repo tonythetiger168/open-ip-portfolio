@@ -491,6 +491,41 @@ module AXI_tb;
     axi_write_burst(4'h7, 32'h308, 4'd1, INCR, 32'h5B00_0000, OKAY, 1'b0, 1'b1);
     axi_read_burst (4'h6, 32'h300, 4'd3, INCR, OKAY, 1'b1, 1'b1);
 
+    // ---- 16-beat FIXED burst: every beat hits the same word ----
+    axi_write_burst(4'h0, 32'h3E0, 4'd15, FIXED, 32'h3E00_0000, OKAY, 1'b0, 1'b1);
+    axi_read_burst (4'h0, 32'h3E0, 4'd15, FIXED, OKAY, 1'b0, 1'b1);
+
+    // ---- missing wlast on the final beat -> SLVERR + irq (data written) ----
+    axi_aw(4'h0, 32'h380, 4'd1, INCR, 3'd2);        // declares 2 beats
+    axi_w(4'h0, 32'h3800_0000, 1'b0, 1'b0);
+    axi_w(4'h0, 32'h3800_0001, 1'b0, 1'b0);    // final beat without wlast
+    axi_b(SLVERR, 4'h0, 1'b0);
+    check_irq(1'b1, "missing wlast");
+    model[32'h380 >> 2] = 32'h3800_0000;
+    model[32'h384 >> 2] = 32'h3800_0001;
+
+    // ---- concurrent write + read bursts (AW and AR in the same cycle) ----
+    fork
+      axi_write_burst(4'h0, 32'h3A0, 4'd3, INCR, 32'h3A00_0000, OKAY, 1'b1, 1'b1);
+      axi_read_burst (4'h6, 32'h300, 4'd3, INCR, OKAY, 1'b1, 1'b1);
+    join
+    axi_read_burst (4'h0, 32'h3A0, 4'd3, INCR, OKAY, 1'b0, 1'b1);
+
+    // ---- reset with a write burst in flight: channels + sticky irq clear ----
+    axi_aw(4'h0, 32'h3C0, 4'd1, INCR, 3'd2);
+    @(negedge clk) rst_n = 0;
+    @(negedge clk);
+    if (wready !== 1'b0 || bvalid !== 1'b0 || rvalid !== 1'b0 || irq !== 1'b0) begin
+      errors++; $display("ERROR: reset with burst in flight: channels/irq not cleared");
+    end
+    @(negedge clk) rst_n = 1;
+    @(negedge clk);
+    if (awready !== 1'b1 || arready !== 1'b1) begin
+      errors++; $display("ERROR: not ready after mid-run reset");
+    end
+    axi_write_burst(4'h0, 32'h3C0, 4'd1, INCR, 32'h3C00_0000, OKAY, 1'b0, 1'b1);
+    axi_read_burst (4'h0, 32'h3C0, 4'd1, INCR, OKAY, 1'b0, 1'b1);
+
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ------
     // 160 randomized burst transactions, ~50/50 write/read. Randomized:
