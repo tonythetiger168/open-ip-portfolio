@@ -422,7 +422,7 @@ module USB_top #(
         TS_RUN: begin
           if (tbt == BTW'(BIT_CLKS-1)) begin
             tbt <= '0;
-            if (t_stuff && !eop_pend) begin
+            if (t_stuff) begin               // emit stuffed 0 (also before EOP)
               t_lvl   <= ~t_lvl;
               t_stuff <= 1'b0;
               t_ones  <= 3'd0;
