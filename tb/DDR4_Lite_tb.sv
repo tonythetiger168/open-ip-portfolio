@@ -201,7 +201,10 @@ module DDR4_Lite_tb;
         fe_write_line(r_addr);
         wlog[wlog_n] = r_addr; wlog_n = wlog_n + 1;
       end else begin
-        fe_read_check(r_addr);
+        // read back a line this phase has written (an unwritten line holds
+        // no defined data, so checking a random address against
+        // data_word() can only fail)
+        fe_read_check(wlog[{$random(seed)} % wlog_n]);
       end
     end
     // read back everything that was written (post-refresh integrity)
