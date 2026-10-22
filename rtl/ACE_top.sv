@@ -113,6 +113,7 @@ module ACE_top #(
   logic          snp_xfer_q;    // DataTransfer
   logic          snp_shared_q;  // IsShared
   logic          snp_dirty_q;   // PassDirty
+  logic          snp_unique_q;  // WasUnique (a dirty line is UniqueDirty here)
 
   wire [5:0]     aidx = acaddr_q[7:2];
   wire           ac_hit_w = line_valid[acaddr[7:2]] && (line_tag[acaddr[7:2]] == acaddr[AW-1:8]);
@@ -140,6 +141,7 @@ module ACE_top #(
       snp_xfer_q  <= 1'b0;
       snp_shared_q<= 1'b0;
       snp_dirty_q <= 1'b0;
+      snp_unique_q<= 1'b0;
       irq         <= 1'b0;
     end else begin
       irq <= 1'b0;   // default: single-cycle pulse
@@ -192,8 +194,7 @@ module ACE_top #(
             if (rerr_q) irq <= 1'b1;
           end
         end
-        default: rstate <= R_IDLE;
-      endcase
+      endcase   // 1-bit enum, both encodings listed
 
       // -------------------- snoop channel --------------------------------
       case (sstate)
@@ -203,11 +204,13 @@ module ACE_top #(
           snp_xfer_q   <= 1'b0;
           snp_shared_q <= 1'b0;
           snp_dirty_q  <= 1'b0;
+          snp_unique_q <= 1'b0;
           case (acsnoop)
             SNP_READSHARED, SNP_READCLEAN: if (ac_hit_w) begin
               snp_xfer_q   <= 1'b1;
               snp_shared_q <= 1'b1;
               snp_dirty_q  <= line_dirty[acaddr[7:2]];
+              snp_unique_q <= line_dirty[acaddr[7:2]];
               line_dirty[acaddr[7:2]] <= 1'b0;   // dirty responsibility passed on
             end
             SNP_MAKEUNIQUE: begin
@@ -216,8 +219,9 @@ module ACE_top #(
             end
             SNP_CLEANINVALID: if (ac_hit_w) begin
               if (line_dirty[acaddr[7:2]]) begin
-                snp_xfer_q  <= 1'b1;
-                snp_dirty_q <= 1'b1;
+                snp_xfer_q   <= 1'b1;
+                snp_dirty_q  <= 1'b1;
+                snp_unique_q <= 1'b1;
               end
               line_valid[acaddr[7:2]] <= 1'b0;
               line_dirty[acaddr[7:2]] <= 1'b0;
@@ -253,7 +257,7 @@ module ACE_top #(
     // snoop channel: only accept AC when the write datapath is idle
     acready = (sstate == S_IDLE) && (wstate == W_IDLE);
     crvalid = (sstate == S_CR);
-    crresp  = {1'b0 /*WasUnique*/, snp_shared_q, snp_dirty_q,
+    crresp  = {snp_unique_q /*WasUnique*/, snp_shared_q, snp_dirty_q,
                1'b0 /*Error*/, snp_xfer_q /*DataTransfer*/};
     cdvalid = (sstate == S_CD);
     cddata  = line_data[aidx];
@@ -261,6 +265,6 @@ module ACE_top #(
   end
 
   // ACE fields accepted but not functionally used in this simplified model
-  wire unused = &{1'b0, awsnoop, awdomain, awbar, arsnoop, ardomain, arbar, acsnoop_q};
+  wire _unused = &{1'b0, awsnoop, awdomain, awbar, arsnoop, ardomain, arbar, acsnoop_q};
 
 endmodule
