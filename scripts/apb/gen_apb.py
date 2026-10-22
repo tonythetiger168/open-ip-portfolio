@@ -37,6 +37,8 @@ Spec ("regs" entries, ports are core ports):
       there is no <NAME>_OVF.
   "irqs": [{"name", "port", "desc"}]   1-bit core outputs latched into IRQ_STATUS
   "tie": {port: "value"}               core inputs tied off
+  "irq_at_reset": [irq names]          irqs a continuously running core may set
+                                       as soon as reset ends (the TB allows them)
 Every other core port passes through to the wrapper unchanged. The core clock
 and reset are PCLK and PRESETN (spec "clock"/"reset" name the core's ports).
 """
