@@ -110,7 +110,9 @@ module PWM_tb;
       wr(4'd0, 32'h0);         wr(4'd1, 32'h0);
       repeat(2) @(posedge clk);
       for (int t = 0; t < 110; t++) begin
-        int roll = $urandom_range(0, 9);
+        int roll;
+        roll = $urandom_range(0, 9);   // assigned per iteration (a declaration
+                                       // initializer runs once: static lifetime)
         if (roll < 1) begin
           // error injection: write to an unimplemented address, ignored
           n_ill++;
@@ -177,6 +179,26 @@ module PWM_tb;
                n_norm, n_bnd, n_ovf, n_ill);
     end
 `endif
+
+    // reconfigure on the fly: shrink the period below the running count,
+    // change duty mid-period, disable, then reset while running
+    wr(4'd0, 32'd40); wr(4'd1, 32'd10);
+    repeat (30) @(posedge clk);
+    wr(4'd0, 32'd5);                       // counter (>=30) wraps to 0
+    repeat (2) @(posedge clk);
+    wr(4'd1, 32'd2);
+    repeat (12) @(posedge clk);
+    wr(4'd0, 32'd0);
+    @(negedge clk); #1;
+    if (dut.pwm_out !== 1'b0) begin errors++; $display("ERROR: PWM not low when disabled"); end
+    wr(4'd0, 32'd9); wr(4'd1, 32'd4);
+    repeat (5) @(posedge clk);
+    @(negedge clk) rst_n = 1'b0;
+    #1;
+    if (dut.pwm_out !== 1'b0 || dut.pwm_n_out !== 1'b1) begin
+      errors++; $display("ERROR: PWM outputs not idle in reset");
+    end
+    @(negedge clk) rst_n = 1'b1;
 
     if (errors == 0) $display("TEST PASSED: PWM");
     else             $display("TEST FAILED: %0d errors", errors);
