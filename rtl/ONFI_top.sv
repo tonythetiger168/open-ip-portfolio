@@ -179,7 +179,10 @@ module ONFI_top #(
                 // Finding #2 defensive guard: only LEN 8..16 is well-defined
               // (HDR 8 + payload up to MAXB 8); anything else is dropped.
               if ((nb < 8'd8) || (nb > 8'd16)) begin
-                rx_err <= 1'b1; rstate <= R_IDLE;
+                // stop the bit sampler too (as at frame end), or it keeps
+                // running from R_IDLE and the next frame is sampled
+                // misaligned
+                rx_err <= 1'b1; rstate <= R_IDLE; ridx <= '0; rtmr_en <= 1'b0;
               end else begin
                 buf_mem[1] <= nb; len_q <= nb[5:0]; ridx <= 2;
               end

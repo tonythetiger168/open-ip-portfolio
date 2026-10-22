@@ -89,16 +89,16 @@ module HBM3E_Lite_top #(
   genvar g;
   generate
     for (g = 0; g < ENTS; g = g + 1) begin : TZERO
-      assign rp_done[g]  = (rp_cnt[g]  == 16'd0);
-      assign ras_done[g] = (ras_cnt[g] == 16'd0);
-      assign rc_done[g]  = (rc_cnt[g]  == 16'd0);
-      assign wr_done[g]  = (wr_cnt[g]  == 16'd0);
+      assign rp_done[g]  = (rp_cnt[g]  == 16'd0) && !ld_rp_v[g];
+      assign ras_done[g] = (ras_cnt[g] == 16'd0) && !ld_ras_v[g];
+      assign rc_done[g]  = (rc_cnt[g]  == 16'd0) && !ld_rc_v[g];
+      assign wr_done[g]  = (wr_cnt[g]  == 16'd0) && !ld_wr_v[g];
     end
   endgenerate
   logic [15:0] rrd_cnt, wtr_cnt, rfc_cnt, refi_cnt;
-  wire rrd_done = (rrd_cnt == 16'd0);
-  wire wtr_done = (wtr_cnt == 16'd0);
-  wire rfc_done = (rfc_cnt == 16'd0);
+  wire rrd_done = (rrd_cnt == 16'd0) && !ld_rrd_v;
+  wire wtr_done = (wtr_cnt == 16'd0) && !ld_wtr_v;
+  wire rfc_done = (rfc_cnt == 16'd0) && !ld_rfc_v;
 
   // ---------------- per-bank refresh rotation over 32 entries ----------------
   logic [4:0]  ref_rot;
@@ -120,7 +120,7 @@ module HBM3E_Lite_top #(
   logic        rbuf_valid;
   logic [31:0] fe_addr;
 
-  typedef enum logic [3:0] {
+  typedef enum logic [4:0] {   // 17 states: needs 5 bits
     ENG_IDLE, ENG_BANK_CHK, ENG_PRE, ENG_PRE_WAIT, ENG_ACT, ENG_TRCD,
     ENG_CL, ENG_RD_BURST, ENG_CWL, ENG_WR_BURST,
     ENG_RFB_CHK, ENG_RFB_PRE, ENG_RFB_PRE_WAIT, ENG_RFB_CMD, ENG_RFB_WAIT,
@@ -134,6 +134,14 @@ module HBM3E_Lite_top #(
   logic [127:0] burst_reg;
 
   wire [31:0] mem_idx = ((eng_ent * ROWS) + eng_row[31:0]) * LINES + eng_line;
+
+  // Array write port, kept out of the async-reset engine process so the
+  // array infers as a memory (SRAM macro) instead of 128-bit registers;
+  // the engine posts one write per burst, applied on the next edge.
+  logic           mem_we;
+  logic [31:0]    mem_wa;
+  logic [127:0]   mem_wd;
+  always_ff @(posedge clk) if (mem_we) mem[mem_wa] <= mem_wd;
   wire hit = ent_open[eng_ent] &&
              (ent_row[eng_ent] == eng_row[$clog2(ROWS)-1:0]);
 
@@ -212,7 +220,7 @@ module HBM3E_Lite_top #(
           if (hvalid) begin
             case (hcmd)
               3'd1: begin
-                if (haddr[31:19] != 13'h0) begin
+                if (haddr[31:22] != 10'h0 || haddr[16]) begin   // same map check as the engine ([21:19]=PC)
                   fe_err_pulse <= 1'b1; hdone <= 1'b1;
                 end else begin
                   fe_addr <= haddr; req_addr <= haddr;
@@ -221,7 +229,7 @@ module HBM3E_Lite_top #(
                 end
               end
               3'd2: begin
-                if (haddr[31:19] != 13'h0) begin
+                if (haddr[31:22] != 10'h0 || haddr[16]) begin   // same map check as the engine ([21:19]=PC)
                   fe_err_pulse <= 1'b1; hdone <= 1'b1;
                 end else begin
                   fe_addr <= haddr; fe_cnt <= 4'd0; fe <= FE_FILL;
@@ -270,6 +278,7 @@ module HBM3E_Lite_top #(
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       eng <= ENG_IDLE;
+      mem_we <= 1'b0; mem_wa <= 32'h0; mem_wd <= '0;
       eng_ent <= 6'd0; eng_line <= 6'd0; eng_row <= 32'h0; eng_we <= 1'b0;
       lat_cnt <= 5'd0; bcnt <= 5'd0; burst_reg <= 128'h0;
       req_done <= 1'b0;
@@ -287,16 +296,20 @@ module HBM3E_Lite_top #(
       ld_rp_v <= '0; ld_ras_v <= '0; ld_rc_v <= '0; ld_wr_v <= '0;
       ld_rrd_v <= 1'b0; ld_wtr_v <= 1'b0; ld_rfc_v <= 1'b0;
       pbref_ack <= 1'b0; req_done <= 1'b0; eng_err_pulse <= 1'b0;
+      mem_we <= 1'b0;
       case (eng)
         ENG_IDLE: begin
+          // req_valid is still high in the cycle req_done pulses (the FE
+          // drops it a cycle later): ignore it then, or the finished
+          // request is relaunched
           dq_oe <= 1'b0; dqs_oe <= 1'b0;
-          if (req_valid && req_refall) eng <= ENG_RFA_CMD;
-          else if (pbref_pend != 32'h0) begin
+          if ((req_valid && !req_done) && req_refall) eng <= ENG_RFA_CMD;
+          else if (pbref_pend != 32'h0 && !pbref_ack) begin   // ack clears pend a cycle late
             for (int i = 0; i < ENTS; i++)
               if (pbref_pend[i] && eng == ENG_IDLE) eng_ent <= i[5:0];
             eng <= ENG_RFB_CHK;
           end
-          else if (req_valid) begin
+          else if ((req_valid && !req_done)) begin
             if (req_addr[31:22] != 10'h0 || req_addr[16] != 1'b0) begin
               eng_err_pulse <= 1'b1; req_done <= 1'b1;
             end else begin
@@ -353,7 +366,6 @@ module HBM3E_Lite_top #(
           if (bcnt == 5'd7) begin
             for (int i = 0; i < 8; i++) rbuf[i] <= burst_reg[16*i +: 16];
             rbuf_valid <= 1'b1;
-            dq_oe <= 1'b0; dqs_oe <= 1'b0;
             ld_wtr_v <= 1'b1; req_done <= 1'b1; eng <= ENG_IDLE;
           end else bcnt <= bcnt + 1;
         end
@@ -365,9 +377,9 @@ module HBM3E_Lite_top #(
           dq_oe <= 1'b1; dqs_oe <= 1'b1; dqs_t <= ~dqs_t;
           dq_out <= wbuf[bcnt[2:0]];
           if (bcnt == 5'd7) begin
-            mem[mem_idx] <= {wbuf[7], wbuf[6], wbuf[5], wbuf[4],
+            mem_we <= 1'b1; mem_wa <= mem_idx;
+            mem_wd <= {wbuf[7], wbuf[6], wbuf[5], wbuf[4],
                              wbuf[3], wbuf[2], wbuf[1], wbuf[0]};
-            dq_oe <= 1'b0; dqs_oe <= 1'b0;
             ld_wr_v[eng_ent] <= 1'b1; ld_wr <= T_WR[15:0];
             req_done <= 1'b1; eng <= ENG_IDLE;
           end else bcnt <= bcnt + 1;
@@ -391,7 +403,7 @@ module HBM3E_Lite_top #(
         end
         ENG_RFB_WAIT: begin
           if (rfc_done) begin
-            pbref_ack <= 1'b1; req_done <= 1'b1; eng <= ENG_IDLE;
+            pbref_ack <= 1'b1; eng <= ENG_IDLE;   // auto refresh: no host request to ack
           end
         end
         // ---- all-entry refresh ----
@@ -422,7 +434,7 @@ module HBM3E_Lite_top #(
   // ========================================================================
   // Pins / trace
   // ========================================================================
-  assign pc_act = eng_ent[5:3];
+  assign pc_act = eng_ent[4:2];          // eng_ent = {pc[2:0], bank[1:0]}
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
