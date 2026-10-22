@@ -107,10 +107,10 @@ module OCP_tb;
     o0_xfer(MCMD_RD,   32'h014, '0, 4'hF, 2'd0, 2'b01, 32'h0D10_0014);
     for (int c = 3; c < 8; c++)
       if (c != 5)                                       // RDEX/RDL/WRC/BCST
-        o0_xfer(3'(c), 32'h010, 32'hBAD0_0000, 4'hF, 2'(c), 2'b10, '0);
+        o0_xfer(3'(c), 32'h010, 32'hBAD0_0000, 4'hF, 2'(c), 2'b11, '0);
     o0_xfer(MCMD_RD,   32'h010, '0, 4'hF, 2'd1, 2'b01, 32'h0D10_0010);  // untouched
-    o0_xfer(MCMD_RD,   32'h400, '0, 4'hF, 2'd1, 2'b10, '0);
-    o0_xfer(MCMD_WR,   32'h011, 32'h1, 4'hF, 2'd1, 2'b10, '0);
+    o0_xfer(MCMD_RD,   32'h400, '0, 4'hF, 2'd1, 2'b11, '0);
+    o0_xfer(MCMD_WR,   32'h011, 32'h1, 4'hF, 2'd1, 2'b11, '0);
     o0_xfer(MCMD_WRNP, 32'h800, 32'h1, 4'hF, 2'd0, 2'b00, '0);
     dut0_done = 1'b1;
   end
@@ -163,7 +163,7 @@ module OCP_tb;
       // A4: SCmdAccept exactly reflects S_ACCEPT (ACCEPT_DLY=1 build)
       sva_check(scmdaccept === (dut_state == 2'd1), "A4 scmdaccept == S_ACCEPT");
       // A5: SResp=ERR only for a request captured as bad-address
-      sva_check((sresp !== 2'b10) || dut.err_q, "A5 ERR implies err_q");
+      sva_check((sresp !== 2'b11) || dut.err_q, "A5 ERR implies err_q");
       // A6: state register holds a legal encoding (all 4 used)
       sva_check(dut_state <= 2'd3, "A6 state legal");
     end
@@ -341,14 +341,14 @@ module OCP_tb;
     // (mode #2); the module-level irq_mon flag replaces them here. The
     // iverilog path keeps the original fork structure bit-identical.
     irq_mon = 0;
-    ocp_read(32'h800, '0, 2'b01, 2'b10);   // expect SResp=ERR
+    ocp_read(32'h800, '0, 2'b01, 2'b11);   // expect SResp=ERR
     repeat (2) @(posedge clk);
     if (!irq_mon) begin
       errors++;
       $display("ERROR: OCP reserved RD: no irq pulse");
     end
     irq_mon = 0;
-    ocp_write(32'hFFC, 32'hDEAD_DEAD, 4'hF, 2'b00, 2'b10); // expect ERR
+    ocp_write(32'hFFC, 32'hDEAD_DEAD, 4'hF, 2'b00, 2'b11); // expect ERR
     repeat (2) @(posedge clk);
     if (!irq_mon) begin
       errors++;
@@ -365,7 +365,7 @@ module OCP_tb;
             if (irq) irq_seen = 1;
           end
         end
-        ocp_read(32'h800, '0, 2'b01, 2'b10);   // expect SResp=ERR
+        ocp_read(32'h800, '0, 2'b01, 2'b11);   // expect SResp=ERR
       join
       if (!irq_seen) begin
         errors++;
@@ -382,7 +382,7 @@ module OCP_tb;
             if (irq) irq_seen = 1;
           end
         end
-        ocp_write(32'hFFC, 32'hDEAD_DEAD, 4'hF, 2'b00, 2'b10); // expect ERR
+        ocp_write(32'hFFC, 32'hDEAD_DEAD, 4'hF, 2'b00, 2'b11); // expect ERR
       join
       if (!irq_seen) begin
         errors++;
@@ -392,7 +392,7 @@ module OCP_tb;
 `endif
 
     // CHECK 7: error injection - misaligned address
-    ocp_read(32'h002, '0, 2'b00, 2'b10);       // expect SResp=ERR
+    ocp_read(32'h002, '0, 2'b00, 2'b11);       // expect SResp=ERR
 
     // reserved write must not corrupt regfile
     ocp_read(32'h000, 32'hA500_0000, 2'b00, 2'b01);
@@ -404,7 +404,7 @@ module OCP_tb;
         logic [1:0] rsp; logic [DW-1:0] dd; int lat;
         ocp_cmd(3'(c), 32'h000, 32'hBAD0_0000, 4'hF, 2'(c));
         ocp_wait_resp(rsp, dd, lat);
-        if (rsp !== 2'b10) begin errors++; $display("ERROR: OCP MCmd=%0d resp=%b exp ERR", c, rsp); end
+        if (rsp !== 2'b11) begin errors++; $display("ERROR: OCP MCmd=%0d resp=%b exp ERR", c, rsp); end
       end
     ocp_read(32'h000, 32'hA500_0000, 2'b00, 2'b01);       // regfile untouched
 
@@ -465,13 +465,13 @@ module OCP_tb;
             n_np++;
           end else begin
             ocp_write(ba, db, be_v, tid_v,
-                      (ba[31:10] != 0 || ba[1:0] != 0) ? 2'b10 : 2'b01);
+                      (ba[31:10] != 0 || ba[1:0] != 0) ? 2'b11 : 2'b01);
             n_wr++;
           end
           if (ba[31:10] != 0 || ba[1:0] != 0) n_err++;
         end else begin
           ocp_read(ba, (ba[31:10] == 0 && ba[1:0] == 0) ? sh_mem[ba[9:2]] : 32'h0,
-                   tid_v, (ba[31:10] != 0 || ba[1:0] != 0) ? 2'b10 : 2'b01);
+                   tid_v, (ba[31:10] != 0 || ba[1:0] != 0) ? 2'b11 : 2'b01);
           n_rd++;
           if (ba[31:10] != 0 || ba[1:0] != 0) n_err++;
         end

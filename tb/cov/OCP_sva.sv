@@ -15,7 +15,7 @@ module OCP_sva #(parameter int DW = 32, AW = 32, ACCEPT_DLY = 1) (
 );
   `COV_CLOCKING(clk, !rst_n)
   localparam logic [2:0] WR = 3'd1, RD = 3'd2, WRNP = 3'd5;
-  localparam logic [1:0] NUL = 2'd0, DVA = 2'd1, ERR = 2'd2;
+  localparam logic [1:0] NUL = 2'd0, DVA = 2'd1, ERR = 2'd3;
   wire cmd      = mcmd != 3'd0;
   wire acc      = scmdaccept && cmd;
   wire addr_bad = (maddr[AW-1:10] != '0) || (maddr[1:0] != 2'b00);
