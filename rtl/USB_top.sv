@@ -1,25 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
 // ============================================================================
-// USB 1.1 Full-Speed device controller (EP0 control read + EP1 interrupt IN)
+// USB 1.1 Full-Speed device controller (EP0 control + EP1 interrupt IN)
 // Implementation scope:
 //   * PHY layer : NRZI decode/encode, bit stuffing (insert 0 after six 1s,
-//                 remove stuffed 0 on receive), SE0(2 bit)+J(1 bit) EOP,
-//                 dp/dm tri-state pads with output-enable
+//                 also before EOP; remove stuffed 0 on receive), SE0(2 bit)
+//                 + J(1 bit) EOP, dp/dm tri-state pads with output-enable,
+//                 bus reset = SE0 held for RST_BITS bit times
 //   * Protocol  : SYNC field 8'h80 (KJKJKJKK), PID nibble-complement check,
 //                 token frame addr[7]+endp[4]+CRC5(poly 0x05),
-//                 data frame payload+CRC16(poly 0x8005),
+//                 data frame payload+CRC16(poly 0x8005), generated on the fly,
 //                 handshakes ACK/NAK/STALL,
 //                 DATA0/DATA1 toggle synchronization (retransmit on lost ACK,
 //                 discard-but-ACK on duplicated data)
-//   * Function  : EP0 GET_DESCRIPTOR (fixed 8-byte device descriptor),
-//                 EP1 interrupt IN (4-byte transfer counter),
-//                 SETUP data stage written into 8x8 register file
-// Line rate is parameterized: BIT_CLKS clk cycles per USB bit time.
-// IP design implementation v1.0 -- Apache-2.0
+//   * EP0       : standard requests GET_DESCRIPTOR(device, 18 bytes, sent in
+//                 8-byte packets, truncated to wLength), SET_ADDRESS (takes
+//                 effect after the status stage), SET_CONFIGURATION(0/1),
+//                 GET_CONFIGURATION; vendor request 0x40/0x01 presets the EP1
+//                 counter to {wIndex, wValue}; anything else is answered with
+//                 a protocol STALL until the next SETUP
+//   * EP1       : interrupt IN, 4-byte transfer counter (incremented on ACK),
+//                 NAK while unconfigured
+//   * irq       : sticky on a token / data packet with bad CRC or stuffing;
+//                 cleared by the next good token addressed to the device
+// Line rate is parameterized: BIT_CLKS clk cycles per USB bit time (>= 2).
+// IP design implementation v1.1 -- Apache-2.0
 // ============================================================================
 module USB_top #(
-  parameter int DW = 32,        // retained framework parameter (data width)
-  parameter int AW = 32,        // retained framework parameter (address width)
   parameter int BIT_CLKS = 4    // clk cycles per USB bit time
 )(
   input  logic clk,
@@ -46,10 +52,17 @@ module USB_top #(
   localparam logic [3:0] PID_NAK   = 4'hA;
   localparam logic [3:0] PID_STALL = 4'hE;
 
-  localparam logic [6:0] DEV_ADDR   = 7'd0;             // default address
-  localparam int         SAMPLE_PT  = BIT_CLKS/2 - 1;   // bit-center sample point
-  localparam int         TURNAROUND = 4*BIT_CLKS;       // RX EOP -> TX SOP gap
-  localparam logic [7:0] ACK_TO     = 8'd200;           // handshake timeout (clk)
+  localparam int BTW        = $clog2(BIT_CLKS);
+  localparam int SAMPLE_PT  = BIT_CLKS/2 - 1;   // bit-center sample point
+  localparam int TURNAROUND = 4*BIT_CLKS;       // RX EOP -> TX SOP gap
+  localparam int TAW        = $clog2(TURNAROUND);
+  localparam int EOPW       = $clog2(2*BIT_CLKS);
+  localparam int ACK_TO     = 32*BIT_CLKS;      // handshake timeout (clk)
+  localparam int ATW        = $clog2(ACK_TO + 1);
+  localparam int RST_BITS   = 32;               // bus reset: SE0 >= 32 bit times
+  localparam int RST_CLKS   = RST_BITS*BIT_CLKS;
+  localparam int RSW        = $clog2(RST_CLKS + 1);
+  localparam logic [4:0] DESC_LEN = 5'd18;
 
   // ------------------------------------------------------------------
   // tri-state pads
@@ -68,59 +81,70 @@ module USB_top #(
   // CRC helpers (LSB-first reflected LFSRs, USB conventions)
   // ------------------------------------------------------------------
   function automatic logic [4:0] crc5_bit(input logic [4:0] c, input logic b);
-    logic fb;
-    begin
-      fb = c[0] ^ b;
-      if (fb) crc5_bit = (c >> 1) ^ 5'h14;   // reflected poly of x^5+x^2+1
-      else    crc5_bit = (c >> 1);
-    end
+    if (c[0] ^ b) crc5_bit = (c >> 1) ^ 5'h14;   // reflected poly of x^5+x^2+1
+    else          crc5_bit = (c >> 1);
   endfunction
 
   function automatic logic [15:0] crc16_byte(input logic [15:0] c, input logic [7:0] d);
     logic [15:0] r;
-    begin
-      r = c;
-      for (int k = 0; k < 8; k++) begin
-        if (r[0] ^ d[k]) r = (r >> 1) ^ 16'hA001;  // reflected poly of 0x8005
-        else             r = (r >> 1);
-      end
-      crc16_byte = r;
-    end
+    r = c;
+    for (int k = 0; k < 8; k++)
+      r = (r[0] ^ d[k]) ? ((r >> 1) ^ 16'hA001) : (r >> 1);  // reflected 0x8005
+    crc16_byte = r;
   endfunction
 
-  // fixed 8-byte device descriptor prefix returned on EP0 IN
-  function automatic logic [7:0] desc_byte(input logic [2:0] i);
-    begin
-      case (i)
-        3'd0:    desc_byte = 8'h12;  // bLength=18
-        3'd1:    desc_byte = 8'h01;  // bDescriptorType=DEVICE
-        3'd2:    desc_byte = 8'h00;  // bcdUSB LSB (2.00)
-        3'd3:    desc_byte = 8'h02;  // bcdUSB MSB
-        3'd4:    desc_byte = 8'h00;  // bDeviceClass
-        3'd5:    desc_byte = 8'h00;  // bDeviceSubClass
-        3'd6:    desc_byte = 8'h00;  // bDeviceProtocol
-        default: desc_byte = 8'h08;  // bMaxPacketSize0=8
-      endcase
-    end
+  // 18-byte device descriptor
+  function automatic logic [7:0] desc_byte(input logic [4:0] i);
+    case (i)
+      5'd0:    desc_byte = 8'h12;  // bLength=18
+      5'd1:    desc_byte = 8'h01;  // bDescriptorType=DEVICE
+      5'd2:    desc_byte = 8'h00;  // bcdUSB 2.00
+      5'd3:    desc_byte = 8'h02;
+      5'd7:    desc_byte = 8'h08;  // bMaxPacketSize0=8
+      5'd8:    desc_byte = 8'h09;  // idVendor 0x1209
+      5'd9:    desc_byte = 8'h12;
+      5'd10:   desc_byte = 8'h01;  // idProduct 0x0001
+      5'd13:   desc_byte = 8'h01;  // bcdDevice 1.00
+      5'd17:   desc_byte = 8'h01;  // bNumConfigurations=1
+      default: desc_byte = 8'h00;  // class/subclass/protocol, strings
+    endcase
   endfunction
+
+  // ==================================================================
+  // bus reset detect (SE0 held for RST_CLKS)
+  // ==================================================================
+  logic [RSW-1:0] se0_cnt;
+  logic           bus_rst;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      se0_cnt <= '0;
+      bus_rst <= 1'b0;
+    end else begin
+      bus_rst <= 1'b0;
+      if (line != LN_SE0 || tx_oe) se0_cnt <= '0;
+      else if (se0_cnt != RSW'(RST_CLKS)) begin
+        se0_cnt <= se0_cnt + 1'b1;
+        bus_rst <= (se0_cnt == RSW'(RST_CLKS - 1));
+      end
+    end
+  end
 
   // ==================================================================
   // RX path : bit timer + NRZI decode + unstuff + frame disassembly
   // ==================================================================
-  logic [1:0] line_d;
-  logic [3:0] bt;
-  wire        rx_edge = line_jk && (line_d[1] ^ line_d[0]) && (line != line_d);
-  wire        rx_sample;
+  logic [1:0]     line_d;
+  logic [BTW-1:0] bt;
+  wire            rx_edge = line_jk && (line_d[1] ^ line_d[0]) && (line != line_d);
+  wire            rx_sample;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       line_d <= LN_J;
-      bt     <= 4'd0;
+      bt     <= '0;
     end else begin
       line_d <= line;
-      if (rx_edge)               bt <= 4'd0;            // edge resync
-      else if (bt == BIT_CLKS-1) bt <= 4'd0;
-      else                       bt <= bt + 4'd1;
+      if (rx_edge || bt == BTW'(BIT_CLKS-1)) bt <= '0;  // edge resync
+      else                                   bt <= bt + 1'b1;
     end
   end
 
@@ -130,8 +154,8 @@ module USB_top #(
   logic         prev_lvl;
   logic [2:0]   ones;
   logic         stuff_err;
-  logic [4:0]   bcnt;
-  logic [15:0]  shifter;
+  logic [3:0]   bcnt;
+  logic [14:0]  shifter;        // bits received so far, newest at [14]
   logic [4:0]   crc5_r;
   logic [15:0]  crc16_r;
   logic [7:0]   b_d1, b_d2;
@@ -150,9 +174,9 @@ module USB_top #(
   typedef enum logic [2:0] {TS_IDLE, TS_WAIT, TS_RUN, TS_EOP0, TS_EOPJ} ts_t;
   ts_t         ts;
   wire rx_en    = (ts == TS_IDLE);        // never receive our own transmit
-  assign rx_sample = (bt == SAMPLE_PT[3:0]) && line_jk;
+  assign rx_sample = (bt == BTW'(SAMPLE_PT)) && line_jk;
   wire nrzi    = (dp_i == prev_lvl);      // no transition -> logic 1
-  wire [7:0] byte_v = {nrzi, shifter[15:9]};   // bit i of byte sits at shifter[8+i]
+  wire [7:0] byte_v = {nrzi, shifter[14:8]};   // bit i of byte sits at shifter[7+i]
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -160,8 +184,8 @@ module USB_top #(
       prev_lvl    <= 1'b1;
       ones        <= 3'd0;
       stuff_err   <= 1'b0;
-      bcnt        <= 5'd0;
-      shifter     <= 16'd0;
+      bcnt        <= 4'd0;
+      shifter     <= 15'd0;
       crc5_r      <= 5'h1F;
       crc16_r     <= 16'hFFFF;
       b_d1        <= 8'd0;
@@ -191,10 +215,7 @@ module USB_top #(
               prev_lvl    <= 1'b1;       // idle was J
               ones        <= 3'd0;
               stuff_err   <= 1'b0;
-              bcnt        <= 5'd0;
-              crc5_r      <= 5'h1F;
-              crc16_r     <= 16'hFFFF;
-              dlen        <= 5'd0;
+              bcnt        <= 4'd0;
               field_token <= 1'b0;
               rx_pid      <= 4'd0;
             end
@@ -203,12 +224,12 @@ module USB_top #(
           RS_SYNC: begin
             if (line == LN_SE0) rs <= RS_SE0;
             else if (rx_sample) begin
-              shifter <= {nrzi, shifter[15:1]};
+              shifter <= {nrzi, shifter[14:1]};
+              bcnt    <= {1'b0, bcnt[2:0] + 3'd1};
               if (bcnt[2:0] == 3'd7) begin
-                bcnt <= 5'd0;
                 if (byte_v == 8'h80) begin rs <= RS_PID; ones <= 3'd0; end
                 else                     rs <= RS_DUMP;  // bad sync, drop
-              end else bcnt <= bcnt + 5'd1;
+              end
             end
           end
           // ------------------------------------------------ PID byte
@@ -221,10 +242,10 @@ module USB_top #(
                 ones <= 3'd0;
                 if (nrzi) stuff_err <= 1'b1;
               end else begin
-                shifter <= {nrzi, shifter[15:1]};
+                shifter <= {nrzi, shifter[14:1]};
                 ones    <= nrzi ? ones + 3'd1 : 3'd0;
+                bcnt    <= {1'b0, bcnt[2:0] + 3'd1};
                 if (bcnt[2:0] == 3'd7) begin
-                  bcnt <= 5'd0;
                   if (byte_v[7:4] == ~byte_v[3:0]) begin
                     rx_pid <= byte_v[3:0];
                     case (byte_v[3:0])
@@ -243,7 +264,7 @@ module USB_top #(
                     rx_pid <= 4'd0;             // bad PID check nibble
                     rs     <= RS_DUMP;
                   end
-                end else bcnt <= bcnt + 5'd1;
+                end
               end
             end
           end
@@ -258,15 +279,16 @@ module USB_top #(
                 ones <= 3'd0;
                 if (nrzi) stuff_err <= 1'b1;
               end else begin
-                shifter <= {nrzi, shifter[15:1]};
+                shifter <= {nrzi, shifter[14:1]};
                 ones    <= nrzi ? ones + 3'd1 : 3'd0;
-                if (bcnt < 5'd11) crc5_r <= crc5_bit(crc5_r, nrzi);
-                if (bcnt == 5'd15) begin
-                  rx_tokfield  <= {nrzi, shifter[15:1]};    // bit i at position i
-                  tok_crc_ok_r <= ({nrzi, shifter[15:12]} == (crc5_r ^ 5'h1F));
+                if (bcnt < 4'd11) crc5_r <= crc5_bit(crc5_r, nrzi);
+                bcnt    <= bcnt + 4'd1;
+                if (bcnt == 4'd15) begin
+                  rx_tokfield  <= shifter[10:0];             // bit i at position i
+                  tok_crc_ok_r <= ({nrzi, shifter[14:11]} == (crc5_r ^ 5'h1F));
                   field_token  <= 1'b1;
                   rs           <= RS_DUMP;     // wait for EOP
-                end else bcnt <= bcnt + 5'd1;
+                end
               end
             end
           end
@@ -284,16 +306,16 @@ module USB_top #(
                 ones <= 3'd0;
                 if (nrzi) stuff_err <= 1'b1;
               end else begin
-                shifter <= {nrzi, shifter[15:1]};
+                shifter <= {nrzi, shifter[14:1]};
                 ones    <= nrzi ? ones + 3'd1 : 3'd0;
+                bcnt    <= {1'b0, bcnt[2:0] + 3'd1};
                 if (bcnt[2:0] == 3'd7) begin
-                  bcnt <= 5'd0;
                   if (dlen >= 5'd2) crc16_r <= crc16_byte(crc16_r, b_d2);
                   b_d2 <= b_d1;
                   b_d1 <= byte_v;
                   if (dlen < 5'd8) rx_buf[dlen[2:0]] <= byte_v;
                   if (dlen != 5'd31) dlen <= dlen + 5'd1;
-                end else bcnt <= bcnt + 5'd1;
+                end
               end
             end
           end
@@ -306,117 +328,137 @@ module USB_top #(
             end
           end
           // ------------------------------------------------ EOP: SE0 then J
-          RS_SE0: begin
+          default: begin                       // RS_SE0
             if (line == LN_J) rs <= RS_IDLE;
           end
-          default: rs <= RS_IDLE;
         endcase
       end
     end
   end
 
   // ==================================================================
-  // TX path : NRZI encode + bit stuffing + EOP, byte stream from txb[]
-  //   byte_ptr 0            -> SYNC 8'h80
-  //   byte_ptr 1..total_cnt -> txb[byte_ptr-1]  (PID, payload, CRC16)
+  // TX path : NRZI encode + bit stuffing + EOP; bytes generated on the fly
+  //   byte index 0 = SYNC, 1 = PID, 2.. payload, then CRC16 (data packets)
   // ==================================================================
-  logic [4:0]  wait_cnt;
-  logic [3:0]  tbt;
-  logic [2:0]  t_ones;
-  logic        t_stuff;
-  logic [4:0]  byte_ptr;
-  logic [2:0]  bit_ptr;
-  logic [4:0]  total_cnt;
-  logic        t_lvl;
-  logic [4:0]  eop_cnt;
-  logic        eop_pend;   // final bit-time in flight, EOP at next boundary
-  logic        tx_start;
-  logic        tx_done;
-  logic [7:0]  txb [0:15];
+  localparam logic [2:0] TK_HS = 3'd0, TK_ZLP = 3'd1, TK_DESC = 3'd2, TK_CFG = 3'd3,
+                         TK_CNT = 3'd4;
+  logic [TAW-1:0]  wait_cnt;
+  logic [BTW-1:0]  tbt;
+  logic [2:0]      t_ones;
+  logic            t_stuff;
+  logic [3:0]      byte_ptr;
+  logic [2:0]      bit_ptr;
+  logic            t_lvl;
+  logic [EOPW-1:0] eop_cnt;
+  logic            eop_pend;   // final bit-time in flight, EOP at next boundary
+  logic            tx_start;
+  logic            tx_done;
+  logic [15:0]     tx_crc;
+  // packet descriptor (from the control FSM)
+  logic [2:0]      tx_kind;
+  logic [2:0]      tx_pid;     // PID bits {3,2,0}: bit 1 is set in every PID sent
+  logic [3:0]      tx_n;       // payload bytes
+  logic            cfg;        // configured (SET_CONFIGURATION 1)
+  logic [4:0]      d_len, d_off;  // control IN data stage length / progress
+  logic [31:0]     ep1_cnt;
 
-  wire [7:0] t_byte = (byte_ptr == 5'd0) ? 8'h80 : txb[byte_ptr[3:0] - 4'd1];
-  wire       t_bit  = t_byte[bit_ptr];
+  wire [3:0] last_ptr = (tx_kind == TK_HS) ? 4'd1 : tx_n + 4'd3;
+  wire [3:0] pay_i    = byte_ptr - 4'd2;
+
+  logic [7:0] t_byte;
+  always_comb begin
+    if (byte_ptr == 4'd0)      t_byte = 8'h80;
+    else if (byte_ptr == 4'd1) t_byte = {~tx_pid[2:1], 1'b0, ~tx_pid[0],
+                                          tx_pid[2:1], 1'b1, tx_pid[0]};
+    else if (pay_i < tx_n)
+      case (tx_kind)
+        TK_DESC: t_byte = desc_byte(d_off + {1'b0, pay_i});   // d_off steady while sending
+        TK_CFG:  t_byte = {7'd0, cfg};
+        default: t_byte = ep1_cnt[8*pay_i[1:0] +: 8];
+      endcase
+    else if (pay_i == tx_n)    t_byte = ~tx_crc[7:0];
+    else                       t_byte = ~tx_crc[15:8];
+  end
+  wire t_bit = t_byte[bit_ptr];
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       ts        <= TS_IDLE;
-      wait_cnt  <= 5'd0;
-      tbt       <= 4'd0;
+      wait_cnt  <= '0;
+      tbt       <= '0;
       t_ones    <= 3'd0;
       t_stuff   <= 1'b0;
-      byte_ptr  <= 5'd0;
+      byte_ptr  <= 4'd0;
       bit_ptr   <= 3'd0;
-      total_cnt <= 5'd0;
       t_lvl     <= 1'b1;
-      eop_cnt   <= 5'd0;
+      eop_cnt   <= '0;
       eop_pend  <= 1'b0;
       tx_oe     <= 1'b0;
       tx_done   <= 1'b0;
+      tx_crc    <= 16'hFFFF;
     end else begin
       tx_done <= 1'b0;
       case (ts)
         TS_IDLE: begin
           if (tx_start) begin
             ts       <= TS_WAIT;
-            wait_cnt <= 5'd0;
-            tx_oe    <= 1'b0;
+            wait_cnt <= '0;
           end
         end
         TS_WAIT: begin                       // inter-packet turnaround gap
-          if (wait_cnt == TURNAROUND[4:0] - 5'd1) begin
+          if (wait_cnt == TAW'(TURNAROUND - 1)) begin
             ts       <= TS_RUN;
             tx_oe    <= 1'b1;
             t_lvl    <= 1'b0;                // first SYNC bit is 0 -> K
-            tbt      <= 4'd0;
+            tbt      <= '0;
             t_ones   <= 3'd0;
             t_stuff  <= 1'b0;
-            byte_ptr <= 5'd0;
+            byte_ptr <= 4'd0;
             bit_ptr  <= 3'd1;                // bit0 pre-applied above
             eop_pend <= 1'b0;
-          end else wait_cnt <= wait_cnt + 5'd1;
+            tx_crc   <= 16'hFFFF;
+          end else wait_cnt <= wait_cnt + 1'b1;
         end
         TS_RUN: begin
-          if (tbt == BIT_CLKS-1) begin
-            tbt <= 4'd0;
-            if (eop_pend) begin              // final bit-time complete -> EOP
-              ts       <= TS_EOP0;
-              eop_cnt  <= 5'd0;
-              eop_pend <= 1'b0;
-            end else if (t_stuff) begin      // emit stuffed 0
+          if (tbt == BTW'(BIT_CLKS-1)) begin
+            tbt <= '0;
+            if (t_stuff && !eop_pend) begin
               t_lvl   <= ~t_lvl;
               t_stuff <= 1'b0;
               t_ones  <= 3'd0;
+            end else if (eop_pend) begin     // final bit-time complete -> EOP
+              ts       <= TS_EOP0;
+              eop_cnt  <= '0;
+              eop_pend <= 1'b0;
             end else begin
               if (!t_bit) t_lvl <= ~t_lvl;   // NRZI: 0 toggles
-              if (byte_ptr != 5'd0) begin    // stuffing after SYNC field
+              if (byte_ptr != 4'd0) begin    // stuffing after SYNC field
                 if (t_bit) begin
                   if (t_ones == 3'd5) t_stuff <= 1'b1;
                   t_ones <= t_ones + 3'd1;
                 end else t_ones <= 3'd0;
               end
-              if ((byte_ptr == total_cnt) && (bit_ptr == 3'd7))
-                eop_pend <= 1'b1;            // this bit-time is the last one
-              else if (bit_ptr == 3'd7) begin
-                bit_ptr  <= 3'd0;
-                byte_ptr <= byte_ptr + 5'd1;
-              end else bit_ptr <= bit_ptr + 3'd1;
+              if (bit_ptr == 3'd7) begin
+                if (byte_ptr >= 4'd2 && pay_i < tx_n) tx_crc <= crc16_byte(tx_crc, t_byte);
+                if (byte_ptr == last_ptr) eop_pend <= 1'b1;   // last bit-time
+                else                      byte_ptr <= byte_ptr + 4'd1;
+              end
+              bit_ptr <= bit_ptr + 3'd1;
             end
-          end else tbt <= tbt + 4'd1;
+          end else tbt <= tbt + 1'b1;
         end
         TS_EOP0: begin                       // SE0 for 2 bit times
-          if (eop_cnt == (2*BIT_CLKS) - 1) begin
-            ts      <= TS_EOPJ;
-            eop_cnt <= 5'd0;
-          end else eop_cnt <= eop_cnt + 5'd1;
+          eop_cnt <= eop_cnt + 1'b1;
+          if (eop_cnt == EOPW'(2*BIT_CLKS - 1)) ts <= TS_EOPJ;
         end
-        TS_EOPJ: begin                       // J for 1 bit time, then release
-          if (eop_cnt == BIT_CLKS - 1) begin
+        default: begin                       // TS_EOPJ: J for 1 bit time, release
+          eop_cnt <= eop_cnt + 1'b1;
+          if (eop_cnt == EOPW'(BIT_CLKS - 1)) begin
             ts      <= TS_IDLE;
             tx_oe   <= 1'b0;
             tx_done <= 1'b1;
-          end else eop_cnt <= eop_cnt + 5'd1;
+          end
         end
-        default: ts <= TS_IDLE;
       endcase
     end
   end
@@ -433,43 +475,71 @@ module USB_top #(
   // protocol control FSM
   // ==================================================================
   typedef enum logic [1:0] {CS_IDLE, CS_TX, CS_WACK} cs_t;
-  cs_t         cs;
-  logic        expect_ack;
-  logic        cur_ep;                      // 0: EP0, 1: EP1 (for ACK bookkeeping)
-  logic        exp_data, exp_setup, pend_stall;
-  logic        ep0in_tgl, ep1in_tgl, out_tgl;
-  logic [31:0] ep1_cnt;
-  logic [7:0]  setup_q [0:7];
-  logic [7:0]  ack_timer;
+  // EP0 control transfer in progress
+  typedef enum logic [2:0] {RQ_NONE, RQ_DESC, RQ_CFGGET, RQ_ADDR, RQ_CFGSET,
+                            RQ_CNTSET, RQ_STALL} rq_t;
+  cs_t            cs;
+  rq_t            rq;
+  logic [6:0]     dev_addr, new_addr;
+  logic           new_cfg;
+  logic [31:0]    new_cnt;
+  logic           expect_ack;
+  logic           exp_data, exp_setup, pend_stall;
+  logic           ep0in_tgl, ep1in_tgl, out_tgl;
+  logic [ATW-1:0] ack_timer;
 
-  wire wrong_tgl = ((rx_pid == PID_DATA1) != (exp_setup ? 1'b0 : out_tgl));
+  wire        wrong_tgl = ((rx_pid == PID_DATA1) != (exp_setup ? 1'b0 : out_tgl));
+  wire        tok_me    = rx_tok_ok && (rx_tokfield[6:0] == dev_addr);
+  wire [3:0]  tok_ep    = rx_tokfield[10:7];
+  wire [4:0]  d_left    = d_len - d_off;
+  wire [3:0]  d_n       = (d_left > 5'd8) ? 4'd8 : d_left[3:0];
+  // SETUP packet fields
+  wire [7:0]  s_bm  = rx_buf[0];
+  wire [7:0]  s_rq  = rx_buf[1];
+  wire [15:0] s_val = {rx_buf[3], rx_buf[2]};
+  wire [15:0] s_idx = {rx_buf[5], rx_buf[4]};
+  wire [15:0] s_len = {rx_buf[7], rx_buf[6]};
 
-  function automatic logic [15:0] crc16_desc(input logic dummy);
-    logic [15:0] c;
-    begin
-      c = 16'hFFFF;
-      for (int i = 0; i < 8; i++) c = crc16_byte(c, desc_byte(i[2:0]));
-      crc16_desc = c;
-    end
+  // decode a SETUP request
+  function automatic rq_t setup_rq(input logic [7:0] bm, input logic [7:0] rq_,
+                                   input logic [15:0] val, input logic [15:0] idx,
+                                   input logic [15:0] len);
+    if (bm == 8'h80 && rq_ == 8'h06 && val == 16'h0100)       setup_rq = RQ_DESC;
+    else if (bm == 8'h80 && rq_ == 8'h08 && val == 16'h0 && idx == 16'h0 && len == 16'd1)
+                                                              setup_rq = RQ_CFGGET;
+    else if (bm == 8'h00 && rq_ == 8'h05 && val < 16'd128 && idx == 16'h0 && len == 16'h0)
+                                                              setup_rq = RQ_ADDR;
+    else if (bm == 8'h00 && rq_ == 8'h09 && val < 16'd2 && idx == 16'h0 && len == 16'h0)
+                                                              setup_rq = RQ_CFGSET;
+    else if (bm == 8'h40 && rq_ == 8'h01 && len == 16'h0)     setup_rq = RQ_CNTSET;
+    else                                                      setup_rq = RQ_STALL;
   endfunction
 
-  function automatic logic [15:0] crc16_cnt(input logic [31:0] v);
-    logic [15:0] c;
-    begin
-      c = 16'hFFFF;
-      for (int i = 0; i < 4; i++) c = crc16_byte(c, v[i*8 +: 8]);
-      crc16_cnt = c;
-    end
-  endfunction
-
-  wire [15:0] crc_d = crc16_desc(1'b0);
-  wire [15:0] crc_c = crc16_cnt(ep1_cnt);
+  // start a response packet (pid[1] is 1 for every PID the device sends)
+  /* verilator lint_off UNUSEDSIGNAL */
+  task automatic send(input logic [2:0] k, input logic [3:0] pid, input logic [3:0] n,
+                      input logic ack);
+    tx_kind    <= k;
+    tx_pid     <= {pid[3:2], pid[0]};
+    tx_n       <= n;
+    tx_start   <= 1'b1;
+    expect_ack <= ack;
+    cs         <= CS_TX;
+  endtask
+  /* verilator lint_on UNUSEDSIGNAL */
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       cs         <= CS_IDLE;
+      rq         <= RQ_NONE;
+      dev_addr   <= 7'd0;
+      new_addr   <= 7'd0;
+      cfg        <= 1'b0;
+      new_cfg    <= 1'b0;
+      new_cnt    <= 32'd0;
+      d_len      <= 5'd0;
+      d_off      <= 5'd0;
       expect_ack <= 1'b0;
-      cur_ep     <= 1'b0;
       exp_data   <= 1'b0;
       exp_setup  <= 1'b0;
       pend_stall <= 1'b0;
@@ -477,116 +547,116 @@ module USB_top #(
       ep1in_tgl  <= 1'b0;
       out_tgl    <= 1'b0;
       ep1_cnt    <= 32'd0;
-      ack_timer  <= 8'd0;
+      ack_timer  <= '0;
       tx_start   <= 1'b0;
+      tx_kind    <= TK_HS;
+      tx_pid     <= 3'd0;
+      tx_n       <= 4'd0;
       irq        <= 1'b0;
-      for (int i = 0; i < 8; i++) setup_q[i] <= 8'd0;
+    end else if (bus_rst) begin            // USB bus reset: default state
+      cs         <= CS_IDLE;
+      rq         <= RQ_NONE;
+      dev_addr   <= 7'd0;
+      cfg        <= 1'b0;
+      exp_data   <= 1'b0;
+      ep0in_tgl  <= 1'b0;
+      ep1in_tgl  <= 1'b0;
+      out_tgl    <= 1'b0;
+      tx_start   <= 1'b0;
     end else begin
       tx_start <= 1'b0;
       case (cs)
         // -------------------------------------------------- packet dispatch
-        CS_IDLE: begin
-          if (rx_done) begin
-            case (rx_pid)
-              PID_IN: begin
-                exp_data <= 1'b0;
-                if (!rx_tok_ok) irq <= 1'b1;          // bad CRC5: no response
-                else if (rx_tokfield[6:0] == DEV_ADDR) begin
-                  irq <= 1'b0;
-                  if (rx_tokfield[10:7] == 4'd0) begin
-                    txb[0] <= ep0in_tgl ? 8'h4B : 8'hC3;   // DATA1/DATA0
-                    for (int i = 0; i < 8; i++) txb[i+1] <= desc_byte(i[2:0]);
-                    txb[9]  <= ~crc_d[7:0];
-                    txb[10] <= ~crc_d[15:8];
-                    total_cnt <= 5'd11;
-                    tx_start  <= 1'b1;
-                    expect_ack<= 1'b1;
-                    cur_ep    <= 1'b0;
-                    cs        <= CS_TX;
-                  end else if (rx_tokfield[10:7] == 4'd1) begin
-                    txb[0] <= ep1in_tgl ? 8'h4B : 8'hC3;
-                    txb[1] <= ep1_cnt[7:0];
-                    txb[2] <= ep1_cnt[15:8];
-                    txb[3] <= ep1_cnt[23:16];
-                    txb[4] <= ep1_cnt[31:24];
-                    txb[5] <= ~crc_c[7:0];
-                    txb[6] <= ~crc_c[15:8];
-                    total_cnt <= 5'd7;
-                    tx_start  <= 1'b1;
-                    expect_ack<= 1'b1;
-                    cur_ep    <= 1'b1;
-                    cs        <= CS_TX;
-                  end else begin                        // illegal endpoint
-                    txb[0]    <= 8'h1E;               // STALL
-                    total_cnt <= 5'd1;
-                    tx_start  <= 1'b1;
-                    expect_ack<= 1'b0;
-                    cs        <= CS_TX;
-                  end
+        CS_IDLE: if (rx_done) begin
+          case (rx_pid)
+            PID_IN: begin
+              exp_data <= 1'b0;
+              if (!rx_tok_ok) irq <= 1'b1;            // bad CRC5: no response
+              else if (tok_me) begin
+                irq <= 1'b0;
+                if (tok_ep == 4'd0) begin
+                  case (rq)
+                    RQ_DESC:
+                      send(TK_DESC, ep0in_tgl ? PID_DATA1 : PID_DATA0, d_n, 1'b1);
+                    RQ_CFGGET:
+                      send(TK_CFG, ep0in_tgl ? PID_DATA1 : PID_DATA0, d_n, 1'b1);
+                    RQ_ADDR, RQ_CFGSET, RQ_CNTSET:            // status stage
+                      send(TK_ZLP, ep0in_tgl ? PID_DATA1 : PID_DATA0, 4'd0, 1'b1);
+                    default: send(TK_HS, PID_STALL, 4'd0, 1'b0);
+                  endcase
+                end else if (tok_ep == 4'd1) begin
+                  if (cfg) send(TK_CNT, ep1in_tgl ? PID_DATA1 : PID_DATA0, 4'd4, 1'b1);
+                  else     send(TK_HS, PID_NAK, 4'd0, 1'b0);
+                end else   send(TK_HS, PID_STALL, 4'd0, 1'b0);  // no such endpoint
+              end
+            end
+            PID_OUT, PID_SETUP: begin
+              if (!rx_tok_ok) irq <= 1'b1;            // bad CRC5: no response
+              else if (tok_me) begin
+                irq        <= 1'b0;
+                exp_data   <= 1'b1;
+                exp_setup  <= (rx_pid == PID_SETUP);
+                pend_stall <= (tok_ep != 4'd0) ||
+                              (rx_pid == PID_OUT && rq == RQ_STALL);
+              end
+            end
+            PID_DATA0, PID_DATA1: if (exp_data) begin
+              exp_data <= 1'b0;
+              if (!rx_data_ok) irq <= 1'b1;           // bad CRC16: no response
+              else if (pend_stall) send(TK_HS, PID_STALL, 4'd0, 1'b0);
+              else begin
+                send(TK_HS, PID_ACK, 4'd0, 1'b0);     // ACK (even if duplicated)
+                if (!wrong_tgl) begin                 // apply only in-sequence data
+                  out_tgl <= exp_setup ? 1'b1 : ~out_tgl;
+                  if (exp_setup) begin
+                    ep0in_tgl <= 1'b1;                // data/status IN: DATA1 first
+                    d_off     <= 5'd0;
+                    new_addr  <= s_val[6:0];
+                    new_cfg   <= s_val[0];
+                    new_cnt   <= {s_idx, s_val};
+                    d_len     <= (s_len > 16'd18) ? DESC_LEN : s_len[4:0];
+                    rq        <= (rx_plen != 5'd8) ? RQ_STALL :
+                                 setup_rq(s_bm, s_rq, s_val, s_idx, s_len);
+                    if (s_bm == 8'h80 && s_rq == 8'h08) d_len <= 5'd1;
+                  end else if (rq == RQ_DESC || rq == RQ_CFGGET)
+                    rq <= RQ_NONE;                    // OUT status stage done
                 end
               end
-              PID_OUT, PID_SETUP: begin
-                if (!rx_tok_ok) irq <= 1'b1;          // bad CRC5: no response
-                else if (rx_tokfield[6:0] == DEV_ADDR) begin
-                  irq        <= 1'b0;
-                  exp_data   <= 1'b1;
-                  exp_setup  <= (rx_pid == PID_SETUP);
-                  pend_stall <= (rx_tokfield[10:7] > 4'd1);
-                end
-              end
-              PID_DATA0, PID_DATA1: begin
-                if (exp_data) begin
-                  exp_data <= 1'b0;
-                  if (!rx_data_ok) irq <= 1'b1;       // bad CRC16: no response
-                  else if (pend_stall) begin
-                    txb[0]    <= 8'h1E;               // STALL
-                    total_cnt <= 5'd1;
-                    tx_start  <= 1'b1;
-                    expect_ack<= 1'b0;
-                    cs        <= CS_TX;
-                  end else begin
-                    txb[0]    <= 8'hD2;               // ACK (even if duplicated)
-                    total_cnt <= 5'd1;
-                    tx_start  <= 1'b1;
-                    expect_ack<= 1'b0;
-                    cs        <= CS_TX;
-                    if (!wrong_tgl) begin             // apply only in-sequence data
-                      if (exp_setup) begin
-                        if (rx_plen == 5'd8)
-                          for (int i = 0; i < 8; i++) setup_q[i] <= rx_buf[i];
-                        ep0in_tgl <= 1'b1;            // SETUP: next data is DATA1
-                        out_tgl   <= 1'b1;
-                      end else out_tgl <= ~out_tgl;
-                    end
-                  end
-                end
-              end
-              default: ;                              // handshakes/SOF: ignore
-            endcase
-          end
+            end
+            default: ;                                // handshakes/SOF: ignore
+          endcase
         end
         // -------------------------------------------------- transmit in flight
-        CS_TX: begin
-          if (tx_done) begin
-            cs        <= expect_ack ? CS_WACK : CS_IDLE;
-            ack_timer <= ACK_TO;
-          end
+        CS_TX: if (tx_done) begin
+          cs        <= expect_ack ? CS_WACK : CS_IDLE;
+          ack_timer <= ATW'(ACK_TO);
         end
         // -------------------------------------------------- await host handshake
-        CS_WACK: begin
+        default: begin                                // CS_WACK
           if (rx_done) begin
             cs <= CS_IDLE;
-            if (rx_pid == PID_ACK) begin              // advance toggle / counter
-              if (cur_ep == 1'b0) ep0in_tgl <= ~ep0in_tgl;
-              else begin
-                ep1in_tgl <= ~ep1in_tgl;
-                ep1_cnt   <= ep1_cnt + 32'd1;
-              end
-            end                                       // NAK/timeout: keep toggle -> resend
-          end else if (ack_timer == 8'd0) cs <= CS_IDLE;
-          else ack_timer <= ack_timer - 8'd1;
+            if (rx_pid == PID_ACK) begin              // advance toggle / state
+              case (tx_kind)
+                TK_CNT: begin
+                  ep1in_tgl <= ~ep1in_tgl;
+                  ep1_cnt   <= ep1_cnt + 32'd1;
+                end
+                TK_ZLP: begin
+                  ep0in_tgl <= ~ep0in_tgl;
+                  rq        <= RQ_NONE;
+                  if (rq == RQ_ADDR)   dev_addr <= new_addr;
+                  if (rq == RQ_CFGSET) cfg      <= new_cfg;
+                  if (rq == RQ_CNTSET) ep1_cnt  <= new_cnt;
+                end
+                default: begin                        // control IN data
+                  ep0in_tgl <= ~ep0in_tgl;
+                  d_off     <= d_off + {1'b0, tx_n};
+                end
+              endcase
+            end                                       // NAK/other: resend later
+          end else if (ack_timer == '0) cs <= CS_IDLE;
+          else ack_timer <= ack_timer - 1'b1;
         end
-        default: cs <= CS_IDLE;
       endcase
     end
   end
