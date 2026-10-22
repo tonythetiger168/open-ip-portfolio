@@ -109,7 +109,7 @@ module emmc_card #(parameter int BC = 1) (
             rsp[47:0] = {2'b00, idx, st, 7'h0, 1'b1};
             rsp[7:1] = crc7({80'h0, rsp[47:8]}, 40);
             if (flt == F_CRC7) rsp[1] = ~rsp[1];
-            if (flt == F_IDX)  rsp[40] = ~rsp[40];
+            if (flt == F_IDX)  begin rsp[40] = ~rsp[40]; rsp[7:1] = crc7({80'h0, rsp[47:8]}, 40); end
             if (flt == F_END)  rsp[0] = 1'b0;
             if (flt == F_TXB) begin rsp[46] = 1'b1; rsp[7:1] = crc7({80'h0, rsp[47:8]}, 40); end
             send_rsp(48);
