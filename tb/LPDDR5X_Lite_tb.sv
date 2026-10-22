@@ -78,7 +78,7 @@ module LPDDR5X_Lite_tb;
   endtask
   task fe_fspw(input v);
     begin
-      @(negedge clk); hcmd <= 3'd7; haddr <= 32'h0; hwdata <= {15'h0,v[0]}; hvalid <= 1'b1;
+      @(negedge clk); hcmd <= 3'd7; haddr <= 32'h0; hwdata <= {15'h0,v}; hvalid <= 1'b1;
       @(negedge clk); hvalid <= 1'b0; wait (hdone === 1'b1); @(negedge clk);
     end
   endtask
@@ -149,7 +149,10 @@ module LPDDR5X_Lite_tb;
 
     if (tb_err==0) $display("SIM_PASS: LPDDR5X_Lite_tb pbref=%0d wck_edges=%0d", pbref_seen, wck_edges);
     else $display("SIM_FAIL: %0d", tb_err);
+    // regression marker (scripts/ci_regression.sh greps for it)
+    if (tb_err == 0) $display("TEST PASSED: LPDDR5X_Lite");
+    else             $display("TEST FAILED: LPDDR5X_Lite");
     $finish;
   end
-  initial begin #3_000_000; $display("SIM_FAIL: timeout"); $finish; end
+  initial begin #3_000_000; $display("SIM_FAIL: timeout"); $display("TEST FAILED: LPDDR5X_Lite"); $finish; end
 endmodule

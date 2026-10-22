@@ -1,0 +1,11 @@
+# GDDR7_Lite synthesis script -- Yosys (open-source flow)
+# The line array is kept as a $mem cell (memory -nomap): in a real flow it
+# maps to an SRAM macro, and flattening it to flops (~2M DFFs) is not a
+# meaningful result for this open flow.
+read_verilog -sv ../rtl/GDDR7_Lite_top.sv
+hierarchy -check -top GDDR7_Lite_top
+proc; opt; fsm; opt; memory -nomap; opt
+techmap; opt
+stat
+write_json GDDR7_Lite_top.json
+write_verilog GDDR7_Lite_top_netlist.v

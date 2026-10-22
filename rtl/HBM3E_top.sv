@@ -109,6 +109,9 @@ module HBM3E_top #(
   assign trace_addr  = cur_addr;
   assign dq = (dstate == D_WR) ? {16'hzzzz, wr_data} : 32'hzzzz_zzzz;
 
+  // ECC-corrected read word for the current column (on-die ECC decode)
+  wire [16:0] rd_dec = ecc_dec(mem[{cur_addr[8], cur_addr[7:0]}]);
+
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       dstate <= D_IDLE; timer <= '0; ref_cnt <= TREFI[13:0];
@@ -211,7 +214,7 @@ module HBM3E_top #(
         D_CAS: begin
           cas_n <= 1'b1; we_n <= 1'b1;
           if (timer == 0) begin
-            if (rd_pending) hrdata <= ecc_dec(mem[{cur_addr[8], cur_addr[7:0]}])[15:0]; // correct
+            if (rd_pending) hrdata <= rd_dec[15:0]; // correct
             rd_pending <= 1'b0;
             dstate <= D_IDLE;
           end
