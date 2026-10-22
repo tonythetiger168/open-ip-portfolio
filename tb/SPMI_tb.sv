@@ -63,9 +63,9 @@ module SPMI_tb;
     end
   endtask
 
+  logic ack_b;
   task automatic srelease_bit_ack;
-    logic b;
-    begin srelease(b); end
+    begin srelease(ack_b); end
   endtask
 
 `ifdef VERILATOR
@@ -278,6 +278,41 @@ module SPMI_tb;
   `undef SPMI_M_RBIT
   `undef SPMI_M_SSC
 `endif
+
+    if (ack_b !== 1'b0) begin errors++; $display("ERROR: SPMI write not ACKed"); end
+
+    // read data is the tx_byte value at the start of the read, even if
+    // tx_byte changes while the bits are being shifted out
+    tx_byte = 8'h96;
+    fork
+      spmi_read(4'h5, 8'h10, rb);
+      begin #24000 tx_byte = 8'h00; end
+    join
+    if (rb !== 8'h96) begin errors++; $display("ERROR: SPMI read changed mid-byte: %h", rb); end
+
+    // a new SSC in the middle of a frame restarts the frame
+    rx_seen = 1'b0;
+    ssc;
+    sbit(0); sbit(1); sbit(0); sbit(1); sbit(0); sbit(0);
+    spmi_write(4'h5, 8'h22, 8'h3C);
+    repeat(5) @(posedge clk);
+    if (!rx_seen || rx_byte !== 8'h3C || rx_addr !== 8'h22) begin
+      errors++; $display("ERROR: SPMI restart by SSC failed rx=%h ad=%h", rx_byte, rx_addr);
+    end
+
+    // reset while the slave drives read data: bus released, frame dropped
+    tx_byte = 8'h00;
+    fork
+      spmi_read(4'h5, 8'h11, rb);
+      begin #25000 @(negedge clk) rst_n = 1'b0; #50;
+        if (sdata !== 1'b1 || busy !== 1'b0) begin errors++; $display("ERROR: SPMI not released in reset"); end
+        @(negedge clk) rst_n = 1'b1; end
+    join
+    spmi_write(4'h5, 8'h00, 8'h7E);            // lowest / highest register address
+    spmi_write(4'h5, 8'hFF, 8'hE7);
+    spmi_write(4'h5, 8'h05, 8'h81);
+    repeat(5) @(posedge clk);
+    if (rx_byte !== 8'h81 || ack_b !== 1'b0) begin errors++; $display("ERROR: SPMI after reset rx=%h", rx_byte); end
 
     if (errors == 0) $display("TEST PASSED: SPMI");
     else             $display("TEST FAILED: %0d errors", errors);
