@@ -406,6 +406,9 @@ module DFI_5_0__MC_PHY_Interface__tb;
           d = $urandom;
           m = $urandom_range(0, 15);
           if ($urandom_range(0, 9) < 3) m = ($urandom_range(0, 1) == 0) ? 4'h0 : 4'hF;
+          // first CRV write to a location must be unmasked: the directed
+          // phase may have left data there that the model does not know
+          if (!written[{3'(b), 5'(r)}]) m = 4'h0;
           crv_write(3'(b), 5'(r), d, m, ahi);
           for (int k = 0; k < 4; k++)
             if (!m[k]) model[{3'(b), 5'(r)}][8*k +: 8] = d[8*k +: 8];

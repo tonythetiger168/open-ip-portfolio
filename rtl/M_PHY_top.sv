@@ -21,7 +21,9 @@
 //     data words back-to-back; a 1-deep buffer keeps the stream seamless.
 //     RX hunts for the comma (clk-resolution shift register, gear-aware),
 //     then frames every 10 bits; an all-zero idle word ends the burst and
-//     returns the RX to hunt.
+//     returns the RX to hunt. The TX therefore keeps the line idle for at
+//     least 10 bit times between bursts (inter-burst STALL), so the RX always
+//     sees that idle word and re-acquires the comma of the next burst.
 // IP design implementation v1.0 -- Apache-2.0
 // ============================================================================
 module M_PHY_top #(
@@ -125,6 +127,7 @@ module M_PHY_top #(
   logic [7:0] buf_data;
   logic       buf_k;
   logic       err_tx;
+  logic [4:0] gap_cnt;     // inter-burst idle still owed (clks)
 
   assign tx_ready = ~buf_valid & (tstate == T_IDLE || tstate == T_SHIFT);
   assign hibern8  = (tstate == T_SAVE);
@@ -150,6 +153,7 @@ module M_PHY_top #(
       buf_data   <= 8'd0;
       buf_k      <= 1'b0;
       err_tx     <= 1'b0;
+      gap_cnt    <= 5'd0;
     end else begin
       if (irq_clear) err_tx <= 1'b0;
 
@@ -162,10 +166,11 @@ module M_PHY_top #(
       case (tstate)
         T_IDLE: begin
           tx_tick <= 1'b0;
+          if (gap_cnt != 5'd0) gap_cnt <= gap_cnt - 5'd1;
           if (hibern8_req && !buf_valid) begin
             tstate <= T_SAVE;
           end else if (buf_valid) begin
-            if (enc_ok) begin
+            if (enc_ok && gap_cnt == 5'd0) begin
               // one idle clk elapses before the first bit of the burst;
               // harmless: the RX hunt ignores leading idle bits
               tstate    <= T_SHIFT;
@@ -174,7 +179,7 @@ module M_PHY_top #(
               tx_tick   <= 1'b0;
               tx_rd     <= e_rd4;
               buf_valid <= 1'b0;
-            end else begin
+            end else if (!enc_ok) begin
               err_tx <= 1'b1;      // byte outside the 8b/10b subset
               buf_valid  <= 1'b0;
             end
@@ -197,6 +202,7 @@ module M_PHY_top #(
                 end
                 tstate  <= T_IDLE;
                 bit_cnt <= 4'd0;
+                gap_cnt <= gear ? 5'd20 : 5'd10;   // >= 10 idle bit times
               end
             end else begin
               tx_word <= {tx_word[8:0], 1'b0};
