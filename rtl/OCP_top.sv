@@ -29,7 +29,7 @@ module OCP_top #(
   // OCP response phase (driven by this slave)
   output logic             scmdaccept,
   output logic [DW-1:0]    sdata,
-  output logic [1:0]       sresp,      // 0=NULL 1=DVA 2=ERR
+  output logic [1:0]       sresp,      // 0=NULL 1=DVA 3=ERR (OCP encoding; 2=FAIL unused)
   output logic [1:0]       sthreadid,
   output logic             irq
 );
@@ -41,7 +41,7 @@ module OCP_top #(
   localparam logic [2:0] MCMD_WRNP = 3'b101;
   localparam logic [1:0] SRESP_NULL = 2'b00;
   localparam logic [1:0] SRESP_DVA  = 2'b01;
-  localparam logic [1:0] SRESP_ERR  = 2'b10;
+  localparam logic [1:0] SRESP_ERR  = 2'b11;
 
   typedef enum logic [1:0] {S_IDLE, S_ACCEPT, S_LAT, S_RESP} state_t;
   state_t state;
