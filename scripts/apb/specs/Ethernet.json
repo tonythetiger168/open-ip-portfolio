@@ -1,0 +1,31 @@
+{
+  "title": "IEEE 802.3 MAC (GMII-style byte interface) with address filtering and PAUSE flow control",
+  "code": "0x4554",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "100ms",
+  "regs": [
+    {"name": "CFG", "kind": "rw", "desc": "Byte time and receive options",
+     "fields": [{"port": "cfg_div", "reset": "31", "desc": "byte time - 1 in PCLK (both ends of the link alike)"},
+                {"port": "cfg_promisc", "reset": "0", "desc": "accept every DA"},
+                {"port": "cfg_pause_en", "reset": "1", "desc": "obey received PAUSE frames"}]},
+    {"name": "MAC", "kind": "rw", "desc": "Station address (MAC0 = bits 31:0, MAC1 = bits 47:32; the first byte on the wire is bits 47:40)",
+     "fields": [{"port": "cfg_mac", "reset": "0", "desc": "station address"}]},
+    {"name": "TX", "kind": "stream_in", "data": ["tx_data", "tx_last"], "valid": "tx_valid", "ready": "tx_ready",
+     "desc": "Transmit byte (DA first; the MAC adds preamble, padding and FCS); a frame starts once its first byte is in TX, and each next byte must arrive within a byte time",
+     "fdesc": {"tx_data": "byte", "tx_last": "last byte of the frame"}},
+    {"name": "RX", "kind": "stream_out", "data": ["rx_data", "rx_last", "rx_stat"], "valid": "rx_valid",
+     "desc": "Received byte (FCS removed); read it within a byte time",
+     "fdesc": {"rx_data": "byte", "rx_last": "last byte of the frame", "rx_stat": "with rx_last: {pause, phy_err, len_err, crc_err}"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Flow control",
+     "fields": [{"port": "tx_paused", "desc": "a received PAUSE holds the transmitter"}]}
+  ],
+  "irqs": [
+    {"name": "TX_SENT", "port": "tx_done", "desc": "a frame was sent (FCS out)"},
+    {"name": "TX_UNDERRUN", "port": "tx_underrun", "desc": "a transmit byte was late: the frame was ended with gtx_er"},
+    {"name": "RX_FRAG", "port": "rx_frag", "desc": "a fragment or a bad preamble was received and dropped"}
+  ],
+  "notes": [
+    "gtxd / gtx_en / gtx_er and grxd / grx_dv / grx_er are the GMII-style line pins; they pass through unchanged."
+  ]
+}
