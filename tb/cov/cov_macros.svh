@@ -16,7 +16,9 @@
 
 `define COV_CLOCKING(CLK, DIS) \
   default clocking cov_cb @(posedge CLK); endclocking \
-  default disable iff (DIS);
+  default disable iff (DIS); \
+  logic cov_in_rst_q = 1'b0; \
+  always @(posedge CLK) cov_in_rst_q <= (DIS);
 
 // A |-> C, with antecedent cover
 `define SVA_IMP(NAME, ANTE, CONS) \
@@ -36,13 +38,16 @@
     else $display("SVA_FAIL: %s @%0t", `"NAME`", $time); \
   NAME``__ante: cover property (1'b1);
 
-// A |-> C checked also while reset is asserted (reset-value checks)
+// A |-> C checked while reset is asserted (reset-value checks); only from
+// the second reset clock on, once the asynchronous reset has landed
 `define SVA_RST(NAME, ANTE, CONS) \
-  NAME: assert property (disable iff (1'b0) (ANTE) |-> (CONS)) \
+  NAME: assert property (disable iff (1'b0) (cov_in_rst_q && (ANTE)) |-> (CONS)) \
     else $display("SVA_FAIL: %s @%0t", `"NAME`", $time); \
-  NAME``__ante: cover property (disable iff (1'b0) ANTE);
+  NAME``__ante: cover property (disable iff (1'b0) cov_in_rst_q && (ANTE));
 
 // functional cover property
 `define FC(NAME, PROP) fc_``NAME: cover property (PROP);
+// functional cover property that stays live through reset (reset scenarios)
+`define FC_RST(NAME, PROP) fc_``NAME: cover property (disable iff (1'b0) PROP);
 
 `endif

@@ -35,7 +35,7 @@ module I3C_top #(
 
   typedef enum logic [2:0] {ST_IDLE, ST_ADDR, ST_ACK, ST_RX, ST_TX, ST_TXACK, ST_IGNORE} st_t;
   st_t      state;
-  logic [3:0] bit_cnt;
+  logic [2:0] bit_cnt;
   logic [7:0] shift;
   logic       rw, ack_low, txack_done;
 
@@ -53,15 +53,15 @@ module I3C_top #(
     end else begin
       rx_valid <= 1'b0;
       if (start_det) begin
-        state <= ST_ADDR; bit_cnt <= '0; ack_low <= 1'b0;
+        state <= ST_ADDR; bit_cnt <= '0; ack_low <= 1'b0; txack_done <= 1'b0;
         int_n <= 1'b1;                       // START clears pending IBI
       end else if (stop_det) begin
-        state <= ST_IDLE; ack_low <= 1'b0;
+        state <= ST_IDLE; ack_low <= 1'b0; txack_done <= 1'b0;
         if (state == ST_RX || rx_valid) int_n <= 1'b0;  // write done: request IBI
       end else case (state)
         ST_ADDR: if (scl_rise) begin
           shift <= byte_w;
-          if (bit_cnt == 4'd7) begin
+          if (bit_cnt == 3'd7) begin
             bit_cnt <= '0;
             if (byte_w[7:1] == I3C_ADDR[6:0]) begin
               rw <= byte_w[0]; state <= ST_ACK;
@@ -86,13 +86,13 @@ module I3C_top #(
         end
         ST_RX: if (scl_rise) begin
           shift <= byte_w;
-          if (bit_cnt == 4'd7) begin
+          if (bit_cnt == 3'd7) begin
             rx_byte <= byte_w; rx_valid <= 1'b1;
             bit_cnt <= '0; state <= ST_ACK;
           end else bit_cnt <= bit_cnt + 1'b1;
         end
         ST_TX: if (scl_fall) begin
-          if (bit_cnt == 4'd7) begin
+          if (bit_cnt == 3'd7) begin
             bit_cnt <= '0; ack_low <= 1'b0; state <= ST_TXACK;
           end else begin
             bit_cnt <= bit_cnt + 1'b1;
@@ -107,11 +107,9 @@ module I3C_top #(
             end
           end else if (scl_fall) begin
             txack_done <= 1'b0;
-            if (state == ST_TXACK) begin
-              bit_cnt <= '0;
-              ack_low <= (tx_byte[7] == 1'b0);
-              state   <= ST_TX;
-            end
+            bit_cnt <= '0;
+            ack_low <= (tx_byte[7] == 1'b0);
+            state   <= ST_TX;
           end
         end
         default: ;
