@@ -93,8 +93,6 @@ module DDR4_Lite_top #(
   // ---------------- memory array (controller + DRAM model) ----------------
   // 4 banks x ROWS rows x LINES lines x 128 bits
   logic [127:0] mem [0:BANKS*ROWS*LINES-1];
-  wire [31:0] mem_index = {bank_r, row_r, line_r} >> 0; // composed below
-  // (index composed combinationally in ENG; placeholder wire not used)
 
   // ---------------- per-bank state ----------------
   logic [BANKS-1:0]       bank_open;
@@ -106,6 +104,10 @@ module DDR4_Lite_top #(
   logic [15:0] rc_cnt  [0:BANKS-1];
   logic [15:0] wr_cnt  [0:BANKS-1];
   logic [15:0] rrd_cnt, wtr_cnt, rfc_cnt, refi_cnt;
+  // timer load strobes (engine -> timer block, one cycle)
+  logic [3:0]  ld_rp_v,  ld_ras_v, ld_rc_v, ld_wr_v;
+  logic [15:0] ld_rp,    ld_ras,   ld_rc,   ld_wr;
+  logic        ld_rrd_v, ld_wtr_v, ld_rfc_v, ref_ack;
   wire rp_done  [0:BANKS-1];
   wire ras_done [0:BANKS-1];
   wire rc_done  [0:BANKS-1];
@@ -113,15 +115,17 @@ module DDR4_Lite_top #(
   genvar g;
   generate
     for (g = 0; g < BANKS; g = g + 1) begin : TZERO
-      assign rp_done[g]  = (rp_cnt[g]  == 16'd0);
-      assign ras_done[g] = (ras_cnt[g] == 16'd0);
-      assign rc_done[g]  = (rc_cnt[g]  == 16'd0);
-      assign wr_done[g]  = (wr_cnt[g]  == 16'd0);
+      // a load strobe in flight means the timer is about to be armed:
+      // treat it as not-done, or the engine sees a stale zero for a cycle
+      assign rp_done[g]  = (rp_cnt[g]  == 16'd0) && !ld_rp_v[g];
+      assign ras_done[g] = (ras_cnt[g] == 16'd0) && !ld_ras_v[g];
+      assign rc_done[g]  = (rc_cnt[g]  == 16'd0) && !ld_rc_v[g];
+      assign wr_done[g]  = (wr_cnt[g]  == 16'd0) && !ld_wr_v[g];
     end
   endgenerate
-  wire rrd_done = (rrd_cnt == 16'd0);
-  wire wtr_done = (wtr_cnt == 16'd0);
-  wire rfc_done = (rfc_cnt == 16'd0);
+  wire rrd_done = (rrd_cnt == 16'd0) && !ld_rrd_v;
+  wire wtr_done = (wtr_cnt == 16'd0) && !ld_wtr_v;
+  wire rfc_done = (rfc_cnt == 16'd0) && !ld_rfc_v;
 
   // ---------------- refresh ----------------
   logic ref_pending;
@@ -141,18 +145,21 @@ module DDR4_Lite_top #(
   logic [15:0] wbuf [0:7];
   logic [15:0] rbuf [0:7];
   logic        rbuf_valid;
+  logic        rbuf_take;              // FE -> engine: rbuf consumed
+  logic        fe_err, eng_err;        // 1-cycle protocol-error pulses
   logic [31:0] fe_addr;
 
   // ---------------- engine ----------------
   typedef enum logic [3:0] {
     ENG_IDLE, ENG_BANK_CHK, ENG_PRE, ENG_PRE_WAIT, ENG_ACT, ENG_TRCD,
     ENG_CL, ENG_RD_BURST, ENG_CWL, ENG_WR_BURST, ENG_WR_GAP,
-    ENG_REF_PRE, ENG_REF_CMD, ENG_REF_WAIT, ENG_DONE
+    ENG_REF_PRE, ENG_REF_WAITRP, ENG_REF_CMD, ENG_REF_WAIT, ENG_DONE
   } eng_t;
   eng_t eng;
   logic [3:0]  eng_bank, eng_line;
   logic [31:0] eng_row;
   logic        eng_we;
+  logic        eng_ref_req;            // refresh was a host REFRESH command
   logic [4:0]  lat_cnt, bcnt;
   logic [127:0] burst_reg;
 
@@ -190,7 +197,7 @@ module DDR4_Lite_top #(
           we_n <= ~eng_we;
           ba <= eng_bank; addr <= {7'h0, eng_line, 4'h0};
         end
-        ENG_REF_PRE: begin                // PREA (all banks)
+        ENG_REF_PRE: if (ref_go && bank_open != 4'b0000) begin  // PREA (all banks)
           cs_n <= 1'b0; act_n <= 1'b1; ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0;
           ba <= 2'b00; addr <= 14'h0400;  // A10=1 -> precharge all
         end
@@ -228,9 +235,6 @@ module DDR4_Lite_top #(
   // Timers -- single owner (no multi-driver): loads come from the engine
   // via one-cycle load strobes; everything else free-runs down to zero.
   // ========================================================================
-  logic [3:0]  ld_rp_v,  ld_ras_v, ld_rc_v, ld_wr_v;
-  logic [15:0] ld_rp,    ld_ras,   ld_rc,   ld_wr;
-  logic        ld_rrd_v, ld_wtr_v, ld_rfc_v, ref_ack;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -281,17 +285,17 @@ module DDR4_Lite_top #(
       req_valid <= 1'b0; req_we <= 1'b0; req_ref <= 1'b0;
       req_addr <= 32'h0; fe_addr <= 32'h0;
       hrdata <= 16'h0; hdone <= 1'b0;
-      rbuf_valid <= 1'b0;
+      rbuf_take <= 1'b0; fe_err <= 1'b0;
       for (int i = 0; i < 8; i++) wbuf[i] <= 16'h0;
     end else begin
-      hdone <= 1'b0;
+      hdone <= 1'b0; rbuf_take <= 1'b0; fe_err <= 1'b0;
       case (fe)
         FE_IDLE: begin
           if (hvalid) begin
             case (hcmd)
               3'd1: begin                       // READ line
                 if (haddr[31:18] != 14'h0) begin
-                  fe_err_pulse <= 1'b1; hdone <= 1'b1;   // out of range
+                  fe_err <= 1'b1; hdone <= 1'b1;         // out of range
                 end else begin
                   fe_addr <= haddr;
                   req_addr <= haddr; req_we <= 1'b0; req_ref <= 1'b0;
@@ -301,7 +305,7 @@ module DDR4_Lite_top #(
               end
               3'd2: begin                       // WRITE line: collect 8 beats
                 if (haddr[31:18] != 14'h0) begin
-                  irq_reg <= 1'b1; hdone <= 1'b1;
+                  fe_err <= 1'b1; hdone <= 1'b1;
                 end else begin
                   fe_addr <= haddr; fe_cnt <= 4'd0;
                   fe <= FE_FILL;
@@ -321,7 +325,7 @@ module DDR4_Lite_top #(
                 fe <= FE_WAIT_RD;
               end
               default: begin                    // NOP / illegal
-                if (hcmd != 3'd0) irq_reg <= 1'b1;
+                if (hcmd != 3'd0) fe_err <= 1'b1;
                 hdone <= 1'b1;
               end
             endcase
@@ -348,7 +352,7 @@ module DDR4_Lite_top #(
         FE_DRAIN: begin
           hrdata <= rbuf[fe_cnt[2:0]];
           if (fe_cnt == 4'd7) begin
-            hdone <= 1'b1; rbuf_valid <= 1'b0; fe <= FE_IDLE;
+            hdone <= 1'b1; rbuf_take <= 1'b1; fe <= FE_IDLE;
           end else fe_cnt <= fe_cnt + 1;
         end
         default: fe <= FE_IDLE;
@@ -356,8 +360,8 @@ module DDR4_Lite_top #(
     end
   end
 
-  // rbuf is filled by the engine at the end of a read burst
-  // (engine block assigns rbuf / rbuf_valid; single driver there)
+  // rbuf is filled by the engine at the end of a read burst; the engine is
+  // the single driver of rbuf / rbuf_valid and clears it on rbuf_take
 
   // ========================================================================
   // Command engine
@@ -373,6 +377,7 @@ module DDR4_Lite_top #(
     if (!rst_n) begin
       eng <= ENG_IDLE;
       eng_bank <= 4'd0; eng_line <= 4'd0; eng_row <= 32'h0; eng_we <= 1'b0;
+      eng_ref_req <= 1'b0;
       lat_cnt <= 5'd0; bcnt <= 5'd0;
       burst_reg <= 128'h0;
       req_done <= 1'b0;
@@ -385,23 +390,29 @@ module DDR4_Lite_top #(
       end
       for (int i = 0; i < 8; i++) rbuf[i] <= 16'h0;
       rbuf_valid <= 1'b0;
-      irq_reg <= 1'b0;
+      eng_err <= 1'b0;
     end else begin
       // default strobes low
       ld_rp_v <= 4'h0; ld_ras_v <= 4'h0; ld_rc_v <= 4'h0; ld_wr_v <= 4'h0;
       ld_rrd_v <= 1'b0; ld_wtr_v <= 1'b0; ld_rfc_v <= 1'b0;
-      ref_ack <= 1'b0; req_done <= 1'b0;
+      ref_ack <= 1'b0; req_done <= 1'b0; eng_err <= 1'b0;
+      if (rbuf_take) rbuf_valid <= 1'b0;
       case (eng)
         // --------------------------------------------------------------
         ENG_IDLE: begin
           dq_oe <= 1'b0; dqs_oe <= 1'b0;
-          if (req_valid && req_ref) begin
+          // req_valid is still high in the cycle req_done pulses (the FE
+          // drops it one cycle later): ignore it then, or the engine
+          // relaunches the request it just finished
+          if (req_valid && req_ref && !req_done) begin
+            eng_ref_req <= 1'b1;
             eng <= ENG_REF_PRE;
           end else if (ref_pending) begin
+            eng_ref_req <= 1'b0;
             eng <= ENG_REF_PRE;
-          end else if (req_valid) begin
+          end else if (req_valid && !req_done) begin
             if (req_addr[31:18] != 14'h0) begin
-              irq_reg <= 1'b1; req_done <= 1'b1;   // drop, report
+              eng_err <= 1'b1; req_done <= 1'b1;   // drop, report
             end else begin
               eng_bank <= {2'b0, req_addr[8:7]};
               eng_row  <= {22'h0, req_addr[17:9]};
@@ -524,7 +535,10 @@ module DDR4_Lite_top #(
         ENG_REF_WAIT: begin
           if (rfc_done) begin
             ref_ack <= 1'b1;
-            req_done <= 1'b1;
+            // only a host REFRESH completes a front-end request; an
+            // auto refresh must not ack the read/write still waiting
+            req_done <= eng_ref_req;
+            eng_ref_req <= 1'b0;
             eng <= ENG_IDLE;
           end
         end
@@ -538,7 +552,7 @@ module DDR4_Lite_top #(
   // ------------------------------------------------------------------------
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) irq <= 1'b0;
-    else if (irq_reg || ref_overrun) irq <= 1'b1;
+    else if (fe_err || eng_err || ref_overrun) irq <= 1'b1;
   end
 
 endmodule
