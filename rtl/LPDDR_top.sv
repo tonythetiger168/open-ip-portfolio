@@ -8,7 +8,7 @@
 // Self-contained; contract identical to DDR_top.
 // ============================================================================
 module LPDDR_top #(
-  parameter int NCH = 2
+  parameter int NCH = 1
 )(
   input  logic        clk,
   input  logic        rst_n,
@@ -25,17 +25,21 @@ module LPDDR_top #(
   output logic        ras_n,
   output logic        cas_n,
   output logic        we_n,
-  inout  tri [31:0]   dq,
+  inout  tri [NCH*16-1:0] dq,
   inout  tri [1:0]    dqs,
   output logic        cke,
   output logic        trace_valid,
   output logic [2:0]  trace_cmd,
   output logic [31:0] trace_addr
 );
-  localparam int CL=8, TRCD=8, TRP=8, TRFC=90, TREFI=3900, PD_CNT=32;
+  localparam int CL=3, TRCD=3, TRP=3, TRFC=90, TREFI=3900, PD_CNT=32;   // CL/tRCD/tRP as on main (TB contract)
+  localparam int CHW = (NCH <= 2) ? 1 : $clog2(NCH);   // channel select: haddr[8 +: CHW]
   localparam int NB = 2;
 
-  logic [15:0] mem [0:511];   // 2ch x 256col
+  logic [15:0] mem [0:(1<<CHW)*256-1];   // NCH ch x 256 col
+  // array contents are not cleared by rst_n (a DRAM keeps its data);
+  // zero them once for deterministic simulation
+  initial for (int i = 0; i <= (1<<CHW)*256-1; i++) mem[i] = '0;
   logic [13:0] open_row [0:NB-1];
   logic [NB-1:0] bank_open;
   logic [8:0] timer;
@@ -46,12 +50,19 @@ module LPDDR_top #(
   typedef enum logic [2:0] {D_IDLE, D_ACT, D_RCD, D_RD, D_CAS, D_WR, D_PRE} d_t;
   d_t dstate;
   logic [31:0] cur_addr;
+  // channel of the incoming / current command (NCH==1 ignores haddr[8],
+  // as the MEMCH wrapper on main did)
+  wire [CHW-1:0] a_ch = (NCH == 1) ? '0 : haddr[8 +: CHW];
+  wire [CHW-1:0] c_ch = (NCH == 1) ? '0 : cur_addr[8 +: CHW];
   logic [15:0] wr_data;
   logic        rd_pending, ref_walk;
+  logic        auto_rd, auto_wr;     // RD/WR waiting on an auto-ACT
 
-  wire [0:0] a_bank = haddr[8:8];
-  wire [0:0] c_bank = cur_addr[8:8];
-  wire hit = bank_open[a_bank] && (open_row[a_bank] == haddr[31:18]);
+  wire [0:0] a_bank = a_ch;
+  wire [0:0] c_bank = c_ch;
+  // RD/WR carry only the column and use the bank's open row (DRAM command
+  // semantics, the main-branch contract); a closed bank is auto-activated
+  wire hit = bank_open[a_bank];
 
   assign ck_t = clk;  assign ck_c = ~clk;  assign cke = rst_n;
   assign dqs  = 2'bzz;
@@ -60,16 +71,19 @@ module LPDDR_top #(
   assign trace_valid = (dstate == D_ACT) || (dstate == D_RD) || (dstate == D_WR);
   assign trace_cmd   = (dstate == D_ACT) ? 3'd1 : (dstate == D_RD) ? 3'd2 : 3'd3;
   assign trace_addr  = cur_addr;
-  assign dq = (dstate == D_WR) ? {16'hzzzz, wr_data} : 32'hzzzz_zzzz;
+  // each channel owns dq[16*g +: 16]; only the addressed one drives a write
+  for (genvar g = 0; g < NCH; g++) begin : g_dq
+    assign dq[16*g +: 16] = (dstate == D_WR && c_ch == g) ? wr_data : 16'hzzzz;
+  end
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       dstate <= D_IDLE; timer <= '0; ref_cnt <= TREFI[13:0];
       idle_cnt <= '0; power_dn <= 1'b0;
       cur_addr <= '0; wr_data <= '0; rd_pending <= 1'b0; ref_walk <= 1'b0;
+      auto_rd <= 1'b0; auto_wr <= 1'b0;
       ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1; addr <= '0; hrdata <= '0;
       for (int i = 0; i < NB; i++) begin open_row[i] <= '0; bank_open[i] <= 1'b0; end
-      for (int i = 0; i < 512; i++) mem[i] <= 16'h0;
     end else begin
       if (timer != 0) timer <= timer - 1'b1;
       if (ref_cnt != 0) ref_cnt <= ref_cnt - 1'b1;
@@ -80,6 +94,7 @@ module LPDDR_top #(
             idle_cnt <= '0; power_dn <= 1'b0;
             cur_addr <= haddr; wr_data <= hwdata;
             rd_pending <= (hcmd == 3'd2); ref_walk <= 1'b0;
+            auto_rd <= 1'b0; auto_wr <= 1'b0;
             case (hcmd)
               3'd1: begin
                 open_row[a_bank] <= haddr[31:18]; bank_open[a_bank] <= 1'b1;
@@ -88,6 +103,7 @@ module LPDDR_top #(
               3'd2, 3'd3: begin
                 if (!hit) begin
                   open_row[a_bank] <= haddr[31:18]; bank_open[a_bank] <= 1'b1;
+                  auto_rd <= (hcmd == 3'd2); auto_wr <= (hcmd == 3'd3);
                   timer <= TRCD[8:0]; dstate <= D_RCD;
                 end else dstate <= (hcmd == 3'd2) ? D_RD : D_WR;
               end
@@ -113,16 +129,20 @@ module LPDDR_top #(
             power_dn <= 1'b0;             // timed wake: hready returns
             dstate <= D_IDLE;
           end
+          else if (!power_dn) dstate <= D_IDLE;   // plain PRE (hung here before)
         end
         D_ACT: begin
           ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b1;
-          addr <= {3'b0, open_row[a_bank]};
+          addr <= {3'b0, open_row[c_bank]};   // latched bank, not the live haddr
           timer <= TRCD[8:0];
           dstate <= D_RCD;
         end
         D_RCD: begin
           ras_n <= 1'b1;
-          if (timer == 0) begin ref_walk <= 1'b0; dstate <= D_IDLE; end
+          if (timer == 0) begin             // then serve the RD/WR that auto-opened
+            ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0;
+            dstate <= ref_walk ? D_IDLE : auto_rd ? D_RD : auto_wr ? D_WR : D_IDLE;
+          end
         end
         D_RD: begin
           cas_n <= 1'b0; we_n <= 1'b1;
@@ -132,13 +152,13 @@ module LPDDR_top #(
         D_WR: begin
           cas_n <= 1'b0; we_n <= 1'b0;
           addr <= {9'b0, cur_addr[7:0]};
-          mem[{cur_addr[8], cur_addr[7:0]}] <= wr_data;
+          mem[{c_ch, cur_addr[7:0]}] <= wr_data;
           dstate <= D_CAS; timer <= CL[8:0];
         end
         D_CAS: begin
           cas_n <= 1'b1; we_n <= 1'b1;
           if (timer == 0) begin
-            if (rd_pending) hrdata <= mem[{cur_addr[8], cur_addr[7:0]}];
+            if (rd_pending) hrdata <= mem[{c_ch, cur_addr[7:0]}];
             rd_pending <= 1'b0;
             dstate <= D_IDLE;
           end
