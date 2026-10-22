@@ -42,9 +42,9 @@ module MIPI_SoundWire_top #(
   assign sdata   = sd_oe ? sd_out : 1'bz;
   assign busy    = (state != ST_IDLE);
   assign irq     = rx_valid;
+  logic [4:0] shift_hold;  // captured register address
   assign rx_addr = {3'b000, shift_hold};
 
-  logic [4:0] shift_hold;  // captured register address
 
   wire [7:0] head_w = {shift[6:0], sdata_s};
 

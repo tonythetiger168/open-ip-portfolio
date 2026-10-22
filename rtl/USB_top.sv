@@ -147,6 +147,8 @@ module USB_top #(
   logic [10:0]  rx_tokfield;
   logic [4:0]   rx_plen;
 
+  typedef enum logic [2:0] {TS_IDLE, TS_WAIT, TS_RUN, TS_EOP0, TS_EOPJ} ts_t;
+  ts_t         ts;
   wire rx_en    = (ts == TS_IDLE);        // never receive our own transmit
   assign rx_sample = (bt == SAMPLE_PT[3:0]) && line_jk;
   wire nrzi    = (dp_i == prev_lvl);      // no transition -> logic 1
@@ -318,8 +320,6 @@ module USB_top #(
   //   byte_ptr 0            -> SYNC 8'h80
   //   byte_ptr 1..total_cnt -> txb[byte_ptr-1]  (PID, payload, CRC16)
   // ==================================================================
-  typedef enum logic [2:0] {TS_IDLE, TS_WAIT, TS_RUN, TS_EOP0, TS_EOPJ} ts_t;
-  ts_t         ts;
   logic [4:0]  wait_cnt;
   logic [3:0]  tbt;
   logic [2:0]  t_ones;
