@@ -55,6 +55,9 @@ module USB4_top #(
     end else begin
       if (ta_cnt != 0 && tick) ta_cnt <= ta_cnt - 1'b1;
       if (ta_cnt == 0 && ta_arm) begin tx_go <= 1'b1; ta_arm <= 1'b0; end
+      // echo turnaround armed here, not in the echo block: tlen/ta_cnt/ta_arm
+      // need a single driver (that block only copies the payload)
+      if (rx_done) begin tlen <= len_q; ta_cnt <= 4'd6; ta_arm <= 1'b1; end
       if (tick && !phase) begin
         case (tstate)
           T_IDLE: if (tx_go) begin
@@ -130,6 +133,7 @@ module USB4_top #(
   assign busy = (rstate != R_IDLE) || (tstate != T_IDLE);
   logic        rxs, rxs_d;
   logic        rtmr_en, rphase;
+  logic        rx_stop;            // RX FSM -> bit timer: stop sampling (1-cycle pulse)
   logic [15:0] rtmr;
   logic [2:0]  rbitc;
   logic [7:0]  rsh;
@@ -147,7 +151,9 @@ module USB4_top #(
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin rtmr_en <= 1'b0; rtmr <= '0; rphase <= 1'b0; end
     else begin
-      if (rstate == R_IDLE && start_edge && tstate == T_IDLE) begin
+      // the RX FSM requests the stop; this block is rtmr_en's only driver
+      if (rx_stop) rtmr_en <= 1'b0;
+      else if (rstate == R_IDLE && start_edge && tstate == T_IDLE) begin
         rtmr_en <= 1'b1; rtmr <= BAUD_DIV/2; rphase <= 1'b1;   // first sample = START bit (discarded)
       end else if (rtmr_en && (rtmr == BAUD_DIV-1)) begin
         rtmr <= '0; rphase <= ~rphase;
@@ -159,9 +165,9 @@ module USB4_top #(
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       rstate <= R_IDLE; rbitc <= '0; rsh <= '0; ridx <= '0; len_q <= '0;
-      rx_err <= 1'b0; rx_done <= 1'b0; buf_mem[0] <= '0;
+      rx_err <= 1'b0; rx_done <= 1'b0; rx_stop <= 1'b0; buf_mem[0] <= '0;
     end else begin
-      rx_done <= 1'b0;
+      rx_done <= 1'b0; rx_stop <= 1'b0;
       if (rsample) begin
         case (rstate)
           R_IDLE: begin
@@ -182,7 +188,7 @@ module USB4_top #(
                 // stop the bit sampler too (as at frame end), or it keeps
                 // running from R_IDLE and the next frame is sampled
                 // misaligned
-                rx_err <= 1'b1; rstate <= R_IDLE; ridx <= '0; rtmr_en <= 1'b0;
+                rx_err <= 1'b1; rstate <= R_IDLE; ridx <= '0; rx_stop <= 1'b1;
               end else begin
                 buf_mem[1] <= nb; len_q <= nb[5:0]; ridx <= 2;
               end
@@ -201,7 +207,7 @@ module USB4_top #(
                     rx_err <= 1'b1;
                   else rx_done <= 1'b1;
                 end
-                rstate <= R_IDLE; ridx <= '0; rtmr_en <= 1'b0;
+                rstate <= R_IDLE; ridx <= '0; rx_stop <= 1'b1;
               end else begin
                 buf_mem[ridx[5:0]] <= nb;
                 ridx <= ridx + 6'd1;
@@ -218,11 +224,9 @@ module USB4_top #(
   // echo: retransmit received content (HDR+payload identical frame)
   always_ff @(posedge clk) begin
     if (rx_done) begin
-      tlen <= len_q;
       // v2.5.1 fix: bound HB+MAXB+2 keeps tx_mem[i-2] within tx_mem[0:15]
       for (int i = 2; i < HB + MAXB + 2; i++)
         tx_mem[i-2] <= buf_mem[i];
-      ta_cnt <= 4'd6; ta_arm <= 1'b1;
     end
   end
 
