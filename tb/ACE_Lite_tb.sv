@@ -113,7 +113,7 @@ module ACE_Lite_tb;
   always @(posedge clk) begin
     if (!rst_n) rst_obs <= 1'b1;
     if (rst_obs) begin
-      if (!p_rstn) begin
+      if (!p_rstn || !rst_n) begin   // in or leaving reset
         // A1: no response channel activity during reset
         sva_check(bvalid === 1'b0 && rvalid === 1'b0,
                   "A1 reset: b/rvalid low");
@@ -186,6 +186,7 @@ module ACE_Lite_tb;
         // scoreboard update: the DUT writes every accepted beat when !err
         // (mid-burst addresses alias through waddr_q[9:2])
         a = addr + 32'(i) * 4;
+        if (|a[31:10]) err = 1'b1;    // burst ran past 1KB: dropped, SLVERR
         if (!err)
           for (int b = 0; b < 4; b++)
             if (st[b]) model[a[9:2]][8*b +: 8] = d[8*b +: 8];
@@ -225,6 +226,7 @@ module ACE_Lite_tb;
         rready = 0;
         while (!rvalid) @(negedge clk);
         a   = addr + 32'(i) * 4;
+        if (|a[31:10]) err = 1'b1;    // beats past 1KB read as SLVERR/zero
         exp = err ? 32'h0 : model[a[9:2]];
         if (rdata !== exp) begin
           errors++;
@@ -369,6 +371,76 @@ module ACE_Lite_tb;
     axi_write(32'h0000_0340, 8'd1, 32'h0ACE_3000, 2'b01, 4'hF, 2'b00, AXI_OKAY);
     axi_read (32'h0000_0300, 8'd1, 32'h0ACE_2000, 2'b00, AXI_OKAY);
     axi_read (32'h0000_0340, 8'd1, 32'h0ACE_3000, 2'b00, AXI_OKAY);
+
+    // INCR burst crossing the 1KB end: in-range beats land, the rest are
+    // dropped with SLVERR (no wrap onto word 0)
+    axi_write(32'h0000_0000, 8'd0, 32'h0000_C0DE, 2'b01, 4'hF, 2'b00, AXI_OKAY);
+    axi_write(32'h0000_03F8, 8'd3, 32'h3F80_0000, 2'b01, 4'hF, 2'b00, AXI_SLVERR);
+    axi_read (32'h0000_03F8, 8'd1, 32'h3F80_0000, 2'b00, AXI_OKAY);
+    axi_read (32'h0000_0000, 8'd0, 32'h0000_C0DE, 2'b00, AXI_OKAY);   // not aliased
+    begin : read_cross
+      // read crossing 1KB: beats 0-1 OKAY, beats 2-3 SLVERR with zero data
+      @(negedge clk);
+      arvalid = 1; araddr = 32'h0000_03F8; arlen = 8'd3; arsize = 3'd2; arburst = 2'b01;
+      while (!arready) @(negedge clk);
+      @(posedge clk); @(negedge clk) arvalid = 0;
+      for (int i = 0; i < 4; i++) begin
+        while (!rvalid) @(negedge clk);
+        if (rresp !== (i < 2 ? AXI_OKAY : AXI_SLVERR) ||
+            rdata !== (i < 2 ? 32'h3F80_0000 + i : 32'h0)) begin
+          errors++; $display("ERROR: ACE_Lite 1KB-cross read beat%0d rresp=%b rdata=%h", i, rresp, rdata);
+        end
+        rready = 1; @(posedge clk); @(negedge clk) rready = 0;
+      end
+    end
+    // early wlast: 4-beat burst ended by wlast on beat 2
+    @(negedge clk);
+    awvalid = 1; awaddr = 32'h0000_0380; awlen = 8'd3; awsize = 3'd2; awburst = 2'b01;
+    while (!awready) @(negedge clk);
+    @(posedge clk); @(negedge clk) awvalid = 0;
+    for (int i = 0; i < 2; i++) begin
+      wvalid = 1; wdata = 32'h0380_0000 + i; wstrb = 4'hF; wlast = (i == 1);
+      while (!wready) @(negedge clk);
+      @(posedge clk); @(negedge clk) begin wvalid = 0; wlast = 0; end
+    end
+    while (!bvalid) @(negedge clk);
+    if (bresp !== AXI_OKAY) begin errors++; $display("ERROR: ACE_Lite early wlast bresp=%b", bresp); end
+    bready = 1; @(posedge clk); @(negedge clk) bready = 0;
+    axi_read(32'h0000_0380, 8'd1, 32'h0380_0000, 2'b00, AXI_OKAY);
+    // missing wlast: the beat count alone ends a 2-beat burst
+    @(negedge clk);
+    awvalid = 1; awaddr = 32'h0000_0388; awlen = 8'd1; awsize = 3'd2; awburst = 2'b01;
+    while (!awready) @(negedge clk);
+    @(posedge clk); @(negedge clk) awvalid = 0;
+    for (int i = 0; i < 2; i++) begin
+      wvalid = 1; wdata = 32'h0388_0000 + i; wstrb = 4'hF; wlast = 0;
+      while (!wready) @(negedge clk);
+      @(posedge clk); @(negedge clk) wvalid = 0;
+    end
+    while (!bvalid) @(negedge clk);
+    if (bresp !== AXI_OKAY) begin errors++; $display("ERROR: ACE_Lite missing wlast bresp=%b", bresp); end
+    bready = 1; @(posedge clk); @(negedge clk) bready = 0;
+    axi_read(32'h0000_0388, 8'd1, 32'h0388_0000, 2'b00, AXI_OKAY);
+    // concurrent write and read bursts, AW and AR in the same cycle
+    fork
+      axi_write(32'h0000_0240, 8'd3, 32'h0240_0000, 2'b01, 4'hF, 2'b00, AXI_OKAY);
+      axi_read (32'h0000_0300, 8'd1, 32'h0ACE_2000, 2'b00, AXI_OKAY);
+    join
+    axi_read(32'h0000_0240, 8'd3, 32'h0240_0000, 2'b00, AXI_OKAY);
+    // reset with both channels mid-burst; memory contents survive
+    @(negedge clk);
+    awvalid = 1; awaddr = 32'h0000_03C0; awlen = 8'd3; awsize = 3'd2; awburst = 2'b01;
+    arvalid = 1; araddr = 32'h0000_0240; arlen = 8'd3; arsize = 3'd2; arburst = 2'b01;
+    @(posedge clk); @(negedge clk) begin awvalid = 0; arvalid = 0; end
+    wvalid = 1; wdata = 32'h0BAD_0000; wstrb = 4'hF;
+    @(posedge clk); @(negedge clk) wvalid = 0;
+    rst_n = 0;
+    @(negedge clk);
+    if (bvalid !== 0 || rvalid !== 0 || wready !== 0 || irq !== 0) begin
+      errors++; $display("ERROR: ACE_Lite outputs not quiescent in reset");
+    end
+    rst_n = 1;
+    axi_read(32'h0000_0240, 8'd3, 32'h0240_0000, 2'b00, AXI_OKAY);
 
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ------
