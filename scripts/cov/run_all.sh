@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 # run_all.sh [JOBS] -- five-metric coverage regression over every IP that
-# has a checker (tb/cov/<P>_sva.sv); prints one RESULT line per IP and
+# has a checker (tb/cov/<P>_sva.sv, and <P>_apb for each APB wrapper); prints one RESULT line per IP and
 # exits 1 unless all of them are CLOSED.
 #   bash scripts/cov/run_all.sh 4
 set -u
