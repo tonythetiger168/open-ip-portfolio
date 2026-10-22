@@ -27,49 +27,81 @@ module GMII_top #(
   output logic [4:0] count,
   output logic       irq
 );
+  // ---------------- TX: 8-entry async FIFO, clk -> tx_clk ----------------
+  // Binary + Gray pointers with one wrap bit; each side sees the other's
+  // pointer through a 2-flop synchronizer (one Gray bit changes per step).
+  // A host write while the FIFO is full is dropped.
   logic [7:0] txq [0:7];
-  logic [2:0] tx_wr, tx_rd;
+  logic [3:0] tw_bin, tw_gray, tr_bin, tr_gray;
+  logic [3:0] tr_gray_s1, tr_gray_s2;     // read pointer seen in clk domain
+  logic [3:0] tw_gray_s1, tw_gray_s2;     // write pointer seen in tx_clk domain
   logic       txen_q;
+  wire  [3:0] tw_next = tw_bin + 4'd1;
+  wire  [3:0] tr_next = tr_bin + 4'd1;
+  wire        tx_full  = (tw_gray == {~tr_gray_s2[3:2], tr_gray_s2[1:0]});
+  wire        tx_empty = (tr_gray == tw_gray_s2);
 
   always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin tx_wr <= '0; tx_rd <= '0; end
-    else if (wen && waddr == 4'd0) begin
-      txq[tx_wr] <= wdata;
-      tx_wr <= tx_wr + 1'b1;
+    if (!rst_n) begin
+      tw_bin <= '0; tw_gray <= '0; tr_gray_s1 <= '0; tr_gray_s2 <= '0;
+    end else begin
+      tr_gray_s1 <= tr_gray; tr_gray_s2 <= tr_gray_s1;
+      if (wen && waddr == 4'd0 && !tx_full) begin
+        txq[tw_bin[2:0]] <= wdata;
+        tw_bin  <= tw_next;
+        tw_gray <= tw_next ^ (tw_next >> 1);
+      end
     end
   end
 
-  always @(posedge tx_clk) begin
+  always_ff @(posedge tx_clk or negedge rst_n) begin
     if (!rst_n) begin
-      txd <= 8'h0; txen_q <= 1'b0; tx_rd <= '0;
-    end else if (tx_wr != tx_rd) begin
-      txd <= txq[tx_rd];
-      txen_q <= 1'b1;
-      tx_rd <= tx_rd + 1'b1;
+      txd <= 8'h0; txen_q <= 1'b0; tr_bin <= '0; tr_gray <= '0;
+      tw_gray_s1 <= '0; tw_gray_s2 <= '0;
     end else begin
-      txen_q <= 1'b0;
+      tw_gray_s1 <= tw_gray; tw_gray_s2 <= tw_gray_s1;
+      if (!tx_empty) begin
+        txd     <= txq[tr_bin[2:0]];
+        txen_q  <= 1'b1;
+        tr_bin  <= tr_next;
+        tr_gray <= tr_next ^ (tr_next >> 1);
+      end else begin
+        txen_q <= 1'b0;
+      end
     end
   end
   assign tx_en = txen_q;
   assign tx_er = 1'b0;
 
+  // ---------------- RX: oversampled capture ring (16 x 8) ----------------
+  // rx_dv and rxd are sampled on the same clk edge as the first rx_clk
+  // synchronizer stage, so the data used on a detected rising edge belongs
+  // to that edge.
   logic [7:0] rxq [0:DEPTH-1];
   logic [4:0] rx_wr;
-  logic       rxclk_s, rxclk_d, rxdv_d;
+  logic       rxclk_s, rxclk_d, rxdv_s;
+  logic [7:0] rxd_s;
 
   always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin rxclk_s <= 1'b0; rxclk_d <= 1'b0; rxdv_d <= 1'b0; end
-    else begin rxclk_s <= rx_clk; rxclk_d <= rxclk_s; rxdv_d <= rx_dv; end
+    if (!rst_n) begin
+      rxclk_s <= 1'b0; rxclk_d <= 1'b0; rxdv_s <= 1'b0; rxd_s <= '0;
+    end else begin
+      rxclk_s <= rx_clk; rxclk_d <= rxclk_s;
+      rxdv_s  <= rx_dv;  rxd_s   <= rxd;
+    end
   end
   wire rxv_rise = rxclk_s & ~rxclk_d;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin rx_wr <= '0; end
-    else if (rxv_rise && rxdv_d) begin
-      rxq[rx_wr[3:0]] <= rxd;
+    else if (rxv_rise && rxdv_s) begin
+      rxq[rx_wr[3:0]] <= rxd_s;
       rx_wr <= rx_wr + 1'b1;
     end
   end
+
+  // rx_er is accepted but not acted on (bytes are captured regardless)
+  wire _unused = &{1'b0, rx_er};
 
   assign count = rx_wr;
   assign rdata = rxq[raddr[3:0]];

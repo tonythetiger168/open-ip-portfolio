@@ -1,0 +1,1 @@
+TOGGLE \.tx_er: # tied 0 by design: the MAC datapath never signals a transmit coding error

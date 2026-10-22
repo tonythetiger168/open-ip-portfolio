@@ -45,8 +45,16 @@
     else $display("SVA_FAIL: %s @%0t", `"NAME`", $time); \
   NAME``__ante: cover property (disable iff (1'b0) cov_in_rst_q && (ANTE));
 
+// A |-> C on a second clock (multi-clock IPs); default disable iff applies
+`define SVA_IMP_CK(NAME, CK, ANTE, CONS) \
+  NAME: assert property (@(posedge CK) (ANTE) |-> (CONS)) \
+    else $display("SVA_FAIL: %s @%0t", `"NAME`", $time); \
+  NAME``__ante: cover property (@(posedge CK) (ANTE));
+
 // functional cover property
 `define FC(NAME, PROP) fc_``NAME: cover property (PROP);
+// functional cover property on a second clock
+`define FC_CK(NAME, CK, PROP) fc_``NAME: cover property (@(posedge CK) (PROP));
 // functional cover property that stays live through reset (reset scenarios)
 `define FC_RST(NAME, PROP) fc_``NAME: cover property (disable iff (1'b0) PROP);
 
