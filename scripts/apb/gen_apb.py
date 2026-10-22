@@ -32,7 +32,9 @@ Spec ("regs" entries, ports are core ports):
   {"name", "kind": "stream_out", "data", "valid"}   core output stream: a valid
       beat is captured when the register is empty (or popped in the same clock),
       sets <NAME>_AVAIL; reading the last word pops it; a beat arriving while
-      full is dropped and sets <NAME>_OVF.
+      full is dropped and sets <NAME>_OVF. With "ready" (a core input), the
+      core is held off instead: ready = register empty or being popped, and
+      there is no <NAME>_OVF.
   "irqs": [{"name", "port", "desc"}]   1-bit core outputs latched into IRQ_STATUS
   "tie": {port: "value"}               core inputs tied off
 Every other core port passes through to the wrapper unchanged. The core clock
@@ -199,7 +201,8 @@ def layout(spec, width, dirn):
                 flagb.append((f'{r["name"]}_FULL', f"{r['name']} holds a beat the core has not taken"))
             if k == "stream_out":
                 irqb.append((f'{r["name"]}_AVAIL', f"{r['name']} captured a beat", None))
-                irqb.append((f'{r["name"]}_OVF', f"beat dropped, {r['name']} was full", None))
+                if not r.get("ready"):
+                    irqb.append((f'{r["name"]}_OVF', f"beat dropped, {r['name']} was full", None))
                 flagb.append((f'{r["name"]}_AVAIL', f"{r['name']} holds an unread beat"))
         else:
             raise SystemExit(f"unknown kind {k}")
@@ -402,6 +405,10 @@ def gen_rtl(P, spec, core):
         if r["kind"] == "stream_in":
             n = r["name"]
             a(f"  assign c_{r['valid']} = {'full_' + n if r.get('ready') else 'vld_' + n};")
+        elif r.get("ready"):
+            n = r["name"]
+            last = words.index(stream_words(words, n)[-1])
+            a(f"  assign c_{r['ready']} = ~avail_{n} | (rd & hit[{last}]);")
     a("")
     a("  // ---------------- interrupts and flags ----------------")
     a("  always_comb begin")
@@ -418,7 +425,8 @@ def gen_rtl(P, spec, core):
             a(f"    irq_set[{irq_index(irqb, n + '_OVF')}] = wr & ({all_hits(words, ws)}) & full_{n};")
         elif r["kind"] == "stream_out":
             a(f"    irq_set[{irq_index(irqb, n + '_AVAIL')}] = c_{r['valid']} & (~avail_{n} | (rd & hit[{last}]));")
-            a(f"    irq_set[{irq_index(irqb, n + '_OVF')}] = c_{r['valid']} & avail_{n} & ~(rd & hit[{last}]);")
+            if not r.get("ready"):
+                a(f"    irq_set[{irq_index(irqb, n + '_OVF')}] = c_{r['valid']} & avail_{n} & ~(rd & hit[{last}]);")
     a("  end")
     a("  assign irq = |(irq_status & irq_enable);")
     fl = []

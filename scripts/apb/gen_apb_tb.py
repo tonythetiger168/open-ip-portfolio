@@ -299,7 +299,8 @@ def gen_sva(P, spec, core, words, irqb, flagb, pt):
             pop = f"(m_rd && m_map && m_idx == {last})"
             a(f"    if (c_{r['valid']} && !m_state_{n}) m_set[{names.index(n + '_AVAIL')}] = 1'b1;")
             a(f"    if (c_{r['valid']} && m_state_{n} && {pop}) m_set[{names.index(n + '_AVAIL')}] = 1'b1;")
-            a(f"    if (c_{r['valid']} && m_state_{n} && !{pop}) m_set[{names.index(n + '_OVF')}] = 1'b1;")
+            if not r.get("ready"):
+                a(f"    if (c_{r['valid']} && m_state_{n} && !{pop}) m_set[{names.index(n + '_OVF')}] = 1'b1;")
     a("  end")
     a("")
     a("  always_ff @(posedge PCLK or negedge PRESETN) begin")
@@ -405,6 +406,10 @@ def gen_sva(P, spec, core, words, irqb, flagb, pt):
         if r["kind"] == "stream_in":
             a(f"  `SVA_INV(a_core_{r['valid']}, c_{r['valid']} == m_state_{r['name']})")
             rst_terms.append(f"!c_{r['valid']}")
+        elif r.get("ready"):
+            last = words.index(sw(words, r["name"])[-1])
+            a(f"  `SVA_INV(a_core_{r['ready']}, c_{r['ready']} == (!m_state_{r['name']} || (m_rd && m_map && m_idx == {last})))")
+            rst_terms.append(f"c_{r['ready']}")
     a(f"  `SVA_RST(a_reset_values, !PRESETN, {' && '.join(rst_terms)})")
     a("")
     a("  // ---------------- functional coverage ----------------")
@@ -440,7 +445,10 @@ def gen_sva(P, spec, core, words, irqb, flagb, pt):
             a(f"  `FC({n}_commit, m_state_{n})")
         else:
             a(f"  `FC({n}_capture, c_{r['valid']} && !m_state_{n})")
-            a(f"  `FC({n}_overflow, c_{r['valid']} && m_state_{n} && !(m_rd && m_map && m_idx == {last}))")
+            if r.get("ready"):
+                a(f"  `FC({n}_backpressure, c_{r['valid']} && m_state_{n} && !(m_rd && m_map && m_idx == {last}))")
+            else:
+                a(f"  `FC({n}_overflow, c_{r['valid']} && m_state_{n} && !(m_rd && m_map && m_idx == {last}))")
             a(f"  `FC({n}_pop, m_rd && m_map && m_idx == {last} && m_state_{n})")
             a(f"  `FC({n}_read_empty, m_rd && m_map && m_idx == {last} && !m_state_{n})")
             a(f"  `FC({n}_pop_and_capture, c_{r['valid']} && m_state_{n} && m_rd && m_map && m_idx == {last})")
@@ -618,6 +626,12 @@ def gen_doc(P, spec, core, words, irqb, flagb, pt):
                   f"{r['name']}_DONE is set. A write while full is dropped and sets {r['name']}_OVF.")
             elif r["kind"] == "stream_in":
                 a(f"* **{r['name']}** feeds {dp(r)}; writing {ws[-1].name} pulses `{r['valid']}` for one clock.")
+            elif r.get("ready"):
+                a(f"* **{r['name']}** takes {dp(r)} from the core with `{r['valid']}` / "
+                  f"`{r['ready']}`: `{r['ready']}` is high while the register is empty (or is "
+                  f"being read in the same clock), and a captured beat sets FLAGS/IRQ "
+                  f"{r['name']}_AVAIL. Reading {ws[-1].name} pops it. Nothing is dropped: "
+                  f"the core holds its data until the register is free.")
             else:
                 a(f"* **{r['name']}** captures {dp(r)} when `{r['valid']}` is high and the "
                   f"register is empty (or is being read in the same clock), and sets "
