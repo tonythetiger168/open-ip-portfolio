@@ -1,0 +1,42 @@
+{
+  "title": "SLIMbus-style TDM bus interface (framer or device) with one transmit and one receive data channel",
+  "code": "0x534C",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "60ms",
+  "regs": [
+    {"name": "CFG", "kind": "rw", "desc": "Role and framing",
+     "fields": [{"port": "cfg_framer", "reset": "0", "desc": "1 = framer (drives CLK, frame sync and FI)"},
+                {"port": "cfg_div", "reset": "3", "desc": "framer: CLK half period - 1 (PCLK); 3 or more"},
+                {"port": "cfg_fi", "reset": "0", "desc": "framer: FI information byte"}]},
+    {"name": "CHAN", "kind": "rw", "desc": "Data channel segments (TAG slot + 2 slots per byte, inside slots 1..95 or 97..191)",
+     "fields": [{"port": "cfg_tx_slot", "reset": "1", "desc": "transmit segment first slot"},
+                {"port": "cfg_tx_len", "reset": "0", "desc": "transmit bytes per frame (1..4, 0 = off)"},
+                {"port": "cfg_rx_slot", "reset": "1", "desc": "receive segment first slot"},
+                {"port": "cfg_rx_len", "reset": "0", "desc": "receive bytes per frame (1..4, 0 = off)"}]},
+    {"name": "SFSET", "kind": "stream_in", "data": "sf_set_val", "valid": "sf_set",
+     "desc": "Framer: writing SFSET loads the superframe count sent in the next superframe",
+     "fdesc": {"sf_set_val": "superframe count"}},
+    {"name": "TX", "kind": "stream_in", "data": "tx_data", "valid": "tx_valid", "ready": "tx_ready",
+     "desc": "Transmit sample (the low CHAN.cfg_tx_len bytes); writing TX commits it for the next segment",
+     "fdesc": {"tx_data": "sample"}},
+    {"name": "RX", "kind": "stream_out", "data": "rx_data", "valid": "rx_valid",
+     "desc": "Received sample; reading RX frees it",
+     "fdesc": {"rx_data": "sample (the low CHAN.cfg_rx_len bytes)"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Lock and framing information",
+     "fields": [{"port": "locked", "desc": "frame sync locked"},
+                {"port": "sf_locked", "desc": "superframe found; the data channels run"},
+                {"port": "cfg_err", "desc": "a channel segment is invalid (that channel is off)"},
+                {"port": "fi_info", "desc": "FI information byte of the last superframe"},
+                {"port": "sf_count", "desc": "superframe count of the last superframe"}]}
+  ],
+  "irqs": [
+    {"name": "FI", "port": "fi_valid", "desc": "a complete FI was received (STATUS.fi_info / sf_count updated)"},
+    {"name": "LOST_SYNC", "port": "lost_sync", "desc": "frame sync lost (two misses, or no superframe within 16 frames)"},
+    {"name": "TX_UNDERRUN", "port": "tx_underrun", "desc": "a transmit segment found no sample (sent as not present)"},
+    {"name": "RX_ERR", "port": "rx_err", "desc": "a receive segment TAG had reserved bits set"}
+  ],
+  "notes": [
+    "slim_clk_o / slim_clk_oe / slim_clk_i and slim_dat_o / slim_dat_oe / slim_dat_i are the bus pins (open drivers onto CLK and DATA; DATA needs a bus keeper); all pass through unchanged."
+  ]
+}
