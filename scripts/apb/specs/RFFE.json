@@ -1,0 +1,30 @@
+{
+  "title": "MIPI RFFE-style bus master: register, extended and extended long write / read sequences",
+  "code": "0x5246",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "60ms",
+  "regs": [
+    {"name": "CFG", "kind": "rw", "desc": "Bus speed",
+     "fields": [{"port": "cfg_div", "reset": "7", "desc": "SCLK half period - 1 in PCLK (7 or more for reads from MIPI_RFFE_top)"}]},
+    {"name": "CMD", "kind": "stream_in", "data": ["cmd_type", "cmd_sa", "cmd_addr", "cmd_bc"], "valid": "cmd_valid", "ready": "cmd_ready",
+     "desc": "Command sequence; writing CMD commits it, the core takes it when idle",
+     "fdesc": {"cmd_type": "0 register 0 write, 1 register write, 2 register read, 3 extended write, 4 extended read, 5 extended long write, 6 extended long read, 7 reserved (no bus activity)",
+               "cmd_sa": "slave address (0 = broadcast)", "cmd_addr": "register address (type 0: data in [6:0])", "cmd_bc": "byte count - 1 (extended; long uses [2:0])"}},
+    {"name": "WR", "kind": "stream_in", "data": "wr_data", "valid": "wr_valid", "ready": "wr_ready",
+     "desc": "Write data byte for the next data frame (SCLK waits while WR is empty)",
+     "fdesc": {"wr_data": "data byte"}},
+    {"name": "RD", "kind": "stream_out", "data": ["rd_data", "rd_perr"], "valid": "rd_valid",
+     "desc": "Read data byte; reading RD frees it",
+     "fdesc": {"rd_data": "data byte", "rd_perr": "the frame's parity failed"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Sequence state",
+     "fields": [{"port": "busy", "desc": "a sequence is running"},
+                {"port": "done_perr", "desc": "a read frame of the last finished sequence failed its parity"}]}
+  ],
+  "irqs": [
+    {"name": "SEQ_DONE", "port": "done", "desc": "a sequence finished (STATUS.done_perr updated)"}
+  ],
+  "notes": [
+    "sclk, sdata_o / sdata_oe and sdata_i are the bus pins (SDATA bidirectional with a bus holder); all pass through unchanged."
+  ]
+}
