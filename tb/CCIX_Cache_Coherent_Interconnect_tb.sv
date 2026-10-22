@@ -126,6 +126,7 @@ module CCIX_Cache_Coherent_Interconnect_tb;
       // at negedge so it is stable for the capturing posedge. Immune to
       // the 5.006 slow-scheduler resume delay (coroutine wakeups land
       // ~10 us late; level waits cannot miss, pulse waits can).
+      @(negedge clk);                   // align to negedge: the flit must span a posedge
       while (!((dut_cstate == 2'd0) && (dut_rx_crd != 4'd0)))
         @(negedge clk);
       txreqflit  <= {txn, addr};
