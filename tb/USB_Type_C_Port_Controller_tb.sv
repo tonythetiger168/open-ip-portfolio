@@ -391,6 +391,54 @@ module USB_Type_C_Port_Controller_tb;
                n_cyc, n_glt, n_flt, n_ns, n_dg, n_role, n_ro);
     end
 `endif
+    // ---- Rd moving to the other pin restarts the attach debounce ----
+    cc1 = 2'b00; cc2 = 2'b00;
+    repeat (20) @(negedge clk);
+    clear_ints();
+    cc1 = 2'b01;
+    repeat (60) @(negedge clk);
+    cc1 = 2'b00; cc2 = 2'b01;                   // same cycle: Rd now on cc2
+    repeat (60) @(negedge clk);
+    chk(attached === 1'b0, "pin swap during debounce must restart it");
+    repeat (60) @(negedge clk);
+    chk(attached === 1'b1 && orientation === 1'b1, "attached on cc2 after full debounce");
+    cc2 = 2'b00;
+    repeat (20) @(negedge clk);
+    chk(attached === 1'b0, "detach after pin-swap attach");
+
+    // ---- an abnormal level during the debounce restarts it ----
+    clear_ints();
+    cc1 = 2'b01;
+    repeat (40) @(negedge clk);
+    cc2 = 2'b11;
+    repeat (3) @(negedge clk);
+    cc2 = 2'b00;
+    repeat (80) @(negedge clk);
+    chk(attached === 1'b0, "fault during debounce must restart it");
+    repeat (40) @(negedge clk);
+    chk(attached === 1'b1, "attached after fault-free debounce");
+    reg_write(3'd2, 8'h00);                     // W1C with 0: fault stays
+    reg_read(3'd2, 8'h01);
+    reg_write(3'd2, 8'h01);
+    reg_read(3'd2, 8'h00);
+
+    // ---- a one-cycle fault in the same cycle as a W1C of INT_STAT ----
+    clear_ints();
+    @(negedge clk);
+    reg_addr <= 3'd3; reg_wdata <= 8'h07; reg_wr <= 1'b1; cc2 = 2'b11;
+    @(negedge clk);
+    reg_wr <= 1'b0; cc2 = 2'b00;
+    reg_read(3'd3, 8'h04);                      // the fault event survived
+    reg_read(3'd2, 8'h01);
+    clear_ints();
+
+    // ---- reset while attached ----
+    @(negedge clk) rst_n = 1'b0;
+    #1 chk(attached === 1'b0 && vbus_en === 1'b0 && irq === 1'b0, "reset while attached");
+    @(negedge clk) rst_n = 1'b1;
+    cc1 = 2'b00;
+    repeat (5) @(negedge clk);
+
     if (errors == 0) $display("TEST PASSED: USB Type-C Port Controller");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR
