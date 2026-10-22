@@ -275,6 +275,43 @@ module I2C_tb;
     i2c_read2_check(8'h00, 8'hFF);
     i2c_read3_check(8'hA5);
 
+    // ---- repeated START: write one byte, then Sr + read without STOP ----
+    tx_byte = 8'h96;
+    i2c_start;
+    i2c_wbyte(8'hA0, ack);                 // addr 0x50 + W
+    if (!ack) begin errors++; $display("ERROR: I2C Sr no ACK on addr W"); end
+    i2c_wbyte(8'h3C, ack);
+    if (!ack) begin errors++; $display("ERROR: I2C Sr no ACK on data"); end
+    i2c_start;                             // repeated START (no STOP)
+    i2c_wbyte(8'hA1, ack);                 // addr 0x50 + R
+    if (!ack) begin errors++; $display("ERROR: I2C Sr no ACK on addr R"); end
+    i2c_rbyte(1'b0, rb);
+    if (rb !== 8'h96) begin errors++; $display("ERROR: I2C Sr read got=%h exp=96", rb); end
+    i2c_stop;
+    if (rx_byte !== 8'h3C) begin errors++; $display("ERROR: I2C Sr rx_byte=%h exp=3C", rx_byte); end
+
+    // ---- reset asserted in the middle of a write data byte ----
+    i2c_start;
+    i2c_wbyte(8'hA0, ack);
+    for (int i = 0; i < 3; i++) begin      // 3 of 8 data bits
+      master_low = 1'b1; #300; scl = 1; #600; scl = 0; #300;
+    end
+    @(negedge clk) rst_n = 0;              // async reset, away from the clock edge
+    repeat (4) @(posedge clk);
+    if (busy !== 1'b0 || dut.ack_low !== 1'b0) begin
+      errors++; $display("ERROR: I2C mid-txn reset: busy=%b ack_low=%b", busy, dut.ack_low);
+    end
+    @(negedge clk) rst_n = 1;
+    repeat (4) @(posedge clk);
+    i2c_stop;                              // bus clean-up
+    i2c_start;                             // DUT must work normally again
+    i2c_wbyte(8'hA0, ack);
+    if (!ack) begin errors++; $display("ERROR: I2C post-reset no ACK"); end
+    i2c_wbyte(8'h81, ack);
+    i2c_stop;
+    repeat (10) @(posedge clk);
+    if (rx_byte !== 8'h81) begin errors++; $display("ERROR: I2C post-reset rx_byte=%h exp=81", rx_byte); end
+
     // ---- wrong address must NACK ----
     i2c_start;
     i2c_wbyte(8'hA2, ack);                 // addr 0x51: not us
