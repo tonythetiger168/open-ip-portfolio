@@ -11,24 +11,36 @@
 //  start bit, commands {native AUX write/read, I2C-over-AUX write/read},
 //  addr[20] + len[8] + data + simplified stop (CRC replaced by stop chips),
 //  DPCD register window access (16 x 8: link rate / lane count / training
-//  pattern / lane status), I2C-over-AUX read of the first 8 EDID bytes.
-// IP design implementation v1.0 -- Apache-2.0
+//  pattern / lane status), I2C-over-AUX read of the first 8 EDID bytes,
+//  HPD unplug / replug.
+// IP design implementation v2.0 -- Apache-2.0
 // ----------------------------------------------------------------------------
 // Documented simplifications (educational slice of the DP physical layer):
 //  - 1 lane, serialisation 1 bit/clk; the 10-bit 8b/10b code is transmitted
-//    'a' first (DP-native bit order), 10 clk per symbol, gap-free.
+//    'a' first (DP-native bit order), 10 clk per symbol, gap-free. The
+//    running disparity restarts at RD- whenever the lane comes up.
 //  - AUX Manchester-II at 2 clk chips per bit (IEEE 802.3 convention:
 //    logical 1 = chips (1,0), logical 0 = chips (0,1)). Idle line = 1.
 //    SYNC = 16 zero bits + one start bit (1). STOP = chips (1,1).
 //    AUX CRC nibble is replaced by the STOP chip pair (documented).
+//  - AUX reply: header byte {reply[3:0], 4'hx}; reply 0 = ACK, any other
+//    code (NACK, DEFER, I2C NACK/DEFER) is a failed attempt and carries no
+//    data: the STOP follows the header. An ACK carries exactly the
+//    requested number of bytes. The reply must start within 200 clk of the
+//    request STOP; a Manchester violation, a bad SYNC / start bit or a
+//    missing STOP fails the attempt.
 //  - DPCD window model: addr0 = LINK_RATE(0x14), addr1 = LANE_COUNT(1),
 //    addr2 = TRAINING_PATTERN_SET (0x21=CR, 0x22=TPS1, 0x00=off),
 //    addr3 = LANE0_STATUS (bit0 CR_DONE, bit1 EQ_DONE) -- lives in the sink.
 //  - I2C-over-AUX: addr = {4'h0, i2c_dev[7:0], offset[7:0]}; write with
 //    len=0 sets the EDID offset; read returns len bytes from EDID ROM.
-//  - Link training: send >=32 CR symbols then poll LANE0_STATUS; up to 3
-//    retries per phase; AUX timeout / NACK / Manchester violation retried
-//    3 times, then train_fail + irq (sticky until reset).
+//  - Link training: send >= 32 CR symbols then poll LANE0_STATUS; a poll
+//    that is not done (or fails) re-polls after another 32 symbols, up to 3
+//    retries per phase. Every AUX op is retried 3 times. Then train_fail +
+//    irq, sticky until reset or HPD low; fill (K23.7) keeps the lane up.
+//  - HPD (sink_present) is taken as already debounced: low drops the lane,
+//    aborts any AUX transfer and clears edid_valid / train_fail; high
+//    starts a new training.
 //  - Video line (40 symbols, documented simplification):
 //    BS(K27.7), 16 pixel D-symbols (pixel[i] = frame_cnt+i), BE(K28.5),
 //    SS(K29.7), 16 MSA bytes (4 dwords LSB-first: {8'h00,8'h00,fc,8'h01},
@@ -36,10 +48,7 @@
 //    FS(K23.7) + 3 x D00.0 fill. K23.7 fill is sent whenever the link is
 //    up but no video/training pattern is active.
 // ============================================================================
-module DisplayPort2_top #(
-  parameter int DW   = 32,      // data width (reserved, datapath fixed)
-  parameter int AW   = 32       // address width (reserved)
-)(
+module DisplayPort2_top (
   input  logic        clk,
   input  logic        rst_n,
   // main link (serial, 1 bit/clk, 8b/10b encoded)
@@ -67,29 +76,18 @@ module DisplayPort2_top #(
   localparam logic [7:0] K29_7  = 8'hFD;   // secondary start (SS)
   localparam logic [7:0] K30_7  = 8'hFE;   // secondary end (SE)
 
-  localparam logic [3:0] AUX_CMD_I2C_WR = 4'h0;  // I2C-over-AUX write
-  localparam logic [3:0] AUX_CMD_I2C_RD = 4'h1;  // I2C-over-AUX read
-  localparam logic [3:0] AUX_CMD_WR     = 4'h8;  // native AUX write
-  localparam logic [3:0] AUX_CMD_RD     = 4'h9;  // native AUX read
-  localparam logic [3:0] AUX_REP_ACK    = 4'h0;
-
   localparam logic [7:0] DPCD_LINK_RATE = 8'h14;
   localparam logic [7:0] DPCD_LANE_CNT  = 8'h01;
   localparam logic [7:0] DPCD_TP_CR     = 8'h21; // TRAINING_PATTERN_SET: CR
   localparam logic [7:0] DPCD_TP_TPS1   = 8'h22; // TRAINING_PATTERN_SET: TPS1
   localparam logic [7:0] DPCD_TP_OFF    = 8'h00;
+  localparam logic [7:0] EDID_I2C_ADDR  = 8'h50;
 
-  localparam logic [8:0] RX_TIMEOUT = 9'd200;  // AUX reply timeout (clk)
-  localparam logic [7:0] SYM_TRAIN  = 8'd32;   // symbols per training phase
+  localparam logic [7:0] RX_TIMEOUT = 8'd200;  // AUX reply start timeout (clk)
   localparam logic [1:0] RETRY_MAX  = 2'd3;
 
-  // MSA packet, 4 dwords, byte idx0 = dword0[7:0] sent first
-  localparam logic [31:0] MSA_DW1 = 32'h0012_3456; // Mvid[23:0]
-  localparam logic [31:0] MSA_DW2 = 32'h0000_0140; // Htotal (demo)
-  localparam logic [31:0] MSA_DW3 = 32'h0000_00F0; // Vtotal (demo)
-
   // ------------------------- link-training controller states -------------------------
-  typedef enum logic [4:0] {
+  typedef enum logic [3:0] {
     LT_IDLE, LT_CFG_RATE, LT_CFG_LANE, LT_CR_SET, LT_CR_WAIT, LT_CR_POLL,
     LT_TPS_SET, LT_TPS_WAIT, LT_TPS_POLL, LT_EDID_W, LT_EDID_R,
     LT_TRAIN_OFF, LT_VIDEO, LT_FAIL
@@ -145,7 +143,8 @@ module DisplayPort2_top #(
                    d5 == 5'd30 || d5 == 5'd31))
           s6 = ~s6;
       end
-      ones6 = s6[0] + s6[1] + s6[2] + s6[3] + s6[4] + s6[5];
+      ones6 = {2'b00, s6[0]} + {2'b00, s6[1]} + {2'b00, s6[2]} +
+              {2'b00, s6[3]} + {2'b00, s6[4]} + {2'b00, s6[5]};
       if (ones6 == 3) rd1 = rd;
       else            rd1 = (ones6 > 3);
       // ---- 3b/4b ----
@@ -164,8 +163,12 @@ module DisplayPort2_top #(
         endcase
         if (rd1 && (d3 == 3'd0 || d3 == 3'd3 || d3 == 3'd4 || d3 == 3'd7))
           s4 = ~s4;
+        // K28.1/.2/.5/.6 after 110000 (RD+ in) take the complemented 4b
+        // form, e.g. K28.5 RD+ = 110000 0101
+        if (k && d5 == 5'd28 && rd && (d3 == 3'd1 || d3 == 3'd2 || d3 == 3'd5 || d3 == 3'd6))
+          s4 = ~s4;
       end
-      ones4 = s4[0] + s4[1] + s4[2] + s4[3];
+      ones4 = {1'b0, s4[0]} + {1'b0, s4[1]} + {1'b0, s4[2]} + {1'b0, s4[3]};
       if (ones4 == 2) rd2 = rd1;
       else            rd2 = (ones4 > 2);
       enc_8b10b = {rd2, s6, s4};   // code[9]='a' ... code[0]='j'
@@ -173,215 +176,236 @@ module DisplayPort2_top #(
   endfunction
 
   // ------------------------- pattern / symbol generator -------------------------
-  typedef enum logic [2:0] {PAT_FILL, PAT_CR, PAT_TPS1, PAT_VIDEO} pat_t;
+  typedef enum logic [1:0] {PAT_FILL, PAT_CR, PAT_TPS1, PAT_VIDEO} pat_t;
   pat_t pat;
 
-  logic [4:0]  tps_cnt;        // position within TPS1 burst
-  logic [5:0]  frame_pos;      // 0..39 position within video line
+  logic [1:0]  tps_cnt;        // position within the 4-symbol TPS1 sequence
+  logic [5:0]  frame_pos;      // 0..39 position within the video line
   logic [7:0]  frame_cnt;      // increments per video line
-  logic [7:0]  sym_cnt;        // symbols sent since pattern start (sat.)
-  logic        pat_rst;        // pulse: restart pattern counters
+  logic [5:0]  sym_cnt;        // symbols since pattern start, saturates at 32
+  logic        pat_rst;        // pulse: the new pattern starts at position 0
+
+  // positions of the symbol loaded now (a pattern restart counts as 0)
+  wire  [1:0]  tps_pos = pat_rst ? 2'd0 : tps_cnt;
+  wire  [5:0]  vid_pos = pat_rst ? 6'd0 : frame_pos;
 
   logic [7:0]  sym_d;
   logic        sym_k;
   logic [10:0] sym_enc;        // {rd_out, code[9:0]}
   logic        rd;             // running disparity (0 = -1)
 
-  logic [127:0] msa;
-  always_comb begin
-    msa[31:0]    = {16'h0000, frame_cnt, 8'h01}; // VB-ID dword
-    msa[63:32]   = MSA_DW1;
-    msa[95:64]   = MSA_DW2;
-    msa[127:96]  = MSA_DW3;
-  end
+  // MSA packet, 4 dwords LSB first: VB-ID {00,00,fc,01}, Mvid, Htotal, Vtotal
+  function automatic logic [7:0] msa_byte(input logic [3:0] i, input logic [7:0] fc);
+    case (i)
+      4'd0:    msa_byte = 8'h01;
+      4'd1:    msa_byte = fc;
+      4'd4:    msa_byte = 8'h56;
+      4'd5:    msa_byte = 8'h34;
+      4'd6:    msa_byte = 8'h12;
+      4'd8:    msa_byte = 8'h40;
+      4'd9:    msa_byte = 8'h01;
+      4'd12:   msa_byte = 8'hF0;
+      default: msa_byte = 8'h00;
+    endcase
+  endfunction
 
   always_comb begin
     sym_d = K23_7;
     sym_k = 1'b1;
     case (pat)
       PAT_CR: begin
-        sym_d = D10_2;
-        sym_k = 1'b0;
+        sym_d = D10_2; sym_k = 1'b0;
       end
       PAT_TPS1: begin
-        if (tps_cnt[1:0] == 2'd0) begin
+        if (tps_pos == 2'd0) begin
           sym_d = K28_5; sym_k = 1'b1;   // TPS1 marker
         end else begin
           sym_d = D10_2; sym_k = 1'b0;
         end
       end
       PAT_VIDEO: begin
-        if (frame_pos == 6'd0) begin
+        if (vid_pos == 6'd0) begin
           sym_d = K27_7; sym_k = 1'b1;   // BS
-        end else if (frame_pos <= 6'd16) begin
-          sym_d = frame_cnt + ({3'b000, frame_pos[4:0]} - 8'd1); // pixel[i]
+        end else if (vid_pos <= 6'd16) begin
+          sym_d = frame_cnt + {2'b00, vid_pos} - 8'd1;           // pixel[i]
           sym_k = 1'b0;
-        end else if (frame_pos == 6'd17) begin
+        end else if (vid_pos == 6'd17) begin
           sym_d = K28_5; sym_k = 1'b1;   // BE
-        end else if (frame_pos == 6'd18) begin
+        end else if (vid_pos == 6'd18) begin
           sym_d = K29_7; sym_k = 1'b1;   // SS
-        end else if (frame_pos <= 6'd34) begin
-          sym_d = msa[8*(frame_pos-6'd19) +: 8];                 // MSA bytes
+        end else if (vid_pos <= 6'd34) begin
+          sym_d = msa_byte(4'(vid_pos - 6'd19), frame_cnt);       // MSA bytes
           sym_k = 1'b0;
-        end else if (frame_pos == 6'd35) begin
+        end else if (vid_pos == 6'd35) begin
           sym_d = K30_7; sym_k = 1'b1;   // SE
-        end else if (frame_pos == 6'd36) begin
+        end else if (vid_pos == 6'd36) begin
           sym_d = K23_7; sym_k = 1'b1;   // FS
         end else begin
           sym_d = D00_0; sym_k = 1'b0;   // fill
         end
       end
-      default: begin
-        sym_d = K23_7; sym_k = 1'b1;     // fill
-      end
+      default: ;                         // PAT_FILL: K23.7
     endcase
     sym_enc = enc_8b10b(sym_d, sym_k, rd);
   end
 
   // ------------------------- serializer (1 bit/clk, 'a' first) -------------------------
-  logic [9:0] shreg;
+  logic [8:0] shreg;           // code bits b..j still to send
   logic [3:0] bit_cnt;
   logic       lane_active;
-  logic       lane_valid_r;
 
-  // lane_valid is aligned with the first serialised bit (one clk after
-  // lane_active rises the first symbol is loaded)
-  assign lane_valid   = lane_valid_r;
   assign link_trained = (lt_state == LT_VIDEO);
   assign irq          = train_fail;
 
+  // lane_valid is aligned with the first serialised bit (the first active
+  // clk loads a symbol)
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      shreg        <= 10'h000;
-      bit_cnt      <= 4'd9;  // first active clk loads a symbol immediately
-      lane_p       <= 1'b0;
-      lane_valid_r <= 1'b0;
-      rd           <= 1'b0;
-      tps_cnt      <= 5'd0;
-      frame_pos    <= 6'd0;
-      frame_cnt    <= 8'd0;
-      sym_cnt      <= 8'd0;
+      shreg      <= '0;
+      bit_cnt    <= 4'd9;
+      lane_p     <= 1'b0;
+      lane_valid <= 1'b0;
+      rd         <= 1'b0;
+      tps_cnt    <= 2'd0;
+      frame_pos  <= 6'd0;
+      frame_cnt  <= 8'd0;
+      sym_cnt    <= 6'd0;
     end else if (lane_active) begin
-      lane_valid_r <= 1'b1;
-      if (pat_rst) begin
-        sym_cnt   <= 8'd0;
-        tps_cnt   <= 5'd0;
-        frame_pos <= 6'd0;
-      end
-      if (bit_cnt == 4'd9) begin
-        bit_cnt <= 4'd0;
-        lane_p  <= sym_enc[9];            // 'a' first
-        shreg   <= {sym_enc[8:0], 1'b0};
-        rd      <= sym_enc[10];
-        if (!pat_rst && sym_cnt != 8'hFF) sym_cnt <= sym_cnt + 8'd1;
-        if (!pat_rst && pat == PAT_TPS1) tps_cnt <= tps_cnt + 5'd1;
-        if (pat == PAT_VIDEO) begin
-          if (frame_pos == 6'd39) begin
-            frame_pos <= 6'd0;
-            frame_cnt <= frame_cnt + 8'd1;
-          end else if (!pat_rst) begin
-            frame_pos <= frame_pos + 6'd1;
-          end
-        end
+      lane_valid <= 1'b1;
+      if (bit_cnt == 4'd9) begin           // symbol boundary: load the next code
+        bit_cnt   <= 4'd0;
+        lane_p    <= sym_enc[9];           // 'a' first
+        shreg     <= sym_enc[8:0];
+        rd        <= sym_enc[10];
+        tps_cnt   <= tps_pos + 2'd1;
+        frame_pos <= vid_pos == 6'd39 ? 6'd0 : vid_pos + 6'd1;
+        if (pat == PAT_VIDEO && vid_pos == 6'd39) frame_cnt <= frame_cnt + 8'd1;
+        if (pat_rst) sym_cnt <= 6'd1;
+        else if (!sym_cnt[5]) sym_cnt <= sym_cnt + 6'd1;
       end else begin
         bit_cnt <= bit_cnt + 4'd1;
-        lane_p  <= shreg[9];
-        shreg   <= {shreg[8:0], 1'b0};
+        lane_p  <= shreg[8];
+        shreg   <= {shreg[7:0], 1'b0};
+        if (pat_rst) begin
+          tps_cnt   <= 2'd0;
+          frame_pos <= 6'd0;
+          sym_cnt   <= 6'd0;
+        end
       end
     end else begin
-      bit_cnt      <= 4'd9;
-      lane_p       <= 1'b0;
-      lane_valid_r <= 1'b0;
-      shreg        <= 10'h000;
+      bit_cnt    <= 4'd9;
+      lane_p     <= 1'b0;
+      lane_valid <= 1'b0;
+      shreg      <= '0;
+      rd         <= 1'b0;
     end
   end
 
+  // ------------------------- AUX request content -------------------------
+  // Each AUX op belongs to the link-training state that waits for it, so
+  // the request bytes are a function of lt_state:
+  //  {cmd, addr[19:16]}, addr[15:8], addr[7:0], {4'h0, len}, [write byte]
+  function automatic logic [7:0] req_byte(input lt_state_t s, input logic [2:0] i);
+    logic       i2c, rd_op;
+    logic [1:0] da;            // DPCD address
+    logic [7:0] wd;            // write data
+    i2c   = s == LT_EDID_W || s == LT_EDID_R;
+    rd_op = s == LT_CR_POLL || s == LT_TPS_POLL || s == LT_EDID_R;
+    case (s)
+      LT_CFG_RATE:  begin da = 2'd0; wd = DPCD_LINK_RATE; end
+      LT_CFG_LANE:  begin da = 2'd1; wd = DPCD_LANE_CNT;  end
+      LT_CR_SET:    begin da = 2'd2; wd = DPCD_TP_CR;     end
+      LT_TPS_SET:   begin da = 2'd2; wd = DPCD_TP_TPS1;   end
+      LT_TRAIN_OFF: begin da = 2'd2; wd = DPCD_TP_OFF;    end
+      default:      begin da = 2'd3; wd = 8'h00;          end  // polls, EDID
+    endcase
+    case (i)
+      3'd0:    req_byte = {!i2c, 2'b00, rd_op, 4'h0};          // cmd, addr[19:16]
+      3'd1:    req_byte = i2c ? EDID_I2C_ADDR : 8'h00;
+      3'd2:    req_byte = i2c ? 8'h00 : {6'd0, da};
+      3'd3:    req_byte = s == LT_EDID_R ? 8'd8 : {7'd0, !i2c};
+      default: req_byte = wd;
+    endcase
+  endfunction
+
+  function automatic logic req_bit(input lt_state_t s, input logic [2:0] i,
+                                   input logic [2:0] b);
+    logic [7:0] v;
+    v = req_byte(s, i);
+    req_bit = v[3'd7 - b];
+  endfunction
+
+  // native writes carry one data byte (5 request bytes), the rest 4
+  function automatic logic req_has_data(input lt_state_t s);
+    req_has_data = !(s == LT_CR_POLL || s == LT_TPS_POLL ||
+                     s == LT_EDID_W || s == LT_EDID_R);
+  endfunction
+
+  // data bytes expected in an ACK reply
+  function automatic logic [3:0] rep_len(input lt_state_t s);
+    rep_len = s == LT_EDID_R ? 4'd8 :
+              (s == LT_CR_POLL || s == LT_TPS_POLL) ? 4'd1 : 4'd0;
+  endfunction
+
   // ------------------------- AUX engine (Manchester-II) -------------------------
-  // request: SYNC(16x0) + start(1) + {cmd,addr[19:16]} + addr[15:8] +
-  //          addr[7:0] + {4'h0,len} + [write data len bytes] + STOP
-  // reply:   SYNC(16x0) + start(1) + {reply[3:0],4'h0} + [read data] + STOP
+  // request: SYNC(16x0) + start(1) + request bytes + STOP
+  // reply:   SYNC(16x0) + start(1) + {reply[3:0],4'hx} + [read data] + STOP
   typedef enum logic [3:0] {
     A_IDLE, A_SYNC0, A_SYNC1, A_START0, A_START1, A_C0, A_C1,
     A_STOP0, A_STOP1, A_RX_W0, A_RX_C0, A_RX_C1, A_RX_STOP0, A_RX_STOP1
   } aux_state_t;
   aux_state_t aux_state;
 
-  // operation interface (driven by link-training FSM)
-  logic        op_start;
-  logic [3:0]  op_cmd;
-  logic [19:0] op_addr;
-  logic [3:0]  op_len;        // number of data bytes (0..8)
-  logic [63:0] op_wdata;      // byte i at [8*i +: 8], first byte = LSB
+  logic        op_start;      // from the link-training FSM
   logic        op_done;       // 1-clk pulse
-  logic        op_err;        // timeout / NACK / Manchester violation
-  logic [63:0] op_rdata;      // byte i at [8*i +: 8], first byte = LSB
+  logic        op_err;        // timeout / NACK / framing error (with op_done)
+  logic [63:0] op_rdata;      // reply byte i at [8*i +: 8]
 
-  logic [4:0]  a_sync_cnt;    // 0..17 (16 sync + start)
+  logic [4:0]  a_sync_cnt;    // TX: 0..15 SYNC bits; RX: 0..15 SYNC, 16 start, 17 data
   logic [3:0]  a_byte_idx;
-  logic [4:0]  a_byte_total;
-  logic [3:0]  a_exp_len;     // expected reply data bytes (reads only)
   logic [2:0]  a_bit_idx;
-  logic [7:0]  a_tx_byte;
-  logic [7:0]  a_rx_byte;
+  logic [6:0]  a_rx_byte;     // bits received so far of the current byte
   logic        a_cur_bit;     // chip0 of the current pair
-  logic [3:0]  a_rx_reply;
-  logic [8:0]  a_timeout;
-
-  // TX byte selector
-  always_comb begin
-    case (a_byte_idx)
-      4'd0: a_tx_byte = {op_cmd, op_addr[19:16]};
-      4'd1: a_tx_byte = op_addr[15:8];
-      4'd2: a_tx_byte = op_addr[7:0];
-      4'd3: a_tx_byte = {4'h0, op_len};
-      default: a_tx_byte = op_wdata[8*(a_byte_idx-4) +: 8];
-    endcase
-  end
+  logic        a_nak;         // reply code was not ACK
+  logic [7:0]  a_timeout;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      aux_state    <= A_IDLE;
-      aux_tx_p     <= 1'b1;
-      aux_tx_en    <= 1'b0;
-      op_done      <= 1'b0;
-      op_err       <= 1'b0;
-      op_rdata     <= 64'h0;
-      a_sync_cnt   <= 5'd0;
-      a_byte_idx   <= 4'd0;
-      a_byte_total <= 5'd0;
-      a_exp_len    <= 4'd0;
-      a_bit_idx    <= 3'd0;
-      a_rx_byte    <= 8'h00;
-      a_cur_bit    <= 1'b0;
-      a_rx_reply   <= 4'h0;
-      a_timeout    <= 9'd0;
+      aux_state  <= A_IDLE;
+      aux_tx_p   <= 1'b1;
+      aux_tx_en  <= 1'b0;
+      op_done    <= 1'b0;
+      op_err     <= 1'b0;
+      op_rdata   <= '0;
+      a_sync_cnt <= '0;
+      a_byte_idx <= '0;
+      a_bit_idx  <= '0;
+      a_rx_byte  <= '0;
+      a_cur_bit  <= 1'b0;
+      a_nak      <= 1'b0;
+      a_timeout  <= '0;
+    end else if (!sink_present) begin    // unplug aborts the transfer
+      aux_state  <= A_IDLE;
+      aux_tx_p   <= 1'b1;
+      aux_tx_en  <= 1'b0;
+      op_done    <= 1'b0;
+      a_sync_cnt <= '0;
+      a_bit_idx  <= '0;
     end else begin
       op_done <= 1'b0;
       case (aux_state)
-        A_IDLE: begin
-          aux_tx_en <= 1'b0;
-          aux_tx_p  <= 1'b1;
+        A_IDLE:
           if (op_start) begin
-            aux_tx_en    <= 1'b1;
-            aux_tx_p     <= 1'b0;         // SYNC chip0 of bit0
-            a_sync_cnt   <= 5'd0;
-            a_byte_total <= 5'd4 +
-              ((op_cmd == AUX_CMD_WR || op_cmd == AUX_CMD_I2C_WR)
-               ? {1'b0, op_len} : 5'd0);
-            a_exp_len    <=
-              ((op_cmd == AUX_CMD_RD || op_cmd == AUX_CMD_I2C_RD)
-               ? op_len : 4'd0);
-            a_byte_idx   <= 4'd0;
-            a_bit_idx    <= 3'd0;
-            a_timeout    <= 9'd0;
-            aux_state    <= A_SYNC1;
+            aux_tx_en  <= 1'b1;
+            aux_tx_p   <= 1'b0;          // SYNC chip0 of bit0
+            a_byte_idx <= '0;
+            aux_state  <= A_SYNC1;
           end
-        end
         // --- TX SYNC: 16 zero bits -> chips (0,1) ---
         A_SYNC1: begin
           aux_tx_p <= 1'b1;
           if (a_sync_cnt == 5'd15) begin
-            a_sync_cnt <= 5'd0;
+            a_sync_cnt <= '0;
             aux_state  <= A_START0;
           end else begin
             a_sync_cnt <= a_sync_cnt + 5'd1;
@@ -401,24 +425,19 @@ module DisplayPort2_top #(
           aux_tx_p  <= 1'b0;
           aux_state <= A_C0;
         end
-        // --- data bytes, MSB first, chip0 = bit, chip1 = ~bit ---
+        // --- request bytes, MSB first, chip0 = bit, chip1 = ~bit ---
         A_C0: begin
-          aux_tx_p  <= a_tx_byte[3'd7 - a_bit_idx];
+          aux_tx_p  <= req_bit(lt_state, a_byte_idx[2:0], a_bit_idx);
           aux_state <= A_C1;
         end
         A_C1: begin
-          aux_tx_p <= ~a_tx_byte[3'd7 - a_bit_idx];
+          aux_tx_p  <= !req_bit(lt_state, a_byte_idx[2:0], a_bit_idx);
+          a_bit_idx <= a_bit_idx + 3'd1;
+          aux_state <= A_C0;
           if (a_bit_idx == 3'd7) begin
-            a_bit_idx <= 3'd0;
-            if ({1'b0, a_byte_idx} == a_byte_total - 5'd1) begin
+            a_byte_idx <= a_byte_idx + 4'd1;
+            if (a_byte_idx[2:0] == (req_has_data(lt_state) ? 3'd4 : 3'd3))
               aux_state <= A_STOP0;
-            end else begin
-              a_byte_idx <= a_byte_idx + 4'd1;
-              aux_state  <= A_C0;
-            end
-          end else begin
-            a_bit_idx <= a_bit_idx + 3'd1;
-            aux_state <= A_C0;
           end
         end
         // --- STOP chips (1,1), then release the pair ---
@@ -427,85 +446,59 @@ module DisplayPort2_top #(
           aux_state <= A_STOP1;
         end
         A_STOP1: begin
-          aux_tx_p   <= 1'b1;
           aux_tx_en  <= 1'b0;
-          a_timeout  <= 9'd0;
-          a_sync_cnt <= 5'd0;
-          a_bit_idx  <= 3'd0;
-          a_byte_idx <= 4'd0;
+          a_timeout  <= '0;
+          a_byte_idx <= '0;
           aux_state  <= A_RX_W0;
         end
-        // --- RX: wait for the 1->0 transition = chip0 of first SYNC pair ---
-        A_RX_W0: begin
-          a_timeout <= a_timeout + 9'd1;
+        // --- RX: wait for the 1->0 transition = chip0 of the first SYNC pair ---
+        A_RX_W0:
           if (a_timeout == RX_TIMEOUT) begin
             op_err    <= 1'b1;
             op_done   <= 1'b1;
             aux_state <= A_IDLE;
-          end else if (!aux_rx_p) begin
-            a_cur_bit <= 1'b0;
-            aux_state <= A_RX_C1;
+          end else begin
+            a_timeout <= a_timeout + 8'd1;
+            if (!aux_rx_p) begin
+              a_cur_bit <= 1'b0;
+              aux_state <= A_RX_C1;
+            end
           end
-        end
         // --- RX pairs: chip0 in A_RX_C0, chip1 in A_RX_C1 ---
         A_RX_C0: begin
-          a_timeout <= a_timeout + 9'd1;
-          if (a_timeout == RX_TIMEOUT) begin
-            op_err    <= 1'b1;
-            op_done   <= 1'b1;
-            aux_state <= A_IDLE;
-          end else begin
-            a_cur_bit <= aux_rx_p;      // bit = chip0 (802.3)
-            aux_state <= A_RX_C1;
-          end
+          a_cur_bit <= aux_rx_p;         // bit = chip0 (802.3)
+          aux_state <= A_RX_C1;
         end
-        A_RX_C1: begin
-          if (aux_rx_p == a_cur_bit) begin
-            op_err    <= 1'b1;          // Manchester violation (0,0)/(1,1)
-            op_done   <= 1'b1;
-            aux_state <= A_IDLE;
-          end else if (a_sync_cnt < 5'd16) begin
-            if (!a_cur_bit) begin       // SYNC bit = 0
-              a_sync_cnt <= a_sync_cnt + 5'd1;
-              aux_state  <= A_RX_C0;
-            end else begin
-              op_err    <= 1'b1;
-              op_done   <= 1'b1;
-              aux_state <= A_IDLE;
-            end
-          end else if (a_sync_cnt == 5'd16) begin
-            if (a_cur_bit) begin        // start bit = 1
-              a_sync_cnt <= a_sync_cnt + 5'd1;
-              a_bit_idx  <= 3'd0;
-              a_byte_idx <= 4'd0;
-              aux_state  <= A_RX_C0;
-            end else begin
-              op_err    <= 1'b1;
-              op_done   <= 1'b1;
-              aux_state <= A_IDLE;
-            end
+        A_RX_C1:
+          if (aux_rx_p == a_cur_bit ||                       // Manchester violation
+              (a_sync_cnt < 5'd16 && a_cur_bit) ||           // SYNC bit must be 0
+              (a_sync_cnt == 5'd16 && !a_cur_bit)) begin     // start bit must be 1
+            op_err     <= 1'b1;
+            op_done    <= 1'b1;
+            a_sync_cnt <= '0;
+            a_bit_idx  <= '0;
+            aux_state  <= A_IDLE;
           end else begin
-            // data bit, MSB first
-            a_rx_byte <= {a_rx_byte[6:0], a_cur_bit};
-            if (a_bit_idx == 3'd7) begin
-              a_bit_idx <= 3'd0;
-              if (a_byte_idx == 4'd0)
-                a_rx_reply <= a_rx_byte[6:3]; // {b7,b6,b5,b4}
-              else
-                op_rdata[8*(a_byte_idx-1) +: 8] <= {a_rx_byte[6:0], a_cur_bit};
-              if (a_byte_idx == a_exp_len) begin
-                aux_state <= A_RX_STOP0;
-              end else begin
-                a_byte_idx <= a_byte_idx + 4'd1;
-                aux_state  <= A_RX_C0;
-              end
-            end else begin
+            aux_state <= A_RX_C0;
+            if (a_sync_cnt != 5'd17) a_sync_cnt <= a_sync_cnt + 5'd1;
+            else begin                   // data bit, MSB first
+              a_rx_byte <= {a_rx_byte[5:0], a_cur_bit};
               a_bit_idx <= a_bit_idx + 3'd1;
-              aux_state <= A_RX_C0;
+              if (a_bit_idx == 3'd7) begin
+                a_byte_idx <= a_byte_idx + 4'd1;
+                if (a_byte_idx == 4'd0) begin                // reply header
+                  a_nak <= a_rx_byte[6:3] != 4'h0;
+                  if (a_rx_byte[6:3] != 4'h0 || rep_len(lt_state) == 4'd0)
+                    aux_state <= A_RX_STOP0;
+                end else begin
+                  op_rdata[8*(a_byte_idx-4'd1) +: 8] <= {a_rx_byte, a_cur_bit};
+                  if (a_byte_idx == rep_len(lt_state)) aux_state <= A_RX_STOP0;
+                end
+              end
             end
           end
-        end
         A_RX_STOP0: begin
+          a_sync_cnt <= '0;
           if (aux_rx_p) aux_state <= A_RX_STOP1;
           else begin
             op_err    <= 1'b1;
@@ -513,12 +506,11 @@ module DisplayPort2_top #(
             aux_state <= A_IDLE;
           end
         end
-        A_RX_STOP1: begin
-          op_err    <= !aux_rx_p || (a_rx_reply != AUX_REP_ACK);
+        default: begin                   // A_RX_STOP1
+          op_err    <= !aux_rx_p || a_nak;
           op_done   <= 1'b1;
           aux_state <= A_IDLE;
         end
-        default: aux_state <= A_IDLE;
       endcase
     end
   end
@@ -534,43 +526,37 @@ module DisplayPort2_top #(
       pat         <= PAT_FILL;
       pat_rst     <= 1'b0;
       op_start    <= 1'b0;
-      op_cmd      <= 4'h0;
-      op_addr     <= 20'h0;
-      op_len      <= 4'h0;
-      op_wdata    <= 64'h0;
       retry_cnt   <= 2'd0;
-      edid        <= 64'h0;
+      edid        <= '0;
+      edid_valid  <= 1'b0;
+    end else if (!sink_present) begin    // HPD low: sink unplugged
+      lt_state    <= LT_IDLE;
+      lane_active <= 1'b0;
+      train_fail  <= 1'b0;
+      pat         <= PAT_FILL;
+      pat_rst     <= 1'b0;
+      op_start    <= 1'b0;
       edid_valid  <= 1'b0;
     end else begin
       op_start <= 1'b0;
       pat_rst  <= 1'b0;
       case (lt_state)
         LT_IDLE: begin
-          if (sink_present) begin
-            lane_active <= 1'b1;
-            retry_cnt   <= 2'd0;
-            op_start    <= 1'b1;
-            op_cmd      <= AUX_CMD_WR;
-            op_addr     <= 20'h0;
-            op_len      <= 4'd1;
-            op_wdata    <= {56'h0, DPCD_LINK_RATE};
-            lt_state    <= LT_CFG_RATE;
-          end
+          lane_active <= 1'b1;
+          retry_cnt   <= 2'd0;
+          op_start    <= 1'b1;
+          lt_state    <= LT_CFG_RATE;
         end
         LT_CFG_RATE:
           if (op_done) begin
             if (!op_err) begin
               retry_cnt <= 2'd0;
               op_start  <= 1'b1;
-              op_cmd    <= AUX_CMD_WR;
-              op_addr   <= 20'h1;
-              op_len    <= 4'd1;
-              op_wdata  <= {56'h0, DPCD_LANE_CNT};
               lt_state  <= LT_CFG_LANE;
             end else if (retry_cnt == RETRY_MAX) lt_state <= LT_FAIL;
             else begin
               retry_cnt <= retry_cnt + 2'd1;
-              op_start  <= 1'b1;         // retry same op
+              op_start  <= 1'b1;         // retry the same op
             end
           end
         LT_CFG_LANE:
@@ -578,10 +564,6 @@ module DisplayPort2_top #(
             if (!op_err) begin
               retry_cnt <= 2'd0;
               op_start  <= 1'b1;
-              op_cmd    <= AUX_CMD_WR;
-              op_addr   <= 20'h2;
-              op_len    <= 4'd1;
-              op_wdata  <= {56'h0, DPCD_TP_CR};
               lt_state  <= LT_CR_SET;
             end else if (retry_cnt == RETRY_MAX) lt_state <= LT_FAIL;
             else begin
@@ -603,29 +585,21 @@ module DisplayPort2_top #(
             end
           end
         LT_CR_WAIT:
-          if (sym_cnt >= SYM_TRAIN) begin
-            retry_cnt <= retry_cnt;      // hold
-            op_start  <= 1'b1;
-            op_cmd    <= AUX_CMD_RD;
-            op_addr   <= 20'h3;
-            op_len    <= 4'd1;
-            op_wdata  <= 64'h0;
-            lt_state  <= LT_CR_POLL;
+          if (sym_cnt[5] && !pat_rst) begin
+            op_start <= 1'b1;
+            lt_state <= LT_CR_POLL;
           end
         LT_CR_POLL:
           if (op_done) begin
             if (!op_err && op_rdata[0]) begin   // CR_DONE
               retry_cnt <= 2'd0;
               op_start  <= 1'b1;
-              op_cmd    <= AUX_CMD_WR;
-              op_addr   <= 20'h2;
-              op_len    <= 4'd1;
-              op_wdata  <= {56'h0, DPCD_TP_TPS1};
               lt_state  <= LT_TPS_SET;
             end else if (retry_cnt == RETRY_MAX) lt_state <= LT_FAIL;
             else begin
               retry_cnt <= retry_cnt + 2'd1;
-              lt_state  <= LT_CR_WAIT;   // keep CR pattern, poll again
+              pat_rst   <= 1'b1;         // another 32 CR symbols, then poll again
+              lt_state  <= LT_CR_WAIT;
             end
           end
         LT_TPS_SET:
@@ -642,27 +616,20 @@ module DisplayPort2_top #(
             end
           end
         LT_TPS_WAIT:
-          if (sym_cnt >= SYM_TRAIN) begin
-            op_start  <= 1'b1;
-            op_cmd    <= AUX_CMD_RD;
-            op_addr   <= 20'h3;
-            op_len    <= 4'd1;
-            op_wdata  <= 64'h0;
-            lt_state  <= LT_TPS_POLL;
+          if (sym_cnt[5] && !pat_rst) begin
+            op_start <= 1'b1;
+            lt_state <= LT_TPS_POLL;
           end
         LT_TPS_POLL:
           if (op_done) begin
             if (!op_err && op_rdata[1]) begin   // EQ_DONE
               retry_cnt <= 2'd0;
               op_start  <= 1'b1;
-              op_cmd    <= AUX_CMD_I2C_WR;
-              op_addr   <= {4'h0, 8'h50, 8'h00};
-              op_len    <= 4'd0;
-              op_wdata  <= 64'h0;
               lt_state  <= LT_EDID_W;
             end else if (retry_cnt == RETRY_MAX) lt_state <= LT_FAIL;
             else begin
               retry_cnt <= retry_cnt + 2'd1;
+              pat_rst   <= 1'b1;
               lt_state  <= LT_TPS_WAIT;
             end
           end
@@ -671,10 +638,6 @@ module DisplayPort2_top #(
             if (!op_err) begin
               retry_cnt <= 2'd0;
               op_start  <= 1'b1;
-              op_cmd    <= AUX_CMD_I2C_RD;
-              op_addr   <= {4'h0, 8'h50, 8'h00};
-              op_len    <= 4'd8;
-              op_wdata  <= 64'h0;
               lt_state  <= LT_EDID_R;
             end else if (retry_cnt == RETRY_MAX) lt_state <= LT_FAIL;
             else begin
@@ -689,10 +652,6 @@ module DisplayPort2_top #(
               edid_valid <= 1'b1;
               retry_cnt  <= 2'd0;
               op_start   <= 1'b1;
-              op_cmd     <= AUX_CMD_WR;
-              op_addr    <= 20'h2;
-              op_len     <= 4'd1;
-              op_wdata   <= {56'h0, DPCD_TP_OFF};
               lt_state   <= LT_TRAIN_OFF;
             end else if (retry_cnt == RETRY_MAX) lt_state <= LT_FAIL;
             else begin
@@ -712,14 +671,11 @@ module DisplayPort2_top #(
               op_start  <= 1'b1;
             end
           end
-        LT_VIDEO: begin
-          pat <= PAT_VIDEO;              // free-running video stream
-        end
-        LT_FAIL: begin
+        LT_VIDEO: ;                      // free-running video stream
+        default: begin                   // LT_FAIL
           train_fail <= 1'b1;
           pat        <= PAT_FILL;
         end
-        default: lt_state <= LT_IDLE;
       endcase
     end
   end
