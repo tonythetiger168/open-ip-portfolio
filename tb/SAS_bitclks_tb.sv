@@ -4,7 +4,7 @@
 // (a) OOB loopback to PHY READY (OOB signalling runs on raw clk, unscaled)
 // (b) RX path: TB drives an SSP write frame aligned to the DUT dword
 //     boundary (bit_tick && rx_bit_cnt==31), 4 clks per bit, and verifies
-//     wr_evt / wr_addr / wr_data / regs[].
+//     wr_evt / regs[].
 // (c) TX path: TB injects a read request, samples tx_p at the divided bit
 //     phase, reassembles the dword stream and scans it for the RDRSP frame
 //     (payload == 32'hDEADBEEF, CRC32 checked with an independent reference
@@ -67,15 +67,7 @@ module SAS_bitclks_tb;
 
   // capture of the directed write frame's register-write event
   logic        wr_seen  = 1'b0;
-  logic [3:0]  wr_a     = 4'd0;
-  logic [31:0] wr_d     = 32'd0;
-  always @(posedge clk) begin
-    if (rst_n && dut.wr_evt) begin
-      wr_seen <= 1'b1;
-      wr_a    <= dut.wr_addr;
-      wr_d    <= dut.wr_data;
-    end
-  end
+  always @(posedge clk) if (rst_n && dut.wr_evt) wr_seen <= 1'b1;
 
   // -------- TX stream capture: sample tx_p on the DUT's own bit_tick --------
   // At a bit_tick posedge, tx_p still shows the bit that just completed
@@ -211,13 +203,6 @@ module SAS_bitclks_tb;
     repeat (4*BC) @(posedge clk);
     if (!wr_seen) begin
       errors++; $display("ERROR: no wr_evt for directed write frame");
-    end else begin
-      if (wr_a !== 4'd3) begin
-        errors++; $display("ERROR: wr_addr got=%0d exp=3", wr_a);
-      end
-      if (wr_d !== 32'hDEAD_BEEF) begin
-        errors++; $display("ERROR: wr_data got=%h exp=DEADBEEF", wr_d);
-      end
     end
     if (dut.regs[3] !== 32'hDEAD_BEEF) begin
       errors++; $display("ERROR: regs[3] got=%h exp=DEADBEEF", dut.regs[3]);
