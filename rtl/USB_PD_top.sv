@@ -268,7 +268,7 @@ module USB_PD_top #(
     logic [15:0] h;
     h = req ? {1'b0, 3'd1, id, 1'b0, 2'b10, 1'b0, MT_REQUEST}
             : {1'b0, 3'd0, id, 1'b0, 2'b10, 1'b0, MT_GOODCRC};
-    return h[i];
+    hdr_bit = h[i];
   endfunction
   // fixed-supply Request data object bit i: {object position (2 = 9 V,
   // else 1), 8'h00, operating current, max current}
@@ -276,13 +276,13 @@ module USB_PD_top #(
                                    input logic [4:0] i);
     logic [31:0] r;
     r = {1'b0, pos2 ? 3'd2 : 3'd1, 8'h00, cur, cur};
-    return r[i];
+    rdo_bit = r[i];
   endfunction
   // SOP K-code sequence SYNC1,SYNC1,SYNC1,SYNC2: bit i (MSB first) of symbol n
   function automatic logic sop_bit(input logic [1:0] n, input logic [2:0] i);
     logic [4:0] k;
     k = (n == 2'd3) ? K_SYNC2 : K_SYNC1;
-    return k[3'd4 - i];
+    sop_bit = k[3'd4 - i];
   endfunction
   wire [31:0] tx_crc_final = ~tx_crc;
 
