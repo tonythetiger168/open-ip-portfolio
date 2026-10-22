@@ -1,202 +1,202 @@
 // SPDX-License-Identifier: Apache-2.0
-// Self-checking loopback testbench for UART_top -- SystemVerilog
+// ============================================================================
+// Self-checking testbench for UART_top v2.0
+//  * TX: random bytes through the tx_valid/tx_ready handshake (valid held
+//    while busy, gaps, back-to-back); an independent line decoder samples
+//    txd at bit middles and checks every accepted byte and its stop bit.
+//  * RX: loopback (rxd = txd) and a line driver with its own bit timing
+//    (+-2 clk jitter per bit) sending good frames, framing errors, start-bit
+//    glitches, a break, and back-to-back frames; every rx_valid byte and
+//    every framing-error irq is checked against what was sent.
+//  * reset in the middle of both directions.
+// ============================================================================
 `timescale 1ns/1ps
 module UART_tb;
-  localparam int N = 8;
+  localparam int BAUD = 1_000_000;
+  localparam int BIT  = 48;                 // clk per bit: 50 MHz / 1 MBd, 16 x 3
+
   logic clk = 0, rst_n = 0;
   logic rxd, txd;
-  logic [7:0] tx_data;
-  logic tx_valid, tx_ready;
+  logic [7:0] tx_data = 0;
+  logic tx_valid = 0, tx_ready;
   logic [7:0] rx_data;
-  logic rx_valid;
-  logic [7:0] sent [0:N-1];
-  int errors = 0;
-  // loopback control: default 1 keeps the directed/iverilog path identical;
-  // the CRV phase breaks the loop for false-start error injection
-  logic loop_en = 1'b1;
-  logic inj_rxd = 1'b1;
+  logic rx_valid, irq;
 
-`ifdef VERILATOR
-  // slower baud for the coverage build: DIV16=31 walks div_cnt[4:0]
-  localparam int TB_BAUD = 100_000;
-`else
-  localparam int TB_BAUD = 1_000_000;
-`endif
-
-  UART_top #(.CLK_FREQ(50_000_000), .BAUD(TB_BAUD)) dut (
+  UART_top #(.CLK_FREQ(50_000_000), .BAUD(BAUD)) dut (
     .clk(clk), .rst_n(rst_n), .rxd(rxd), .txd(txd),
     .tx_data(tx_data), .tx_valid(tx_valid), .tx_ready(tx_ready),
-    .rx_data(rx_data), .rx_valid(rx_valid), .irq());
+    .rx_data(rx_data), .rx_valid(rx_valid), .irq(irq));
 
-  always #5 clk = ~clk;
-  assign rxd = loop_en ? txd : inj_rxd;    // loopback (breakable for injection)
+  always #10 clk = ~clk;                    // 50 MHz
 
-`ifdef VERILATOR
-  // =====================================================================
-  // v2.5 CRV instrumentation (tool build only; iverilog path unchanged)
-  // FSMs probed: dut.tstate (TX_IDLE..TX_STOP) + dut.rstate
-  // (RX_IDLE..RX_STOP), 8 states total.
-  // =====================================================================
-  localparam int UART_FSM_TOTAL = 8;  // 4 TX + 4 RX states
-  logic [3:0] fsm_seen_t = '0;        // visited TX-state bitmap
-  logic [3:0] fsm_seen_r = '0;        // visited RX-state bitmap
-  wire  [1:0] dut_tstate = dut.tstate;
-  wire  [1:0] dut_rstate = dut.rstate;
+  int errors = 0;
+  function automatic void fail(input string m);
+    errors++;
+    $display("ERROR: %s @%0t", m, $time);
+  endfunction
+  task automatic cycles(input int n); repeat (n) @(negedge clk); endtask
 
-  int sva_total = 0, sva_fail = 0;
-  // counted immediate assertion: every evaluation is one check
-  task automatic sva_check(input bit cond, input string name);
-    begin
-      sva_total++;
-      if (!cond) begin
-        sva_fail++;
-        errors++;
-        $display("SVA_FAIL: %s @%0t", name, $time);
-      end
-    end
-  endtask
+  // ------------------------------------------------------------ line select
+  bit   loop = 1;
+  logic drv = 1;
+  assign rxd = loop ? txd : drv;
 
-  // FSM coverage: sample both DUT state registers every clock
-  always @(posedge clk) begin
-    fsm_seen_t[dut_tstate] <= 1'b1;
-    fsm_seen_r[dut_rstate] <= 1'b1;
-  end
+  // ------------------------------------------------------------ TX side
+  logic [7:0] txq [$];                      // accepted, not yet seen on txd
+  int n_tx = 0;
+  int rst_gen = 0;                          // bumped by hard_reset
+  bit ign_rx = 0;                           // line tail after a reset: not checked
+  always @(posedge clk) if (rst_n && tx_valid && tx_ready) txq.push_back(tx_data);
 
-  // output-invariant assertion suite (sampled coherently pre-NBA)
-  logic [7:0] rx_data_q = '0;
-  logic       rx_valid_q = 0;
-  logic [1:0] rstate_q = '0;   // one-cycle-delayed RX state
-  logic       rst_n_q = 1'b1;  // skip the very first reset edge (regs not yet init)
-  always @(posedge clk) begin
-    if (!rst_n) begin
-      // A1: outputs quiescent during reset (line idle-high)
-      if (!rst_n_q)
-        sva_check(txd === 1'b1 && rx_valid === 1'b0 && tx_ready === 1'b1,
-                  "A1 reset: outputs quiescent");
-    end else begin
-      // A2: line idles high whenever the TX FSM is idle
-      sva_check((dut_tstate != 2'd0) || (txd === 1'b1), "A2 txd high in TX_IDLE");
-      // A3: rx_valid is a single-cycle pulse
-      sva_check(!(rx_valid && rx_valid_q), "A3 rx_valid single-cycle pulse");
-      // A4: rx_valid only in the RX_STOP state
-      sva_check(!rx_valid || (dut_rstate == 2'd3), "A4 rx_valid in RX_STOP");
-      // A5: tx_ready exactly reflects TX_IDLE
-      sva_check(tx_ready === (dut_tstate == 2'd0), "A5 tx_ready == TX_IDLE");
-      // A6: rx_data updates only out of RX_DATA (NBA visible one cycle later)
-      sva_check((rx_data === rx_data_q) || (rstate_q == 2'd2),
-                "A6 rx_data stable outside RX_DATA");
-      // A7: txd low only while transmitting start/data bits
-      sva_check(txd || (dut_tstate == 2'd1) || (dut_tstate == 2'd2),
-                "A7 txd low only in start/data");
-    end
-    rx_data_q  <= rx_data;
-    rx_valid_q <= rx_valid;
-    rstate_q   <= dut_rstate;
-    rst_n_q    <= rst_n;
-  end
-`endif
-
-  initial begin
-    tx_valid = 0; tx_data = 0;
-    rst_n = 0; repeat(10) @(posedge clk);
-    rst_n = 1; repeat(20) @(posedge clk);
-    for (int i = 0; i < N; i++) begin
-      sent[i] = 8'hA5 ^ (i * 8'h11);
-      wait (tx_ready === 1'b1);        // ensure TX is idle before requesting
-      @(negedge clk);
-      tx_data  <= sent[i];
-      tx_valid <= 1'b1;
-      wait (tx_ready === 1'b0);        // now this edge means real acceptance
-      @(negedge clk);
-      tx_valid <= 1'b0;
-      wait (rx_valid === 1'b1);
-      @(posedge clk); #1;
-      if (rx_data !== sent[i]) begin
-        errors++;
-        $display("ERROR: UART byte %0d got=%h exp=%h", i, rx_data, sent[i]);
-      end
-      repeat (40) @(posedge clk);   // inter-frame idle: RX back to IDLE
-    end
-
-`ifdef VERILATOR
-    // ---- v2.5 CRV random phase (directed tests above untouched) ----
-    // 120 randomized transactions: random loopback bytes (normal, includes
-    // 0x00/0xFF boundary data and back-to-back frames) plus false-start
-    // glitch injection (error class: RX must reject and stay silent).
-    begin : crv_phase
-      int n_lb = 0, n_glit = 0;
-      logic [7:0] v;
-      int roll, glen;
-      for (int t = 0; t < 120; t++) begin
-        roll = $urandom_range(0, 9);
-        if (roll < 2) begin
-          // error injection: break the loopback and apply a short low
-          // glitch (shorter than half a bit) -> false start, RX must abort
-          n_glit++;
-          wait (tx_ready === 1'b1);
-          repeat (300) @(posedge clk); // let any RX activity drain (> half stop)
-          loop_en = 1'b0;
-          inj_rxd = 1'b0;
-          glen = $urandom_range(2, 12);   // << half-bit (248 clks)
-          repeat (glen) @(posedge clk);
-          inj_rxd = 1'b1;
-          repeat (600) @(posedge clk);    // > 1 bit: any false rx would show
-          if (rx_valid === 1'b1) begin
-            errors++;
-            $display("ERROR: CRV rx_valid after false-start glitch len=%0d", glen);
-          end
-          loop_en = 1'b1;
-        end else begin
-          // random loopback byte; ~25% back-to-back (no inter-frame idle)
-          n_lb++;
-          if (t % 17 == 0)      v = 8'h00;   // boundary: all zeros
-          else if (t % 19 == 0) v = 8'hFF;   // boundary: all ones
-          else                  v = $urandom_range(0, 255);
-          wait (tx_ready === 1'b1);
-          @(negedge clk);
-          tx_data  <= v;
-          tx_valid <= 1'b1;
-          wait (tx_ready === 1'b0);
-          @(negedge clk);
-          tx_valid <= 1'b0;
-          wait (rx_valid === 1'b1);
-          @(posedge clk); #1;
-          if (rx_data !== v) begin
-            errors++;
-            $display("ERROR: CRV UART byte %0d got=%h exp=%h", t, rx_data, v);
-          end
-          if ($urandom_range(0, 3) != 0) repeat (40) @(posedge clk);
+  // txd decoder: start edge, then sample each bit middle
+  initial begin : txmon
+    logic [7:0] b;
+    int g;
+    forever begin
+      @(negedge txd);
+      g = rst_gen;
+      if (rst_n) begin
+        repeat (BIT / 2) @(posedge clk);
+        if (txd !== 0) fail("txd start bit");
+        for (int i = 0; i < 8; i++) begin repeat (BIT) @(posedge clk); b[i] = txd; end
+        repeat (BIT) @(posedge clk);
+        if (txd !== 1) fail("txd stop bit");
+        if (g != rst_gen) ;           // frame cut by a reset
+        else if (txq.size() == 0) fail("byte on txd that was not accepted");
+        else begin
+          if (b !== txq[0]) fail($sformatf("txd byte %h exp %h", b, txq[0]));
+          void'(txq.pop_front());
+          n_tx++;
         end
       end
-      $display("CRV: 120 txns (loopback=%0d glitch_inject=%0d)", n_lb, n_glit);
     end
-`endif
+  end
 
-    if (errors == 0) $display("TEST PASSED: UART");
-    else             $display("TEST FAILED: %0d errors", errors);
-`ifdef VERILATOR
-    begin
-      int visited;
-      visited = 0;
-      for (int s = 0; s < 4; s++) visited += fsm_seen_t[s] + fsm_seen_r[s];
-      $display("FSM_COV: %0d/%0d", visited, UART_FSM_TOTAL);
-      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+  task automatic send(input logic [7:0] d, input int gap);
+    tx_data = d; tx_valid = 1;
+    @(posedge clk);
+    while (!tx_ready) @(posedge clk);
+    @(negedge clk);
+    tx_valid = 0; tx_data = $urandom;
+    cycles(gap);
+  endtask
+
+  // ------------------------------------------------------------ RX side
+  logic [7:0] rxq [$];                      // expected bytes, in order
+  int n_rx = 0, n_ferr = 0;
+  always @(posedge clk) if (rst_n && !ign_rx) begin
+    if (rx_valid) begin
+      if (rxq.size() == 0) fail($sformatf("unexpected rx byte %h", rx_data));
+      else begin
+        if (rx_data !== rxq[0]) fail($sformatf("rx byte %h exp %h", rx_data, rxq[0]));
+        void'(rxq.pop_front());
+      end
+      n_rx++;
     end
-`endif
+    if (irq && !rx_valid) n_ferr++;
+    if (irq !== (rx_valid || dut.frame_err)) fail("irq");
+  end
+
+  // drive one frame on rxd with per-bit jitter; stop bit value given
+  task automatic line_frame(input logic [7:0] d, input logic stop);
+    drv = 0; cycles(BIT + $urandom_range(0, 4) - 2);
+    for (int i = 0; i < 8; i++) begin drv = d[i]; cycles(BIT + $urandom_range(0, 4) - 2); end
+    drv = stop; cycles(BIT);
+    drv = 1;
+  endtask
+
+  task automatic rx_good(input logic [7:0] d, input int idle);
+    rxq.push_back(d);
+    line_frame(d, 1);
+    cycles(idle);
+  endtask
+
+  task automatic hard_reset;
+    rst_n = 0; rst_gen++;
+    cycles(3);
+    if (txd !== 1 || tx_ready !== 1 || rx_valid !== 0 || irq !== 0 || rx_data !== 0)
+      fail("reset values");
+    txq.delete(); rxq.delete();
+    tx_valid = 0; drv = 1;
+    rst_n = 1;
+    cycles(2);
+  endtask
+
+  task automatic drain;
+    int t;
+    t = 0;
+    while ((txq.size() > 0 || rxq.size() > 0) && t < 100000) begin @(negedge clk); t++; end
+    cycles(2 * BIT);
+    if (txq.size() || rxq.size()) fail($sformatf("not drained: tx %0d rx %0d", txq.size(), rxq.size()));
+  endtask
+
+  initial begin
+    cycles(3);
+    if (txd !== 1 || tx_ready !== 1 || rx_valid !== 0 || irq !== 0) fail("reset values");
+    rst_n = 1;
+    cycles(5);
+
+    // ---- loopback: all byte values, random gaps (0 = back to back)
+    loop = 1;
+    for (int i = 0; i < 256; i++) begin
+      logic [7:0] d;
+      d = i[7:0] ^ 8'h5A;
+      rxq.push_back(d);
+      send(d, ($urandom % 4 == 0) ? $urandom % 200 : 0);
+    end
+    drain();
+
+    // ---- external line: jittered good frames, errors, glitches, break
+    loop = 0;
+    drv = 1; cycles(100);
+    for (int i = 0; i < 40; i++) rx_good($urandom, $urandom % 3 == 0 ? 0 : $urandom % 100);
+    drain();
+    begin
+      int f0;
+      f0 = n_ferr;
+      line_frame(8'hA5, 0); cycles(2 * BIT);          // stop bit 0: framing error
+      line_frame(8'h00, 0); cycles(2 * BIT);
+      if (n_ferr != f0 + 2) fail("framing errors not reported");
+      drv = 0; cycles(20 * BIT); drv = 1; cycles(2 * BIT);   // break: one framing error
+      if (n_ferr != f0 + 3) fail("break not reported once");
+    end
+    for (int w = 2; w < 18; w += 3) begin            // start-bit glitches shorter than half a bit
+      drv = 0; cycles(w); drv = 1; cycles(2 * BIT);
+    end
+    if (n_rx != 296) fail($sformatf("rx bytes after glitches: %0d", n_rx));
+    rx_good(8'hFF, 0); rx_good(8'h00, 0); rx_good(8'h80, 5);
+    drain();
+
+    // ---- both directions at once (external line + TX)
+    fork
+      for (int i = 0; i < 10; i++) send($urandom, $urandom % 50);
+      for (int i = 0; i < 10; i++) rx_good($urandom, $urandom % 50);
+    join
+    drain();
+
+    // ---- reset in the middle of a TX frame and an RX frame
+    fork
+      send(8'h3C, 0);
+      begin cycles(5); line_frame(8'hC3, 1); end
+    join_none
+    cycles(4 * BIT);
+    ign_rx = 1;
+    hard_reset();
+    cycles(12 * BIT);
+    ign_rx = 0;
+    loop = 1;
+    for (int i = 0; i < 4; i++) begin logic [7:0] d; d = $urandom; rxq.push_back(d); send(d, 0); end
+    drain();
+
+    $display("tx %0d bytes, rx %0d bytes, %0d framing errors", n_tx, n_rx, n_ferr);
+    if (errors == 0) $display("TEST PASSED: UART");
+    else $display("TEST FAILED: UART (%0d errors)", errors);
     $finish;
   end
 
-`ifdef VERILATOR
-  // chunked timeout guard: a single long-pending #delay event corrupts the
-  // 5.006 --timing delay heap once many short-delay resumptions interleave;
-  // chunked delays keep all heap entries short-lived (see docs/COVERAGE.md)
   initial begin
-    repeat (30000) #1000;  // 30 ms in 1-us chunks
-    $display("TIMEOUT"); $finish;
+    #50ms;
+    $display("TEST FAILED: UART (timeout)");
+    $finish;
   end
-`else
-  initial begin
-    #5_000_000; $display("TIMEOUT"); $finish;
-  end
-`endif
 endmodule
