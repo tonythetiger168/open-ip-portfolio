@@ -66,7 +66,8 @@ def core_ports(path, top):
         if str(pd).strip() == ",":
             continue
         name = str(pd.declarator).strip().split()[0]
-        hdr = str(pd.header).strip() if pd.header is not None else ""
+        hdr = str(pd.header) if pd.header is not None else ""
+        hdr = re.sub(r"//[^\n]*|/\*.*?\*/", "", hdr, flags=re.S).strip()
         if hdr and re.match(r"(input|output|inout)\b", hdr):
             last = hdr
         decl[name] = re.sub(r"\s+", " ", last or hdr)
