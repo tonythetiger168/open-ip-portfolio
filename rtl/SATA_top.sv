@@ -1,680 +1,529 @@
 // SPDX-License-Identifier: Apache-2.0
 // ============================================================================
-// SATA protocol Open IP -- SATA host: OOB bring-up (COMRESET / COMINIT /
-// COMWAKE burst-idle patterns + ALIGNp) and FIS transport (SOFp .. CRC32 ..
-// EOFp). Implements Register H2D commands IDENTIFY (8'hEC), READ DMA EXT
-// (8'h25) and WRITE DMA EXT (8'h35) against an internal 64x32-bit sector
-// buffer. In loopback the DUT plays host and device simultaneously.
+// SATA protocol Open IP -- SATA host: OOB bring-up, link layer with frame
+// handshakes, and a built-in DMA command sequencer.
 // -- Apache-2.0
-// Open IP design implementation v2.4
+// Open IP design implementation v3.0
 //
-// Simplifications (per SPEC):
-//  * refclk is kept for interface compatibility only; the line symbol rate is
-//    1 bit per clk and all logic runs on clk.
-//  * OOB signalling is modelled as burst/idle count patterns on tx_p/rx_p:
-//      COMRESET / COMINIT : 2 x ( 64 clk low burst + 192 clk high idle )
-//      COMWAKE            : 2 x ( 16 clk low burst +  48 clk high idle )
-//    The receiver counts consecutive low symbols: >=48 -> long burst,
-//    8..47 -> short burst; two equal bursts in a row raise the detect event.
-//  * Host command interface (the port contract has no bus): internal
-//    hold-registers host_req / host_cmd / host_lba / hw0..hw3 are poked from
-//    TB via hierarchical references (same observability model as eMMC IP).
+// Implementation scope (scaled, 1 line bit per clk, no 8b/10b):
+//  * Line: tx_p/tx_n differential; electrical idle is tx_p = tx_n = 0. On
+//    the receive side a clock carries signal when rx_p != rx_n; data bits
+//    are taken from rx_p. Dwords are sent LSB first.
+//  * OOB: a pattern is 4 bursts of 16 clk of signal, each preceded by a
+//    gap of electrical idle: 48 clk for COMRESET / COMINIT, 16 clk for
+//    COMWAKE. The receiver classifies each gap between two bursts of 12..20
+//    clk (40..56 = INIT gap, 12..20 = WAKE gap); three equal gaps in a row
+//    detect COMINIT or COMWAKE.
+//  * Host PHY init: COMRESET -> wait COMINIT -> COMWAKE -> wait COMWAKE ->
+//    send ALIGNp and lock the receiver on the device's ALIGNp stream (two
+//    in a row) -> READY. Each wait times out after 1024 clk and restarts
+//    with COMRESET. In READY a clock of electrical idle (signal lost, e.g.
+//    the device starting COMINIT) is a link loss (irq) and restarts the
+//    bring-up; no dword completes on an idle clock.
+//  * Link layer (primitives as dword values; ALIGNp is dropped anywhere):
+//    transmit X_RDY -> R_RDY -> SOF, FIS dwords, CRC32, EOF -> WTRM until
+//    R_OK (done) or R_ERR (resend, at most 2 resends). Receive X_RDY ->
+//    send R_RDY, R_IP during the frame, then R_OK / R_ERR (bad CRC, more
+//    than 9 FIS dwords) until SYNC. Idle: SYNC (at least one SYNC dword
+//    goes out between two transmitted frames). When both sides raise
+//    X_RDY the host backs off and receives first. Handshake waits time out
+//    after 64 dwords.
+//  * CRC32: poly 32'h04C11DB7 reflected (32'hEDB88320), init all-ones, one
+//    dword LSB first per step, complemented on the wire.
+//  * Command sequencer (the port contract has no command bus): IDENTIFY
+//    DEVICE (Register H2D 8'hEC -> Data FIS of 8 dwords, dword 1 [5:0] =
+//    max LBA -> Register D2H), then forever: WRITE DMA EXT of one 8-dword
+//    sector (Register H2D 8'h35 -> DMA Activate -> Data FIS -> D2H) with
+//    xorshift32 data, READ DMA EXT of the same LBA (8'h25 -> Data FIS ->
+//    D2H) compared against the written data, next LBA (wraps after max).
+//    A D2H with ERR set or a non-zero error byte ends the command early.
+//  * irq: 1-clk pulse on link loss, an illegal primitive between frames,
+//    a received frame error (CRC / overflow / aborted / handshake timeout),
+//    a transmit failure (resends exhausted / timeout), an unexpected or
+//    malformed FIS, a status error, read data mismatch, or a command
+//    response timeout (4096 clk).
+//  * refclk is kept for interface compatibility; the line clock is clk.
 // ============================================================================
-module SATA_top #(
-  parameter int DW = 32,       // data width (contract, unused internally)
-  parameter int AW = 32,       // address width (contract, unused internally)
-  parameter int BIT_CLKS = 1   // clk cycles per serial bit (bit-rate divider)
-)(
-  input  logic           clk,
-  input  logic           rst_n,
-  output logic           tx_n,
-  output logic           tx_p,
-  input  logic           rx_n,   // kept for contract; rx_p carries the data
-  input  logic           rx_p,
-  input  logic           refclk, // kept for contract; line clock = clk
-  output logic           irq
-);
-  // ------------------------- protocol constants -------------------------
-  localparam logic [31:0] PRIM_SOF    = 32'h3737_B57C; // SOFp
-  localparam logic [31:0] PRIM_EOF    = 32'hD5D5_B57C; // EOFp
-  localparam logic [31:0] PRIM_ALIGN  = 32'h7B4A_4ABC; // ALIGNp
-  localparam logic [7:0]  FIS_REG_H2D = 8'h27;
-  localparam logic [7:0]  FIS_REG_D2H = 8'h34;
-  localparam logic [7:0]  FIS_DATA    = 8'h46;
-  localparam logic [7:0]  CMD_IDENTIFY   = 8'hEC;
-  localparam logic [7:0]  CMD_READ_DMA   = 8'h25;
-  localparam logic [7:0]  CMD_WRITE_DMA  = 8'h35;
-
-  // Bit-traffic timeouts: they must cover frame round-trips at the divided
-  // bit rate, so they scale with BIT_CLKS.  BIT_CLKS=1 keeps the legacy
-  // values (5000 / 2000) and 14/12-bit counter widths.
-  localparam int HS_TMO = 5000 * BIT_CLKS;  // HF_WAIT response timeout (clks)
-  localparam int HSW    = 14 + ((BIT_CLKS > 1) ? $clog2(BIT_CLKS) : 0);
-  localparam int DS_TMO = 2000 * BIT_CLKS;  // DF_WDAT data timeout (clks)
-  localparam int DSW    = 12 + ((BIT_CLKS > 1) ? $clog2(BIT_CLKS) : 0);
-
-  // CRC32: poly 32'h04C11DB7 (reflected 32'hEDB88320), init all-ones,
-  // input/output reflected, final XOR all-ones (Ethernet FCS flavour).
-  function automatic logic [31:0] crc32_dw(input logic [31:0] c,
-                                           input logic [31:0] d);
-    logic [31:0] r;
-    logic        fb;
-    begin
-      r = c;
-      for (int k = 0; k < 32; k++) begin
-        fb = r[0] ^ d[k];
-        r  = {1'b0, r[31:1]};
-        if (fb) r = r ^ 32'hEDB8_8320;
-      end
-      crc32_dw = r;
-    end
-  endfunction
-
-  // fixed IDENTIFY device info, dword i (0..15)
-  function automatic logic [31:0] ident_dw(input logic [4:0] i);
-    ident_dw = {8'hEC, 8'h5A, {3'b000, i}, ~{3'b000, i}};
-  endfunction
-
-  // ------------------------- host command hold-regs -------------------------
-  // Driven only from TB (hierarchical poke); the self-assign keeps them as
-  // real registers so the host datapath survives synthesis optimization.
-  logic        host_req;
-  logic [7:0]  host_cmd;
-  logic [5:0]  host_lba;
-  logic [31:0] hw0, hw1, hw2, hw3;
-
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      host_req <= 1'b0; host_cmd <= 8'h00; host_lba <= 6'd0;
-      hw0 <= 32'h0; hw1 <= 32'h0; hw2 <= 32'h0; hw3 <= 32'h0;
-    end else begin
-      host_req <= host_req; host_cmd <= host_cmd; host_lba <= host_lba;
-      hw0 <= hw0; hw1 <= hw1; hw2 <= hw2; hw3 <= hw3;
-    end
-  end
-
-  // ------------------------- OOB pattern transmitters -------------------------
-  logic htx_req, htx_long, h_oob_act, h_oob_bit, h_oob_done;
-  logic dtx_req, dtx_long, d_oob_act, d_oob_bit, d_oob_done;
-
-  sata_oob_tx u_host_oob (
-    .clk(clk), .rst_n(rst_n), .req(htx_req), .long_pat(htx_long),
-    .act(h_oob_act), .bit_o(h_oob_bit), .done(h_oob_done)
-  );
-  sata_oob_tx u_dev_oob (
-    .clk(clk), .rst_n(rst_n), .req(dtx_req), .long_pat(dtx_long),
-    .act(d_oob_act), .bit_o(d_oob_bit), .done(d_oob_done)
-  );
-
-  // ------------------------- OOB burst detector (RX) -------------------------
-  // zrun counts raw clk cycles: wall-clock OOB timing, intentionally not
-  // scaled by BIT_CLKS (OOB burst runs are clk-domain, not bit-domain).
-  logic [7:0] zrun;
-  logic [1:0] longs, shorts;
-  logic       det_long, det_short;
-  logic       link_ready;
-
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      zrun <= 8'd0; longs <= 2'd0; shorts <= 2'd0;
-      det_long <= 1'b0; det_short <= 1'b0;
-    end else begin
-      det_long  <= 1'b0;
-      det_short <= 1'b0;
-      if (link_ready) begin
-        zrun <= 8'd0; longs <= 2'd0; shorts <= 2'd0;
-      end else if (rx_p == 1'b0) begin
-        zrun <= (zrun == 8'd255) ? 8'd255 : zrun + 8'd1;
-      end else begin
-        if (zrun >= 8'd48) begin
-          if (longs == 2'd1) begin det_long <= 1'b1; longs <= 2'd0; end
-          else                      longs <= longs + 2'd1;
-          shorts <= 2'd0;
-        end else if (zrun >= 8'd8) begin
-          if (shorts == 2'd1) begin det_short <= 1'b1; shorts <= 2'd0; end
-          else                       shorts <= shorts + 2'd1;
-          longs <= 2'd0;
-        end
-        // short gaps (idle between bursts) must NOT clear the burst counters
-        zrun <= 8'd0;
-      end
-    end
-  end
-
-  // ------------------------- host OOB FSM -------------------------
-  typedef enum logic [2:0] {
-    HOB_RESET, HOB_WAITINIT, HOB_WAKEWAIT, HOB_WAKE, HOB_WAITWAKE,
-    HOB_ALIGN, HOB_LINK
-  } hob_t;
-  hob_t       hstate;
-  // OOB retry timer: wall-clock OOB timing, intentionally not scaled by
-  // BIT_CLKS (OOB signalling precedes any bit-rate-divided traffic).
-  logic [13:0] htmr;
-  logic [2:0]  align_cnt;
-  logic [31:0] align_sr;
-  logic [5:0]  align_bitcnt;
-  logic        align_active;
-
-  assign align_active = (hstate == HOB_ALIGN) || link_ready;
-
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      hstate <= HOB_RESET; htx_req <= 1'b0; htx_long <= 1'b1;
-      htmr <= 14'd0; align_cnt <= 3'd0; link_ready <= 1'b0;
-    end else begin
-      case (hstate)
-        HOB_RESET: begin
-          htx_req  <= 1'b1;
-          htx_long <= 1'b1;                    // COMRESET: long pattern
-          if (h_oob_done) begin
-            htx_req <= 1'b0;
-            hstate  <= HOB_WAITINIT;
-            htmr    <= 14'd0;
-          end
-        end
-        HOB_WAITINIT: begin
-          htmr <= htmr + 14'd1;
-          if (det_long) begin
-            hstate <= HOB_WAKEWAIT;           // COMINIT detected
-            htmr   <= 14'd0;
-          end else if (htmr == 14'd8000) hstate <= HOB_RESET;   // retry
-        end
-        HOB_WAKEWAIT: begin
-          // wait until the device COMINIT pattern has left the wire
-          htmr <= htmr + 14'd1;
-          if (!d_oob_act)           hstate <= HOB_WAKE;
-          else if (htmr == 14'd8000) hstate <= HOB_RESET;
-        end
-        HOB_WAKE: begin
-          htx_req  <= 1'b1;
-          htx_long <= 1'b0;                    // COMWAKE: short pattern
-          if (h_oob_done) begin
-            htx_req <= 1'b0;
-            hstate  <= HOB_WAITWAKE;
-            htmr    <= 14'd0;
-          end
-        end
-        HOB_WAITWAKE: begin
-          htmr <= htmr + 14'd1;
-          if (det_short) begin
-            hstate    <= HOB_ALIGN;           // COMWAKE echo detected
-            align_cnt <= 3'd0;
-          end else if (htmr == 14'd8000) hstate <= HOB_RESET;
-        end
-        HOB_ALIGN: begin
-          // send ALIGNp dwords; receiver locks onto the stream meanwhile
-          if (align_bitcnt == 6'd31) begin
-            if (align_cnt == 3'd7) begin
-              link_ready <= 1'b1;
-              hstate     <= HOB_LINK;
-            end else align_cnt <= align_cnt + 3'd1;
-          end
-        end
-        HOB_LINK: ; // stay; ALIGNp stream keeps running between frames
-        default: hstate <= HOB_RESET;
-      endcase
-    end
-  end
-
-  // ------------------------- device OOB responder -------------------------
-  typedef enum logic [2:0] {
-    DOB_IDLE, DOB_INITWAIT, DOB_INIT, DOB_WAITWAKE, DOB_ECHOWAIT, DOB_ECHO,
-    DOB_DONE
-  } dob_t;
-  dob_t dstate;
-
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      dstate <= DOB_IDLE; dtx_req <= 1'b0; dtx_long <= 1'b1;
-    end else begin
-      case (dstate)
-        DOB_IDLE:     if (det_long) dstate <= DOB_INITWAIT;  // saw COMRESET
-        DOB_INITWAIT: if (!h_oob_act) begin                  // wait line free
-                        dtx_req  <= 1'b1;
-                        dtx_long <= 1'b1;                    // answer COMINIT
-                        dstate   <= DOB_INIT;
-                      end
-        DOB_INIT:     if (d_oob_done) begin
-                        dtx_req <= 1'b0;
-                        dstate  <= DOB_WAITWAKE;
-                      end
-        DOB_WAITWAKE: if (det_short) dstate <= DOB_ECHOWAIT; // saw COMWAKE
-        DOB_ECHOWAIT: if (!h_oob_act) begin
-                        dtx_req  <= 1'b1;
-                        dtx_long <= 1'b0;                    // echo COMWAKE
-                        dstate   <= DOB_ECHO;
-                      end
-        DOB_ECHO:     if (d_oob_done) begin
-                        dtx_req <= 1'b0;
-                        dstate  <= DOB_DONE;
-                      end
-        DOB_DONE:     ;
-        default: dstate <= DOB_IDLE;
-      endcase
-    end
-  end
-
-  // ------------------------- ALIGNp stream shifter -------------------------
-  // Bit-rate divider: per-bit shift/sample logic advances only on bit_tick.
-  // BIT_CLKS=1 keeps the legacy 1-bit-per-clk behavior (bit_tick constant 1).
-  localparam int BCW = (BIT_CLKS <= 1) ? 1 : $clog2(BIT_CLKS);
-  logic [BCW-1:0] bd_cnt;
-  wire bit_tick = (BIT_CLKS <= 1) || (bd_cnt == BIT_CLKS-1);
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n)          bd_cnt <= '0;
-    else if (bit_tick)   bd_cnt <= '0;
-    else                 bd_cnt <= bd_cnt + 1'b1;
-  end
-
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      align_sr <= PRIM_ALIGN; align_bitcnt <= 6'd0;
-    end else if (!align_active) begin
-      align_sr <= PRIM_ALIGN; align_bitcnt <= 6'd0;
-    end else if (bit_tick) begin
-      align_sr     <= {align_sr[0], align_sr[31:1]};  // LSB-first rotate
-      align_bitcnt <= (align_bitcnt == 6'd31) ? 6'd0 : align_bitcnt + 6'd1;
-    end
-  end
-
-  // ------------------------- frame TX engine -------------------------
-  logic        tx_busy, tx_src_host;
-  logic [2:0]  tx_widx;
-  logic [5:0]  tx_bitcnt;
-  logic [31:0] tshift, tcrc;
-  logic [31:0] tbuf [0:4];
-  logic        tx_accept, tx_accept_host;
-  logic        tx_done,   tx_done_host;
-  logic        h_pend, d_pend;
-  logic [31:0] hframe [0:4];
-  logic [31:0] dframe [0:4];
-
-  wire tx_start = align_active && link_ready && !tx_busy &&
-                  (align_bitcnt == 6'd31) && (h_pend || d_pend);
-
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      tx_busy <= 1'b0; tx_src_host <= 1'b0;
-      tx_widx <= 3'd0; tx_bitcnt <= 6'd0;
-      tshift <= 32'h0; tcrc <= 32'h0;
-      tx_accept <= 1'b0; tx_accept_host <= 1'b0;
-      tx_done <= 1'b0;   tx_done_host <= 1'b0;
-      for (int i = 0; i < 5; i++) tbuf[i] <= 32'h0;
-    end else begin
-      tx_accept <= 1'b0;
-      tx_done   <= 1'b0;
-      if (!tx_busy) begin
-        if (tx_start) begin
-          tx_busy        <= 1'b1;
-          tx_src_host    <= h_pend;
-          tx_accept      <= 1'b1;
-          tx_accept_host <= h_pend;
-          tshift         <= PRIM_SOF;
-          tcrc           <= 32'hFFFF_FFFF;
-          tx_widx        <= 3'd0;
-          tx_bitcnt      <= 6'd0;
-          if (h_pend) for (int i = 0; i < 5; i++) tbuf[i] <= hframe[i];
-          else        for (int i = 0; i < 5; i++) tbuf[i] <= dframe[i];
-        end
-      end else begin
-        if (bit_tick) begin
-        tshift <= {1'b0, tshift[31:1]};             // LSB first
-        if (tx_bitcnt == 6'd31) begin
-          tx_bitcnt <= 6'd0;
-          case (tx_widx)
-            3'd0, 3'd1, 3'd2, 3'd3, 3'd4: begin
-              tshift  <= tbuf[tx_widx];
-              tcrc    <= crc32_dw(tcrc, tbuf[tx_widx]);
-              tx_widx <= tx_widx + 3'd1;
-            end
-            3'd5: begin tshift <= ~tcrc;    tx_widx <= 3'd6; end
-            3'd6: begin tshift <= PRIM_EOF; tx_widx <= 3'd7; end
-            default: begin
-              tx_busy      <= 1'b0;
-              tx_done      <= 1'b1;
-              tx_done_host <= tx_src_host;
-            end
-          endcase
-        end else tx_bitcnt <= tx_bitcnt + 6'd1;
-        end // bit_tick
-      end
-    end
-  end
-
-  // ------------------------- frame RX engine -------------------------
-  typedef enum logic [1:0] {XW_HUNT, XW_DATA, XW_CRC, XW_EOF} rxw_t;
-  rxw_t        rxw;
-  logic [31:0] rshift;
-  logic [5:0]  rbitcnt;
-  logic        aligned;
-  logic [2:0]  wcnt;
-  // NOTE: plain scalars instead of an array -- iverilog mis-evaluates
-  // mid-word part-selects of memory words (e.g. rbuf[0][23:16]).
-  logic [31:0] rb0, rb1, rb2, rb3, rb4;
-  logic [31:0] rcrc;
-  logic        frm_ok, frm_valid, rx_err;
-
-  wire [31:0] dwd = {rx_p, rshift[31:1]};   // dword completing this cycle
-
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      rshift <= 32'h0; rbitcnt <= 6'd0; aligned <= 1'b0;
-      rxw <= XW_HUNT; wcnt <= 3'd0; rcrc <= 32'h0;
-      frm_ok <= 1'b0; frm_valid <= 1'b0; rx_err <= 1'b0;
-      rb0 <= 32'h0; rb1 <= 32'h0; rb2 <= 32'h0; rb3 <= 32'h0; rb4 <= 32'h0;
-    end else begin
-      frm_valid <= 1'b0;
-      rx_err    <= 1'b0;
-      if (bit_tick) begin
-      rshift    <= dwd;
-      if (!aligned) begin
-        // lock onto the ALIGNp training stream (SATA-style word sync)
-        if (dwd == PRIM_ALIGN) begin
-          aligned <= 1'b1; rbitcnt <= 6'd0; rxw <= XW_HUNT;
-        end
-      end else if (rbitcnt == 6'd31) begin
-        rbitcnt <= 6'd0;
-        case (rxw)
-          XW_HUNT: begin
-            if (dwd == PRIM_SOF) begin
-              rxw  <= XW_DATA;
-              wcnt <= 3'd0;
-              rcrc <= 32'hFFFF_FFFF;
-            end else if (dwd != PRIM_ALIGN) begin
-              rx_err <= 1'b1;               // illegal primitive on the wire
-            end
-          end
-          XW_DATA: begin
-            case (wcnt)
-              3'd0:    rb0 <= dwd;
-              3'd1:    rb1 <= dwd;
-              3'd2:    rb2 <= dwd;
-              3'd3:    rb3 <= dwd;
-              default: rb4 <= dwd;
-            endcase
-            rcrc <= crc32_dw(rcrc, dwd);
-            if (wcnt == 3'd4) rxw <= XW_CRC;
-            else              wcnt <= wcnt + 3'd1;
-          end
-          XW_CRC: begin
-            if (dwd == ~rcrc) frm_ok <= 1'b1;
-            else begin
-              frm_ok <= 1'b0;
-              rx_err <= 1'b1;               // CRC mismatch: frame dropped
-            end
-            rxw <= XW_EOF;
-          end
-          default: begin // XW_EOF
-            if (dwd != PRIM_EOF) rx_err <= 1'b1;
-            else if (frm_ok) begin
-              frm_valid <= 1'b1;
-              if (rb0[7:0] != FIS_REG_H2D &&
-                  rb0[7:0] != FIS_REG_D2H &&
-                  rb0[7:0] != FIS_DATA) rx_err <= 1'b1; // unknown FIS type
-            end
-            rxw    <= XW_HUNT;
-            frm_ok <= 1'b0;
-          end
-        endcase
-      end else rbitcnt <= rbitcnt + 6'd1;
-      end // bit_tick
-    end
-  end
-
-  // ------------------------- host command FSM -------------------------
-  typedef enum logic [2:0] {HF_IDLE, HF_CMD, HF_WDAT, HF_WAIT, HF_DONE} hf_t;
-  hf_t        hfstate;
-  logic [7:0]  hcmd_r;
-  logic [HSW-1:0] hstmr;
-  logic        haccept;
-  logic        host_done, host_errf;
-  logic [7:0]  host_status;
-
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      hfstate <= HF_IDLE; h_pend <= 1'b0; haccept <= 1'b0;
-      hcmd_r <= 8'h00; hstmr <= '0;
-      host_done <= 1'b0; host_errf <= 1'b0; host_status <= 8'h00;
-      for (int i = 0; i < 5; i++) hframe[i] <= 32'h0;
-    end else begin
-      haccept <= 1'b0;
-      if (tx_accept && tx_accept_host) h_pend <= 1'b0;
-      case (hfstate)
-        HF_IDLE: if (host_req && link_ready) begin
-          hcmd_r    <= host_cmd;
-          hframe[0] <= {1'b1, 7'h00, host_cmd, 8'h00, FIS_REG_H2D};
-          hframe[1] <= {16'h0000, 2'b00, host_lba, 8'd4};
-          hframe[2] <= 32'h0; hframe[3] <= 32'h0; hframe[4] <= 32'h0;
-          h_pend    <= 1'b1;
-          haccept   <= 1'b1;
-          host_errf <= 1'b0;
-          hfstate   <= HF_CMD;
-        end
-        HF_CMD: if (tx_done && tx_done_host) begin
-          if (hcmd_r == CMD_WRITE_DMA) begin
-            hframe[0] <= {1'b0, 15'h0000, 8'h00, FIS_DATA}; // H2D data FIS
-            hframe[1] <= hw0; hframe[2] <= hw1;
-            hframe[3] <= hw2; hframe[4] <= hw3;
-            h_pend  <= 1'b1;
-            hfstate <= HF_WDAT;
-          end else begin
-            hfstate <= HF_WAIT;
-            hstmr   <= '0;
-          end
-        end
-        HF_WDAT: if (tx_done && tx_done_host) begin
-          hfstate <= HF_WAIT;
-          hstmr   <= '0;
-        end
-        HF_WAIT: begin
-          hstmr <= hstmr + 1'b1;
-          if (frm_valid && rb0[7:0] == FIS_REG_D2H) begin
-            host_status <= rb0[23:16];
-            host_errf   <= |rb0[31:24];
-            host_done   <= 1'b1;
-            hfstate     <= HF_DONE;
-          end else if (hstmr == HS_TMO[HSW-1:0]) begin
-            host_status <= 8'h7F;                 // timeout status
-            host_errf   <= 1'b1;
-            host_done   <= 1'b1;
-            hfstate     <= HF_DONE;
-          end
-        end
-        HF_DONE: if (!host_req) begin
-          host_done <= 1'b0;
-          hfstate   <= HF_IDLE;
-        end
-        default: hfstate <= HF_IDLE;
-      endcase
-    end
-  end
-
-  // ------------------------- host D2H data capture -------------------------
-  logic        hseen;        // 1-clk pulse: a D2H data FIS was stored
-  logic [7:0]  hseq;         // sequence number of that frame
-  logic [5:0]  hnd;          // total dwords captured for current command
-  logic [31:0] hrd0, hrd1, hrd2, hrd3;
-
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      hseen <= 1'b0; hseq <= 8'h00; hnd <= 6'd0;
-      hrd0 <= 32'h0; hrd1 <= 32'h0; hrd2 <= 32'h0; hrd3 <= 32'h0;
-    end else begin
-      hseen <= 1'b0;
-      if (haccept) hnd <= 6'd0;
-      else if (frm_valid && rb0[7:0] == FIS_DATA && rb0[31]) begin
-        hseen <= 1'b1;
-        hseq  <= rb0[15:8];   // seq byte of data FIS dw0
-        hnd   <= hnd + 6'd4;
-        hrd0  <= rb1; hrd1 <= rb2;
-        hrd2  <= rb3; hrd3 <= rb4;
-      end
-    end
-  end
-
-  // ------------------------- device command FSM + sector buffer -------------------------
-  typedef enum logic [3:0] {
-    DF_IDLE, DF_ID_SET, DF_ID_WAIT, DF_RD_SET, DF_RD_WAIT, DF_WDAT,
-    DF_STS_SET, DF_STS_WAIT
-  } df_t;
-  df_t        dfstate;
-  logic [1:0]  dseq;
-  logic [5:0]  dlba;
-  logic        dsts_err;
-  logic [DSW-1:0] dtmr;
-  logic        e_proto;
-  logic [31:0] sector_buf [0:63];
-
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      dfstate <= DF_IDLE; d_pend <= 1'b0;
-      dseq <= 2'd0; dlba <= 6'd0; dsts_err <= 1'b0; dtmr <= '0;
-      e_proto <= 1'b0;
-      for (int i = 0; i < 5; i++) dframe[i] <= 32'h0;
-    end else begin
-      e_proto <= 1'b0;
-      if (tx_accept && !tx_accept_host) d_pend <= 1'b0;
-      // H2D data FIS when no write is in progress -> protocol violation
-      if (frm_valid && rb0[7:0] == FIS_DATA && !rb0[31] &&
-          dfstate != DF_WDAT) e_proto <= 1'b1;
-      case (dfstate)
-        DF_IDLE: if (frm_valid && rb0[7:0] == FIS_REG_H2D) begin
-          dlba <= rb1[13:8];
-          case (rb0[23:16])
-            CMD_IDENTIFY:  begin dseq <= 2'd0; dfstate <= DF_ID_SET; end
-            CMD_READ_DMA:  dfstate <= DF_RD_SET;
-            CMD_WRITE_DMA: begin dtmr <= '0; dfstate <= DF_WDAT; end
-            default:       begin dsts_err <= 1'b1; dfstate <= DF_STS_SET; end
-          endcase
-        end
-        DF_ID_SET: begin
-          dframe[0] <= {1'b1, 15'h0000, {6'b000000, dseq}, FIS_DATA};
-          dframe[1] <= ident_dw({dseq, 2'b00});
-          dframe[2] <= ident_dw({dseq, 2'b01});
-          dframe[3] <= ident_dw({dseq, 2'b10});
-          dframe[4] <= ident_dw({dseq, 2'b11});
-          d_pend  <= 1'b1;
-          dfstate <= DF_ID_WAIT;
-        end
-        DF_ID_WAIT: if (tx_done && !tx_done_host) begin
-          if (dseq == 2'd3) begin
-            dsts_err <= 1'b0;
-            dfstate  <= DF_STS_SET;
-          end else begin
-            dseq    <= dseq + 2'd1;
-            dfstate <= DF_ID_SET;
-          end
-        end
-        DF_RD_SET: begin
-          dframe[0] <= {1'b1, 15'h0000, 8'h00, FIS_DATA};
-          dframe[1] <= sector_buf[dlba];
-          dframe[2] <= sector_buf[dlba + 6'd1];
-          dframe[3] <= sector_buf[dlba + 6'd2];
-          dframe[4] <= sector_buf[dlba + 6'd3];
-          d_pend  <= 1'b1;
-          dfstate <= DF_RD_WAIT;
-        end
-        DF_RD_WAIT: if (tx_done && !tx_done_host) begin
-          dsts_err <= 1'b0;
-          dfstate  <= DF_STS_SET;
-        end
-        DF_WDAT: begin
-          dtmr <= dtmr + 1'b1;
-          if (frm_valid && rb0[7:0] == FIS_DATA && !rb0[31]) begin
-            sector_buf[dlba]        <= rb1;
-            sector_buf[dlba + 6'd1] <= rb2;
-            sector_buf[dlba + 6'd2] <= rb3;
-            sector_buf[dlba + 6'd3] <= rb4;
-            dsts_err <= 1'b0;
-            dfstate  <= DF_STS_SET;
-          end else if (dtmr == DS_TMO[DSW-1:0]) dfstate <= DF_IDLE;
-        end
-        DF_STS_SET: begin
-          dframe[0] <= {dsts_err ? 8'h04 : 8'h00,
-                        dsts_err ? 8'h51 : 8'h50, 8'h00, FIS_REG_D2H};
-          dframe[1] <= 32'h0; dframe[2] <= 32'h0;
-          dframe[3] <= 32'h0; dframe[4] <= 32'h0;
-          d_pend  <= 1'b1;
-          dfstate <= DF_STS_WAIT;
-        end
-        DF_STS_WAIT: if (tx_done && !tx_done_host) dfstate <= DF_IDLE;
-        default: dfstate <= DF_IDLE;
-      endcase
-    end
-  end
-
-  // ------------------------- irq + line driver -------------------------
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) irq <= 1'b0;
-    else        irq <= rx_err | e_proto;
-  end
-
-  wire line_bit = h_oob_act   ? h_oob_bit  :
-                  d_oob_act   ? d_oob_bit  :
-                  align_active ? (tx_busy ? tshift[0] : align_sr[0]) :
-                                 1'b1;
-  assign tx_p = line_bit;
-  assign tx_n = ~line_bit;
-
-endmodule
-
-// ============================================================================
-// OOB burst/idle pattern transmitter: 2 repetitions of (low burst, high idle)
-// COMRESET/COMINIT use the long pattern, COMWAKE the short pattern.
-// ============================================================================
-module sata_oob_tx (
+module SATA_top (
   input  logic clk,
   input  logic rst_n,
-  input  logic req,
-  input  logic long_pat,
-  output logic act,
-  output logic bit_o,
-  output logic done
+  output logic tx_n,
+  output logic tx_p,
+  input  logic rx_n,
+  input  logic rx_p,
+  /* verilator lint_off UNUSEDSIGNAL */
+  input  logic refclk,      // interface compatibility only
+  /* verilator lint_on UNUSEDSIGNAL */
+  output logic irq
 );
-  localparam logic [7:0] LONG_B  = 8'd64;
-  localparam logic [7:0] LONG_I  = 8'd192;
-  localparam logic [7:0] SHORT_B = 8'd16;
-  localparam logic [7:0] SHORT_I = 8'd48;
+  // ------------------------- primitives / FIS types -------------------------
+  localparam logic [31:0] P_ALIGN = 32'h7B4A_4ABC;
+  localparam logic [31:0] P_SYNC  = 32'hB5B5_957C;
+  localparam logic [31:0] P_XRDY  = 32'h5757_B57C;
+  localparam logic [31:0] P_RRDY  = 32'h4A4A_957C;
+  localparam logic [31:0] P_RIP   = 32'h5555_B57C;
+  localparam logic [31:0] P_ROK   = 32'h3535_B57C;
+  localparam logic [31:0] P_RERR  = 32'h5656_B57C;
+  localparam logic [31:0] P_SOF   = 32'h3737_B57C;
+  localparam logic [31:0] P_EOF   = 32'hD5D5_B57C;
+  localparam logic [31:0] P_WTRM  = 32'h5858_B57C;
 
-  logic [7:0] cnt;
-  logic       phase;  // 0 = burst (low), 1 = idle (high)
-  logic       rep;
-  logic       long_q;
-  logic [7:0] limit;
+  localparam logic [7:0] FIS_H2D  = 8'h27;
+  localparam logic [7:0] FIS_D2H  = 8'h34;
+  localparam logic [7:0] FIS_DACT = 8'h39;
+  localparam logic [7:0] FIS_DATA = 8'h46;
+  localparam logic [7:0] CMD_ID   = 8'hEC;
+  localparam logic [7:0] CMD_RD   = 8'h25;
+  localparam logic [7:0] CMD_WR   = 8'h35;
 
-  always_comb begin
-    if (long_q) limit = phase ? LONG_I  : LONG_B;
-    else        limit = phase ? SHORT_I : SHORT_B;
-  end
+  function automatic logic [31:0] crc32_dw(input logic [31:0] c, input logic [31:0] d);
+    logic [31:0] r;
+    logic        fb;
+    r = c;
+    for (int k = 0; k < 32; k++) begin
+      fb = r[0] ^ d[k];
+      r  = r >> 1;
+      if (fb) r = r ^ 32'hEDB8_8320;
+    end
+    crc32_dw = r;
+  endfunction
 
-  assign bit_o = act ? (phase ? 1'b1 : 1'b0) : 1'b1;
+  function automatic logic [31:0] xorshift(input logic [31:0] x);
+    logic [31:0] y;
+    y = x ^ (x << 13);
+    y = y ^ (y >> 17);
+    xorshift = y ^ (y << 5);
+  endfunction
+
+  // ------------------------- OOB detector -------------------------
+  wire rx_act = rx_p ^ rx_n;
+  logic       act_q;          // previous clock carried signal
+  logic [5:0] orun;           // length of the current run (saturates at 63)
+  logic       burst_ok;       // the last burst had a legal length
+  logic       gcls;           // class of the gaps counted: 0 INIT, 1 WAKE
+  logic [1:0] gcnt;           // equal gaps in a row
+  logic       det_init, det_wake;
+
+  wire gap_init = (orun >= 6'd40) && (orun <= 6'd56);
+  wire gap_wake = (orun >= 6'd12) && (orun <= 6'd20);
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      act <= 1'b0; done <= 1'b0;
-      cnt <= 8'd0; phase <= 1'b0; rep <= 1'b0; long_q <= 1'b0;
+      act_q <= 1'b0; orun <= 6'd0; burst_ok <= 1'b0; gcls <= 1'b0; gcnt <= 2'd0;
+      det_init <= 1'b0; det_wake <= 1'b0;
     end else begin
-      if (!req) begin
-        act <= 1'b0; done <= 1'b0;
-      end else if (!act && !done) begin
-        act    <= 1'b1;
-        cnt    <= 8'd0;
-        phase  <= 1'b0;
-        rep    <= 1'b0;
-        long_q <= long_pat;
-      end else if (act) begin
-        if (cnt == limit - 8'd1) begin
-          cnt <= 8'd0;
-          if (!phase) phase <= 1'b1;
-          else begin
-            phase <= 1'b0;
-            if (rep) begin
-              act  <= 1'b0;
-              done <= 1'b1;
-            end else rep <= 1'b1;
+      det_init <= 1'b0;
+      det_wake <= 1'b0;
+      act_q    <= rx_act;
+      if (rx_act == act_q) begin
+        if (orun != 6'd63) orun <= orun + 6'd1;
+      end else begin
+        orun <= 6'd1;
+        if (act_q) begin                       // burst ended
+          burst_ok <= gap_wake;                // burst length 12..20
+          if (!gap_wake) gcnt <= 2'd0;
+        end else if (burst_ok && (gap_init || gap_wake)) begin  // gap ended
+          if (gcnt != 2'd0 && gcls == gap_wake) begin
+            if (gcnt == 2'd2) begin
+              gcnt     <= 2'd0;
+              det_init <= !gap_wake;
+              det_wake <= gap_wake;
+            end else gcnt <= gcnt + 2'd1;
+          end else begin
+            gcls <= gap_wake;
+            gcnt <= 2'd1;
           end
-        end else cnt <= cnt + 8'd1;
+        end else gcnt <= 2'd0;
       end
     end
   end
+
+  // ------------------------- PHY bring-up -------------------------
+  typedef enum logic [2:0] {LK_RESET, LK_WINIT, LK_WAKE, LK_WWAKE, LK_ALIGN, LK_READY} lk_t;
+  lk_t        lk;
+  logic [1:0] ob_n;           // burst index of the pattern being sent
+  logic       ob_gap;         // 0 burst, 1 gap
+  logic [5:0] ob_cnt;
+  logic [9:0] ltmr;
+  logic       aln1;           // one ALIGNp received
+  logic       ev_link;
+
+  wire        dw_on   = (lk == LK_ALIGN) || (lk == LK_READY);
+  logic       rx_dw_v;        // a received dword completes this clock
+  logic [31:0] rdw;
+  wire        loss    = !rx_act;          // READY: signal lost
+  wire        ob_last = !ob_gap && (ob_cnt == 6'd15) && (ob_n == 2'd3);
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      lk <= LK_RESET; ob_n <= 2'd0; ob_gap <= 1'b1; ob_cnt <= 6'd0; ltmr <= 10'd0;
+      aln1 <= 1'b0; ev_link <= 1'b0;
+    end else begin
+      ev_link <= 1'b0;
+      if (lk == LK_RESET || lk == LK_WAKE) begin   // OOB pattern: gap, burst x4
+        ob_cnt <= ob_cnt + 6'd1;
+        if (ob_gap && ob_cnt == ((lk == LK_RESET) ? 6'd47 : 6'd15)) begin
+          ob_gap <= 1'b0;
+          ob_cnt <= 6'd0;
+        end else if (!ob_gap && ob_cnt == 6'd15) begin
+          ob_gap <= 1'b1;
+          ob_cnt <= 6'd0;
+          ob_n   <= ob_n + 2'd1;
+        end
+      end
+      case (lk)
+        LK_RESET: if (ob_last) begin lk <= LK_WINIT; ltmr <= 10'd0; end
+        LK_WAKE:  if (ob_last) begin lk <= LK_WWAKE; ltmr <= 10'd0; end
+        LK_WINIT: begin
+          ltmr <= ltmr + 10'd1;
+          if (det_init) lk <= LK_WAKE;
+          else if (ltmr == 10'd1023) lk <= LK_RESET;
+        end
+        LK_WWAKE: begin
+          ltmr <= ltmr + 10'd1;
+          if (det_wake) begin
+            lk   <= LK_ALIGN;
+            ltmr <= 10'd0;
+            aln1 <= 1'b0;
+          end else if (ltmr == 10'd1023) lk <= LK_RESET;
+        end
+        LK_ALIGN: begin
+          ltmr <= ltmr + 10'd1;
+          if (rx_dw_v) begin
+            aln1 <= (rdw == P_ALIGN);
+            if (rdw == P_ALIGN && aln1) lk <= LK_READY;
+          end
+          if (ltmr == 10'd1023 && !(rx_dw_v && rdw == P_ALIGN && aln1)) lk <= LK_RESET;
+        end
+        default: begin                         // LK_READY
+          if (loss) begin
+            lk      <= LK_RESET;
+            ev_link <= 1'b1;
+          end
+        end
+      endcase
+    end
+  end
+
+  // ------------------------- dword transmitter -------------------------
+  logic [4:0]  tbit;
+  logic [31:0] tsr;
+  logic [31:0] tx_next;
+  wire         tbnd = (lk == LK_READY) && (tbit == 5'd31);
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      tbit <= 5'd0; tsr <= P_ALIGN;
+    end else if (!dw_on) begin
+      tbit <= 5'd0; tsr <= P_ALIGN;
+    end else begin
+      tbit <= tbit + 5'd1;
+      tsr  <= (tbit == 5'd31) ? ((lk == LK_READY) ? tx_next : P_ALIGN) : {1'b0, tsr[31:1]};
+    end
+  end
+
+  wire ob_burst = (lk == LK_RESET || lk == LK_WAKE) && !ob_gap;
+  wire tx_bit   = ob_burst ? ob_cnt[0] : tsr[0];
+  wire tx_on    = ob_burst || dw_on;
+  assign tx_p = tx_on &  tx_bit;
+  assign tx_n = tx_on & !tx_bit;
+
+  // ------------------------- dword receiver -------------------------
+  logic [30:0] rsr;
+  logic [4:0]  rbit;
+  logic        aligned;
+  assign rdw     = {rx_p, rsr};
+  assign rx_dw_v = dw_on && rx_act && (aligned ? (rbit == 5'd31) : (rdw == P_ALIGN));
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      rsr <= 31'd0; rbit <= 5'd0; aligned <= 1'b0;
+    end else if (!dw_on) begin
+      rsr <= 31'd0; rbit <= 5'd0; aligned <= 1'b0;
+    end else begin
+      rsr <= rdw[31:1];
+      if (!aligned) begin
+        if (rdw == P_ALIGN) begin aligned <= 1'b1; rbit <= 5'd0; end
+      end else rbit <= rbit + 5'd1;
+    end
+  end
+
+  // ------------------------- link layer -------------------------
+  typedef enum logic [1:0] {R_IDLE, R_RDYS, R_DATA, R_STAT} rxs_t;
+  typedef enum logic [2:0] {T_IDLE, T_XRDY, T_SOF, T_DATA, T_CRC, T_EOF, T_WTRM} txs_t;
+  rxs_t        rxs;
+  txs_t        txs;
+  logic [5:0]  rx_dwt, tx_dwt;  // handshake timeouts (dwords)
+  logic [3:0]  rn;              // dwords received in the frame (incl. CRC)
+  logic        ovf, rok;
+  logic [31:0] rc, rcp, rlast;  // running CRC, CRC before the last dword
+  logic [31:0] rbuf [0:8];
+  logic [3:0]  tx_idx;
+  logic [31:0] tcrc;
+  logic [1:0]  tretry;
+  logic        fis_v;           // good FIS received (rbuf, rn-1 dwords)
+  logic        tx_ok, tx_fail;
+  logic        ev_rx, ev_tx;
+  // from the sequencer
+  logic        fis_req;
+  logic        fis_last;        // tx_idx is the last FIS dword
+  logic [31:0] fis_dw;          // FIS dword tx_idx
+
+  wire rp       = (lk == LK_READY) && rx_dw_v && (rdw != P_ALIGN);
+  wire rx_xrdy  = rp && (rdw == P_XRDY) && (rxs == R_IDLE) &&
+                  (txs == T_IDLE || txs == T_XRDY);
+  wire rx_known = (rdw == P_SYNC) || (rdw == P_XRDY) || (rdw == P_RRDY) || (rdw == P_RIP) ||
+                  (rdw == P_ROK) || (rdw == P_RERR) || (rdw == P_WTRM);
+
+  always_comb begin
+    case (txs)
+      T_XRDY: tx_next = P_XRDY;
+      T_SOF:  tx_next = P_SOF;
+      T_DATA: tx_next = fis_dw;
+      T_CRC:  tx_next = ~tcrc;
+      T_EOF:  tx_next = P_EOF;
+      T_WTRM: tx_next = P_WTRM;
+      default:
+        case (rxs)
+          R_RDYS:  tx_next = P_RRDY;
+          R_DATA:  tx_next = P_RIP;
+          R_STAT:  tx_next = rok ? P_ROK : P_RERR;
+          default: tx_next = P_SYNC;
+        endcase
+    endcase
+  end
+
+  // receive side
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      rxs <= R_IDLE; rx_dwt <= 6'd0; rn <= 4'd0; ovf <= 1'b0; rok <= 1'b0;
+      rc <= 32'd0; rcp <= 32'd0; rlast <= 32'd0; fis_v <= 1'b0; ev_rx <= 1'b0;
+      for (int i = 0; i < 9; i++) rbuf[i] <= 32'd0;
+    end else begin
+      fis_v <= 1'b0;
+      ev_rx <= 1'b0;
+      if (lk != LK_READY) rxs <= R_IDLE;
+      else if (rp)
+        case (rxs)
+          R_IDLE: begin
+            if (rx_xrdy) begin rxs <= R_RDYS; rx_dwt <= 6'd0; end
+            else if (!rx_known) ev_rx <= 1'b1;          // illegal primitive
+          end
+          R_RDYS: begin
+            rx_dwt <= rx_dwt + 6'd1;
+            if (rdw == P_SOF) begin
+              rxs <= R_DATA; rn <= 4'd0; ovf <= 1'b0; rc <= 32'hFFFF_FFFF;
+            end else if (rdw == P_SYNC) rxs <= R_IDLE;   // device withdrew
+            else if (rx_dwt == 6'd63) begin rxs <= R_IDLE; ev_rx <= 1'b1; end
+          end
+          R_DATA: begin
+            if (rdw == P_EOF) begin
+              rxs    <= R_STAT;
+              rx_dwt <= 6'd0;
+              rok    <= !ovf && (rn >= 4'd2) && (rlast == ~rcp);
+              if (!ovf && (rn >= 4'd2) && (rlast == ~rcp)) fis_v <= 1'b1;
+              else ev_rx <= 1'b1;                        // CRC error / overflow
+            end else if (rdw == P_SYNC) begin
+              rxs <= R_IDLE; ev_rx <= 1'b1;              // frame aborted
+            end else begin
+              if (rn == 4'd10) ovf <= 1'b1;
+              else rn <= rn + 4'd1;
+              if (rn < 4'd9) rbuf[rn] <= rdw;
+              rlast <= rdw;
+              rcp   <= rc;
+              rc    <= crc32_dw(rc, rdw);
+            end
+          end
+          default: begin                                 // R_STAT
+            rx_dwt <= rx_dwt + 6'd1;
+            if (rdw == P_SYNC) rxs <= R_IDLE;
+            else if (rx_dwt == 6'd63) begin rxs <= R_IDLE; ev_rx <= 1'b1; end
+          end
+        endcase
+    end
+  end
+
+  // transmit side
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      txs <= T_IDLE; tx_dwt <= 6'd0; tx_idx <= 4'd0; tcrc <= 32'd0; tretry <= 2'd0;
+      tx_ok <= 1'b0; tx_fail <= 1'b0; ev_tx <= 1'b0;
+    end else begin
+      tx_ok   <= 1'b0;
+      tx_fail <= 1'b0;
+      ev_tx   <= 1'b0;
+      if (lk != LK_READY) begin
+        txs <= T_IDLE; tretry <= 2'd0;
+      end else
+        case (txs)
+          // leave idle on a dword boundary, so at least one SYNC goes out first
+          T_IDLE: if (tbnd && fis_req && !tx_ok && !tx_fail && rxs == R_IDLE && !rx_xrdy) begin
+            txs <= T_XRDY; tx_dwt <= 6'd0;
+          end
+          T_XRDY: begin
+            if (rx_xrdy) txs <= T_IDLE;                  // collision: device first
+            else if (rp && rdw == P_RRDY) txs <= T_SOF;
+            else if (tbnd) begin
+              tx_dwt <= tx_dwt + 6'd1;
+              if (tx_dwt == 6'd63) begin
+                txs <= T_IDLE; tx_fail <= 1'b1; ev_tx <= 1'b1; tretry <= 2'd0;
+              end
+            end
+          end
+          T_SOF: if (tbnd) begin
+            txs <= T_DATA; tx_idx <= 4'd0; tcrc <= 32'hFFFF_FFFF;
+          end
+          T_DATA: if (tbnd) begin
+            tcrc   <= crc32_dw(tcrc, fis_dw);
+            tx_idx <= tx_idx + 4'd1;
+            if (fis_last) txs <= T_CRC;
+          end
+          T_CRC: if (tbnd) txs <= T_EOF;
+          T_EOF: if (tbnd) begin txs <= T_WTRM; tx_dwt <= 6'd0; end
+          default: begin                                 // T_WTRM
+            if (rp && rdw == P_ROK) begin
+              txs <= T_IDLE; tx_ok <= 1'b1; tretry <= 2'd0;
+            end else if (rp && rdw == P_RERR) begin
+              txs <= T_IDLE;
+              if (tretry == 2'd2) begin
+                tx_fail <= 1'b1; ev_tx <= 1'b1; tretry <= 2'd0;
+              end else tretry <= tretry + 2'd1;          // resend
+            end else if (tbnd) begin
+              tx_dwt <= tx_dwt + 6'd1;
+              if (tx_dwt == 6'd63) begin
+                txs <= T_IDLE; tx_fail <= 1'b1; ev_tx <= 1'b1; tretry <= 2'd0;
+              end
+            end
+          end
+        endcase
+    end
+  end
+
+  // ------------------------- command sequencer -------------------------
+  typedef enum logic [3:0] {
+    Q_WAIT, Q_ID, Q_ID_DAT, Q_ID_STS, Q_FILL, Q_WR, Q_WR_ACT, Q_WR_DAT, Q_WR_STS,
+    Q_RD, Q_RD_DAT, Q_RD_STS
+  } q_t;
+  q_t          q;
+  logic [1:0]  qc;              // Register H2D command: 0 IDENTIFY, 1 WRITE, 2 READ
+  logic        qdata;           // FIS to send: 0 Register H2D, 1 Data
+  logic [5:0]  lba, max_lba;
+  logic [31:0] xs;              // xorshift32 data generator
+  logic [31:0] wbuf [0:7];
+  logic [2:0]  fk;
+  logic [11:0] ctmr;
+  logic        ev_cmd;
+
+  always_comb begin
+    if (qdata) fis_dw = (tx_idx == 4'd0) ? {24'd0, FIS_DATA} : wbuf[tx_idx[2:0] - 3'd1];
+    else
+      case (tx_idx)
+        4'd0:    fis_dw = {8'h00, (qc == 2'd0) ? CMD_ID : (qc == 2'd1) ? CMD_WR : CMD_RD,
+                           8'h80, FIS_H2D};
+        4'd1:    fis_dw = {8'h40, 18'd0, lba};
+        4'd3:    fis_dw = 32'h0000_0001;            // one sector
+        default: fis_dw = 32'd0;
+      endcase
+  end
+  assign fis_last = (tx_idx == (qdata ? 4'd8 : 4'd4));
+
+  wire [7:0] r_type = rbuf[0][7:0];
+  wire       r_d2h  = r_type == FIS_D2H  && rn == 4'd6;
+  wire       r_dat  = r_type == FIS_DATA && rn == 4'd10;
+  wire       r_act  = r_type == FIS_DACT && rn == 4'd2;
+  wire       s_ok   = !rbuf[0][16] && (rbuf[0][31:24] == 8'd0);   // ERR clear, no error
+  wire       resp   = fis_v || (ctmr == 12'hFFF);                 // FIS or timeout
+  wire [5:0] lba_nx = (lba == max_lba) ? 6'd0 : lba + 6'd1;
+  wire       q_dev  = (q == Q_ID_DAT) || (q == Q_ID_STS) || (q == Q_WR_ACT) ||
+                      (q == Q_WR_STS) || (q == Q_RD_DAT) || (q == Q_RD_STS);
+  logic      rd_bad;
+  always_comb begin
+    rd_bad = 1'b0;
+    for (int i = 0; i < 8; i++) if (rbuf[i + 1] != wbuf[i]) rd_bad = 1'b1;
+  end
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      q <= Q_WAIT; qc <= 2'd0; qdata <= 1'b0; lba <= 6'd0; max_lba <= 6'd0;
+      xs <= 32'h2545_F491; fk <= 3'd0; ctmr <= 12'd0; fis_req <= 1'b0; ev_cmd <= 1'b0;
+      for (int i = 0; i < 8; i++) wbuf[i] <= 32'd0;
+    end else begin
+      ev_cmd <= 1'b0;
+      if (tx_ok || tx_fail) fis_req <= 1'b0;
+      ctmr <= ctmr + 12'd1;
+      if (lk != LK_READY) begin
+        q <= Q_WAIT; fis_req <= 1'b0;
+      end else begin
+        if (fis_v && !q_dev) ev_cmd <= 1'b1;              // unsolicited FIS
+        case (q)
+          Q_WAIT: begin
+            q <= Q_ID; qc <= 2'd0; qdata <= 1'b0; fis_req <= 1'b1;
+          end
+          Q_ID:
+            if (tx_ok) begin q <= Q_ID_DAT; ctmr <= 12'd0; end
+            else if (tx_fail) fis_req <= 1'b1;            // try again
+          Q_ID_DAT: if (resp) begin
+            if (fis_v && r_dat) begin
+              q <= Q_ID_STS; ctmr <= 12'd0; max_lba <= rbuf[1][5:0];
+            end else begin                                // restart IDENTIFY
+              q <= Q_ID; fis_req <= 1'b1; ev_cmd <= 1'b1;
+            end
+          end
+          Q_ID_STS: if (resp) begin
+            if (fis_v && r_d2h && s_ok) begin
+              q <= Q_FILL; lba <= 6'd0; fk <= 3'd0;
+            end else begin
+              q <= Q_ID; fis_req <= 1'b1; ev_cmd <= 1'b1;
+            end
+          end
+          Q_FILL: begin                                   // next sector of write data
+            wbuf[fk] <= xs;
+            xs <= xorshift(xs);
+            fk <= fk + 3'd1;
+            if (fk == 3'd7) begin
+              q <= Q_WR; qc <= 2'd1; qdata <= 1'b0; fis_req <= 1'b1;
+            end
+          end
+          Q_WR:
+            if (tx_ok) begin q <= Q_WR_ACT; ctmr <= 12'd0; end
+            else if (tx_fail) begin q <= Q_FILL; fk <= 3'd0; lba <= lba_nx; end
+          Q_WR_ACT: if (resp) begin
+            if (fis_v && r_act) begin
+              q <= Q_WR_DAT; qdata <= 1'b1; fis_req <= 1'b1;
+            end else begin                                // error D2H, wrong FIS, timeout
+              q <= Q_FILL; fk <= 3'd0; lba <= lba_nx; ev_cmd <= 1'b1;
+            end
+          end
+          Q_WR_DAT:
+            if (tx_ok) begin q <= Q_WR_STS; ctmr <= 12'd0; end
+            else if (tx_fail) begin q <= Q_FILL; fk <= 3'd0; lba <= lba_nx; end
+          Q_WR_STS: if (resp) begin
+            if (fis_v && r_d2h && s_ok) begin
+              q <= Q_RD; qc <= 2'd2; qdata <= 1'b0; fis_req <= 1'b1;
+            end else begin
+              q <= Q_FILL; fk <= 3'd0; lba <= lba_nx; ev_cmd <= 1'b1;
+            end
+          end
+          Q_RD:
+            if (tx_ok) begin q <= Q_RD_DAT; ctmr <= 12'd0; end
+            else if (tx_fail) begin q <= Q_FILL; fk <= 3'd0; lba <= lba_nx; end
+          Q_RD_DAT: if (resp) begin
+            if (fis_v && r_dat) begin
+              q <= Q_RD_STS; ctmr <= 12'd0;
+              if (rd_bad) ev_cmd <= 1'b1;                 // data mismatch
+            end else begin
+              q <= Q_FILL; fk <= 3'd0; lba <= lba_nx; ev_cmd <= 1'b1;
+            end
+          end
+          default: if (resp) begin                        // Q_RD_STS
+            q <= Q_FILL; fk <= 3'd0; lba <= lba_nx;
+            if (!(fis_v && r_d2h && s_ok)) ev_cmd <= 1'b1;
+          end
+        endcase
+      end
+    end
+  end
+
+  assign irq = ev_link | ev_rx | ev_tx | ev_cmd;
+
 endmodule
