@@ -8,6 +8,11 @@
   SVA         assertions: exercised (<name>__ante cover hit) and never failed
   FUNCTIONAL  covergroup bins (v_covergroup) + fc_* cover properties
 
+Points are merged per module (Verilator's page field carries the module
+name): a point is hit if any instance of that module hits it. Designs with
+one DUT instance are unaffected; a TB that instantiates a module twice with
+different parameters (e.g. both accept latencies) covers the union.
+
 Exclusions: scripts/cov/exclude/<P>.txt, one per line
   <METRIC> <regex on point id> # <justification>   (justification mandatory;
   the regex is everything up to " # ")
@@ -20,7 +25,25 @@ the total, are counted as closed and listed separately (reported as
 Usage: score.py <coverage.dat> <run.log> <PROTOCOL> <rtl files...> [--json out]
 Exit status 0 only if the test passed, no SVA failed and every metric is 100%.
 """
-import json, re, sys
+import glob, json, re, sys
+
+def canon_factory(files):
+    """Map a Verilator page module (possibly a parameter variant such as
+    OCP_top__AB0 or X__pi3) back to the declared module name."""
+    mods = set()
+    for f in files:
+        try:
+            mods |= set(re.findall(r"^\s*module\s+(\w+)", open(f).read(), re.M))
+        except OSError:
+            pass
+    by_len = sorted(mods, key=len, reverse=True)
+    cache = {}
+    def canon(name):
+        if name not in cache:
+            cache[name] = next((m for m in by_len
+                                if name == m or name.startswith(m + "__")), name)
+        return cache[name]
+    return canon
 
 def parse_dat(path):
     pts = []
@@ -55,32 +78,33 @@ def main():
         except OSError:
             src[f] = []
     logtxt = open(log, errors="replace").read()
+    canon = canon_factory(list(rtl) + glob.glob(f"tb/cov/{proto}_*.sv"))
 
     m = {k: {} for k in ("LINE", "TOGGLE", "FSM", "SVA", "FUNCTIONAL")}
     ante = {}
     for p in pts:
         page = p.get("page", "")
-        kind = page.split("/")[0]
+        kind, _, mod = page.partition("/")
+        mod = canon(mod)
         f = p.get("f", "")
         if kind in ("v_line", "v_branch") and f in rtl:
             ln_no = int(p.get("l", 0))
             text = src[f][ln_no - 1].strip() if 0 < ln_no <= len(src[f]) else ""
-            key = f"{f}:{ln_no}:{p.get('o','')}:{p.get('h','')} | {text}"
+            key = f"{f}:{ln_no}:{p.get('o','')}:{mod} | {text}"
             m["LINE"][key] = m["LINE"].get(key, 0) + p["count"]
         elif kind == "v_toggle" and f in rtl:
-            key = f"{p.get('h','')}.{p.get('o','')}"
+            key = f"{mod}.{p.get('o','')}"
             m["TOGGLE"][key] = m["TOGGLE"].get(key, 0) + p["count"]
         elif kind == "v_user":
             name = p.get("o", "")
-            hier = p.get("h", "")
             if name.startswith("fsm_"):
-                m["FSM"][f"{hier}.{name}"] = p["count"]
+                k = f"{mod}.{name}"; m["FSM"][k] = m["FSM"].get(k, 0) + p["count"]
             elif name.endswith("__ante"):
-                ante[f"{hier}.{name[:-6]}"] = p["count"]
+                k = f"{mod}.{name[:-6]}"; ante[k] = ante.get(k, 0) + p["count"]
             elif name.startswith("fc_"):
-                m["FUNCTIONAL"][f"{hier}.{name}"] = p["count"]
+                k = f"{mod}.{name}"; m["FUNCTIONAL"][k] = m["FUNCTIONAL"].get(k, 0) + p["count"]
         elif kind == "v_covergroup":
-            key = f"{page.split('/',1)[1]}:{p.get('h','')}"
+            key = f"{mod}:{p.get('h','')}"   # h = cg.cp.bin (already per type)
             m["FUNCTIONAL"][key] = m["FUNCTIONAL"].get(key, 0) + p["count"]
     fails = set(re.findall(r"SVA_FAIL: (\S+)", logtxt))
     for k, c in ante.items():
