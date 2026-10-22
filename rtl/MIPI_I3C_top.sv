@@ -2,20 +2,29 @@
 // ============================================================================
 // MIPI I3C protocol IP -- I3C slave controller
 // Implementation scope:
-//   - Legacy I2C write/read on a 7-bit static address (16x8 register file)
-//   - ENTDAA dynamic address assignment (broadcast CCC 0x07): slave returns
-//     48-bit PID + BCR + DCR, then captures the 7-bit dynamic address
-//   - Direct CCC GETPID (0x8C): subsequent addressed read returns 6 PID bytes
-//   - IBI (in-band interrupt): slave pulls SDA while bus idle, arbitrates its
-//     dynamic address, then pushes one IBI data byte
+//   - Legacy I2C write/read on a 7-bit static address (16x8 register file);
+//     the first written byte is the register pointer (0..15, larger -> NACK)
+//   - Broadcast CCCs (7E/W + code): ENTDAA (0x07), RSTDAA (0x06), and the
+//     direct CCC GETPID (0x8C): after Sr + own address / R the slave returns
+//     its 6 PID bytes. Unknown codes are NACKed and raise irq.
+//   - ENTDAA dynamic address assignment: a slave without a dynamic address
+//     answers 7E/R with 48-bit PID + BCR + DCR (open-drain, with arbitration:
+//     a slave that loses drops out and retries on the next 7E/R), then takes
+//     the 7-bit dynamic address if its odd parity bit is right (else NACK +
+//     irq). 7E/R inside ENTDAA with nothing left to do is NACKed silently;
+//     7E/R outside ENTDAA is NACKed with irq.
+//   - IBI (in-band interrupt, only with a dynamic address): slave pulls SDA
+//     while bus idle, arbitrates its dynamic address, then pushes one IBI
+//     data byte. Losing the arbitration raises irq; a NACK keeps the
+//     request for a retry.
+//   - irq is held until the next START (or rst_n)
+//   - Data bytes are ACKed like I2C (the I3C T-bit is not modelled)
 //   - Open-drain vs push-pull phase switching (address/arbitration phases are
 //     open-drain, data transmit phases are push-pull -- simplified, the pad is
 //     a shared clk-domain model so both are driven from the same enable logic)
-// IP design implementation v1.0 -- Apache-2.0
+// IP design implementation v1.1 -- Apache-2.0
 // ============================================================================
 module MIPI_I3C_top #(
-  parameter int DW = 32,              // data width (framework, unused width kept)
-  parameter int AW = 32,              // address width (framework, kept)
   parameter logic [6:0]  STATIC_ADDR = 7'h3C,
   parameter logic [47:0] PID         = 48'h0123_4567_89AB,
   parameter logic [7:0]  BCR         = 8'h06,
@@ -36,9 +45,10 @@ module MIPI_I3C_top #(
   // local constants
   // ------------------------------------------------------------------
   localparam logic [7:0] CCC_ENTDAA = 8'h07;
+  localparam logic [7:0] CCC_RSTDAA = 8'h06;
   localparam logic [7:0] CCC_GETPID = 8'h8C;
 
-  typedef enum logic [4:0] {
+  typedef enum logic [3:0] {
     S_IDLE,        // bus idle / wait for START or issue IBI pull
     S_ADDR,        // shift in 7-bit address + RnW
     S_ADDR_ACK,    // drive ACK/NACK for the address phase
@@ -91,9 +101,9 @@ module MIPI_I3C_top #(
   // ------------------------------------------------------------------
   // datapath registers
   // ------------------------------------------------------------------
-  logic [7:0] sh;                    // receive shift register
+  logic [6:0] sh;                    // receive shift register (7 latest bits)
   wire  [7:0] sh_full = {sh[6:0], sda_d[1]};
-  logic [3:0] bcnt;                  // bit counter (byte phases)
+  logic [2:0] bcnt;                  // bit counter (byte phases)
   logic [5:0] dcnt;                  // bit counter (ENTDAA 64-bit phase)
   logic [7:0] txb;                   // transmit byte register
   logic       ack_ok;                // ACK decision for current ACK phase
@@ -102,8 +112,10 @@ module MIPI_I3C_top #(
   logic       rnw_q, bcast_q;        // decoded address-phase qualifiers
   logic       bcast_mode;            // receiving broadcast CCC byte
   logic       first_byte;            // next RX byte is register pointer/CCC
-  logic       pid_mode;              // GETPID pending: reads return PID
-  logic       daa_pend;              // ENTDAA armed
+  logic       pid_mode;              // reads return PID bytes
+  logic       getpid_pend;           // GETPID CCC seen: next own read = PID
+  logic       daa_ccc;               // inside ENTDAA (until STOP)
+  logic       daa_pend;              // ENTDAA: this slave still needs an address
   logic [3:0] reg_ptr;               // register-file pointer
   logic [3:0] pid_cnt;               // PID byte index
   logic [7:0] mem [0:15];            // 16x8 register file
@@ -111,23 +123,25 @@ module MIPI_I3C_top #(
   logic       ibi_pull;              // currently pulling SDA for IBI
   logic       err_sticky;            // protocol error flag -> irq
 
-  wire [7:0] arb_word = {dyn_addr, 1'b1};      // IBI arbitration: addr + RnW=1
+  // IBI arbitration word {dyn_addr, RnW = 1}, bit i
+  function automatic logic arb_bit(input logic [6:0] a, input logic [2:0] i);
+    arb_bit = (i == 3'd0) ? 1'b1 : a[i - 3'd1];
+  endfunction
 
-  // PID byte selector (current and next)
-  wire [7:0] pid_byte =
-      (pid_cnt == 4'd0) ? PID[47:40] :
-      (pid_cnt == 4'd1) ? PID[39:32] :
-      (pid_cnt == 4'd2) ? PID[31:24] :
-      (pid_cnt == 4'd3) ? PID[23:16] :
-      (pid_cnt == 4'd4) ? PID[15:8]  : PID[7:0];
-  wire [7:0] pid_byte_n =
-      (pid_cnt == 4'd0) ? PID[39:32] :
-      (pid_cnt == 4'd1) ? PID[31:24] :
-      (pid_cnt == 4'd2) ? PID[23:16] :
-      (pid_cnt == 4'd3) ? PID[15:8]  :
-      (pid_cnt == 4'd4) ? PID[7:0]   : PID[7:0];
-  wire [7:0] tx_cur  = pid_mode ? pid_byte   : mem[reg_ptr];
-  wire [7:0] tx_next = pid_mode ? pid_byte_n : mem[reg_ptr + 4'd1];
+  // PID byte n (bytes past the sixth repeat the last one)
+  function automatic logic [7:0] pid_byte(input logic [3:0] n);
+    case (n)
+      4'd0:    pid_byte = PID[47:40];
+      4'd1:    pid_byte = PID[39:32];
+      4'd2:    pid_byte = PID[31:24];
+      4'd3:    pid_byte = PID[23:16];
+      4'd4:    pid_byte = PID[15:8];
+      default: pid_byte = PID[7:0];
+    endcase
+  endfunction
+  wire [7:0] tx_cur  = pid_mode ? pid_byte(pid_cnt) : mem[reg_ptr];
+  wire [7:0] tx_next = pid_mode ? pid_byte((pid_cnt == 4'd15) ? 4'd15 : pid_cnt + 4'd1)
+                                : mem[reg_ptr + 4'd1];
 
   // address-phase decode (combinational, used when 8th bit arrives)
   wire [6:0] rx_addr  = sh_full[7:1];
@@ -138,6 +152,8 @@ module MIPI_I3C_top #(
   wire       rx_ack   = (rx_bcast & ~rx_rnw)              ||  // broadcast write
                         (rx_bcast &  rx_rnw & daa_pend)   ||  // ENTDAA read
                         rx_match;                              // our address
+  // ENTDAA dynamic address byte: 7-bit address + odd parity
+  wire       daa_par_ok = (^sh_full) == 1'b1;
 
   assign irq = err_sticky;
 
@@ -147,8 +163,8 @@ module MIPI_I3C_top #(
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       state          <= S_IDLE;
-      sh             <= 8'h00;
-      bcnt           <= 4'd0;
+      sh             <= 7'h00;
+      bcnt           <= 3'd0;
       dcnt           <= 6'd0;
       txb            <= 8'h00;
       ack_ok         <= 1'b0;
@@ -159,6 +175,8 @@ module MIPI_I3C_top #(
       bcast_mode     <= 1'b0;
       first_byte     <= 1'b0;
       pid_mode       <= 1'b0;
+      getpid_pend    <= 1'b0;
+      daa_ccc        <= 1'b0;
       daa_pend       <= 1'b0;
       reg_ptr        <= 4'd0;
       pid_cnt        <= 4'd0;
@@ -170,6 +188,7 @@ module MIPI_I3C_top #(
       ibi_pend       <= 1'b0;
       ibi_pull       <= 1'b0;
       err_sticky     <= 1'b0;
+      for (int i = 0; i < 16; i++) mem[i] <= 8'h00;
     end else begin
       // latch IBI request (cleared when the IBI byte has been delivered)
       if (ibi_req) ibi_pend <= 1'b1;
@@ -177,7 +196,7 @@ module MIPI_I3C_top #(
       if (ev_start) begin
         // START / repeated START: (re)enter address phase, clear error flag
         state      <= S_ADDR;
-        bcnt       <= 4'd0;
+        bcnt       <= 3'd0;
         ack_ph     <= 1'b0;
         od_low     <= 1'b0;
         pp_en      <= 1'b0;
@@ -192,19 +211,21 @@ module MIPI_I3C_top #(
         bcast_mode <= 1'b0;
         first_byte <= 1'b0;
         pid_mode   <= 1'b0;
+        getpid_pend <= 1'b0;
+        daa_ccc    <= 1'b0;
         daa_pend   <= 1'b0;
       end else begin
         case (state)
           // ------------------------------------------------ idle / IBI pull
           S_IDLE: begin
-            if (ibi_pend && !ibi_pull) begin
+            if (ibi_pend && !ibi_pull && dyn_addr_valid) begin
               od_low   <= 1'b1;   // pull SDA to request in-band interrupt
               ibi_pull <= 1'b1;
             end else if (ibi_pull && ev_scl_f) begin
               // master took over and started clocking: arbitrate address
-              od_low   <= ~arb_word[7];
+              od_low   <= ~arb_bit(dyn_addr, 3'd7);
               ibi_pull <= 1'b0;
-              bcnt     <= 4'd0;
+              bcnt     <= 3'd0;
               state    <= S_IBI_ARB;
             end
           end
@@ -212,16 +233,20 @@ module MIPI_I3C_top #(
           // ------------------------------------------------ address phase
           S_ADDR: begin
             if (ev_scl_r) begin
-              sh <= sh_full;
-              if (bcnt == 4'd7) begin
-                bcnt    <= 4'd0;
+              sh <= sh_full[6:0];
+              if (bcnt == 3'd7) begin
+                bcnt    <= 3'd0;
                 ack_ok  <= rx_ack;
                 rnw_q   <= rx_rnw;
                 bcast_q <= rx_bcast;
-                if (!rx_ack) err_sticky <= rx_bcast & rx_rnw; // 7E/R w/o DAA
+                // 7E/R outside ENTDAA is an error; inside, nothing to do
+                if (!rx_ack && rx_bcast && rx_rnw && !daa_ccc) err_sticky <= 1'b1;
+                // GETPID answers the own (dynamic) address read that follows
+                pid_mode <= getpid_pend && rx_match && rx_rnw;
+                pid_cnt  <= 4'd0;
                 state   <= S_ADDR_ACK;
               end else begin
-                bcnt <= bcnt + 4'd1;
+                bcnt <= bcnt + 3'd1;
               end
             end
           end
@@ -233,7 +258,7 @@ module MIPI_I3C_top #(
             end else if (ev_scl_f && ack_ph) begin
               od_low <= 1'b0;          // release after 9th clock
               ack_ph <= 1'b0;
-              bcnt   <= 4'd0;
+              bcnt   <= 3'd0;
               if (!ack_ok) begin
                 state <= S_WAIT_STOP;
               end else if (bcast_q && !rnw_q) begin
@@ -259,26 +284,29 @@ module MIPI_I3C_top #(
           // ------------------------------------------------ receive data
           S_RX_DATA: begin
             if (ev_scl_r) begin
-              sh <= sh_full;
-              if (bcnt == 4'd7) begin
-                bcnt  <= 4'd0;
+              sh <= sh_full[6:0];
+              if (bcnt == 3'd7) begin
+                bcnt  <= 3'd0;
                 state <= S_RX_ACK;
                 if (bcast_mode) begin
-                  // broadcast CCC: only ENTDAA is supported
+                  bcast_mode <= 1'b0;
                   if (sh_full == CCC_ENTDAA) begin
                     ack_ok   <= 1'b1;
-                    daa_pend <= 1'b1;
+                    daa_ccc  <= 1'b1;
+                    daa_pend <= !dyn_addr_valid;   // only unassigned slaves
+                  end else if (sh_full == CCC_RSTDAA) begin
+                    ack_ok         <= 1'b1;
+                    dyn_addr_valid <= 1'b0;
+                  end else if (sh_full == CCC_GETPID) begin
+                    ack_ok      <= 1'b1;
+                    getpid_pend <= 1'b1;
                   end else begin
                     ack_ok     <= 1'b0;      // unknown CCC -> NACK + irq
                     err_sticky <= 1'b1;
                   end
                 end else if (first_byte) begin
-                  if (sh_full == CCC_GETPID) begin
-                    ack_ok   <= 1'b1;        // direct CCC GETPID
-                    pid_mode <= 1'b1;
-                    pid_cnt  <= 4'd0;
-                  end else if (sh_full[7]) begin
-                    ack_ok     <= 1'b0;      // unknown direct CCC -> NACK+irq
+                  if (sh_full[7:4] != 4'h0) begin
+                    ack_ok     <= 1'b0;      // pointer out of range -> NACK+irq
                     err_sticky <= 1'b1;
                   end else begin
                     ack_ok     <= 1'b1;      // register pointer byte
@@ -291,7 +319,7 @@ module MIPI_I3C_top #(
                   reg_ptr       <= reg_ptr + 4'd1;
                 end
               end else begin
-                bcnt <= bcnt + 4'd1;
+                bcnt <= bcnt + 3'd1;
               end
             end
           end
@@ -303,7 +331,7 @@ module MIPI_I3C_top #(
             end else if (ev_scl_f && ack_ph) begin
               od_low <= 1'b0;
               ack_ph <= 1'b0;
-              bcnt   <= 4'd0;
+              bcnt   <= 3'd0;
               state  <= ack_ok ? S_RX_DATA : S_WAIT_STOP;
             end
           end
@@ -311,13 +339,13 @@ module MIPI_I3C_top #(
           // ------------------------------------------------ transmit data
           S_TX_DATA: begin
             if (ev_scl_f) begin
-              if (bcnt == 4'd7) begin
+              if (bcnt == 3'd7) begin
                 pp_en <= 1'b0;         // release for master ACK
-                bcnt  <= 4'd0;
+                bcnt  <= 3'd0;
                 state <= S_TX_ACK;
               end else begin
-                bcnt   <= bcnt + 4'd1;
-                pp_val <= txb[3'd6 - bcnt[2:0]];
+                bcnt   <= bcnt + 3'd1;
+                pp_val <= txb[3'd6 - bcnt];
               end
             end
           end
@@ -329,7 +357,7 @@ module MIPI_I3C_top #(
                 txb     <= tx_next;
                 pp_en   <= 1'b1;
                 pp_val  <= tx_next[7];
-                bcnt    <= 4'd0;
+                bcnt    <= 3'd0;
                 reg_ptr <= reg_ptr + 4'd1;
                 pid_cnt <= pid_cnt + 4'd1;
                 state   <= S_TX_DATA;
@@ -341,39 +369,48 @@ module MIPI_I3C_top #(
 
           // ------------------------------------------------ ENTDAA
           S_DAA_TX: begin
-            if (ev_scl_f) begin
+            // arbitration: we released SDA for a '1' but another slave
+            // pulls it low -> drop out, retry on the next 7E/R
+            if (ev_scl_r && !od_low && (sda_d[1] == 1'b0)) begin
+              state <= S_WAIT_STOP;
+            end else if (ev_scl_f) begin
               if (dcnt == 6'd63) begin
                 od_low <= 1'b0;
-                bcnt   <= 4'd0;
+                bcnt   <= 3'd0;
                 state  <= S_DAA_RX;
               end else begin
                 dcnt   <= dcnt + 6'd1;
                 od_low <= ~((dcnt < 6'd47) ? PID[6'd46 - dcnt] :
-                            (dcnt < 6'd55) ? BCR[6'd54 - dcnt] :
-                                             DCR[6'd62 - dcnt]);
+                            (dcnt < 6'd55) ? BCR[3'(6'd54 - dcnt)] :
+                                             DCR[3'(6'd62 - dcnt)]);
               end
             end
           end
 
           S_DAA_RX: begin
             if (ev_scl_r) begin
-              sh <= sh_full;
-              if (bcnt == 4'd7) begin
-                bcnt           <= 4'd0;
-                dyn_addr       <= sh_full[7:1];   // 7-bit address + parity
-                dyn_addr_valid <= 1'b1;
-                daa_pend       <= 1'b0;
-                ack_ok         <= 1'b1;
-                state          <= S_DAA_ACK;
+              sh <= sh_full[6:0];
+              if (bcnt == 3'd7) begin
+                bcnt <= 3'd0;
+                if (daa_par_ok) begin            // 7-bit address + odd parity
+                  dyn_addr       <= sh_full[7:1];
+                  dyn_addr_valid <= 1'b1;
+                  daa_pend       <= 1'b0;
+                  ack_ok         <= 1'b1;
+                end else begin
+                  ack_ok     <= 1'b0;            // bad parity: NACK + irq
+                  err_sticky <= 1'b1;
+                end
+                state <= S_DAA_ACK;
               end else begin
-                bcnt <= bcnt + 4'd1;
+                bcnt <= bcnt + 3'd1;
               end
             end
           end
 
           S_DAA_ACK: begin
             if (ev_scl_f && !ack_ph) begin
-              od_low <= 1'b1;          // ACK the assigned address
+              od_low <= ack_ok;        // ACK the assigned address
               ack_ph <= 1'b1;
             end else if (ev_scl_f && ack_ph) begin
               od_low <= 1'b0;
@@ -386,7 +423,7 @@ module MIPI_I3C_top #(
           S_IBI_ARB: begin
             if (ev_scl_r) begin
               // arbitration monitor: we released SDA for a '1' but read '0'
-              if (arb_word[3'd7 - bcnt[2:0]] && (sda_d[1] == 1'b0)) begin
+              if (arb_bit(dyn_addr, 3'd7 - bcnt) && (sda_d[1] == 1'b0)) begin
                 od_low     <= 1'b0;
                 ibi_pend   <= 1'b0;    // lost arbitration -> retry next req
                 err_sticky <= 1'b1;
@@ -394,13 +431,13 @@ module MIPI_I3C_top #(
               end
             end
             if (ev_scl_f) begin
-              if (bcnt == 4'd7) begin
+              if (bcnt == 3'd7) begin
                 od_low <= 1'b0;
-                bcnt   <= 4'd0;
+                bcnt   <= 3'd0;
                 state  <= S_IBI_ACK;
               end else begin
-                bcnt   <= bcnt + 4'd1;
-                od_low <= ~arb_word[3'd6 - bcnt[2:0]];
+                bcnt   <= bcnt + 3'd1;
+                od_low <= ~arb_bit(dyn_addr, 3'd6 - bcnt);
               end
             end
           end
@@ -412,7 +449,7 @@ module MIPI_I3C_top #(
                 txb    <= ibi_data;
                 pp_en  <= 1'b1;
                 pp_val <= ibi_data[7];
-                bcnt   <= 4'd0;
+                bcnt   <= 3'd0;
                 state  <= S_IBI_TX;
               end else begin
                 state  <= S_WAIT_STOP; // refused: keep ibi_pend for retry
@@ -422,13 +459,13 @@ module MIPI_I3C_top #(
 
           S_IBI_TX: begin
             if (ev_scl_f) begin
-              if (bcnt == 4'd7) begin
+              if (bcnt == 3'd7) begin
                 pp_en <= 1'b0;
-                bcnt  <= 4'd0;
+                bcnt  <= 3'd0;
                 state <= S_IBI_TXACK;
               end else begin
-                bcnt   <= bcnt + 4'd1;
-                pp_val <= txb[3'd6 - bcnt[2:0]];
+                bcnt   <= bcnt + 3'd1;
+                pp_val <= txb[3'd6 - bcnt];
               end
             end
           end
