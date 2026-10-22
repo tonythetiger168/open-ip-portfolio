@@ -215,7 +215,14 @@ def gen_tb(P, spec, core, words, irqb, flagb, pt):
     a("    PRESETN = 1;")
     a("    cycles(2);")
     a("    check_reset_values();")
-    a("    rd_exp(A_IRQ_STATUS, 0);")
+    if spec.get("irq_at_reset"):
+        # core events that fire as soon as reset ends (a continuously
+        # transmitting core): allowed in IRQ_STATUS right after reset
+        m = " | ".join(f"(1 << IRQ_{n})" for n in spec["irq_at_reset"])
+        a("    rd(A_IRQ_STATUS);")
+        a(f"    if ((rdv & ~({m})) !== 0) fail($sformatf(\"IRQ_STATUS %h after reset\", rdv));")
+    else:
+        a("    rd_exp(A_IRQ_STATUS, 0);")
     a(f"    if (errors == 0) $display(\"TEST PASSED: {P}_apb\");")
     a(f"    else $display(\"TEST FAILED: {P}_apb (%0d errors)\", errors);")
     a("    $finish;")
