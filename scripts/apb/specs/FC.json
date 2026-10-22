@@ -1,0 +1,30 @@
+{
+  "title": "Fibre Channel FC-1 / FC-2 port: 8b/10b, ordered sets, class 3 frames, buffer-to-buffer credit",
+  "code": "0x4643",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "60ms",
+  "regs": [
+    {"name": "CFG", "kind": "rw", "desc": "Flow control",
+     "fields": [{"port": "cfg_credit", "reset": "0", "desc": "BB_credit of the far end: frames that may be outstanding (0 = no check)"}]},
+    {"name": "TX", "kind": "stream_in", "data": ["tx_data", "tx_last", "tx_sofi", "tx_eoft"], "valid": "tx_valid", "ready": "tx_ready",
+     "desc": "Transmit byte (header first; the port adds SOF, fill, CRC and EOF); a frame starts once its first byte is in TX, and each next byte must arrive within a character time (10 PCLK)",
+     "fdesc": {"tx_data": "byte", "tx_last": "last byte of the frame", "tx_sofi": "with the first byte: SOFi3 (else SOFn3)", "tx_eoft": "with the last byte: EOFt (else EOFn)"}},
+    {"name": "RX", "kind": "stream_out", "data": ["rx_data", "rx_last", "rx_stat"], "valid": "rx_valid",
+     "desc": "Received byte (CRC removed); read it within a character time (10 PCLK)",
+     "fdesc": {"rx_data": "byte", "rx_last": "last byte of the frame", "rx_stat": "with rx_last: {sofi, eoft, abort, len_err, crc_err}"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Link and credit",
+     "fields": [{"port": "rx_sync", "desc": "the receiver is word-aligned and has seen three ordered sets"},
+                {"port": "credit_used", "desc": "frames sent and not yet answered by R_RDY"}]}
+  ],
+  "irqs": [
+    {"name": "TX_SENT", "port": "tx_done", "desc": "a frame was sent (EOF out)"},
+    {"name": "TX_UNDERRUN", "port": "tx_underrun", "desc": "a transmit byte was late: the frame was ended with EOFa"},
+    {"name": "RX_FRAG", "port": "rx_frag", "desc": "a frame of fewer than 5 bytes was received and dropped"},
+    {"name": "ERR_CODE", "port": "err_code", "desc": "a code violation, disparity error or misplaced K character (alignment lost)"},
+    {"name": "ERR_WORD", "port": "err_word", "desc": "a data word or an EOF outside a frame"}
+  ],
+  "notes": [
+    "tx_p and rx_p are the serial line pins (one bit per PCLK); they pass through unchanged."
+  ]
+}
