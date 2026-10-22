@@ -1,23 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 /*verilator coverage_off*/
-// ^ TB-internal coverage points are never collected (run_cov parses only
-// rtl/HDCP_2_3_Content_Protection_top.sv); the per-statement coverage
-// counters double the initial-coroutine TU and OOMed cc1plus on the 5GB
-// box. Comment-only for iverilog; no behavioural change.
+// ^ TB-internal coverage points are never collected (run_cov scores only
+// the RTL); per-statement counters on this TB's AES functions blow up the
+// C++ build. Comment-only for iverilog.
 // ============================================================================
-// Self-checking testbench for HDCP_2_3_Content_Protection_top -- SystemVerilog
-// TB plays the HDCP receiver (sink): answers AKE/pairing/locality/SKE
-// messages, independently computes the session key with its own AES-128
-// (FIPS-197) implementation, decrypts the AES-128-CTR pixel keystream and
-// injects locality-timeout and pairing-failure errors.
-//
-// The TB AES function is anchored to reality by two known-answer checks
-// before any DUT traffic:
-//   * FIPS-197 / NIST vector: key=000102..0f, pt=00112233..ff
-//   * openssl-precomputed:    key=2b7e1516..4f3c (the TB km), pt=0^128
+// Self-checking testbench for HDCP_2_3_Content_Protection_top -- the TB plays
+// the HDCP receiver: it answers AKE / pairing / locality / SKE messages,
+// computes ks, E_km, H', L' and the AES-128-CTR keystream with its own
+// AES-128 (anchored by the FIPS-197 known-answer vector) and decrypts the
+// pixel stream.
+// Covered: full authentication without and with a repeater, every failure
+// (pairing ack, locality value, locality timeout and the last allowed
+// clock, unexpected message type in each wait state, message timeouts and
+// the last allowed clock), CTRL.start ignored while busy and restarting a
+// session from AUTH, irq clear (and an error in the same clock), the
+// register window (km / ks bytes, all registers), pixel backpressure,
+// keystream exhaustion after 65536 words, reset mid-authentication.
 // ============================================================================
 `timescale 1ns/1ps
 module HDCP_2_3_Content_Protection_tb;
+
+  localparam int MSG_TO = 255;
 
   logic         clk = 1'b0, rst_n = 1'b0;
   logic         reg_we = 1'b0;
@@ -31,12 +34,12 @@ module HDCP_2_3_Content_Protection_tb;
   logic [127:0] rxm_data = 128'h0;
   logic         pix_valid = 1'b0, pix_ready;
   logic [31:0]  pix_data = 32'h0;
-  logic         enc_valid, enc_ready;
+  logic         enc_valid, enc_ready = 1'b1;
   logic [31:0]  enc_data;
   logic         irq;
   int           errors = 0;
 
-  HDCP_2_3_Content_Protection_top dut (
+  HDCP_2_3_Content_Protection_top #(.MSG_TIMEOUT(MSG_TO)) dut (
     .clk(clk), .rst_n(rst_n),
     .reg_we(reg_we), .reg_addr(reg_addr),
     .reg_wdata(reg_wdata), .reg_rdata(reg_rdata),
@@ -50,75 +53,6 @@ module HDCP_2_3_Content_Protection_tb;
   );
 
   always #5 clk = ~clk;
-
-`ifdef VERILATOR
-  // =====================================================================
-  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
-  // =====================================================================
-  // FSM probe: auth FSM states IDLE..AUTH = 10 states
-  localparam int HDCP_FSM_TOTAL = 10;
-  logic [9:0] fsm_seen = '0;
-  always @(posedge clk) if (dut.state < 10) fsm_seen[dut.state] <= 1'b1;
-
-  int sva_total = 0, sva_fail = 0;
-  task automatic sva_check(input bit cond, input string name);
-    begin
-      sva_total++;
-      if (!cond) begin
-        sva_fail++;
-        errors++;
-        $display("SVA_FAIL: %s @%0t", name, $time);
-      end
-    end
-  endtask
-
-  // output-invariant assertion suite (sampled at posedge, pre-NBA coherent)
-  int rst_cyc = 0;
-  always @(posedge clk) begin
-    if (!rst_n) begin
-      // A1: idle in reset
-      if (rst_cyc > 0)
-        sva_check((dut.state === 4'd0) && (txm_valid === 1'b0) &&
-                  (enc_valid === 1'b0) && (irq === 1'b0), "A1 reset: idle");
-      rst_cyc++;
-    end else begin
-      // A2: irq is exactly the error-flag OR
-      sva_check(irq === (dut.err_flags != 3'b000), "A2 irq == err_flags!=0");
-      // A3: txm_valid exactly in the four TX message states, type matches
-      sva_check(txm_valid === ((dut.state == 4'd1) || (dut.state == 4'd3) ||
-                               (dut.state == 4'd5) || (dut.state == 4'd7)),
-                "A3 txm_valid states");
-      if (txm_valid)
-        sva_check(txm_type === {1'b0, dut.state[2:0]}, "A3b txm_type==state");
-      // A4: rxm_ready exactly in the four RX-wait states
-      sva_check(rxm_ready === ((dut.state == 4'd2) || (dut.state == 4'd4) ||
-                               (dut.state == 4'd6) || (dut.state == 4'd8)),
-                "A4 rxm_ready states");
-      // A5/A6: pixel handshake only while authenticated
-      if (pix_ready) sva_check(dut.state === 4'd9, "A5 pix_ready in AUTH");
-      if (enc_valid) sva_check(dut.state === 4'd9, "A6 enc_valid in AUTH");
-      // A7: failure always parks the FSM in IDLE
-      if (dut.fail) sva_check(dut.state === 4'd0, "A7 fail -> IDLE");
-      // A8: FSM encoding in range
-      sva_check(dut.state < 10, "A8 state encoding valid");
-    end
-  end
-`endif
-
-  // message types (mirror RTL)
-  localparam logic [3:0] MT_AKE_INIT = 4'd1, MT_AKE_CERT = 4'd2,
-                         MT_AKE_EKM  = 4'd3, MT_PAIR_ACK = 4'd4,
-                         MT_LC_INIT  = 4'd5, MT_LC_RESP = 4'd6,
-                         MT_SKE      = 4'd7, MT_RPT_ACK = 4'd8;
-
-  // receiver-side identity / knobs
-  logic [127:0] rx_km;              // receiver shares the provisioned km
-  logic [31:0]  rx_hrx;             // receiver pubkey-hash placeholder
-  logic         rx_repeater;        // REPEATER bit advertised in rxcaps
-
-  // captured per-session values
-  logic [63:0]  cap_rtx, cap_l;
-  logic [127:0] ks_exp;             // TB-side independent session key
 
   // ====================================================================
   // TB-side AES-128 (FIPS-197) encrypt -- independent reference used to
@@ -213,406 +147,302 @@ module HDCP_2_3_Content_Protection_tb;
     end
   endfunction
 
-  // ------------------- helpers --------------------------------------------
-  task automatic chk(input bit cond, input string msg);
-    if (!cond) begin
-      errors++;
-      $display("ERROR: %s (t=%0t)", msg, $time);
-    end
+  // ------------------------------------------------------------------
+  // helpers
+  // ------------------------------------------------------------------
+  task automatic chk(input logic cond, input string msg);
+    if (!cond) begin errors++; $display("ERROR: %s (t=%0t)", msg, $time); end
   endtask
 
-  task automatic reg_write(input [2:0] a, input [7:0] d);
-    begin
-      @(negedge clk);
-      reg_addr = a; reg_wdata = d; reg_we = 1'b1;
-      @(negedge clk);
-      reg_we = 1'b0;
-    end
+  task automatic reg_write(input logic [2:0] a, input logic [7:0] d);
+    @(negedge clk);
+    reg_addr = a; reg_wdata = d; reg_we = 1'b1;
+    @(negedge clk);
+    reg_we = 1'b0;
   endtask
 
-  task automatic reg_read(input [2:0] a, output [7:0] d);
-    begin
-      @(negedge clk);
-      reg_addr = a;
-      #1 d = reg_rdata;            // combinational read
-    end
+  task automatic reg_read(input logic [2:0] a, output logic [7:0] d);
+    @(negedge clk);
+    reg_addr = a;
+    #1 d = reg_rdata;
   endtask
 
-  // expect a TX->RX message of given type; capture payload
-  task automatic tx_expect(input [3:0] mtype, output [127:0] data);
+  // wait for a TX message, check its type, accept it after dly clocks
+  task automatic tx_expect(input logic [3:0] mtype, input int dly, output logic [127:0] data);
     int n;
-    bit done;
-    begin
-      n = 0; done = 1'b0;
-      txm_ready = 1'b1;            // DUT holds the message until we accept
-      #1;                          // settle; the message may already be up
-      if (txm_valid && txm_type == mtype) begin
-        data = txm_data;
-        done = 1'b1;
-        @(negedge clk);            // handshake lands on the next posedge
-      end
-      while (!done) begin
-        @(negedge clk);
-        if (txm_valid && txm_type == mtype) begin
-          data = txm_data;
-          @(negedge clk);          // handshake lands on the next posedge
-          done = 1'b1;
-        end else begin
-          n++;
-          if (n > 2000) begin
-            chk(0, $sformatf("timeout waiting TX message type %0d", mtype));
-            data = {128{1'bx}};
-            done = 1'b1;
-          end
-        end
-      end
-      txm_ready = 1'b0;
-    end
+    n = 0;
+    @(negedge clk);
+    while (!txm_valid && n < 100) begin @(negedge clk); n++; end
+    chk(txm_valid && txm_type == mtype, $sformatf("TX message type %0d", mtype));
+    data = txm_data;
+    repeat (dly) begin @(negedge clk); chk(txm_valid && txm_data == data, "TX message held"); end
+    txm_ready = 1'b1;
+    @(negedge clk);
+    txm_ready = 1'b0;
   endtask
 
-  // send an RX->TX message (valid/ready handshake)
-  task automatic rx_send(input [3:0] mtype, input [127:0] data);
-    int n = 0;
-    begin
-      @(negedge clk);
-      rxm_type = mtype; rxm_data = data; rxm_valid = 1'b1;
-      @(posedge clk);
-      while (!rxm_ready && n <= 2000) begin
-        n++;
-        @(posedge clk);
-      end
-      chk(n <= 2000, $sformatf("rx_send type %0d never accepted", mtype));
-      @(negedge clk);
-      rxm_valid = 1'b0;
-    end
+  // send an RX message after dly clocks (accepted in the clock it is valid)
+  task automatic rx_send(input logic [3:0] mtype, input logic [127:0] data, input int dly);
+    repeat (dly) @(negedge clk);
+    chk(rxm_ready, "receiver channel ready");
+    rxm_type = mtype; rxm_data = data; rxm_valid = 1'b1;
+    @(negedge clk);
+    rxm_valid = 1'b0; rxm_data = $urandom;
   endtask
 
-  // wait until STATUS bit1 (authenticated) reaches 'val'
-  task automatic wait_auth(input bit val);
-    int n;
-    bit done;
-    logic [7:0] st;
-    begin
-      n = 0; done = 1'b0;
-      while (!done) begin
-        reg_read(3'd1, st);
-        if (st[1] == val) done = 1'b1;
+  task automatic state_is(input logic [3:0] st, input string msg);
+    logic [7:0] r;
+    reg_read(3'd6, r);
+    chk(r == {4'h0, st}, msg);
+  endtask
+
+  // ------------------------------------------------------------------
+  // receiver side of one authentication
+  // ------------------------------------------------------------------
+  localparam logic [3:0] MT_AKE_INIT = 4'd2, MT_AKE_CERT = 4'd3, MT_AKE_EKM = 4'd4,
+                         MT_PAIR_ACK = 4'd7, MT_LC_INIT = 4'd9, MT_LC_RESP = 4'd10,
+                         MT_SKE = 4'd11, MT_RPT_ACK = 4'd12;
+  localparam logic [3:0] S_IDLE = 0, S_AKE_INIT = 1, S_AKE_CERT = 2, S_PAIR_TX = 3, S_PAIR_RX = 4,
+                         S_LC_TX = 5, S_LC_WAIT = 6, S_SKE_TX = 7, S_RPT_WAIT = 8, S_AUTH = 9;
+
+  logic [127:0] km, ks;
+  logic [63:0]  rtx;
+  logic [15:0]  ctr;
+  int           irqs = 0;
+  always @(posedge clk) if (irq) irqs++;
+
+  task automatic set_km(input logic [127:0] k);
+    for (int i = 0; i < 16; i++) begin
+      reg_write(3'd4, 8'(i));
+      reg_write(3'd5, k[8*i +: 8]);
+    end
+    km = k;
+  endtask
+
+  task automatic start;
+    reg_write(3'd0, 8'h01);
+  endtask
+
+  // fail: 0 none, 1 pairing ack, 2 locality value, 3 locality timeout,
+  //       4 bad type in AKE_CERT, 5 bad type in PAIR_RX, 6 bad type in LC_WAIT,
+  //       7 bad type in RPT_WAIT, 8 timeout AKE_CERT, 9 timeout PAIR_RX,
+  //       10 timeout RPT_WAIT
+  // late: answer at the last clock the DUT still accepts
+  task automatic auth(input logic rpt, input int fail, input logic late);
+    logic [127:0] d, hpad;
+    logic [31:0]  hrx;
+    logic [63:0]  l;
+    logic [7:0]   r;
+    int           e0;
+    e0 = errors;
+    start;
+    tx_expect(MT_AKE_INIT, $urandom_range(0, 3), d);
+    chk(d[127:64] == 64'h0, "AKE_Init upper half");
+    rtx = d[63:0];
+    ks  = aes128_enc(km, {rtx, rtx});
+    hrx = $urandom;
+    hpad = {hrx, hrx, hrx, hrx};
+    if (fail == 4) begin rx_send(MT_PAIR_ACK, 128'h0, 2); return_fail(4'b1000, "bad type in AKE_CERT"); end
+    else if (fail == 8) begin
+      repeat (MSG_TO + 1) @(negedge clk);
+      state_is(S_IDLE, "AKE_CERT timeout"); return_fail(4'b0, "AKE_CERT timeout");
+    end else begin
+      rx_send(MT_AKE_CERT, {$urandom, hrx, $urandom, 31'($urandom), rpt}, late ? MSG_TO : 1);
+      tx_expect(MT_AKE_EKM, $urandom_range(0, 3), d);
+      chk(d == aes128_enc(hpad, km), "E_km");
+      if (fail == 5) begin rx_send(MT_LC_RESP, 128'h0, 1); return_fail(4'b1000, "bad type in PAIR_RX"); end
+      else if (fail == 9) begin
+        repeat (MSG_TO + 1) @(negedge clk);
+        state_is(S_IDLE, "PAIR_RX timeout"); return_fail(4'b0, "PAIR_RX timeout");
+      end else begin
+        d = aes128_enc(km, hpad);
+        rx_send(MT_PAIR_ACK, {$urandom, $urandom, $urandom, d[31:0] ^ ((fail == 1) ? 32'h8000_0000 : 32'h0)},
+                late ? MSG_TO : 1);
+        if (fail == 1) return_fail(4'b0010, "pairing ack mismatch");
         else begin
-          n++;
-          if (n > 2000) begin
-            chk(0, $sformatf("timeout waiting authenticated=%0b", val));
-            done = 1'b1;
+          tx_expect(MT_LC_INIT, $urandom_range(0, 3), d);
+          chk(d[127:64] == 64'h0, "LC_Init upper half");
+          l = d[63:0];
+          if (fail == 6) begin rx_send(MT_RPT_ACK, 128'h0, 1); return_fail(4'b1000, "bad type in LC_WAIT"); end
+          else if (fail == 3) begin
+            repeat (21) @(negedge clk);
+            state_is(S_IDLE, "locality timeout"); return_fail(4'b0001, "locality timeout");
+          end else begin
+            rx_send(MT_LC_RESP, {$urandom, $urandom, l ^ ks[63:0] ^ ((fail == 2) ? 64'h1 : 64'h0)},
+                    late ? 20 : 1);
+            if (fail == 2) return_fail(4'b0100, "locality mismatch");
+            else begin
+              tx_expect(MT_SKE, $urandom_range(0, 3), d);
+              chk(d == (ks ^ km), "SKE Eks");
+              if (rpt) begin
+                if (fail == 7) begin rx_send(MT_SKE, 128'h0, 1); return_fail(4'b1000, "bad type in RPT_WAIT"); end
+                else if (fail == 10) begin
+                  repeat (MSG_TO + 1) @(negedge clk);
+                  state_is(S_IDLE, "RPT_WAIT timeout"); return_fail(4'b0, "RPT_WAIT timeout");
+                end else rx_send(MT_RPT_ACK, {$urandom, $urandom, $urandom, $urandom}, late ? MSG_TO : 1);
+              end
+              if (fail == 0 || (fail >= 7 && !rpt)) begin
+                state_is(S_AUTH, "authenticated");
+                reg_read(3'd1, r);
+                chk(r == {2'b00, 1'b0, rpt, 1'b0, 3'b111}, "STATUS authenticated");
+                ctr = 0;
+              end
+            end
           end
         end
       end
     end
   endtask
 
-  // drive one pixel, check its encrypted word against the AES-CTR keystream
-  task automatic pixel_xfer(input [31:0] pix, input [127:0] sk,
-                            input [63:0] frame, input int blk);
-    logic [127:0] kb;
-    begin
-      kb = aes128_enc(sk, {frame, 32'h0, blk[31:0]}); // TB CTR keystream
-      @(negedge clk);
-      pix_data = pix; pix_valid = 1'b1;
-      @(posedge clk);
-      while (!pix_ready) @(posedge clk);     // accepted at this edge
-      @(negedge clk);
-      pix_valid = 1'b0;
-      chk(enc_valid, "enc_valid not raised after accepted pixel");
-      if (enc_valid)
-        chk(enc_data === (pix ^ kb[127:96]),
-            $sformatf("cipher mismatch pix=%08x got=%08x exp=%08x",
-                      pix, enc_data, pix ^ kb[127:96]));
-    end
+  // after a failure: state IDLE, fail flag, error bits (timeouts: bit4)
+  task automatic return_fail(input logic [3:0] bits, input string msg);
+    logic [7:0] r;
+    @(negedge clk);
+    state_is(S_IDLE, {msg, ": back to IDLE"});
+    reg_read(3'd3, r);
+    chk(r == ((bits == 0) ? 8'h10 : {4'h0, bits}), {msg, ": ERR flags"});
+    reg_read(3'd1, r);
+    chk(r[3] && irq, {msg, ": fail + irq"});
+    reg_write(3'd0, 8'h04);
+    chk(!irq, {msg, ": irq cleared"});
   endtask
 
-  // full pixel loopback round with boundary + pseudo-random samples
-  task automatic pixel_round(input [127:0] sk, input [63:0] frame);
-    logic [31:0] pats [0:7];
-    int i;
-    begin
-      pats[0] = 32'h0000_0000; pats[1] = 32'hFFFF_FFFF;
-      pats[2] = 32'hAAAA_AAAA; pats[3] = 32'h5555_5555;
-      pats[4] = 32'h1234_5678; pats[5] = 32'hDEAD_BEEF;
-      pats[6] = 32'h0000_0001; pats[7] = 32'h8000_0000;
-      for (i = 0; i < 8; i++) pixel_xfer(pats[i], sk, frame, i);
-      $display("INFO: pixel loopback round done (8 words, AES-CTR decrypt OK)");
-    end
-  endtask
-
-  // run the AKE/pairing/locality/SKE sequence up to (excl.) authentication
-  // fail_mode: 0 = none, 1 = withhold locality response, 2 = bad pairing ack
-  task automatic auth_sequence(input bit repeater, input int fail_mode);
-    logic [127:0] m;
-    logic [127:0] hrx_pad;
-    logic [7:0]   rb;
-    begin
-      hrx_pad = {rx_hrx, rx_hrx, rx_hrx, rx_hrx};
-
-      // --- AKE_Init ---
-      tx_expect(MT_AKE_INIT, m);
-      cap_rtx = m[63:0];
-      chk(cap_rtx !== 64'h0, "rtx must be nonzero");
-      // independent session key derivation: ks = AES-128-ECB(km, {rtx,rtx})
-      ks_exp = aes128_enc(rx_km, {cap_rtx, cap_rtx});
-
-      // --- AKE_Send_Cert: rxcaps + rx pubkey-hash placeholder ---
-      rx_send(MT_AKE_CERT, {32'h0, rx_hrx, 63'h0, repeater});
-
-      // --- pairing: expect E_km = AES-128-ECB(key=hrx_pad, pt=km) ---
-      tx_expect(MT_AKE_EKM, m);
-      chk(m === aes128_enc(hrx_pad, rx_km),
-          $sformatf("E_km mismatch got=%032x exp=%032x",
-                    m, aes128_enc(hrx_pad, rx_km)));
-
-      // --- pairing ack (H' = AES-128-ECB(key=km, pt=hrx_pad)[31:0]) ---
-      m = aes128_enc(rx_km, hrx_pad);
-      if (fail_mode == 2)
-        rx_send(MT_PAIR_ACK, {96'h0, ~m[31:0]});   // deliberately wrong H'
-      else
-        rx_send(MT_PAIR_ACK, {96'h0, m[31:0]});
-
-      if (fail_mode != 2) begin
-        // --- locality challenge ---
-        tx_expect(MT_LC_INIT, m);
-        cap_l = m[63:0];
-        if (fail_mode == 3) begin
-          // wrong locality response value -> locality mismatch failure
-          rx_send(MT_LC_RESP, {64'h0, (cap_l ^ ks_exp[63:0]) ^ 64'h1});
-        end else if (fail_mode != 1) begin
-          rx_send(MT_LC_RESP, {64'h0, cap_l ^ ks_exp[63:0]});
-
-          // --- session key exchange: Eks = ks XOR km ---
-          tx_expect(MT_SKE, m);
-          chk((m ^ rx_km) === ks_exp,
-              $sformatf("session key mismatch: DUT ks=%032x TB ks=%032x",
-                        m ^ rx_km, ks_exp));
-
-          if (repeater) begin
-            // DUT waits in RPT_WAIT (state 8) for repeater-ready
-            reg_read(3'd6, rb);
-            chk(rb === 8'd8, "FSM not in RPT_WAIT after SKE (repeater peer)");
-            reg_read(3'd1, rb);
-            chk(rb[1] === 1'b0, "authenticated early (before RPT_ACK)");
-            rx_send(MT_RPT_ACK, {96'h0, 32'h0000_0100}); // RxInfo-ish
+  // stream n pixel words, random gaps and enc_ready backpressure; every
+  // check_every-th word decrypted and compared
+  task automatic stream(input int n, input int check_every);
+    logic [31:0] p [$];
+    logic [15:0] c [$];
+    logic [127:0] k;
+    int sent, got;
+    sent = 0; got = 0;
+    fork
+      begin
+        while (sent < n) begin
+          @(negedge clk);
+          pix_valid = ($urandom_range(0, 7) != 0);
+          pix_data = $urandom;
+          #1;
+          if (pix_valid && pix_ready) begin p.push_back(pix_data); c.push_back(ctr); ctr++; sent++; end
+        end
+        @(negedge clk); pix_valid = 0;
+      end
+      begin
+        while (got < n) begin
+          @(negedge clk);
+          enc_ready = (n < 1000) ? ($urandom_range(0, 3) != 0) : 1'b1;
+          #1;
+          if (enc_valid && enc_ready) begin
+            if (check_every == 1 || got % check_every == 0 || got > n - 4) begin
+              k = aes128_enc(ks, {rtx, 48'h0, c[0]});
+              chk(enc_data == (p[0] ^ k[127:96]), "pixel decrypts");
+            end
+            void'(p.pop_front()); void'(c.pop_front());
+            got++;
           end
         end
-        // fail_mode == 1: withhold LC response -> DUT times out
+        @(negedge clk); enc_ready = 1;
       end
-      // fail_mode == 2: DUT must fail on the bad pairing ack
-    end
+    join
   endtask
 
-  // ------------------- stimulus -------------------------------------------
-  logic [7:0]  rb;
-  logic [127:0] rtx_prev;
-  int i;
-
-  assign enc_ready = 1'b1;   // sink always drains encrypted pixels
+  // ------------------------------------------------------------------
+  // stimulus
+  // ------------------------------------------------------------------
+  logic [7:0] r;
+  logic [127:0] kat;
 
   initial begin
-    rx_km       = 128'h2B7E_1516_28AE_D2A6_ABF7_1588_09CF_4F3C;
-    rx_hrx      = 32'hC0FF_EE11;
-    rx_repeater = 1'b0;
+    // anchor the TB AES on the FIPS-197 vector
+    kat = aes128_enc(128'h000102030405060708090a0b0c0d0e0f, 128'h00112233445566778899aabbccddeeff);
+    chk(kat == 128'h69c4e0d86a7b0430d8cdb78070b4c55a, "TB AES FIPS-197 vector");
 
-    // ---------------- reset ----------------
-    repeat (5) @(negedge clk);
-    rst_n = 1'b1;
-    repeat (2) @(negedge clk);
+    repeat (3) @(negedge clk);
+    chk(!irq && !txm_valid && !rxm_ready && !pix_ready && !enc_valid, "reset outputs");
+    rst_n = 1;
 
-    // ---- CHECK 0: TB AES-128 known-answer anchors ----
-    // FIPS-197 Appendix C / NIST vector: key=000102..0f
-    chk(aes128_enc(128'h00010203_04050607_08090a0b_0c0d0e0f,
-                   128'h00112233_44556677_8899aabb_ccddeeff)
-        === 128'h69c4e0d8_6a7b0430_d8cdb780_70b4c55a,
-        "TB AES-128 fails FIPS-197 KAT (key=000102..0f)");
-    // openssl-precomputed anchor: AES-128-ECB(key=rx_km, pt=0^128)
-    chk(aes128_enc(rx_km, 128'h0)
-        === 128'h7df76b0c_1ab899b3_3e42f047_b91b546f,
-        "TB AES-128 fails openssl KAT (key=km, pt=0)");
-    $display("INFO: check 0 (AES-128 known-answer anchors) done");
+    // ---- register window ----
+    reg_read(3'd2, r); chk(r == 8'h23, "version");
+    reg_read(3'd0, r); chk(r == 8'h00, "CTRL reads 0");
+    reg_read(3'd1, r); chk(r == 8'h00, "STATUS idle");
+    set_km({128{1'b1}});
+    for (int i = 0; i < 16; i++) begin reg_write(3'd4, 8'(i)); reg_read(3'd5, r); chk(r == 8'hFF, "km byte"); end
+    reg_read(3'd4, r); chk(r == 8'h0F, "KMIDX");
+    set_km(128'h0);
+    set_km(128'h2b7e1516_28aed2a6_abf71588_09cf4f3c);
+    reg_write(3'd0, 8'h00);                          // CTRL with no action
+    for (int a = 1; a < 8; a++) if (a != 4 && a != 5) reg_write(3'(a), 8'hFF);  // read-only
+    reg_read(3'd2, r); chk(r == 8'h23, "version is read-only");
+    reg_read(3'd3, r); chk(r == 8'h00, "ERR is read-only");
 
-    // ---- CHECK 1: reset state ----
-    reg_read(3'd1, rb); chk(rb === 8'h00, "STATUS not 0 after reset");
-    reg_read(3'd2, rb); chk(rb === 8'h23, "hdcp2version != 0x23");
-    reg_read(3'd3, rb); chk(rb === 8'h00, "ERR not 0 after reset");
-    reg_read(3'd6, rb); chk(rb === 8'h00, "STATE not IDLE after reset");
-    chk(irq === 1'b0, "irq asserted after reset");
-    $display("INFO: check 1 (reset state) done");
-
-    // ---- CHECK 2: km register-window write + readback ----
-    for (i = 0; i < 16; i++) begin
-      reg_write(3'd4, i[3:0]);                       // KMIDX
-      reg_write(3'd5, rx_km[i*8 +: 8]);              // KMDAT
-    end
-    for (i = 0; i < 16; i++) begin
-      reg_write(3'd4, i[3:0]);
-      reg_read(3'd5, rb);
-      chk(rb === rx_km[i*8 +: 8],
-          $sformatf("km readback byte %0d got=%02x exp=%02x",
-                    i, rb, rx_km[i*8 +: 8]));
-    end
-    $display("INFO: check 2 (km window write/readback) done");
-
-    // ---- CHECK 3: session 1 (non-repeater) full auth + encryption ----
-    reg_write(3'd0, 8'h01);                          // CTRL.start
-    auth_sequence(1'b0, 0);
-    wait_auth(1'b1);
-    reg_read(3'd1, rb);
-    chk(rb[2] === 1'b1, "enc_active not set after auth");
-    chk(rb[4] === 1'b0, "peer_is_repeater wrong for session 1");
-    // session key readable via KS window and matches TB AES derivation
-    for (i = 0; i < 16; i++) begin
-      reg_write(3'd4, i[3:0]);
-      reg_read(3'd7, rb);
-      chk(rb === ks_exp[i*8 +: 8],
-          $sformatf("ks window byte %0d got=%02x exp=%02x",
-                    i, rb, ks_exp[i*8 +: 8]));
-    end
-    pixel_round(ks_exp, 64'd1);                      // frame_ctr = 1 (session 1)
-    rtx_prev = cap_rtx;
-    $display("INFO: check 3 (session 1 full auth + AES-CTR cipher) done");
-
-    // ---- CHECK 4: session 2 (repeater peer), back-to-back ----
-    reg_write(3'd0, 8'h01);                          // re-start from AUTH state
-    auth_sequence(1'b1, 0);
-    chk(cap_rtx !== rtx_prev[63:0], "rtx not refreshed for session 2");
-    wait_auth(1'b1);
-    reg_read(3'd1, rb);
-    chk(rb[4] === 1'b1, "peer_is_repeater not set for session 2");
-    pixel_round(ks_exp, 64'd2);                      // frame_ctr = 2 (session 2)
-    $display("INFO: check 4 (session 2 repeater back-to-back) done");
-
-    // ---- CHECK 5: error injection -- locality timeout ----
-    reg_write(3'd0, 8'h01);
-    auth_sequence(1'b0, 1);                          // withhold LC response
-    repeat (40) @(negedge clk);                      // let the 20-clk timer expire
-    reg_read(3'd1, rb);
-    chk(rb[3] === 1'b1, "fail not set after locality timeout");
-    chk(rb[1] === 1'b0, "authenticated wrongly set after locality timeout");
-    reg_read(3'd3, rb);
-    chk(rb[0] === 1'b1, "ERR locality-timeout bit not set");
-    chk(irq === 1'b1, "irq not asserted on locality timeout");
-    reg_write(3'd0, 8'h04);                          // CTRL.irq_clr
+    // ---- full authentication, no repeater; pixels ----
+    auth(0, 0, 0);
+    for (int i = 0; i < 16; i++) begin reg_write(3'd4, 8'(i)); reg_read(3'd7, r); chk(r == ks[8*i +: 8], "ks byte"); end
+    stream(300, 1);
+    // CTRL.start while authenticated: a new session with a new rtx
+    reg_write(3'd0, 8'h00);
+    auth(1, 0, 0);                                   // repeater
+    stream(50, 1);
+    // ---- start ignored while busy ----
+    start;
     @(negedge clk);
-    chk(irq === 1'b0, "irq not cleared by CTRL.irq_clr");
-    reg_read(3'd6, rb);
-    chk(rb === 8'h00, "FSM not back to IDLE after locality fail");
-    $display("INFO: check 5 (locality timeout injection) done");
+    start;                                           // in AKE_INIT: ignored
+    state_is(S_AKE_INIT, "start ignored while busy");
+    tx_expect(MT_AKE_INIT, 0, kat);
+    rx_send(MT_AKE_CERT, 128'h0, 2);
+    start;                                           // in PAIR_TX: ignored
+    state_is(S_PAIR_TX, "start ignored in PAIR_TX");
+    rst_n = 0; @(negedge clk);                       // reset mid-authentication
+    chk(!irq && !txm_valid && !rxm_ready, "reset mid-auth");
+    rst_n = 1;
+    set_km(128'hffeeddcc_bbaa9988_77665544_33221100);
 
-    // ---- CHECK 6: error injection -- pairing failure ----
-    reg_write(3'd0, 8'h01);
-    auth_sequence(1'b0, 2);                          // wrong pairing ack
-    repeat (4) @(negedge clk);
-    reg_read(3'd1, rb);
-    chk(rb[3] === 1'b1, "fail not set after pairing failure");
-    reg_read(3'd3, rb);
-    chk(rb[1] === 1'b1, "ERR pairing-fail bit not set");
-    chk(irq === 1'b1, "irq not asserted on pairing failure");
-    reg_read(3'd6, rb);
-    chk(rb === 8'h00, "FSM not back to IDLE after pairing fail");
-    $display("INFO: check 6 (pairing failure injection) done");
+    // ---- answers at the last allowed clock ----
+    auth(1, 0, 1);
+    stream(20, 1);
 
-`ifdef VERILATOR
-    // ---- v2.5 CRV random phase (directed tests above untouched) ----
-    // 120 randomized authentication transactions: each iteration randomizes
-    // the receiver identity (hrx, REPEATER bit), optionally re-programs a
-    // fresh random master key km through the register window (~25%), then
-    // runs one session of a random class:
-    //   60% good session: full AKE/pairing/locality/SKE (repeater or not),
-    //          TB independently derives ks with its own AES-128, then a
-    //          random-length burst (1..12) of random pixel words is checked
-    //          word-by-word against the AES-128-CTR keystream (frame
-    //          counter tracked across sessions);
-    //   20% bad pairing ack -> ERR[1] + irq + FSM back to IDLE;
-    //   10% locality response withheld -> 20-clk timeout, ERR[0] + irq;
-    //   10% wrong locality response value -> ERR[2] + irq.
-    // Every error session ends with CTRL.irq_clr + irq deassertion check.
-    begin : crv_phase
-      int n_good = 0, n_pair = 0, n_lctmo = 0, n_lcbad = 0;
-      int b, p, npix, cls;
-      longint unsigned frame_no = 3;   // directed phase used frames 1,2
-      bit rep;
-      for (int i = 0; i < 120; i++) begin
-        if ($urandom_range(0, 3) == 0) begin
-          rx_km = {$urandom, $urandom, $urandom, $urandom};
-          for (b = 0; b < 16; b++) begin
-            reg_write(3'd4, b[3:0]);
-            reg_write(3'd5, rx_km[b*8 +: 8]);
-          end
-        end
-        rx_hrx = $urandom;
-        rep    = $urandom_range(0, 1);
-        cls    = $urandom_range(0, 9);
-        reg_write(3'd0, 8'h01);                        // CTRL.start
-        if (cls <= 5) begin
-          auth_sequence(rep, 0);
-          wait_auth(1'b1);
-          npix = $urandom_range(1, 12);
-          for (p = 0; p < npix; p++)
-            pixel_xfer($urandom, ks_exp, frame_no[63:0], p);
-          frame_no++;
-          n_good++;
-        end else begin
-          if (cls <= 7)      begin auth_sequence(rep, 2); n_pair++;  end
-          else if (cls == 8) begin auth_sequence(rep, 1); n_lctmo++; end
-          else               begin auth_sequence(rep, 3); n_lcbad++; end
-          if (cls == 8) repeat (40) @(negedge clk);      // let timer expire
-          else          repeat (4)  @(negedge clk);
-          reg_read(3'd1, rb);
-          chk(rb[3] === 1'b1, "CRV fail not set after error session");
-          chk(rb[1] === 1'b0, "CRV authenticated wrongly set");
-          reg_read(3'd3, rb);
-          if (cls <= 7)      chk(rb[1] === 1'b1, "CRV ERR pairing bit");
-          else if (cls == 8) chk(rb[0] === 1'b1, "CRV ERR locality-timeout bit");
-          else               chk(rb[2] === 1'b1, "CRV ERR locality-mismatch bit");
-          chk(irq === 1'b1, "CRV irq not asserted on error session");
-          reg_read(3'd6, rb);
-          chk(rb === 8'h00, "CRV FSM not back to IDLE after error session");
-          reg_write(3'd0, 8'h04);                        // CTRL.irq_clr
-          @(negedge clk);
-          chk(irq === 1'b0, "CRV irq not cleared by CTRL.irq_clr");
-        end
-      end
-      $display("CRV: 120 sessions, good=%0d pair-fail=%0d lc-timeout=%0d lc-bad=%0d, last frame=%0d",
-               n_good, n_pair, n_lctmo, n_lcbad, frame_no - 1);
-    end
-`endif
+    // ---- more sessions (fresh nonces) ----
+    repeat (4) auth($urandom_range(0, 1), 0, 0);
 
-    // ---------------- result ----------------
+    // ---- every failure ----
+    auth(0, 1, 0);
+    auth(0, 2, 0);
+    auth(0, 3, 0);
+    auth(1, 4, 0);
+    auth(1, 5, 0);
+    auth(1, 6, 0);
+    auth(1, 7, 0);
+    auth(0, 8, 0);
+    auth(0, 9, 0);
+    auth(1, 10, 0);
+    // error in the same clock as an irq clear: the error wins
+    auth(0, 0, 0);
+    start;
+    tx_expect(MT_AKE_INIT, 0, kat);
+    repeat (MSG_TO - 1) @(negedge clk);
+    reg_write(3'd0, 8'h04);                          // lands with the timeout
+    reg_read(3'd3, r); chk(r == 8'h10, "error set wins over clear");
+    reg_write(3'd0, 8'h04);
+
+    // ---- keystream exhaustion ----
+    auth(0, 0, 0);
+    stream(65536, 4096);
+    @(negedge clk);
+    chk(!pix_ready && irq, "keystream exhausted");
+    reg_read(3'd3, r); chk(r == 8'h20, "ERR exhausted");
+    reg_read(3'd1, r); chk(r[5], "STATUS exhausted");
+    pix_valid = 1; repeat (5) @(negedge clk); pix_valid = 0;
+    chk(!enc_valid, "no more pixels");
+    auth(0, 0, 0);                                   // a new session re-keys
+    chk(!irq, "new session clears the error");
+    stream(10, 1);
+
     if (errors == 0) $display("TEST PASSED: HDCP_2_3_Content_Protection");
     else             $display("TEST FAILED: %0d errors", errors);
-`ifdef VERILATOR
-    begin
-      int visited;
-      visited = 0;
-      for (int s = 0; s < HDCP_FSM_TOTAL; s++) visited += fsm_seen[s];
-      $display("FSM_COV: %0d/%0d", visited, HDCP_FSM_TOTAL);
-      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
-    end
-`endif
     $finish;
   end
 
-  // ------------------- timeout guard --------------------------------------
-`ifdef VERILATOR
-  // Chunked timeout: Verilator 5.006 corrupts the --timing delay heap on a
-  // single long-pending #delay once many short-delay resumptions interleave.
   initial begin
-    repeat (4000) #1000;   // 4 ms in 1-us chunks
-    $display("TIMEOUT");
-    $display("TEST FAILED: %0d errors", errors + 1);
-    $finish;
+    #50000000;
+    $display("TEST FAILED: TIMEOUT"); $finish;
   end
-`else
-  initial begin
-    #2_000_000;
-    $display("TIMEOUT");
-    $display("TEST FAILED: %0d errors", errors + 1);
-    $finish;
-  end
-`endif
-
 endmodule
