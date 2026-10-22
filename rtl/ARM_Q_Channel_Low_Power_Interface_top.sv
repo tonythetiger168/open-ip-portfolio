@@ -7,7 +7,7 @@
 // IP design implementation v1.0 -- Apache-2.0
 // ============================================================================
 module ARM_Q_Channel_Low_Power_Interface_top #(
-  parameter int DW = 32,            // width of the dev_event statistics counter
+  parameter int DW = 32,            // kept for framework interface conformity
   parameter int AW = 32,            // kept for framework interface conformity
   parameter int ACT_CYCLES = 16     // activity persistence after an dev_event
 )(
@@ -37,17 +37,15 @@ module ARM_Q_Channel_Low_Power_Interface_top #(
   // activity detection: an dev_event keeps the device "active" for
   // ACT_CYCLES clocks; events are also counted for statistics
   // ------------------------------------------------------------------
-  logic [7:0]    act_cnt;
-  logic [DW-1:0] evt_count;
-  wire           active = (act_cnt != 8'd0);
+  localparam int CW = $clog2(ACT_CYCLES + 1);
+  logic [CW-1:0] act_cnt;
+  wire           active = (act_cnt != '0);
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      act_cnt   <= 8'd0;
-      evt_count <= '0;
+      act_cnt <= '0;
     end else if (dev_event) begin
-      act_cnt   <= ACT_CYCLES[7:0];
-      evt_count <= evt_count + 1'b1;
+      act_cnt <= CW'(ACT_CYCLES);
     end else if (active) begin
       act_cnt <= act_cnt - 1'b1;
     end
@@ -88,6 +86,5 @@ module ARM_Q_Channel_Low_Power_Interface_top #(
                ((state == Q_EXIT)    && !qreqn);
 
   // AW kept for interface conformity; high dev_event-count bits unused
-  wire unused = &{1'b0, evt_count[DW-1:8], 1'b0};
 
 endmodule
