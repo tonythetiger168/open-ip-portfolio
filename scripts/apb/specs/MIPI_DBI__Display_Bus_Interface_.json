@@ -1,0 +1,28 @@
+{
+  "title": "MIPI DBI-2 display bus host controller (Type A, Type B, Type C options 1 / 3)",
+  "code": "0x4442",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "20ms",
+  "regs": [
+    {"name": "CFG", "kind": "rw", "desc": "Interface configuration (change only while STATUS.busy is 0)",
+     "fields": [{"port": "cfg_type", "reset": "1", "desc": "0 Type A (6800), 1 Type B (8080), 2 Type C option 1 (3-line, 9-bit), 3 Type C option 3 (4-line, D/CX pin)"},
+                {"port": "cfg_w16", "reset": "0", "desc": "Type A / B 16-bit data bus"},
+                {"port": "cfg_tw", "reset": "2", "desc": "write phase length - 1 (PCLK)"},
+                {"port": "cfg_tr", "reset": "4", "desc": "read phase length - 1 (PCLK)"},
+                {"port": "cfg_dummy", "reset": "1", "desc": "Type C dummy clocks before the first read after a write"}]},
+    {"name": "OP", "kind": "stream_in", "data": ["op_data", "op_dc", "op_rd", "op_last"], "valid": "op_valid", "ready": "op_ready",
+     "desc": "One bus transfer; writing OP commits it",
+     "fdesc": {"op_data": "write data (8-bit transfers use [7:0])", "op_dc": "0 command, 1 data / parameter (D/CX)",
+               "op_rd": "1 read, 0 write", "op_last": "release CSX after this transfer"}},
+    {"name": "RD", "kind": "stream_out", "data": "rd_data", "valid": "rd_valid",
+     "desc": "Read data; reading RD frees it",
+     "fdesc": {"rd_data": "read data (8-bit transfers in [7:0])"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Controller state",
+     "fields": [{"port": "busy", "desc": "a transfer is running or CSX is low"}]}
+  ],
+  "irqs": [],
+  "notes": [
+    "csx, dcx, wrx (Type B WRX / Type A R/WX), rdx (Type B RDX / Type A E), d_o / d_oe / d_i (data bus, 16 bits, Type A / B) and scl, sda_o / sda_oe / sda_i (Type C) are the display pins; all pass through unchanged."
+  ]
+}
