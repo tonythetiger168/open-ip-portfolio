@@ -183,6 +183,19 @@ module Avalon_ST_tb;
     end
 `endif
 
+    // fill all 16 slots with no end-of-packet marker on the last one,
+    // reading slot 0 back while the beats stream in
+    @(negedge clk); rst_n = 1'b0;
+    @(negedge clk); rst_n = 1'b1;
+    @(negedge clk); ren <= 1'b1; raddr <= 4'd0;
+    for (int i = 0; i < 16; i++) begin
+      av_valid <= 1'b1; av_data <= 32'h5100_0000 + i; av_eop <= 1'b0;
+      @(negedge clk);
+    end
+    av_valid <= 1'b0; ren <= 1'b0;
+    if (count !== 5'd16 || rdata !== 32'h5100_0000) begin
+      errors++; $display("ERROR: fill-16 count=%0d rdata=%h", count, rdata);
+    end
     if (errors == 0) $display("TEST PASSED: Avalon-ST");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR
