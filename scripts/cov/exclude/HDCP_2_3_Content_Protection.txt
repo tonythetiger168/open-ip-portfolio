@@ -1,0 +1,1 @@
+LINE \| default: state <= ST_IDLE; # 10-state FSM in 4 bits: recovery for the 6 unused encodings, unreachable
