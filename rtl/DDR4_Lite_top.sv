@@ -367,6 +367,14 @@ module DDR4_Lite_top #(
   // Command engine
   // ========================================================================
   wire [31:0] mem_idx = ((eng_bank * ROWS) + eng_row[31:0]) * LINES + eng_line;
+
+  // Array write port, kept out of the async-reset engine process so the
+  // array infers as a memory (SRAM macro) instead of 128-bit registers;
+  // the engine posts one write per burst, applied on the next edge.
+  logic           mem_we;
+  logic [31:0]    mem_wa;
+  logic [127:0]   mem_wd;
+  always_ff @(posedge clk) if (mem_we) mem[mem_wa] <= mem_wd;
   wire hit = bank_open[eng_bank] &&
              (bank_row[eng_bank] == eng_row[$clog2(ROWS)-1:0]);
   // refresh may only start when no bank is mid-write or inside tRAS
@@ -376,6 +384,7 @@ module DDR4_Lite_top #(
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       eng <= ENG_IDLE;
+      mem_we <= 1'b0; mem_wa <= 32'h0; mem_wd <= '0;
       eng_bank <= 4'd0; eng_line <= 4'd0; eng_row <= 32'h0; eng_we <= 1'b0;
       eng_ref_req <= 1'b0;
       lat_cnt <= 5'd0; bcnt <= 5'd0;
@@ -396,6 +405,7 @@ module DDR4_Lite_top #(
       ld_rp_v <= 4'h0; ld_ras_v <= 4'h0; ld_rc_v <= 4'h0; ld_wr_v <= 4'h0;
       ld_rrd_v <= 1'b0; ld_wtr_v <= 1'b0; ld_rfc_v <= 1'b0;
       ref_ack <= 1'b0; req_done <= 1'b0; eng_err <= 1'b0;
+      mem_we <= 1'b0;
       if (rbuf_take) rbuf_valid <= 1'b0;
       case (eng)
         // --------------------------------------------------------------
@@ -484,7 +494,6 @@ module DDR4_Lite_top #(
           if (bcnt == 5'd7) begin
             for (int i = 0; i < 8; i++) rbuf[i] <= burst_reg[16*i +: 16];
             rbuf_valid <= 1'b1;
-            dq_oe <= 1'b0; dqs_oe <= 1'b0;
             ld_wtr_v <= 1'b1;                   // tWTR before any WR
             req_done <= 1'b1;
             eng <= ENG_IDLE;
@@ -502,9 +511,9 @@ module DDR4_Lite_top #(
           dq_oe <= 1'b1; dqs_oe <= 1'b1; dqs_t <= ~dqs_t;
           dq_out <= wbuf[bcnt[2:0]];
           if (bcnt == 5'd7) begin
-            mem[mem_idx] <= {wbuf[7], wbuf[6], wbuf[5], wbuf[4],
+            mem_we <= 1'b1; mem_wa <= mem_idx;
+            mem_wd <= {wbuf[7], wbuf[6], wbuf[5], wbuf[4],
                              wbuf[3], wbuf[2], wbuf[1], wbuf[0]};
-            dq_oe <= 1'b0; dqs_oe <= 1'b0;
             ld_wr_v[eng_bank] <= 1'b1; ld_wr <= T_WR[15:0];  // tWR
             req_done <= 1'b1;
             eng <= ENG_IDLE;
