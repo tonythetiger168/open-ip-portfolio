@@ -1,771 +1,367 @@
 // SPDX-License-Identifier: Apache-2.0
-// ============================================================================
-// Self-checking testbench for SD_top -- SystemVerilog
-// SD card model (CMD/DAT responder, 4-bit bus) + R7 voltage-mismatch, CRC16,
-// CRC7 and mute (command timeout) injection scenarios. DUT is the host.
-// Bus convention (race-free): the host drives/samples on the sd_clk rising
-// edge (its internal tick); this card model drives/samples on the falling
-// edge of sd_clk, so every transferred bit is stable for half a cycle
-// before it is sampled. CMD/DAT lines are tri1 (pull-up modelled).
-// ============================================================================
+// Self-checking testbench for SD_top -- the DUT is an autonomous SD host;
+// this TB is the card. Bus convention (race-free): the host drives and
+// samples on the sd_clk rising edge (its internal tick); the card model
+// drives and samples on the falling edge. CMD / DAT are tri1 (pull-ups).
+// The card receives every command frame (checks CRC7, framing and the
+// arguments), answers R7 / R1 / R3 / R2 / R6, takes CMD24 write blocks in
+// 4-bit mode (own per-line CRC16, CRC status token, busy) into a 4-block
+// store and sends CMD17 read blocks. One-shot fault knobs corrupt a chosen
+// response or data phase; each fault must raise irq and the matching
+// sticky error flag, and the host must recover (a further round completes).
+// Covered: ACMD41 busy polling, standard and high capacity addressing,
+// R7 voltage / pattern / framing faults, R3 / R2 / R6 / R1 framing, CRC,
+// index and card-status faults, response timeouts, negative / missing CRC
+// status, write busy and busy timeout, read data timeout / CRC (each line)
+// / end bit / compare faults, resets mid-transfer, the round counter
+// wrapping.
 `timescale 1ns/1ps
-module SD_tb;
 
-  // ------------------------- clocks / resets / bus -------------------------
-  logic clk = 1'b0, rst_n = 1'b0;
-  logic sd_clk;
-  tri1  cmd;                       // CMD line with pull-up
-  tri1 [3:0] dat;                  // DAT lines with pull-ups
-  logic irq;
-  int   errors = 0;
+module sd_card (
+  input logic      sd_clk,
+  inout wire       cmd,
+  inout wire [3:0] dat
+);
+  localparam int F_NONE = 0, F_MUTE = 1, F_R3 = 2, F_R2 = 3, F_CRC7 = 4, F_IDX = 5, F_END = 6,
+                 F_TXB = 7, F_STAT = 8, F_TOK = 9, F_TOKMUTE = 10, F_BUSYHOLD = 11, F_RDMUTE = 12,
+                 F_RDCRC = 13, F_RDEND = 14, F_RDDATA = 15, F_WCRC = 16, F_R3RES = 17, F_R2RES = 18,
+                 F_R7V = 19, F_R7P = 20;
+  logic [127:0] cid_base = 128'h0353_4453_4430_3847_8012_3456_7801_5A00;
+  logic [15:0]  rca = 16'hB37A;
+  logic         ccs = 1;
 
-  SD_top dut (
-    .clk(clk), .rst_n(rst_n), .sd_clk(sd_clk),
-    .cmd(cmd), .dat(dat), .irq(irq)
-  );
-
-  always #5 clk = ~clk;            // 100 MHz system clock; sd_clk = clk/4
-
-  // DUT state encodings (mirror rtl/SD_top.sv for hierarchical checks)
-  localparam logic [3:0] H_CMD0 = 4'd0, H_IDLE = 4'd6;
-
-  // card identity
-  localparam logic [127:0] CID_VAL = 128'h0123_4567_89AB_CDEF_FEDC_BA98_7654_3211;
-  localparam logic [15:0]  RCA_VAL = 16'h0001;
-  localparam logic [31:0]  R1_ST   = 32'h0000_0900; // ready_for_data | tran
-  localparam logic [31:0]  R1_APP  = R1_ST | 32'h20; // + APP_CMD bit
-
-  // ------------------------- card-model knobs (main process only) ---------
-  logic busy_ready = 1'b0;  // OCR busy bit: 0 = card still busy
-  logic mute       = 1'b0;  // 1 = never respond (command timeout test)
-  logic inj_crc16  = 1'b0;  // 1 = corrupt CRC16 of next read data block
-  logic inj_crc7   = 1'b0;  // 1 = corrupt CRC7 of next R1 response
-  logic bad_volt   = 1'b0;  // 1 = R7 with wrong voltage/pattern (auto-clears)
-
-  // ------------------------- card drive signals ---------------------------
-  logic       c_cmd_oe = 1'b0, c_cmd_out = 1'b1;
-  logic [3:0] c_dat_oe = 4'b0000, c_dat_out = 4'hF;
-  assign cmd = c_cmd_oe ? c_cmd_out : 1'bz;
-  // per-bit drive: oe=1 drives c_dat_out, oe=0 leaves the line pulled up
-  assign dat[0] = c_dat_oe[0] ? c_dat_out[0] : 1'bz;
-  assign dat[1] = c_dat_oe[1] ? c_dat_out[1] : 1'bz;
-  assign dat[2] = c_dat_oe[2] ? c_dat_out[2] : 1'bz;
-  assign dat[3] = c_dat_oe[3] ? c_dat_out[3] : 1'bz;
-
-  logic [255:0] card_blk [0:3];               // card storage: 4 x 32-byte blocks
-  int cmd_log [0:255];                        // received command index log
-  int cmd_log_n        = 0;
-  int cmd8_cnt         = 0;
-  int cmd41_cnt        = 0;
-  int cmd55_cnt        = 0;
-  int cmd13_cnt        = 0;
-  int cmd8_arg_ok      = 0;                   // CMD8 arg was 0x1AA
-  int cmd41_arg_ok     = 0;                   // ACMD41 arg HCS+voltage window
-  int card_cmdcrc_errs = 0;
-  int card_datcrc_errs = 0;
-  int irq_cnt          = 0;
-  int irq_before       = 0;
-  int twait            = 0;
-  int sdclk_cnt        = 0;
-
-  always @(posedge irq) irq_cnt = irq_cnt + 1;
-  always @(posedge sd_clk) sdclk_cnt = sdclk_cnt + 1;
-
-`ifdef VERILATOR
-  // =====================================================================
-  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
-  // =====================================================================
-  // FSM probe: state(12) + phase(3) + dphase(5) = 20
-  localparam int SD_FSM_TOTAL = 20;
-  logic [19:0] fsm_seen = '0;
-  always @(posedge sd_clk) begin
-    if (dut.state  < 12) fsm_seen[dut.state]        <= 1'b1;
-    if (dut.phase  < 3)  fsm_seen[12 + dut.phase]   <= 1'b1;
-    if (dut.dphase < 5)  fsm_seen[15 + dut.dphase]  <= 1'b1;
+  logic coe = 0, co = 1;
+  logic [3:0] doe = 0, dout = 4'hF;
+  assign cmd = coe ? co : 1'bz;
+  for (genvar i = 0; i < 4; i++) begin : g_dat
+    assign dat[i] = doe[i] ? dout[i] : 1'bz;
   end
 
-  int sva_total = 0, sva_fail = 0;
-  task automatic sva_check(input bit cond, input string name);
-    begin
-      sva_total++;
-      if (!cond) begin
-        sva_fail++;
-        errors = errors + 1;
-        $display("SVA_FAIL: %s @%0t", name, $time);
-      end
+  int fault = F_NONE, fault_cmd = -1, crc_line = 0;
+  int busy_polls = 2, polls = 0, busy_len = 6;
+  logic [31:0] st_err = 32'h0040_0000;     // status bits sent with F_STAT
+  logic [31:0] st_ok  = 32'h0000_0900;     // status bits sent otherwise
+  logic [15:0] r6_err = 16'h4000;
+  int bad_frames = 0, bad_args = 0, n_cmds = 0;
+  logic [255:0] mem [0:3];
+  logic wr_go = 0, rd_go = 0;
+  logic [1:0] dblk;
+  int dfault = F_NONE;
+
+  function automatic logic [6:0] crc7(input logic [119:0] d, input int n);
+    logic [6:0] c = 0;
+    for (int i = 119; i >= 0; i--) if (i < n) c = {c[5:0], 1'b0} ^ ((d[i] ^ c[6]) ? 7'h09 : 7'h00);
+    return c;
+  endfunction
+  // CRC16 of DAT line k of a 4-bit block (nibble j bit k = block bit 255-4j-(3-k))
+  function automatic logic [15:0] crc16(input logic [255:0] d, input int k);
+    logic [15:0] c = 0;
+    logic b;
+    for (int j = 0; j < 64; j++) begin
+      b = d[255 - 4 * j - (3 - k)];
+      c = {c[14:0], 1'b0} ^ ((b ^ c[15]) ? 16'h1021 : 16'h0);
     end
+    return c;
+  endfunction
+  function automatic logic [127:0] cid_val();
+    cid_val = cid_base;
+    cid_val[7:1] = crc7(cid_base[127:8], 120);
+    cid_val[0] = 1'b1;
+  endfunction
+
+  task automatic bitw(input int k);
+    repeat (k) @(negedge sd_clk);
   endtask
 
-  // output-invariant assertion suite (sampled at posedge clk, pre-NBA)
-  int  rst_cyc = 0;
-  logic init_q = 1'b0;
-  logic [7:0] match_q = 8'd0;
-  logic [4:0] err_q = 5'd0;
-  always @(posedge clk) begin
-    if (!rst_n) begin
-      // A1: post-reset state (H_CMD0) and clean flags
-      if (rst_cyc > 0)
-        sva_check((dut.state === 4'd0) && (irq === 1'b0) &&
-                  (dut.init_done === 1'b0), "A1 reset: CMD0/clean");
-      rst_cyc++;
-    end else begin
-      // A2: irq only fires together with a (sticky) error flag
-      if (irq)
-        sva_check(dut.err_crc7 | dut.err_crc16 | dut.err_timeout |
-                  dut.err_cmp | dut.err_r7, "A2 irq -> err flag set");
-      // A3: FSM state encoding in range
-      sva_check(dut.state < 12, "A3 state encoding valid");
-      // A4: init_done is sticky once the card is initialized
-      if (init_q) sva_check(dut.init_done === 1'b1, "A4 init_done sticky");
-      // A5: match_cnt advances by exactly one (mod 256)
-      if (dut.match_cnt !== match_q)
-        sva_check(dut.match_cnt === match_q + 8'd1, "A5 match_cnt +1 step");
-      // A6: error flags are sticky (only reset clears them)
-      sva_check((dut.err_crc7    || !err_q[0]) && (dut.err_crc16 || !err_q[1]) &&
-                (dut.err_timeout || !err_q[2]) && (dut.err_cmp   || !err_q[3]) &&
-                (dut.err_r7      || !err_q[4]), "A6 err flags sticky");
-      // A7: round and match_cnt advance in lockstep (both only on CMD13 ok)
-      sva_check(dut.round === dut.match_cnt, "A7 round == match_cnt");
-    end
-    init_q  <= dut.init_done;
-    match_q <= dut.match_cnt;
-    err_q   <= {dut.err_r7, dut.err_cmp, dut.err_timeout,
-                dut.err_crc16, dut.err_crc7};
-  end
-`endif
+  // drive a response MSB first on CMD
+  logic [135:0] rsp;
+  task automatic send_rsp(input int len);
+    coe <= 1;
+    for (int i = len - 1; i >= 0; i--) begin co <= rsp[i]; bitw(1); end
+    coe <= 0; co <= 1;
+  endtask
 
-  // ------------------------- TB CRC helpers -------------------------------
-  function automatic logic [6:0] crc7_40(input logic [39:0] d);
-    logic [6:0] c;
-    logic       fb;
-    c = 7'h00;
-    for (int i = 39; i >= 0; i--) begin
-      fb = d[i] ^ c[6];
-      c  = {c[5:0], 1'b0};
-      if (fb) c = c ^ 7'h09;
-    end
-    crc7_40 = c;
-  endfunction
+  task automatic r48(input logic [5:0] idx, input logic [31:0] arg, input int flt);
+    rsp = 0;
+    rsp[47:0] = {2'b00, idx, arg, 7'h0, 1'b1};
+    rsp[7:1] = crc7({80'h0, rsp[47:8]}, 40);
+    if (flt == F_CRC7) rsp[1] = ~rsp[1];
+    if (flt == F_IDX)  begin rsp[40] = ~rsp[40]; rsp[7:1] = crc7({80'h0, rsp[47:8]}, 40); end
+    if (flt == F_END)  rsp[0] = 1'b0;
+    if (flt == F_TXB) begin rsp[46] = 1'b1; rsp[7:1] = crc7({80'h0, rsp[47:8]}, 40); end
+    send_rsp(48);
+  endtask
 
-  function automatic logic [15:0] crc16_step(input logic [15:0] c_in,
-                                             input logic        b);
-    logic fb;
-    fb = b ^ c_in[15];
-    crc16_step = {c_in[14:0], 1'b0} ^ (fb ? 16'h1021 : 16'h0000);
-  endfunction
+  task automatic kill();
+    disable run; disable drun;
+    coe <= 0; co <= 1; doe <= 0; dout <= 4'hF; wr_go = 0; rd_go = 0; polls = 0;
+  endtask
 
-  // CRC16 of one DAT lane over a 256-bit block: nibble j occupies
-  // blk[255-4j -: 4] with blk[255-4j] on DAT[3]; lane i bit j = blk[252-4j+i]
-  function automatic logic [15:0] crc16_lane(input logic [255:0] d,
-                                             input int          lane);
-    logic [15:0] c;
-    c = 16'h0000;
-    for (int j = 0; j < 64; j++) c = crc16_step(c, d[252 - 4*j + lane]);
-    crc16_lane = c;
-  endfunction
-
-  // expected payload of round r (must match DUT pat_word)
-  function automatic logic [255:0] exp_blk_tb(input logic [7:0] r);
-    for (int i = 0; i < 8; i++)
-      exp_blk_tb[255 - i*32 -: 32] =
-        32'hA500_3C00 ^ {24'h0, r} ^ ({24'h0, i[7:0]} * 32'h0001_0101);
-  endfunction
-
-  // ------------------------- card model FSM (negedge sd_clk) --------------
-  localparam logic [2:0] C_IDLE   = 3'd0,
-                         C_CMDRX  = 3'd1,
-                         C_GAP    = 3'd2,
-                         C_RSPTX  = 3'd3,
-                         C_DRX    = 3'd4,
-                         C_BUSY   = 3'd5,
-                         C_DTXGAP = 3'd6,
-                         C_DTX    = 3'd7;
-
-  logic [2:0]   cstate   = C_IDLE;
-  logic [47:0]  cframe   = 48'h0;
-  logic [8:0]   ccnt     = 9'd0;
-  logic [135:0] crsp     = 136'h0;
-  logic [7:0]   crsp_len = 8'd0;
-  logic [3:0]   cgap     = 4'd0;
-  logic [1:0]   cblk     = 2'd0;
-  logic [1:0]   post_act = 2'd0;   // 0 none / 1 receive write data / 2 send read
-  logic [8:0]   drx_cnt  = 9'd0;
-  logic [8:0]   drx_to   = 9'd0;   // write-data start timeout (host may abort)
-  logic [15:0]  drx_crc0 = 16'h0, drx_crc1 = 16'h0,
-                drx_crc2 = 16'h0, drx_crc3 = 16'h0;
-  logic [15:0]  drx_crx0 = 16'h0, drx_crx1 = 16'h0,
-                drx_crx2 = 16'h0, drx_crx3 = 16'h0;
-  logic [255:0] dtx_sh   = 256'h0;
-  logic [15:0]  dtx_crc0 = 16'h0, dtx_crc1 = 16'h0,
-                dtx_crc2 = 16'h0, dtx_crc3 = 16'h0;
-  logic [8:0]   dtx_cnt  = 9'd0;
-  logic [3:0]   busy_cnt = 4'd0;
-
-  logic [47:0]  f;        // assembled command frame (scratch)
-  logic [39:0]  rbody;    // response body for CRC7 (scratch)
-  logic [6:0]   rcrc;
-  logic [31:0]  rarg;     // response argument (scratch)
-
-  // build a 48-bit response frame placed at the top of the 136-bit shifter
-  `define CARD_RSP48(IDXF, ARGF, CRCF) \
-    crsp <= {{1'b0, 1'b0, IDXF, ARGF, CRCF, 1'b1}, 88'h0}
-
-  always @(negedge sd_clk) begin
-    case (cstate)
-      // -------------------- wait for command start bit --------------------
-      C_IDLE: begin
-        if (cmd === 1'b0) begin
-          cframe <= {47'h0, 1'b0};
-          ccnt   <= 9'd1;
-          cstate <= C_CMDRX;
-        end
-      end
-
-      // -------------------- shift in remaining 47 bits --------------------
-      C_CMDRX: begin
-        cframe <= {cframe[46:0], cmd};
-        if (ccnt == 9'd47) begin
-          ccnt <= 9'd0;
-          f = {cframe[46:0], cmd};
-          if (crc7_40(f[46:8]) !== f[7:1]) begin
-            card_cmdcrc_errs = card_cmdcrc_errs + 1;   // bad host CRC: ignore
-            cstate <= C_IDLE;
-          end else begin
-            cmd_log[cmd_log_n] = f[45:40];
-            cmd_log_n = cmd_log_n + 1;
-            if (mute) begin
-              cstate <= C_IDLE;                        // muted: no response
-            end else begin
-              case (f[45:40])
-                6'd0: begin                            // CMD0 GO_IDLE: no rsp
-                  cstate <= C_IDLE;
-                end
-                6'd8: begin                            // CMD8: R7 echo
-                  cmd8_cnt = cmd8_cnt + 1;
-                  if (f[39:8] == 32'h0000_01AA) cmd8_arg_ok = 1;
-                  rarg = bad_volt ? {20'h0, 4'h0, 8'h55} : {20'h0, f[19:8]};
-                  rbody = {1'b0, 6'd8, rarg};
-                  `CARD_RSP48(6'd8, rarg, crc7_40(rbody));
-                  crsp_len <= 8'd48;
-                  cgap     <= 4'd3;
-                  post_act <= 2'd0;
-                  cstate   <= C_GAP;
-                  bad_volt <= 1'b0;                    // one-shot injection
-                end
-                6'd55: begin                           // CMD55: R1 (APP_CMD)
-                  cmd55_cnt = cmd55_cnt + 1;
-                  rbody = {1'b0, 6'd55, R1_APP};
-                  rcrc  = crc7_40(rbody);
-                  if (inj_crc7) rcrc = rcrc ^ 7'h55;
-                  `CARD_RSP48(6'd55, R1_APP, rcrc);
-                  crsp_len <= 8'd48;
-                  cgap     <= 4'd3;
-                  post_act <= 2'd0;
-                  cstate   <= C_GAP;
-                end
-                6'd41: begin                           // ACMD41: R3 (OCR)
-                  cmd41_cnt = cmd41_cnt + 1;
-                  if (f[39:8] == 32'h40FF_8000) cmd41_arg_ok = 1;
-                  `CARD_RSP48(6'b111111,
-                              (busy_ready ? 32'hC0FF_8000 : 32'h00FF_8000),
-                              7'h7F);
-                  crsp_len   <= 8'd48;
-                  cgap       <= 4'd3;
-                  post_act   <= 2'd0;
-                  cstate     <= C_GAP;
-                  busy_ready <= 1'b1;                  // ready after 1st poll
-                end
-                6'd2: begin                            // CMD2: R2 (CID)
-                  // v2.5.1-review F7: spec R2 = start + tx + 6 reserved
-                  // + full 128-bit CID (no end bit).  Must change together
-                  // with SD_top.sv.
-                  crsp     <= {1'b0, 1'b0, 6'b111111, CID_VAL};
-                  crsp_len <= 8'd136;
-                  cgap     <= 4'd3;
-                  post_act <= 2'd0;
-                  cstate   <= C_GAP;
-                end
-                6'd3: begin                            // CMD3: R6 (RCA)
-                  rbody = {1'b0, 6'd3, RCA_VAL, 16'h0900};
-                  `CARD_RSP48(6'd3, {RCA_VAL, 16'h0900}, crc7_40(rbody));
-                  crsp_len <= 8'd48;
-                  cgap     <= 4'd3;
-                  post_act <= 2'd0;
-                  cstate   <= C_GAP;
-                end
-                6'd7, 6'd13, 6'd24, 6'd17: begin       // R1 responses
-                  rbody = {1'b0, f[45:40], R1_ST};
-                  rcrc  = crc7_40(rbody);
-                  if (inj_crc7) rcrc = rcrc ^ 7'h55;
-                  `CARD_RSP48(f[45:40], R1_ST, rcrc);
-                  crsp_len <= 8'd48;
-                  cgap     <= 4'd3;
-                  cstate   <= C_GAP;
-                  if (f[45:40] == 6'd13) cmd13_cnt = cmd13_cnt + 1;
-                  if (f[45:40] == 6'd24) begin         // CMD24: then RX data
-                    cblk     <= f[9:8];
-                    post_act <= 2'd1;
-                  end else if (f[45:40] == 6'd17) begin // CMD17: then TX data
-                    cblk     <= f[9:8];
-                    post_act <= 2'd2;
-                  end else begin
-                    post_act <= 2'd0;
-                  end
-                end
-                default: cstate <= C_IDLE;             // unknown: no response
-              endcase
+  // ------------------------- command side -------------------------
+  initial forever begin : run
+    logic [47:0] f;
+    logic [5:0] idx;
+    logic [31:0] arg;
+    int flt;
+    @(negedge sd_clk);
+    if (cmd === 1'b0 && !coe) begin
+      f = 0;
+      for (int i = 46; i >= 0; i--) begin bitw(1); f[i] = cmd; end
+      idx = f[45:40]; arg = f[39:8];
+      n_cmds++;
+      if (!f[46] || !f[0] || crc7({80'h0, f[47:8]}, 40) != f[7:1]) bad_frames++;
+      else begin
+        flt = (fault_cmd == idx) ? fault : F_NONE;
+        if (flt != F_NONE) begin fault = F_NONE; fault_cmd = -1; end
+        bitw(5);
+        if (flt != F_MUTE) case (idx)
+          6'd0: polls = 0;
+          6'd8: begin
+            if (arg != 32'h1AA) bad_args++;
+            r48(6'd8, {20'h0, flt == F_R7V ? 4'h2 : 4'h1, flt == F_R7P ? 8'h55 : 8'hAA}, flt);
+          end
+          6'd41: begin
+            if (arg != 32'h40FF_8000) bad_args++;
+            rsp = 0;
+            rsp[47:0] = {2'b00, 6'h3F, polls >= busy_polls, ccs, 30'h00FF_8000, 8'hFF};
+            if (flt == F_R3) rsp[45] = 1'b0;
+            if (flt == F_R3RES) rsp[3] = 1'b0;
+            polls++;
+            send_rsp(48);
+          end
+          6'd2: begin
+            rsp = {2'b00, 6'h3F, cid_val()};
+            if (flt == F_R2) rsp[3] = ~rsp[3];
+            if (flt == F_R2RES) rsp[130] = 1'b0;
+            send_rsp(136);
+          end
+          6'd3: r48(6'd3, {rca, flt == F_STAT ? r6_err : 16'h0500}, flt);
+          default: begin
+            if ((idx == 6'd7 || idx == 6'd13) && arg != {rca, 16'h0}) bad_args++;
+            if ((idx == 6'd24 || idx == 6'd17) &&
+                (ccs ? arg[31:2] != 0 : (arg[31:7] != 0 || arg[4:0] != 0))) bad_args++;
+            r48(idx, ((flt == F_STAT) ? (st_ok | st_err) : st_ok) | (idx == 6'd55 ? 32'h20 : 32'h0), flt);
+            if (flt == F_NONE || flt >= F_TOK) begin
+              dblk = ccs ? arg[1:0] : arg[6:5]; dfault = flt;
+              if (idx == 6'd24) wr_go = 1;
+              if (idx == 6'd17) rd_go = 1;
             end
           end
-        end else begin
-          ccnt <= ccnt + 9'd1;
-        end
+        endcase
       end
-
-      // -------------------- inter-frame gap before response ---------------
-      C_GAP: begin
-        if (cgap <= 4'd1) begin
-          c_cmd_oe <= 1'b1;                            // drives idle '1' first
-          ccnt     <= {1'b0, crsp_len};
-          cstate   <= C_RSPTX;
-        end else begin
-          cgap <= cgap - 4'd1;
-        end
-      end
-
-      // -------------------- shift response out, MSB first -----------------
-      C_RSPTX: begin
-        if (ccnt > 9'd0) begin
-          c_cmd_out <= crsp[135];
-          crsp      <= {crsp[134:0], 1'b1};
-          ccnt      <= ccnt - 9'd1;
-        end else begin
-          c_cmd_oe <= 1'b0;
-          case (post_act)
-            2'd1: begin cstate <= C_DRX;    drx_cnt <= 9'd0; post_act <= 2'd0; end
-            2'd2: begin cstate <= C_DTXGAP; cgap    <= 4'd3; post_act <= 2'd0; end
-            default: cstate <= C_IDLE;
-          endcase
-        end
-      end
-
-      // -------------------- receive write data block on dat[3:0] ----------
-      C_DRX: begin
-        if (drx_cnt == 9'd0) begin
-          if (dat === 4'b0000) begin
-            drx_cnt  <= 9'd1;                          // start bits
-            drx_to   <= 9'd0;
-            drx_crc0 <= 16'h0;
-            drx_crc1 <= 16'h0;
-            drx_crc2 <= 16'h0;
-            drx_crc3 <= 16'h0;
-            drx_crx0 <= 16'h0;
-            drx_crx1 <= 16'h0;
-            drx_crx2 <= 16'h0;
-            drx_crx3 <= 16'h0;
-          end else if (drx_to >= 9'd300) begin         // host aborted write
-            cstate <= C_IDLE;
-            drx_to <= 9'd0;
-          end else begin
-            drx_to <= drx_to + 9'd1;
-          end
-        end else if (drx_cnt <= 9'd64) begin           // 64 nibbles
-          card_blk[cblk] <= {card_blk[cblk][251:0], dat};
-          drx_crc0 <= crc16_step(drx_crc0, dat[0]);
-          drx_crc1 <= crc16_step(drx_crc1, dat[1]);
-          drx_crc2 <= crc16_step(drx_crc2, dat[2]);
-          drx_crc3 <= crc16_step(drx_crc3, dat[3]);
-          drx_cnt  <= drx_cnt + 9'd1;
-        end else if (drx_cnt <= 9'd80) begin           // 16 CRC16 bits/line
-          drx_crx0 <= {drx_crx0[14:0], dat[0]};
-          drx_crx1 <= {drx_crx1[14:0], dat[1]};
-          drx_crx2 <= {drx_crx2[14:0], dat[2]};
-          drx_crx3 <= {drx_crx3[14:0], dat[3]};
-          drx_cnt  <= drx_cnt + 9'd1;
-        end else begin                                 // end bits (drx_cnt==81)
-          if (dat !== 4'hF || drx_crx0 !== drx_crc0 ||
-              drx_crx1 !== drx_crc1 || drx_crx2 !== drx_crc2 ||
-              drx_crx3 !== drx_crc3)
-            card_datcrc_errs = card_datcrc_errs + 1;
-          cstate    <= C_BUSY;                         // busy on DAT0
-          busy_cnt  <= 4'd0;
-          c_dat_oe  <= 4'b0001;
-          c_dat_out <= 4'h0;
-          drx_cnt   <= 9'd0;
-        end
-      end
-
-      // -------------------- busy signalling on DAT0 after write -----------
-      C_BUSY: begin
-        busy_cnt <= busy_cnt + 4'd1;
-        if (busy_cnt < 4'd8) begin
-          c_dat_oe  <= 4'b0001;
-          c_dat_out <= 4'h0;
-        end else if (busy_cnt < 4'd11) begin
-          c_dat_oe  <= 4'b0001;
-          c_dat_out <= 4'h1;                           // busy released
-        end else begin
-          c_dat_oe <= 4'b0000;
-          cstate   <= C_IDLE;
-        end
-      end
-
-      // -------------------- prepare read data block -----------------------
-      C_DTXGAP: begin
-        if (cgap <= 4'd1) begin
-          dtx_sh   <= card_blk[cblk];
-          dtx_crc0 <= crc16_lane(card_blk[cblk], 0) ^
-                      (inj_crc16 ? 16'hFFFF : 16'h0000);
-          dtx_crc1 <= crc16_lane(card_blk[cblk], 1) ^
-                      (inj_crc16 ? 16'hFFFF : 16'h0000);
-          dtx_crc2 <= crc16_lane(card_blk[cblk], 2) ^
-                      (inj_crc16 ? 16'hFFFF : 16'h0000);
-          dtx_crc3 <= crc16_lane(card_blk[cblk], 3) ^
-                      (inj_crc16 ? 16'hFFFF : 16'h0000);
-          dtx_cnt  <= 9'd82;                           // start+64+16+1
-          cstate   <= C_DTX;
-        end else begin
-          cgap <= cgap - 4'd1;
-        end
-      end
-
-      // -------------------- send read data block on dat[3:0] --------------
-      C_DTX: begin
-        if (dtx_cnt > 9'd0) begin
-          c_dat_oe <= 4'b1111;
-          if (dtx_cnt == 9'd82) begin
-            c_dat_out <= 4'b0000;                      // start bits
-          end else if (dtx_cnt >= 9'd18) begin         // 64 data nibbles
-            c_dat_out <= dtx_sh[255:252];
-            dtx_sh    <= {dtx_sh[251:0], 4'h0};
-          end else if (dtx_cnt >= 9'd2) begin          // 16 CRC16 bits/line
-            c_dat_out <= {dtx_crc3[15], dtx_crc2[15],
-                          dtx_crc1[15], dtx_crc0[15]};
-            dtx_crc0  <= {dtx_crc0[14:0], 1'b0};
-            dtx_crc1  <= {dtx_crc1[14:0], 1'b0};
-            dtx_crc2  <= {dtx_crc2[14:0], 1'b0};
-            dtx_crc3  <= {dtx_crc3[14:0], 1'b0};
-          end else begin                               // dtx_cnt==1: end bits
-            c_dat_out <= 4'hF;
-          end
-          dtx_cnt <= dtx_cnt - 9'd1;
-        end else begin
-          c_dat_oe <= 4'b0000;
-          cstate   <= C_IDLE;
-        end
-      end
-
-      default: cstate <= C_IDLE;
-    endcase
+    end
   end
 
-  // ------------------------- wait helper ----------------------------------
-  `define WAIT_FLAG(cond, what) \
-    begin \
-      twait = 0; \
-      while (!(cond) && twait < 60000) begin \
-        @(posedge sd_clk); twait = twait + 1; \
-      end \
-      if (twait >= 60000) begin \
-        $display("ERROR: timeout waiting for %s", what); \
-        errors = errors + 1; \
-      end \
+  // ------------------------- data side -------------------------
+  initial forever begin : drun
+    logic [255:0] d;
+    logic [15:0] c [4];
+    logic [3:0] e;
+    logic ok;
+    int t;
+    @(negedge sd_clk);
+    if (wr_go) begin
+      wr_go = 0;
+      t = 0;
+      while (dat !== 4'h0 && t < 200) begin @(negedge sd_clk); t++; end
+      for (int j = 0; j < 64; j++) begin bitw(1); d[255 - 4 * j -: 4] = dat; end
+      for (int i = 15; i >= 0; i--) begin
+        bitw(1);
+        for (int k = 0; k < 4; k++) c[k][i] = dat[k];
+      end
+      bitw(1); e = dat;
+      ok = e == 4'hF && dfault != F_WCRC;
+      for (int k = 0; k < 4; k++) if (c[k] != crc16(d, k)) ok = 0;
+      if (ok) mem[dblk] = d;
+      bitw(2);
+      if (dfault != F_TOKMUTE) begin
+        doe[0] <= 1; dout[0] <= 0; bitw(1);
+        dout[0] <= ok && dfault != F_TOK ? 1'b0 : 1'b1; bitw(1);
+        dout[0] <= ok && dfault != F_TOK ? 1'b1 : 1'b0; bitw(1);
+        dout[0] <= ok && dfault != F_TOK ? 1'b0 : 1'b1; bitw(1);
+        dout[0] <= 1; bitw(1);
+        dout[0] <= 0; bitw(dfault == F_BUSYHOLD ? 70 : busy_len);
+        doe[0] <= 0; dout[0] <= 1;
+      end
+    end else if (rd_go) begin
+      rd_go = 0;
+      bitw(2);
+      if (dfault != F_RDMUTE) begin
+        d = mem[dblk];
+        if (dfault == F_RDDATA) d[77] = ~d[77];   // with a matching CRC16
+        for (int k = 0; k < 4; k++) c[k] = crc16(d, k);
+        if (dfault == F_RDCRC) c[crc_line][crc_line * 3] = ~c[crc_line][crc_line * 3];
+        doe <= 4'hF; dout <= 4'h0; bitw(1);
+        for (int j = 0; j < 64; j++) begin dout <= d[255 - 4 * j -: 4]; bitw(1); end
+        for (int i = 15; i >= 0; i--) begin dout <= {c[3][i], c[2][i], c[1][i], c[0][i]}; bitw(1); end
+        dout <= dfault == F_RDEND ? 4'b1110 : 4'hF; bitw(1);
+        doe <= 0; dout <= 4'hF;
+      end
     end
+  end
+endmodule
 
-  // ------------------------- main stimulus --------------------------------
+module SD_tb;
+  logic clk = 0, rst_n = 0;
+  wire  sd_clk;
+  tri1  cmd;
+  tri1 [3:0] dat;
+  wire  irq;
+  int errors = 0;
+
+  SD_top dut (.clk(clk), .rst_n(rst_n), .sd_clk(sd_clk), .cmd(cmd), .dat(dat), .irq(irq));
+  sd_card card (.sd_clk(sd_clk), .cmd(cmd), .dat(dat));
+
+  always #5 clk = ~clk;
+
+  task automatic check(input bit c, input string m);
+    if (!c) begin errors++; $display("ERROR: %s (t=%0t)", m, $time); end
+  endtask
+
+  function automatic logic [255:0] pat(input logic [7:0] r);
+    for (int i = 0; i < 8; i++)
+      pat[255 - i * 32 -: 32] = 32'hA500_3C00 ^ {24'h0, r} ^ ({24'h0, 8'(i)} * 32'h0001_0101);
+  endfunction
+
+  int irqs = 0;
+  always @(posedge irq) irqs++;
+
+  task automatic wait_rounds(input int n, input string what);
+    int t, m0;
+    m0 = dut.match_cnt; t = 0;
+    while (8'(dut.match_cnt - m0) < n && t < 3000 * n) begin @(posedge sd_clk); t++; end
+    check(8'(dut.match_cnt - m0) >= n, {what, ": rounds did not complete"});
+  endtask
+
+  // arm a one-shot fault on command idx; expect exactly one irq
+  task automatic fault(input int f, input int idx, input string what);
+    int i0, t;
+    i0 = irqs; t = 0;
+    card.fault = f; card.fault_cmd = idx;
+    while (irqs == i0 && t < 8000) begin @(posedge sd_clk); t++; end
+    repeat (8) @(posedge sd_clk);
+    check(irqs == i0 + 1, {what, ": not exactly one irq"});
+  endtask
+
+  task automatic reset_host();
+    @(negedge clk);
+    rst_n = 0;
+    card.kill();
+    repeat (6) @(negedge clk);
+    check(irq === 1'b0 && dut.init_done === 1'b0 && dut.match_cnt == 0 && sd_clk === 1'b0,
+          "reset state");
+    rst_n = 1;
+  endtask
+
+  task automatic wait_init(input string what);
+    int t = 0;
+    while (!dut.init_done && t < 20000) begin @(posedge sd_clk); t++; end
+    check(dut.init_done === 1'b1, {what, ": init did not complete"});
+  endtask
+
   initial begin
-    for (int i = 0; i < 4; i++) card_blk[i] = 256'h0;
+    for (int b = 0; b < 4; b++) card.mem[b] = '1;
+    card.busy_polls = 3;
+    repeat (4) @(negedge clk);
+    rst_n = 1;
 
-    // (a) reset and initial-state check
-    rst_n = 1'b0;
-    repeat (6) @(posedge clk);
-    rst_n = 1'b1;
-    repeat (3) @(posedge sd_clk);
-    if (dut.state !== H_CMD0) begin
-      $display("ERROR: post-reset state=%0d, expected H_CMD0(0)", dut.state);
-      errors = errors + 1;
-    end
-    if (irq !== 1'b0 || dut.init_done !== 1'b0 || dut.err_crc7 !== 1'b0 ||
-        dut.err_crc16 !== 1'b0 || dut.err_timeout !== 1'b0 ||
-        dut.err_r7 !== 1'b0 || dut.match_cnt !== 8'd0) begin
-      $display("ERROR: post-reset flags not clean");
-      errors = errors + 1;
-    end
-    if (sdclk_cnt < 2) begin
-      $display("ERROR: sd_clk not toggling (cnt=%0d)", sdclk_cnt);
-      errors = errors + 1;
-    end
+    // ---- init with ACMD41 busy polling, CID / RCA capture, clean rounds ----
+    wait_init("first init");
+    check(dut.cid == card.cid_val() && dut.rca == card.rca && dut.ccs, "CID / RCA / CCS");
+    wait_rounds(5, "clean rounds");
+    // rounds 0..4 ran: block 0 holds round 4, blocks 1..3 rounds 1..3
+    for (int b = 0; b < 4; b++) check(card.mem[b] == pat(8'(b == 0 ? 4 : b)), "card store contents");
 
-    // (b) CMD8 voltage-mismatch injection: card answers R7 with wrong
-    //     voltage/pattern; host must flag err_r7 + irq and restart init
-    bad_volt  = 1'b1;
-    irq_before = irq_cnt;
-    // flag + irq are raised by the same NBA tick; polling the combined
-    // condition is robust against NBA-resume ordering in both simulators
-    `WAIT_FLAG(dut.err_r7 === 1'b1 && irq_cnt > irq_before,
-               "host R7 voltage-mismatch detect")
-    if (dut.err_r7 === 1'b1) begin
-      if (irq_cnt <= irq_before) begin
-        $display("ERROR: no irq pulse on R7 voltage mismatch");
-        errors = errors + 1;
-      end
-      if (cmd8_cnt < 1 || cmd8_arg_ok != 1) begin
-        $display("ERROR: CMD8 not seen or arg!=0x1AA (cnt=%0d ok=%0d)",
-                 cmd8_cnt, cmd8_arg_ok);
-        errors = errors + 1;
-      end
+    // ---- round faults (host stays initialised) ----
+    fault(card.F_CRC7, 24, "R1 CRC7 (CMD24)");      check(dut.err_crc7, "err_crc7");   wait_rounds(1, "after CRC7");
+    fault(card.F_IDX, 17, "R1 index (CMD17)");      wait_rounds(1, "after index");
+    fault(card.F_END, 13, "R1 end bit (CMD13)");    wait_rounds(1, "after end bit");
+    fault(card.F_TXB, 17, "R1 transmission bit");   wait_rounds(1, "after tx bit");
+    fault(card.F_STAT, 24, "R1 status (CMD24)");    check(dut.err_status, "err_status"); wait_rounds(1, "after status");
+    fault(card.F_STAT, 17, "R1 status (CMD17)");    wait_rounds(1, "after status 17");
+    fault(card.F_STAT, 13, "R1 status (CMD13)");    wait_rounds(1, "after status 13");
+    fault(card.F_MUTE, 24, "no R1 (CMD24)");        check(dut.err_timeout, "err_timeout"); wait_rounds(1, "after mute");
+    fault(card.F_MUTE, 17, "no R1 (CMD17)");        wait_rounds(1, "after mute 17");
+    fault(card.F_MUTE, 13, "no R1 (CMD13)");        wait_rounds(1, "after mute 13");
+    fault(card.F_TOK, 24, "negative CRC status");   check(dut.err_crc16, "err_crc16"); wait_rounds(1, "after token");
+    fault(card.F_WCRC, 24, "card sees bad CRC");    wait_rounds(1, "after wcrc");
+    fault(card.F_TOKMUTE, 24, "no CRC status");     wait_rounds(1, "after token mute");
+    fault(card.F_BUSYHOLD, 24, "busy timeout");     wait_rounds(1, "after busy hold");
+    fault(card.F_RDMUTE, 17, "no read data");       wait_rounds(1, "after read mute");
+    for (int k = 0; k < 4; k++) begin
+      card.crc_line = k;
+      fault(card.F_RDCRC, 17, "read CRC16");        wait_rounds(1, "after read crc");
     end
+    fault(card.F_RDEND, 17, "read end bit");        wait_rounds(1, "after read end");
+    fault(card.F_RDDATA, 17, "read compare");       check(dut.err_cmp, "err_cmp"); wait_rounds(1, "after compare");
 
-    // (c) host retries: full init CMD0->CMD8->ACMD41(poll)->CMD2->CMD3->CMD7
-    `WAIT_FLAG(dut.init_done === 1'b1, "init_done (CMD0..CMD7)")
-    if (dut.init_done === 1'b1) begin
-      if (cmd8_cnt < 2) begin
-        $display("ERROR: CMD8 not retried after voltage mismatch (cnt=%0d)",
-                 cmd8_cnt);
-        errors = errors + 1;
+    // ---- each card-status error bit alone; the other bits are benign ----
+    for (int b = 0; b < 32; b++)
+      if (32'hFDF9_8008 & (32'h1 << b)) begin
+        card.st_err = 32'h1 << b;
+        fault(card.F_STAT, (b % 3 == 0) ? 24 : (b % 3 == 1) ? 17 : 13, $sformatf("status bit %0d", b));
+        wait_rounds(1, "after status bit");
       end
-      if (dut.cid !== CID_VAL) begin
-        $display("ERROR: CID got=%h exp=%h", dut.cid, CID_VAL);
-        errors = errors + 1;
-      end
-      if (dut.rca !== RCA_VAL) begin
-        $display("ERROR: RCA got=%h exp=%h", dut.rca, RCA_VAL);
-        errors = errors + 1;
-      end
-      if (cmd41_cnt < 2 || cmd55_cnt < 2) begin
-        $display("ERROR: ACMD41 polling missing (CMD55=%0d CMD41=%0d)",
-                 cmd55_cnt, cmd41_cnt);
-        errors = errors + 1;
-      end
-      if (cmd41_arg_ok != 1) begin
-        $display("ERROR: ACMD41 arg wrong (HCS/OCR window)");
-        errors = errors + 1;
-      end
-      // per-command init sequence: 0,8, 0,8, 55,41, 55,41, 2,3,7
-      if (cmd_log_n < 11 ||
-          cmd_log[0] != 0 || cmd_log[1] != 8 ||
-          cmd_log[2] != 0 || cmd_log[3] != 8 ||
-          cmd_log[4] != 55 || cmd_log[5] != 41 ||
-          cmd_log[6] != 55 || cmd_log[7] != 41 ||
-          cmd_log[8] != 2 || cmd_log[9] != 3 || cmd_log[10] != 7) begin
-        $display("ERROR: init command sequence mismatch");
-        errors = errors + 1;
-      end
-      if (irq_cnt != 1) begin                 // only the injected R7 error
-        $display("ERROR: unexpected irq during clean init (irq_cnt=%0d)",
-                 irq_cnt);
-        errors = errors + 1;
-      end
+    card.st_err = 32'h0040_0000;
+    begin
+      int i0;
+      i0 = irqs;
+      card.st_ok = ~32'hFDF9_8008;
+      wait_rounds(2, "benign status bits");
+      check(irqs == i0, "benign status bits raised irq");
+      card.st_ok = 32'h0000_0900;
     end
 
-    // (d) round 0: CMD24 write 32 bytes (4-bit) + CMD17 read-back + CMD13
-    `WAIT_FLAG(dut.match_cnt >= 8'd1, "round0 write/read match")
-    if (card_blk[0] !== exp_blk_tb(8'd0)) begin
-      $display("ERROR: card block0 got=%h exp=%h", card_blk[0], exp_blk_tb(8'd0));
-      errors = errors + 1;
-    end
-    if (cmd13_cnt < 1) begin
-      $display("ERROR: CMD13 SEND_STATUS not issued after round0");
-      errors = errors + 1;
-    end
-    if (dut.card_status !== R1_ST) begin
-      $display("ERROR: card_status got=%h exp=%h", dut.card_status, R1_ST);
-      errors = errors + 1;
-    end
-    if (cmd_log_n < 14 || cmd_log[11] != 24 || cmd_log[12] != 17 ||
-        cmd_log[13] != 13) begin
-      $display("ERROR: round0 command sequence mismatch (exp 24,17,13)");
-      errors = errors + 1;
-    end
-    if (dut.err_crc16 !== 1'b0 || dut.err_timeout !== 1'b0 ||
-        dut.err_crc7 !== 1'b0 || dut.err_cmp !== 1'b0) begin
-      $display("ERROR: unexpected error flag after clean round0");
-      errors = errors + 1;
-    end
-    // card-side sanity on clean traffic: host CRC7/CRC16 always valid
-    if (card_cmdcrc_errs != 0) begin
-      $display("ERROR: card saw %0d host commands with bad CRC7",
-               card_cmdcrc_errs);
-      errors = errors + 1;
-    end
-    if (card_datcrc_errs != 0) begin
-      $display("ERROR: card saw %0d write blocks with bad CRC16",
-               card_datcrc_errs);
-      errors = errors + 1;
-    end
-
-    // (e) error injection: card sends bad CRC16 on the round-1 read block
-    irq_before = irq_cnt;
-    inj_crc16  = 1'b1;
-    `WAIT_FLAG(dut.err_crc16 === 1'b1 && irq_cnt > irq_before,
-               "host CRC16 error detect")
-    inj_crc16  = 1'b0;
-    if (irq_cnt <= irq_before) begin
-      $display("ERROR: no irq pulse on bad CRC16 block");
-      errors = errors + 1;
-    end
-    if (dut.match_cnt != 1) begin
-      $display("ERROR: corrupt block accepted (match_cnt=%0d)", dut.match_cnt);
-      errors = errors + 1;
-    end
-    // host must recover and complete the retried round
-    `WAIT_FLAG(dut.match_cnt >= 8'd2, "round1 retry match")
-    if (card_blk[1] !== exp_blk_tb(8'd1)) begin
-      $display("ERROR: card block1 got=%h exp=%h", card_blk[1], exp_blk_tb(8'd1));
-      errors = errors + 1;
-    end
-
-    // (f) error injection: card sends R1 with bad CRC7
-    irq_before = irq_cnt;
-    inj_crc7   = 1'b1;
-    `WAIT_FLAG(dut.err_crc7 === 1'b1 && irq_cnt > irq_before,
-               "host CRC7 error detect")
-    inj_crc7   = 1'b0;
-    if (irq_cnt <= irq_before) begin
-      $display("ERROR: no irq pulse on bad CRC7 response");
-      errors = errors + 1;
-    end
-    `WAIT_FLAG(dut.match_cnt >= 8'd3, "round2 match after CRC7 error")
-
-    // (g) command timeout: card stops responding entirely
-    irq_before = irq_cnt;
-    mute       = 1'b1;
-    `WAIT_FLAG(dut.err_timeout === 1'b1 && irq_cnt > irq_before,
-               "host command timeout detect")
-    if (irq_cnt <= irq_before) begin
-      $display("ERROR: no irq pulse on command timeout");
-      errors = errors + 1;
-    end
-    // host must fall back to IDLE between retries (not stuck in wait)
-    `WAIT_FLAG(dut.state === H_IDLE, "host returns to IDLE after timeout")
-    mute = 1'b0;
-    // link recovers: further back-to-back transactions complete
-    `WAIT_FLAG(dut.match_cnt >= 8'd4, "recovery transaction after mute")
-    if (dut.err_cmp !== 1'b0) begin
-      $display("ERROR: read-back compare mismatch flag set");
-      errors = errors + 1;
-    end
-
-`ifdef VERILATOR
-    // ---- v2.5 CRV random phase (directed tests above untouched) ----
-    // 120 randomized disturbance transactions against the host's autonomous
-    // demo rounds (CMD24 write / CMD17 read-back / CMD13 status per round):
-    //   ~30% inj_crc16 one-shot (card corrupts the read-block CRC16)
-    //   ~20% inj_crc7  one-shot (card corrupts an R1 response CRC7)
-    //   ~20% mute burst        (card withholds a command response)
-    //   ~30% benign            (no injection; round observed end-to-end)
-    // Per iteration: injected errors must pulse irq exactly (err flags are
-    // sticky, so the irq count is the per-error observable), the disturbed
-    // round must be retried to completion (match_cnt advances), and the
-    // completed round's card block must hold the exact round pattern.
-    begin : crv_phase
-      int n_c16 = 0, n_c7 = 0, n_mute = 0, n_ben = 0;
-      int match_before;
-      int sel;
-      logic [7:0] done_round;
-      for (int i = 0; i < 120; i++) begin
-        irq_before   = irq_cnt;
-        match_before = dut.match_cnt;
-        sel = $urandom_range(0, 9);
-        if (sel < 3)      inj_crc16 = 1'b1;
-        else if (sel < 5) inj_crc7  = 1'b1;
-        else if (sel < 7) mute      = 1'b1;
-        else              sel       = 9;          // benign
-        if (sel < 7) begin
-          `WAIT_FLAG(irq_cnt > irq_before, "CRV injection flagged by host")
-          inj_crc16 = 1'b0; inj_crc7 = 1'b0; mute = 1'b0;
-          match_before = dut.match_cnt;   // only retry rounds count below
-        end
-        `WAIT_FLAG(dut.match_cnt !== match_before, "CRV round completion")
-        if (dut.match_cnt === match_before) begin
-          $display("ERROR: CRV %0d round never completed", i);
-          errors = errors + 1;
-        end else begin
-          // the completed round rewrote its block with the round pattern
-          done_round = dut.round - 8'd1;
-          if (card_blk[done_round[1:0]] !== exp_blk_tb(done_round)) begin
-            $display("ERROR: CRV %0d card block%0d got=%h exp=%h", i,
-                     done_round[1:0], card_blk[done_round[1:0]],
-                     exp_blk_tb(done_round));
-            errors = errors + 1;
-          end
-        end
-        if (sel < 3)      n_c16++;
-        else if (sel < 5) n_c7++;
-        else if (sel < 7) n_mute++;
-        else              n_ben++;
+    // ---- init-phase faults: restart with CMD0 ----
+    reset_host();  fault(card.F_R7V, 8, "R7 voltage");     check(dut.err_r7, "err_r7"); wait_init("after R7 voltage");
+    reset_host();  fault(card.F_R7P, 8, "R7 pattern");     wait_init("after R7 pattern");
+    reset_host();  fault(card.F_CRC7, 8, "R7 CRC");        wait_init("after R7 crc");
+    reset_host();  fault(card.F_MUTE, 8, "no R7");         wait_init("after no R7");
+    reset_host();  fault(card.F_IDX, 55, "R1 (CMD55)");    wait_init("after CMD55 idx");
+    reset_host();  fault(card.F_STAT, 55, "status (CMD55)"); wait_init("after CMD55 status");
+    reset_host();  fault(card.F_R3RES, 41, "R3 reserved"); wait_init("after R3 reserved");
+    reset_host();  fault(card.F_R3, 41, "R3 framing");     wait_init("after R3");
+    reset_host();  fault(card.F_MUTE, 41, "no R3");        wait_init("after no R3");
+    reset_host();  fault(card.F_R2RES, 2, "R2 reserved");  wait_init("after R2 reserved");
+    reset_host();  fault(card.F_R2, 2, "R2 CID CRC");      wait_init("after R2");
+    reset_host();  fault(card.F_MUTE, 2, "no R2");         wait_init("after no R2");
+    for (int b = 0; b < 16; b++)
+      if (16'hE008 & (16'h1 << b)) begin
+        card.r6_err = 16'h1 << b;
+        reset_host();  fault(card.F_STAT, 3, "R6 status"); wait_init("after R6 status");
       end
-      // card_cmdcrc_errs is informational in the CRV phase: when the host
-      // aborts a round mid-command (crc7/timeout on CMD24), the card model
-      // is stuck in C_DRX for up to 300 sd_clks and cannot hear the
-      // retransmissions; it then re-synchronizes mid-frame and assembles a
-      // garbage "command" whose CRC fails by construction. Every command
-      // the card actually LOGGED passed CRC7 (logging happens only after
-      // the CRC gate), so the host CRC7 datapath is still fully checked.
-      // The host write-data CRC16 remains hard-checked: it never fails.
-      if (card_datcrc_errs != 0) begin
-        $display("ERROR: CRV card saw %0d bad-CRC16 host write blocks",
-                 card_datcrc_errs);
-        errors = errors + 1;
-      end
-      if (dut.err_cmp !== 1'b0) begin
-        $display("ERROR: CRV read-back compare mismatch flag set");
-        errors = errors + 1;
-      end
-      $display("CRV: 120 disturbance txns: crc16=%0d crc7=%0d mute=%0d benign=%0d, match_cnt=%0d irq_cnt=%0d desync_cmdcrc=%0d",
-               n_c16, n_c7, n_mute, n_ben, dut.match_cnt, irq_cnt,
-               card_cmdcrc_errs);
-    end
-`endif
+    reset_host();  fault(card.F_END, 3, "R6 end bit");     wait_init("after R6 end");
+    reset_host();  fault(card.F_CRC7, 7, "R1 (CMD7)");     wait_init("after CMD7 crc");
+    reset_host();  fault(card.F_STAT, 7, "status (CMD7)"); wait_init("after CMD7 status");
+    // reset in the middle of a write block
+    wait (dut.state == 3'd4 && dut.dphase == 3'd1); repeat (40) @(posedge sd_clk);
+    reset_host();  wait_init("after reset in a write");
+    // reset in the middle of R2
+    reset_host();  wait (dut.state == 3'd2 && dut.cur == 4'd4 && dut.bit_cnt > 8'd20);
+    reset_host();  wait_init("after reset in R2");
+
+    // ---- standard capacity card: byte addressing; other RCA / CID ----
+    card.ccs = 0; card.rca = ~card.rca; card.cid_base = ~card.cid_base;
+    reset_host(); wait_init("standard capacity");
+    check(dut.cid == card.cid_val() && dut.rca == card.rca && !dut.ccs, "CID / RCA / CCS 2");
+    wait_rounds(6, "byte addressed rounds");
+    card.ccs = 1; card.rca = ~card.rca; card.cid_base = ~card.cid_base;
+    reset_host(); wait_init("high capacity again");
+
+    // ---- the 8-bit round counter wraps ----
+    wait_rounds(255, "round counter wrap");
+    check(dut.match_cnt == 8'd255 && dut.round == 8'd255, "counters before wrap");
+    wait_rounds(2, "past the wrap");
+    check(dut.round == 8'd1, "round wrapped");
+    check(card.bad_frames == 0 && card.bad_args == 0, "host command frames / arguments");
 
     if (errors == 0) $display("TEST PASSED: SD");
     else             $display("TEST FAILED: %0d errors", errors);
-`ifdef VERILATOR
-    begin
-      int visited;
-      visited = 0;
-      for (int s = 0; s < SD_FSM_TOTAL; s++) visited += fsm_seen[s];
-      $display("FSM_COV: %0d/%0d", visited, SD_FSM_TOTAL);
-      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
-    end
-`endif
     $finish;
   end
 
-  // ------------------------- optional debug trace -------------------------
-`ifdef SD_DEBUG
-  logic [3:0] prev_state  = 4'hf;
-  logic [2:0] prev_dphase = 3'h7;
-  logic [2:0] prev_cstate = 3'h7;
-  always @(posedge sd_clk) begin
-    if (dut.state != prev_state || dut.dphase != prev_dphase ||
-        cstate != prev_cstate || irq) begin
-      $display("t=%0t state=%0d ph=%0d dph=%0d bc=%0d wc=%0d card=%0d dtxc=%0d drxc=%0d mc=%0d rnd=%0d err=%b%b%b%b%b irqc=%0d",
-               $time, dut.state, dut.phase, dut.dphase, dut.bit_cnt,
-               dut.wait_cnt, cstate, dtx_cnt, drx_cnt, dut.match_cnt,
-               dut.round, dut.err_crc7, dut.err_crc16, dut.err_timeout,
-               dut.err_cmp, dut.err_r7, irq_cnt);
-      prev_state  = dut.state;
-      prev_dphase = dut.dphase;
-      prev_cstate = cstate;
-    end
-  end
-`endif
-
-  // ------------------------- timeout guard --------------------------------
-`ifdef VERILATOR
-  // Chunked timeout: Verilator 5.006 corrupts the --timing delay heap on a
-  // single long-pending #delay once many short-delay resumptions interleave.
   initial begin
-    repeat (30000) #1000;   // 30 ms in 1-us chunks
-    $display("TIMEOUT");
-    $finish;
+    repeat (100000) #1000;
+    $display("TEST FAILED: TIMEOUT"); $finish;
   end
-`else
-  initial begin
-    #20_000_000;
-    $display("TIMEOUT");
-    $finish;
-  end
-`endif
-
 endmodule
