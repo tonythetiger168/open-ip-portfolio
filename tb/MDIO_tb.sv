@@ -43,26 +43,26 @@ module MDIO_tb;
   always @(posedge clk) fsm_seen[dut_fa] <= 1'b1;
 
   // output-invariant assertion suite (sampled coherently pre-NBA)
-  logic [5:0] cnt_q = '0;
+  logic [4:0] cnt_q = '0;
   int rst_cyc = 0;   // first reset posedge is sampled pre-NBA (regs still X)
   always @(posedge clk) begin
     if (!rst_n) begin
       // A1: frame engine quiescent in reset
       if (rst_cyc > 0)
-        sva_check(!dut_fa && !dut.read_match && (dut.cnt === 6'd0),
+        sva_check(!dut_fa && !dut.read_match && (dut.cnt === 5'd0),
                   "A1 reset: engine quiescent");
       rst_cyc++;
     end else begin
       // A2: bit counter bounded by the 32-bit frame length
-      sva_check(dut.cnt <= 6'd29 || !dut_fa, "A2 cnt bounded in frame");
-      // A3: slave pulls mdio low only inside the read-data window
+      sva_check(dut.cnt <= 5'd29 || !dut_fa, "A2 cnt bounded in frame");
+      // A3: slave pulls mdio low only inside the TA2 + read-data window
       sva_check(!dut.drive_low ||
-                (dut.read_match && (dut.cnt >= 6'd14) && (dut.cnt <= 6'd29)),
+                (dut.read_match && (dut.cnt >= 5'd13) && (dut.cnt <= 5'd29)),
                 "A3 slave drive only in read window");
       // A4: irq is exactly frame_act && last-bit
-      sva_check(dut.irq === (dut_fa && (dut.cnt == 6'd29)), "A4 irq definition");
+      sva_check(dut.irq === (dut_fa && (dut.cnt == 5'd29)), "A4 irq definition");
       // A5: cnt steps by at most one (or clears on frame start)
-      sva_check(((dut.cnt - cnt_q) <= 6'd1) || (dut.cnt === 6'd0),
+      sva_check(((dut.cnt - cnt_q) <= 5'd1) || (dut.cnt === 5'd0),
                 "A5 cnt steps <=1");
       // A6: a matched read window implies a read opcode was seen
       sva_check(!dut.read_match || dut.read_frame, "A6 read_match needs read_frame");
@@ -81,10 +81,17 @@ module MDIO_tb;
     end
   endtask
 
+  int pre_len = 32;                 // preamble ones sent before each frame
+  logic ta2;                        // read: second turnaround bit as sampled
+  task automatic preamble;
+    for (int i = 0; i < pre_len; i++) mdc_bit(1'b1);
+  endtask
+
   task automatic mdio_write(input logic [4:0] pa, input logic [4:0] ra,
                             input logic [15:0] data);
     logic b;
     begin
+      preamble();
       for (int i = 0; i < 32; i++) begin
         b = (i == 0) ? 1'b0 :                    // ST = 01
             (i == 1) ? 1'b1 :
@@ -105,6 +112,7 @@ module MDIO_tb;
                            output logic [15:0] data);
     logic b;
     begin
+      preamble();
       for (int i = 0; i < 14; i++) begin
         b = (i == 0) ? 1'b0 : (i == 1) ? 1'b1 :
             (i == 2) ? 1'b1 : (i == 3) ? 1'b0 :  // OP = 10 (read)
@@ -113,7 +121,8 @@ module MDIO_tb;
         mdc_bit(b);
       end
       mdc_bit(1'b1);                            // TA bit 1: master releases
-      mdc_bit(1'b1);                            // TA bit 2: slave begins driving
+      mdc_bit(1'b1);                            // TA bit 2: slave drives 0
+      ta2 = md_s;
       for (int i = 0; i < 16; i++) begin
         mdc_bit(1'b1);                          // keep released, sample read data
         data[15-i] = md_s;
@@ -134,10 +143,28 @@ module MDIO_tb;
       errors++; $display("ERROR: MDIO rw got=%h exp=BEEF", rdata);
     end
 
+    if (ta2 !== 1'b0) begin errors++; $display("ERROR: MDIO read TA2 not driven low"); end
+
     mdio_read (5'h0C, 5'h00, rdata);            // preset PHY ID reg
     if (rdata !== 16'h1140) begin
       errors++; $display("ERROR: MDIO reg0 got=%h exp=1140", rdata);
     end
+
+    // minimum (1-bit) preamble right after a frame whose last bit is 0: the
+    // data tail must not be taken as a start of frame
+    pre_len = 1;
+    mdio_write(5'h0C, 5'h05, 16'h1234);         // ends in 0
+    mdio_write(5'h0C, 5'h06, 16'h5678);
+    mdio_read (5'h0C, 5'h05, rdata);
+    if (rdata !== 16'h1234) begin errors++; $display("ERROR: MDIO reg5 got=%h", rdata); end
+    mdio_read (5'h0C, 5'h06, rdata);
+    if (rdata !== 16'h5678) begin errors++; $display("ERROR: MDIO back-to-back reg6 got=%h", rdata); end
+    // wrong-PHY read: TA2 and data stay released (all ones)
+    mdio_read (5'h0D, 5'h05, rdata);
+    if (rdata !== 16'hFFFF || ta2 !== 1'b1) begin
+      errors++; $display("ERROR: MDIO wrong-PHY read drove the bus");
+    end
+    pre_len = 32;
 
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ----
@@ -156,6 +183,7 @@ module MDIO_tb;
       model[0] = 16'h1140;                       // PHY ID preset
       model[3] = 16'hBEEF;                       // directed-phase write
       for (int t = 0; t < 120; t++) begin
+        pre_len = $urandom_range(1, 32);
         roll = $urandom_range(0, 19);
         ra   = $urandom_range(0, 31);
         if ($urandom_range(0, 7) == 0) ra = ($urandom_range(0, 1)) ? 5'd31 : 5'd0;
@@ -211,6 +239,48 @@ module MDIO_tb;
     end
 `endif
 
+`ifdef VERILATOR
+    // ---- frame-level corner cases ----
+    begin
+      logic [15:0] r0;
+      pre_len = 4;
+      mdio_read(5'h0C, 5'h07, r0);
+      // OP = 00 and OP = 11 frames are ignored
+      for (int op = 0; op < 4; op += 3) begin
+        preamble();
+        mdc_bit(1'b0); mdc_bit(1'b1);
+        mdc_bit(op[1]); mdc_bit(op[0]);
+        for (int i = 4; i >= 0; i--) mdc_bit(5'h0C >> i); // PHYAD 0C
+        for (int i = 0; i < 5; i++) mdc_bit(i inside {2, 3, 4});  // REGAD 07
+        mdc_bit(1'b1); mdc_bit(1'b0);
+        for (int i = 0; i < 16; i++) mdc_bit(i[0]);
+        m_low = 0; #600;
+      end
+      mdio_read(5'h0C, 5'h07, rdata);
+      if (rdata !== r0) begin errors++; $display("ERROR: MDIO invalid-OP frame wrote reg7"); end
+      // 0,0,1 is not a start of frame: the following bits are ignored
+      preamble();
+      mdc_bit(1'b0); mdc_bit(1'b0); mdc_bit(1'b1);
+      for (int i = 0; i < 8; i++) mdc_bit(1'b0);
+      if (dut.frame_act !== 1'b0) begin errors++; $display("ERROR: MDIO 001 taken as ST"); end
+      for (int i = 0; i < 4; i++) mdc_bit(1'b1);
+      // reset in the middle of a read data phase: bus released at once
+      preamble();
+      mdc_bit(1'b0); mdc_bit(1'b1); mdc_bit(1'b1); mdc_bit(1'b0);
+      for (int i = 4; i >= 0; i--) mdc_bit(5'h0C >> i);   // PHYAD 0C
+      for (int i = 0; i < 5; i++) mdc_bit(1'b0);                  // REGAD 0
+      for (int i = 0; i < 5; i++) mdc_bit(1'b1);
+      m_low = 1'b0; #150 mdc = 1'b1;          // next data bit is being driven
+      #100 @(negedge clk) rst_n = 1'b0;
+      #50 mdc = 1'b0;
+      if (mdio !== 1'b1) begin errors++; $display("ERROR: MDIO still driving in reset"); end
+      #500 rst_n = 1'b1;
+      #500;
+      mdio_read(5'h0C, 5'h00, rdata);
+      if (rdata !== 16'h1140) begin errors++; $display("ERROR: MDIO reg0 after reset got=%h", rdata); end
+    end
+`endif
+
     if (errors == 0) $display("TEST PASSED: MDIO");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR
@@ -231,7 +301,7 @@ module MDIO_tb;
   // corrupts the --timing delay heap once many short-delay resumptions
   // interleave (processes lose wakeups, long event fires early).
   initial begin
-    repeat (20000) #1000;   // 20 ms in 1-us chunks
+    repeat (40000) #1000;   // 40 ms in 1-us chunks
     $display("TIMEOUT"); $finish;
   end
 `else
