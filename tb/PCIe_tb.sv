@@ -1,342 +1,504 @@
 // SPDX-License-Identifier: Apache-2.0
-// PCIe TB: host sends flit frame, device echoes, host verifies payload.
+// PCIe_top testbench. Part 1: two ends A and B cross-connected through
+// symbol channels that can flip, drop or turn symbols into K symbols.
+// Part 2: end A against a TB link partner (BFM) that sends any packet,
+// good or not, and watches what A sends.
+//  - host drivers write TLPs of random length (some longer than MAXLEN, so
+//    the core cuts them) with gaps, and read with random back-pressure
+//  - receive scoreboards: every TLP written at one end must come out at the
+//    other exactly once, in order, whatever the channel did (the link
+//    replays), until the link drops
+//  - errors: bad LCRC, dropped TLPs, nullified and bad EDB TLPs, lost start
+//    and end symbols, K symbols inside packets, bad DLLPs, Acks lost long
+//    enough for the replay timer and a retrain; from the BFM: duplicates,
+//    sequence numbers ahead, short / long TLPs and DLLPs, Acks behind and
+//    ahead, reserved bits, unknown DLLPs, overflow, the three ways out of
+//    FC2, finite and infinite credits, Naks without progress (retrain)
+// The bound checker (tb/cov/PCIe_sva.sv) checks every output of both ends
+// on every clock.
 `timescale 1ns/1ps
 module PCIe_tb;
-  localparam int BIT = 400;
-  localparam int HB  = 8;
-  localparam logic [7:0] STP = 8'hFB, END_B = 8'hFD;
+  localparam int MAXLEN = 32, TXN = 4, RXN = 4, REPLAY_TO = 600;
+  localparam logic [7:0] STP = 8'hFB, SDP = 8'h5C, ENDS = 8'hFD, EDB = 8'hFE;
   logic clk = 0, rst_n = 0;
-  logic host_val = 1'b1, host_oe = 1'b0;
-  tri1  rx, tx;
-  int errors = 0;
-
-  PCIe_top #(.BAUD_DIV(20)) dut (
-    .clk(clk), .rst_n(rst_n), .refclk(clk), .rx(rx), .tx(tx), .busy(), .irq());
   always #5 clk = ~clk;
-  assign rx = host_oe ? host_val : tx;
+  int errors = 0;
+  task automatic fail(input string s);
+    errors++;
+    $display("ERROR: %s @%0t", s, $time);
+  endtask
 
-  function automatic logic [31:0] crc32(input logic [31:0] c, input logic b);
-    logic fb; begin fb=c[0]^b; crc32=c>>1; if(fb) crc32=crc32^32'hEDB88320; end
+  // ---------------- ends: index 0 = A, 1 = B ----------------
+  logic [1:0]      link = 0, tlp_valid = 0, tlp_last = 0, rx_ready = 0;
+  logic [1:0][7:0] tlp_data = 0;
+  wire  [1:0][7:0] tx_sym, rx_data;
+  wire  [1:0]      tx_k, tlp_ready, rx_valid, rx_last, dl_up, retrain;
+  wire  [1:0]      ev_tlp_bad, ev_tlp_seq, ev_tlp_dup, ev_tlp_null, ev_overflow, ev_dllp_bad, ev_dllp_proto;
+  wire  [1:0]      ev_frame, ev_nak, ev_replay;
+  // channels: d = 0 A -> B, d = 1 B -> A; flip bits, flip K, drop (idle)
+  logic [1:0][7:0] xs = 0;
+  logic [1:0]      xk = 0, dr = 0;
+  // BFM in place of B on A's receive side
+  bit              bfm = 0;
+  logic [7:0]      b_sym = 0;
+  logic            b_k = 0;
+  wire  [7:0]      rs0 = bfm ? b_sym : dr[1] ? 8'h00 : tx_sym[1] ^ xs[1];
+  wire             rk0 = bfm ? b_k : dr[1] ? 1'b0 : tx_k[1] ^ xk[1];
+  wire  [7:0]      rs1 = dr[0] ? 8'h00 : tx_sym[0] ^ xs[0];
+  wire             rk1 = dr[0] ? 1'b0 : tx_k[0] ^ xk[0];
+
+  PCIe_top #(.MAXLEN(MAXLEN), .TXN(TXN), .RXN(RXN), .REPLAY_TO(REPLAY_TO)) u_a (
+    .clk(clk), .rst_n(rst_n), .link_up(link[0]), .tx_sym(tx_sym[0]), .tx_k(tx_k[0]), .rx_sym(rs0), .rx_k(rk0),
+    .tlp_valid(tlp_valid[0]), .tlp_ready(tlp_ready[0]), .tlp_data(tlp_data[0]), .tlp_last(tlp_last[0]),
+    .rx_valid(rx_valid[0]), .rx_ready(rx_ready[0]), .rx_data(rx_data[0]), .rx_last(rx_last[0]),
+    .dl_up(dl_up[0]), .retrain(retrain[0]), .ev_tlp_bad(ev_tlp_bad[0]), .ev_tlp_seq(ev_tlp_seq[0]),
+    .ev_tlp_dup(ev_tlp_dup[0]), .ev_tlp_null(ev_tlp_null[0]), .ev_overflow(ev_overflow[0]),
+    .ev_dllp_bad(ev_dllp_bad[0]), .ev_dllp_proto(ev_dllp_proto[0]), .ev_frame(ev_frame[0]), .ev_nak(ev_nak[0]),
+    .ev_replay(ev_replay[0]));
+  PCIe_top #(.MAXLEN(MAXLEN), .TXN(TXN), .RXN(RXN), .REPLAY_TO(REPLAY_TO)) u_b (
+    .clk(clk), .rst_n(rst_n), .link_up(link[1]), .tx_sym(tx_sym[1]), .tx_k(tx_k[1]), .rx_sym(rs1), .rx_k(rk1),
+    .tlp_valid(tlp_valid[1]), .tlp_ready(tlp_ready[1]), .tlp_data(tlp_data[1]), .tlp_last(tlp_last[1]),
+    .rx_valid(rx_valid[1]), .rx_ready(rx_ready[1]), .rx_data(rx_data[1]), .rx_last(rx_last[1]),
+    .dl_up(dl_up[1]), .retrain(retrain[1]), .ev_tlp_bad(ev_tlp_bad[1]), .ev_tlp_seq(ev_tlp_seq[1]),
+    .ev_tlp_dup(ev_tlp_dup[1]), .ev_tlp_null(ev_tlp_null[1]), .ev_overflow(ev_overflow[1]),
+    .ev_dllp_bad(ev_dllp_bad[1]), .ev_dllp_proto(ev_dllp_proto[1]), .ev_frame(ev_frame[1]), .ev_nak(ev_nak[1]),
+    .ev_replay(ev_replay[1]));
+
+  // ---------------- CRCs ----------------
+  function automatic logic [15:0] dcrc(input logic [31:0] d);
+    logic [15:0] c;
+    c = '1;
+    for (int i = 31; i >= 0; i--) c = {c[14:0], 1'b0} ^ ((c[15] ^ d[i]) ? 16'h100B : 16'h0);
+    return c;
   endfunction
 
-  logic [7:0] hdr [0:7];
-  logic [7:0] pl  [0:7];
-  task automatic send_tlp(input int plen);
-    logic [31:0] c; logic [7:0] fb;
-    begin
-      host_oe = 1; host_val = 1'b0; #(BIT);
-      fb = STP; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
-      fb = HB + plen; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
-      c = 32'hFFFFFFFF;
-      for (int i=0;i<HB;i++) begin
-        fb = hdr[i];
-        for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; #(BIT); end
+  // ---------------- host drivers ----------------
+  // what end p must deliver: {last, byte} written at the other end
+  logic [8:0] exp0 [$];
+  logic [8:0] exp1 [$];
+  int         wlen [0:1], wcnt [0:1], wgap [0:1], nrx [0:1];
+  bit         wen [0:1], wtk [0:1];
+  int         gap_max = 40, len_min = 1, len_max = 40, rdy_pct [0:1];
+  initial for (int p = 0; p < 2; p++) begin
+    wlen[p] = 0; wcnt[p] = 0; wgap[p] = 0; nrx[p] = 0; wen[p] = 0; wtk[p] = 0; rdy_pct[p] = 100;
+  end
+  // takes, sampled on the posedge
+  always @(posedge clk)
+    for (int p = 0; p < 2; p++) begin
+      if (tlp_valid[p] && tlp_ready[p]) begin : b_take
+        logic [8:0] e;
+        wcnt[p]++;
+        e = {tlp_last[p] || wcnt[p] % MAXLEN == 0, tlp_data[p]};
+        if (p == 0) exp1.push_back(e); else exp0.push_back(e);
+        wtk[p] = 1;
       end
-      for (int i=0;i<plen;i++) begin
-        fb = pl[i];
-        for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; #(BIT); end
-      end
-      c = ~c;
-      for (int i=0;i<32;i++) begin host_val=c[0]; c=c>>1; #(BIT); end
-      fb = END_B; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
-      host_oe = 0;
-    end
-  endtask
-
-  logic b; logic [7:0] sh;
-  task automatic recv_tlp(output int plen);
-    begin
-      plen = 0; sh = 0;
-      wait (tx === 1'b0);
-      #(BIT + BIT/2);
-      for (int i=0;i<8;i++) begin b=tx; sh={b,sh[7:1]}; #(BIT); end
-      sh = 0;
-      for (int i=0;i<8;i++) begin b=tx; sh={b,sh[7:1]}; if(i==7) plen = sh - HB; #(BIT); end
-      for (int i=0;i<HB+plen;i++) begin
-        sh = 0;
-        for (int j=0;j<8;j++) begin
-          b = tx; sh = {b, sh[7:1]};
-          if (j == 7) begin
-            if (i < HB) hdr[i] = sh;
-            else        pl[i-HB] = sh;
-          end
-          #(BIT);
+      // (a read as the link drops is of a buffer being emptied)
+      if (rx_valid[p] && rx_ready[p] && link[p]) begin : b_read
+        logic [8:0] e;
+        if ((p == 0 ? exp0.size() : exp1.size()) == 0) fail($sformatf("end %0d: byte %h never written", p, rx_data[p]));
+        else begin
+          e = p == 0 ? exp0.pop_front() : exp1.pop_front();
+          if ({rx_last[p], rx_data[p]} !== e) fail($sformatf("end %0d: byte %b %h, expected %b %h", p, rx_last[p], rx_data[p], e[8], e[7:0]));
+          if (rx_last[p]) nrx[p]++;
         end
       end
-      #(BIT*40);
     end
-  endtask
-
-`ifdef VERILATOR
-  // =====================================================================
-  // v2.5 CRV instrumentation (tool build only; iverilog path unchanged)
-  // FSMs probed: dut.tstate (T_IDLE/T_PKT/T_END) + dut.rstate
-  // (R_IDLE/R_BYTE), 5 states total.
-  // =====================================================================
-  localparam int PCIe_FSM_TOTAL = 5;   // 3 TX + 2 RX states
-  logic [3:0] fsm_seen_t = '0;        // visited TX-state bitmap
-  logic [1:0] fsm_seen_r = '0;        // visited RX-state bitmap
-  wire  [1:0] dut_tstate = dut.tstate;
-  wire  [1:0] dut_rstate = dut.rstate;
-
-  int sva_total = 0, sva_fail = 0;
-  // counted immediate assertion: every evaluation is one check
-  task automatic sva_check(input bit cond, input string name);
-    begin
-      sva_total++;
-      if (!cond) begin
-        sva_fail++;
-        errors++;
-        $display("SVA_FAIL: %s @%0t", name, $time);
+  always @(negedge clk)
+    for (int p = 0; p < 2; p++) begin
+      if (wtk[p]) begin
+        wtk[p] = 0; tlp_valid[p] = 0;
+        if (tlp_last[p]) begin wcnt[p] = 0; wgap[p] = $urandom % (gap_max + 1); end
       end
+      // a TLP once begun is finished even when writing stops
+      if (!tlp_valid[p] && (wen[p] || wcnt[p] != 0)) begin
+        if (wgap[p] > 0) wgap[p]--;
+        else if ($urandom % 8 != 0) begin
+          if (wcnt[p] == 0) wlen[p] = len_min + $urandom % (len_max - len_min + 1);
+          tlp_valid[p] = 1; tlp_data[p] = $urandom; tlp_last[p] = wcnt[p] + 1 == wlen[p];
+        end
+      end
+      rx_ready[p] = ($urandom % 100) < rdy_pct[p];
     end
-  endtask
+  // the link drops: the core forgets everything
+  always @(negedge clk)
+    for (int p = 0; p < 2; p++)
+      if (!link[p] || !rst_n) begin
+        // A's link: its receive buffer and A's written TLPs are lost; B's
+        // link: the same for B (A's TLPs from the BFM stay)
+        if (p == 0) begin exp0.delete(); exp1.delete(); end
+        else begin exp1.delete(); if (!bfm) exp0.delete(); end
+        if (!tlp_valid[p] || !link[p]) wcnt[p] = 0;
+        tlp_valid[p] = 0;
+      end
 
-  // FSM coverage: sample DUT state registers on both edges (scheduler
-  // failure mode #3 mitigation: dual-edge probe tolerates lost wakeups)
-  always @(posedge clk or negedge clk) begin
-    fsm_seen_t[dut_tstate] <= 1'b1;
-    fsm_seen_r[dut_rstate] <= 1'b1;
-  end
-
-  // output-invariant assertion suite (level/comb checks, negedge-sampled
-  // so all NBA updates are settled; no history-dependent properties)
-  logic rst_n_q = 1'b1;
+  // ---------------- BFM ----------------
+  // sends queued symbols (data 00 when there are none); watches A
+  logic [8:0] bq [$];
   always @(negedge clk) begin
-    if (!rst_n) begin
-      // A1: outputs quiescent during reset (one cycle for regs to init)
-      if (!rst_n_q)
-        sva_check(dut.busy === 1'b0 && dut.irq === 1'b0,
-                  "A1 reset: outputs quiescent");
-    end else begin
-      // A2: busy exactly reflects non-idle of either FSM
-      sva_check(dut.busy === ((dut_rstate != 2'd0) || (dut_tstate != 2'd0)),
-                "A2 busy == FSMs non-idle");
-      // A3: irq mirrors the rx_done pulse
-      sva_check(dut.irq === dut.rx_done, "A3 irq == rx_done");
-      // A4: TX FSM never takes the unused 2'd3 encoding
-      sva_check(dut_tstate !== 2'd3, "A4 tstate legal encoding");
-      // A5: RX FSM never takes the unused 2'd2/2'd3 encodings
-      sva_check(dut_rstate <= 2'd1, "A5 rstate legal encoding");
-      // A6: TX-arm countdown never exceeds its programmed value
-      sva_check(dut.ta_cnt <= 4'd6, "A6 ta_cnt <= 6");
-      // A7: field sequencer never takes unused encodings 6/7
-      sva_check(dut.tfld <= 3'd5, "A7 tfld legal encoding");
-      // A8: when the DUT releases the line the tri1 pullup holds it high
-      sva_check(dut.oe_q || (tx === 1'b1), "A8 released line pulled high");
-    end
-    rst_n_q <= rst_n;
+    if (bq.size() != 0) {b_k, b_sym} = bq.pop_front();
+    else {b_k, b_sym} = 9'h000;
   end
-`endif
+  task automatic bwait;
+    while (bq.size() != 0) @(negedge clk);
+    @(negedge clk);
+  endtask
+  task automatic bdllp(input logic [7:0] b0, b1, b2, b3, input bit bad = 0);
+    logic [15:0] c;
+    c = ~dcrc({b0, b1, b2, b3}) ^ (bad ? 16'h0001 : 16'h0);
+    bq.push_back({1'b1, SDP}); bq.push_back({1'b0, b0}); bq.push_back({1'b0, b1}); bq.push_back({1'b0, b2});
+    bq.push_back({1'b0, b3}); bq.push_back({1'b0, c[15:8]}); bq.push_back({1'b0, c[7:0]}); bq.push_back({1'b1, ENDS});
+    bq.push_back(9'h000);
+  endtask
+  task automatic back(input bit nak, input logic [11:0] seq, input logic [7:0] resv = 0);
+    bdllp(nak ? 8'h10 : 8'h00, resv, {4'd0, seq[11:8]}, seq[7:0]);
+  endtask
+  task automatic bfc(input logic [7:0] t, input logic [7:0] hdr);
+    bdllp(t, {2'b00, hdr[7:2]}, {hdr[1:0], 6'd0}, 8'd0);
+  endtask
+  // a TLP of n random bytes; mode 0 good, 1 bad LCRC, 2 nullified, 3 EDB
+  // with a good LCRC; accept: A must deliver it
+  int bseq = 0;
+  task btlp(input logic [11:0] seq, input int n, input int mode = 0, input bit accept = 0);
+    logic [7:0]  b [$];
+    logic [31:0] c;
+    logic [7:0]  x;
+    b.delete();
+    b.push_back({4'd0, seq[11:8]}); b.push_back(seq[7:0]);
+    for (int i = 0; i < n; i++) b.push_back(8'($urandom));
+    c = '1;
+    for (int j = 0; j < b.size(); j++) begin
+      x = b[j];
+      for (int i = 7; i >= 0; i--) c = {c[30:0], 1'b0} ^ ((c[31] ^ x[i]) ? 32'h04C1_1DB7 : 32'h0);
+    end
+    if (mode != 2) c = ~c;
+    if (mode == 1) c ^= 32'h0100;
+    bq.push_back({1'b1, STP});
+    foreach (b[i]) bq.push_back({1'b0, b[i]});
+    for (int i = 3; i >= 0; i--) bq.push_back({1'b0, c[8 * i +: 8]});
+    bq.push_back({1'b1, mode >= 2 ? EDB : ENDS});
+    if (accept) for (int i = 2; i < b.size(); i++) exp0.push_back({i == b.size() - 1, b[i]});
+    bq.push_back(9'h000);
+  endtask
+  // A's transmissions: TLP sequence numbers and DLLPs seen
+  int         a_tlps = 0, a_last_seq = -1, a_dllps = 0;
+  logic [7:0] a_dllp [4];
+  bit         b_autoack = 0;
+  int         a_cnt = -1;
+  logic [7:0] a_pk [$];
+  always @(posedge clk) if (bfm) begin
+    if (tx_k[0]) begin
+      if (tx_sym[0] == ENDS && a_cnt >= 0) begin
+        if (a_pk.size() == 6) begin
+          for (int i = 0; i < 4; i++) a_dllp[i] = a_pk[i];
+          a_dllps++;
+        end else begin
+          begin logic [7:0] h; h = a_pk[0]; a_last_seq = {h[3:0], a_pk[1]}; end
+          a_tlps++;
+          if (b_autoack) back(0, a_last_seq);
+        end
+      end
+      a_cnt = tx_sym[0] == STP || tx_sym[0] == SDP ? 0 : -1;
+      a_pk.delete();
+    end else if (a_cnt >= 0) a_pk.push_back(tx_sym[0]);
+  end
+  task automatic wait_dllp(input logic [7:0] t, input int n = 4000);
+    int k;
+    k = 0;
+    @(negedge clk);
+    while (!(tx_k[0] && tx_sym[0] == ENDS && a_pk.size() == 6 && a_pk[0] == t) && k < n) begin @(negedge clk); k++; end
+    if (k >= n) fail($sformatf("A sent no DLLP %h", t));
+    @(negedge clk);
+  endtask
 
-  int rlen;
+  // ---------------- helpers ----------------
+  task automatic wait_clk(input int n);
+    repeat (n) @(negedge clk);
+  endtask
+  task automatic wait_up(input int p, input int n = 3000);
+    int t;
+    t = 0;
+    while (!dl_up[p] && t < n) begin @(negedge clk); t++; end
+    if (!dl_up[p]) fail($sformatf("end %0d: link not up", p));
+  endtask
+  // writing paused: all written TLPs delivered both ways
+  task automatic drain(input int n = 20000);
+    int t;
+    bit w [0:1];
+    w[0] = wen[0]; w[1] = wen[1]; wen[0] = 0; wen[1] = 0;
+    t = 0;
+    while ((exp0.size() != 0 || exp1.size() != 0 || wcnt[0] != 0 || wcnt[1] != 0) && t < n) begin @(negedge clk); t++; end
+    if (exp0.size() != 0 || exp1.size() != 0) fail($sformatf("not drained: %0d %0d bytes", exp0.size(), exp1.size()));
+    wen[0] = w[0]; wen[1] = w[1];
+  endtask
+  // channel d: act on symbol k (0 = the start symbol) of the next packet
+  // starting with start (STP or SDP)
+  task automatic at_pkt(input int d, input logic [7:0] start, input int k);
+    while (!(d == 0 ? tx_k[0] && tx_sym[0] == start : tx_k[1] && tx_sym[1] == start)) @(negedge clk);
+    wait_clk(k);
+  endtask
+  task automatic hit(input int d, input logic [7:0] x, input bit kf = 0);
+    xs[d] = x; xk[d] = kf; @(negedge clk); xs[d] = 0; xk[d] = 0;
+  endtask
+  // drop the next packet starting with start on channel d
+  task automatic drop_pkt(input int d, input logic [7:0] start);
+    at_pkt(d, start, 0);
+    dr[d] = 1;
+    @(negedge clk);
+    while (!(d == 0 ? tx_k[0] && (tx_sym[0] == ENDS) : tx_k[1] && tx_sym[1] == ENDS)) @(negedge clk);
+    @(negedge clk);
+    dr[d] = 0;
+  endtask
+  task automatic link_cycle;
+    @(negedge clk);
+    link = 0;
+    wait_clk(5);
+  endtask
+
   initial begin
-    for (int i=0;i<8;i++) begin hdr[i] = 8'h10 + i; pl[i] = 8'hA0 + i * 8'h11; end
-    rst_n = 0; repeat(10) @(posedge clk);
-    rst_n = 1; repeat(20) @(posedge clk);
-    send_tlp(4);
-    recv_tlp(rlen);
-    if (rlen !== 4) begin errors++; $display("ERROR: PCIe plen got=%0d exp=4", rlen); end
-    for (int i=0;i<4;i++) begin
-      if (pl[i] !== 8'hA0 + i * 8'h11) begin
-        errors++; $display("ERROR: PCIe pl[%0d] got=%h exp=%h", i, pl[i], 8'hA0 + i*8'h11);
-      end
-    end
-    if (dut.rx_err !== 1'b0) begin errors++; $display("ERROR: PCIe rx_err set"); end
+    wait_clk(3);
+    rst_n = 1;
+    wait_clk(5);
+    // ================= part 1: A <-> B =================
+    link = 2'b11;
+    wait_up(0); wait_up(1);
+    wen[0] = 1; wen[1] = 1;
+    wait_clk(30000);
+    // short TLPs, no gaps: sequence numbers and credits wrap
+    len_max = 4; gap_max = 0;
+    while (nrx[1] < 4300 || nrx[0] < 4300) @(negedge clk);
+    len_max = 40; gap_max = 40;
+    // B stops reading: A runs out of credit, then goes on
+    rdy_pct[1] = 0;
+    wait_clk(4000);
+    rdy_pct[1] = 30;
+    wait_clk(4000);
+    rdy_pct[1] = 100;
+    drain();
 
-`ifdef VERILATOR
-    // ---- v2.5 CRV random phase (directed tests above untouched) ----
-    // 114 randomized frames: 100 good (random LEN 8..16 / all-zero /
-    // all-one content), 8 bad-CRC + 2 long (LEN=17/18, toggle buf_mem[22:23]
-    // via the RX store path, bad CRC so no echo), 2 bad-STP (echo still
-    // expected, rx_done is not gated by rx_err), 2 bad-END (no echo).
-    // Fully inlined (no timing-task coroutine chains): one coroutine with
-    // plain awaits dodges the 5.006 timing-scheduler corruption; all waits
-    // are bounded.
-    // RTL-bug handling (recorded in docs/coverage/W6_REST.md, NOT fixed):
-    // the echo copy `for (i=2;i<=21;i++) tx_mem[i-2] <= buf_mem[i]` writes
-    // tx_mem[16..19] out of bounds; iverilog drops the OOB writes, Verilator
-    // masks the index so buf_mem[18..21] clobber tx_mem[0..3]. The shadow
-    // model below predicts the masked behaviour exactly.
-    begin : crv_phase
-      int n_good = 0, n_badcrc = 0, n_badstp = 0, n_badend = 0, n_long = 0, n_zlen = 0;
-      int lenb, dlen, edat, enf, ftype, nf, wt, ecount;
-      logic [7:0] sh_buf [0:23];   // model of dut.buf_mem (RX store port)
-      logic [7:0] exp_mem [0:15];  // predicted dut.tx_mem after rx_done
-      logic [7:0] fbytes [0:31];
-      logic [7:0] rcv    [0:31];
-      logic [7:0] shv;
-      logic [31:0] c32, ce;
-      logic        rb;
-      for (int i = 0; i < 24; i++) sh_buf[i] = 8'h00;
-      ecount = errors;
-      repeat (400) @(posedge clk);          // settle after directed phase
-      for (int t = 0; t < 127; t++) begin
-        // ---- frame class selection ----
-        if (t < 100) begin
-          ftype = 0;                              // good frame
-          lenb  = 8 + $urandom_range(0, 8);       // v2.5.1: full LEN 8..16
-                                                  // (LEN=8 overrun fixed, W6-3)
-          if (t == 10) lenb = 8;                  // deterministic LEN=8 lock
-        end else if (t < 102) begin
-          ftype = 2;                              // bad STP -> echo anyway
-          lenb  = 8 + $urandom_range(0, 8);
-        end else if (t < 110) begin
-          ftype = 1;                              // bad CRC -> no echo
-          lenb  = 8 + $urandom_range(0, 8);
-        end else if (t < 122) begin
-          ftype = 1;                              // long frames, bad CRC
-          lenb  = 17 + ((t - 110) % 2);           // LEN 17 / 18 (buf_mem[22:23])
-        end else if (t < 124) begin
-          ftype = 3;                              // bad END -> no echo
-          lenb  = 8 + $urandom_range(0, 8);
-        end else begin
-          ftype = 5;                              // LEN byte with bits[7:6]:
-                                                  // out of 8..16, dropped at LEN
-                                                  // (F2 clamp) -> rx_err, no echo
-          lenb  = (t == 124) ? 8'h40 : (t == 125) ? 8'h80 : 8'hC0;  // len_q=0
-        end
-        dlen = lenb & 8'h3F;                      // len_q the DUT extracts
-        // ---- content ----
-        for (int i = 0; i < 25; i++) fbytes[i] = 8'h00;
-        for (int i = 0; i < dlen; i++)
-          fbytes[2+i] = $urandom_range(0, 255);
-        if (ftype == 0 && t % 17 == 0)
-          for (int i = 0; i < dlen; i++) fbytes[2+i] = 8'h00;     // all-zero
-        if (ftype == 0 && t % 19 == 0)
-          for (int i = 0; i < dlen; i++) fbytes[2+i] = 8'hFF;     // all-one
-        fbytes[0] = (ftype == 2) ? (STP ^ 8'hA5) : STP;
-        fbytes[1] = lenb[7:0];
-        c32 = 32'hFFFFFFFF;
-        for (int i = 0; i < dlen; i++)
-          for (int j = 0; j < 8; j++) c32 = crc32(c32, fbytes[2+i][j]);
-        c32 = ~c32;
-        if (ftype == 1) c32 = c32 ^ 32'h0000_0001;                // corrupt
-        for (int k = 0; k < 4; k++) fbytes[2+dlen+k] = (c32 >> (8*k)) & 8'hFF;
-        fbytes[dlen+6] = (ftype == 3) ? (END_B ^ 8'hFF) : END_B;
-        nf = dlen + 7;
-        // ---- send (clock-counted bit cells: 40 clks/bit, no #delays) ----
-        host_oe = 1; host_val = 1'b0; repeat (40) @(posedge clk); // start bit
-        for (int i = 0; i < nf; i++) begin
-          shv = fbytes[i];
-          for (int j = 0; j < 8; j++) begin
-            host_val = shv[0]; shv = {1'b0, shv[7:1]};
-            repeat (40) @(posedge clk);
-          end
-        end
-        host_oe = 0;
-        // ---- shadow buf_mem update (DUT stores every received byte) ----
-        // a LEN outside 8..16 is dropped before anything is stored (F2)
-        if (lenb >= 8 && lenb <= 16) begin
-          sh_buf[1] = lenb[7:0];
-          for (int i = 0; i < dlen + 4; i++) sh_buf[2+i] = fbytes[2+i];
-        end
-        if (ftype == 0) n_good++;
-        else if (ftype == 1) begin n_badcrc++; if (dlen > 16) n_long++; end
-        else if (ftype == 2) n_badstp++;
-        else if (ftype == 3) n_badend++;
-        else n_zlen++;
-        if (ftype == 0 || ftype == 2) begin
-          // ---- predict tx_mem after rx_done ----
-          // v2.5.1 FIXED: exact copy, no OOB-mask clobber of tx_mem[0..3]
-          for (int k = 0; k < 16; k++) exp_mem[k] = sh_buf[k+2];
-          // echo data length: v2.5.1 -- LEN=8 now sends 0 payload bytes
-          // (W6-3 fixed); len_q==0 still sends tx_mem[8..15] after the
-          // 8 HDR bytes (16 data bytes)
-          edat = (dlen == 0) ? 16 : dlen;
-          enf  = edat + 7;
-          ce = 32'hFFFFFFFF;
-          for (int i = 0; i < edat; i++)
-            for (int j = 0; j < 8; j++) ce = crc32(ce, exp_mem[i][j]);
-          ce = ~ce;
-          // ---- receive echo (bounded wait + center sampling) ----
-          wt = 0;
-          while (tx !== 1'b0 && wt < 20000) begin @(posedge clk); wt++; end
-          if (wt >= 20000) begin
-            errors++;
-            $display("ERROR: CRV echo timeout t=%0d tstate=%0d ta_cnt=%0d",
-                     t, dut_tstate, dut.ta_cnt);
-          end else begin
-            repeat (59) @(posedge clk); @(negedge clk);   // center of bit0
-            for (int i = 0; i < enf; i++) begin
-              rcv[i] = 8'h00;
-              for (int j = 0; j < 8; j++) begin
-                rb = tx; rcv[i] = {rb, rcv[i][7:1]};
-                if (!(i == enf-1 && j == 7)) begin
-                  // exactly one 40-clk bit cell: 40 posedges + negedge from
-                  // a negedge reference (39 would drift -0.5 clk per bit)
-                  repeat (40) @(posedge clk); @(negedge clk);
-                end
-              end
-            end
-            // rcv[0]: v2.5.1 FIXED (was W6-2) — T_IDLE now loads tx_shift
-            // with STP, so the first wire byte is STP, not the stale shift
-            // register (was deterministically 8'h00).
-            if (rcv[0] !== STP || rcv[1] !== dlen[7:0] ||
-                rcv[enf-1] !== END_B) begin
-              errors++;
-              $display("ERROR: CRV echo frame t=%0d stp=%h len=%h(exp=%0d) end=%h",
-                       t, rcv[0], rcv[1], dlen, rcv[enf-1]);
-            end
-            for (int i = 0; i < edat; i++) begin
-              if (rcv[2+i] !== exp_mem[i]) begin
-                errors++;
-                $display("ERROR: CRV echo data t=%0d i=%0d got=%h exp=%h",
-                         t, i, rcv[2+i], exp_mem[i]);
-              end
-            end
-            for (int k = 0; k < 4; k++) begin
-              if (rcv[2+edat+k] !== ((ce >> (8*k)) & 8'hFF)) begin
-                errors++;
-                $display("ERROR: CRV echo crc t=%0d k=%0d got=%h",
-                         t, k, rcv[2+edat+k]);
-              end
-            end
-          end
-          if (ftype == 2 && dut.rx_err !== 1'b1) begin
-            // proves the STP-mismatch arm executed (line-cov artifact region)
-            errors++;
-            $display("ERROR: CRV rx_err not set after bad STP t=%0d", t);
-          end
-          repeat (200) @(posedge clk);            // inter-frame gap
-        end else begin
-          // no echo: verify the sticky rx_err flag is raised
-          repeat (400) @(posedge clk);
-          if (dut.rx_err !== 1'b1) begin
-            errors++;
-            $display("ERROR: CRV rx_err not set t=%0d ftype=%0d", t, ftype);
-          end
-        end
-      end
-      $display("CRV: 127 frames (good=%0d bad_stp=%0d bad_crc=%0d long=%0d bad_end=%0d zero_len=%0d) shadow-err+=%0d",
-               n_good, n_badstp, n_badcrc, n_long, n_badend, n_zlen, errors - ecount);
+    // ---- A -> B: bad TLPs; B -> A: bad DLLPs; the link replays
+    for (int i = 0; i < 4; i++) begin at_pkt(0, STP, 5 + i); hit(0, 8'h40); wait_clk(300); end   // LCRC
+    for (int i = 0; i < 3; i++) begin at_pkt(0, STP, 1 + i); hit(0, 8'h01); wait_clk(300); end   // sequence number
+    for (int i = 0; i < 3; i++) begin drop_pkt(0, STP); wait_clk(400); end                       // a lost TLP
+    at_pkt(0, STP, 0); while (tx_sym[0] != ENDS) @(negedge clk); hit(0, ENDS ^ EDB, 0);         // EDB
+    wait_clk(300);
+    // nullified: EDB and the LCRC not inverted
+    at_pkt(0, STP, 0);
+    while (!(tx_k[0] && tx_sym[0] == ENDS)) begin
+      if (u_a.tcnt >= u_a.tlen + 4 && u_a.tst == 2'd2) xs[0] = 8'hFF; else xs[0] = 0;
+      @(negedge clk);
     end
-`endif
+    hit(0, ENDS ^ EDB, 0);
+    wait_clk(400);
+    at_pkt(0, STP, 0); hit(0, 8'h00, 1);                                    // STP lost: END alone
+    wait_clk(300);
+    at_pkt(0, STP, 4); hit(0, 8'h00, 1);                                    // a K symbol inside
+    wait_clk(300);
+    for (int i = 0; i < 3; i++) begin at_pkt(1, SDP, 2 + i); hit(1, 8'h10); wait_clk(200); end   // DLLP CRC
+    at_pkt(1, SDP, 0); hit(1, 8'h00, 1);                                    // SDP lost
+    wait_clk(200);
+    at_pkt(1, SDP, 3); hit(1, 8'h00, 1);                                    // a K symbol inside
+    wait_clk(200);
+    drain();
+    // ---- B -> A silent for a while: A's replay timer, B's duplicates, retrain
+    wait_clk(100);
+    dr[1] = 1;
+    wait_clk(6 * REPLAY_TO);
+    dr[1] = 0;
+    drain();
+    // ---- the link drops with traffic going on
+    wait_clk(500);
+    link_cycle();
+    link = 2'b11;
+    wait_up(0); wait_up(1);
+    wait_clk(3000);
+    drain();
+
+    // ================= part 2: A against the BFM =================
+    wen[0] = 0; wen[1] = 0;
+    drain();
+    link_cycle();
+    bfm = 1;
+    link[0] = 1;
+    // InitFC2 straight away (FC1 -> FC2), infinite credit; UpdateFC ends FC2
+    wait_dllp(8'h40);
+    bfc(8'hC0, 8'd0);
+    bwait();
+    wait_clk(50);
+    bfc(8'h40, 8'd3);                           // InitFC1 in FC2: ignored
+    back(0, 12'd0);                             // an Ack before the link is up: ignored
+    bfc(8'h80, 8'd0);
+    bwait();
+    wait_up(0);
+    bfc(8'h40, 8'd5);                           // InitFC1 and UpdateFC once up: ignored
+    bfc(8'h80, 8'd7);
+    bwait();
+    b_autoack = 1;
+    wen[0] = 1;
+    wait_clk(2000);
+    // TLPs to A: good, duplicate, ahead, bad LCRC, nullified, bad EDB, short,
+    // long, K inside
+    bseq = 0;
+    for (int i = 0; i < 3; i++) begin btlp(bseq, 1 + $urandom % MAXLEN, 0, 1); bseq++; end
+    btlp(bseq - 2, 8);                          // duplicate
+    btlp(bseq + 1, 8);                          // ahead: Nak
+    btlp(bseq, 8, 1);                           // bad LCRC (Nak already sent)
+    btlp(bseq, 8, 0, 1); bseq++;                // good: Nak cleared
+    btlp(bseq, 8, 1);                           // bad LCRC: Nak
+    btlp(bseq, 8, 2);                           // nullified
+    btlp(bseq, 8, 3);                           // EDB, LCRC good: bad
+    btlp(bseq - 1, 4);                          // duplicate after a Nak
+    bq.push_back({1'b1, STP}); bq.push_back(9'h000); bq.push_back(9'h001); bq.push_back(9'h0AA); bq.push_back(9'h055); bq.push_back(9'h011); bq.push_back(9'h022); bq.push_back({1'b1, ENDS}); bq.push_back(9'h000);   // short
+    btlp(bseq, MAXLEN + 1);                     // long
+    btlp(bseq, MAXLEN, 0, 1); bseq++;           // longest
+    bq.push_back({1'b1, STP}); bq.push_back(9'h000); bq.push_back(9'h001); bq.push_back(9'h0AA); bq.push_back({1'b1, SDP}); bq.push_back(9'h000);                           // K inside
+    bq.push_back(9'h0FF); bq.push_back({1'b1, ENDS}); bq.push_back({1'b1, 8'hBC}); bq.push_back({1'b1, EDB}); bq.push_back(9'h000);                            // K in idle
+    bwait();
+    wait_clk(200);
+    // DLLPs to A: bad CRC, long, short, K inside, unknown type, reserved
+    // bits, Acks behind and ahead, Naks
+    bdllp(8'h00, 0, 0, 0, 1);
+    bq.push_back({1'b1, SDP}); bq.push_back(9'h000); bq.push_back(9'h000); bq.push_back(9'h000); bq.push_back(9'h000); bq.push_back(9'h011); bq.push_back(9'h022); bq.push_back(9'h033); bq.push_back({1'b1, ENDS}); bq.push_back(9'h000);
+    bq.push_back({1'b1, SDP}); bq.push_back(9'h000); bq.push_back(9'h000); bq.push_back(9'h000); bq.push_back(9'h000); bq.push_back(9'h011); bq.push_back({1'b1, ENDS}); bq.push_back(9'h000);
+    bq.push_back({1'b1, SDP}); bq.push_back(9'h000); bq.push_back(9'h000); bq.push_back({1'b1, STP}); bq.push_back(9'h000);
+    bq.push_back({1'b1, SDP}); bq.push_back(9'h000); bq.push_back(9'h000); bq.push_back(9'h000); bq.push_back(9'h000); bq.push_back(9'h011); bq.push_back(9'h022); bq.push_back({1'b1, 8'hBC}); bq.push_back(9'h000);
+    bdllp(8'h30, 0, 0, 0);
+    bwait();
+    b_autoack = 0;
+    wait_clk(300);
+    back(0, a_last_seq, 8'h01);                 // reserved bits
+    back(0, a_last_seq + 10);                   // ahead
+    back(0, a_last_seq - 10);                   // behind
+    back(1, a_last_seq);                        // Nak, nothing to replay
+    bwait();
+    // writing paused: an Ack of the next TLP, not sent yet; Naks of all sent
+    // TLPs (nothing to replay, no retrain)
+    wen[0] = 0;
+    wait_clk(300);
+    back(0, u_a.nsent);
+    for (int i = 0; i < 5; i++) back(1, u_a.nsent - 12'd1);
+    bwait();
+    wait_clk(100);
+    wen[0] = 1;
+    // a Nak with progress: the rest is replayed
+    while (u_a.nsent - u_a.ackd - 12'd1 < 12'd2) @(negedge clk);
+    back(1, u_a.ackd + 12'd1);
+    bwait();
+    wait_clk(300);
+    // a Nak, then an Ack while A still sends a long TLP: the replay request
+    // stays; the Ack frees the slot of the TLP being replayed, which a new
+    // TLP must not take while it goes out
+    len_min = 24; len_max = MAXLEN + 8;
+    for (int i = 0; i < 6; i++) begin
+      back(0, u_a.nsent - 12'd1);
+      bwait();
+      while (!(u_a.tst == 2'd2 && u_a.tcnt == 6'd2 && u_a.tlen >= 6'd24 && u_a.nsent - u_a.ackd - 12'd1 >= 12'd2))
+        @(negedge clk);
+      back(1, u_a.ackd);
+      back(0, u_a.ackd + 12'd1);
+      bwait();
+      wait_clk(100);
+      while (!(u_a.tst == 2'd2 && u_a.tcnt == 6'd2 && u_a.tlen >= 6'd24 && u_a.nsent - u_a.ackd - 12'd1 == 12'd4))
+        @(negedge clk);
+      back(0, u_a.nsent - 12'd1);
+      bwait();
+      wait_clk(100);
+    end
+    len_min = 1; len_max = 40;
+    // Naks without progress: replays, the 4th one retrains
+    wait_clk(100);
+    back(0, u_a.nsent - 12'd1);
+    bwait();
+    while (!tlp_ready[0]) @(negedge clk);
+    wait_clk(400);
+    // two Naks without progress, one with: the count starts again
+    for (int i = 0; i < 4; i++) begin
+      back(1, u_a.ackd + (i == 2 ? 12'd1 : 12'd0));
+      bwait();
+      wait_clk(150);
+    end
+    for (int i = 0; i < 5; i++) begin
+      back(1, u_a.ackd);
+      bwait();
+      wait_clk(150);
+    end
+    b_autoack = 1;
+    back(0, a_last_seq);
+    bwait();
+    wait_clk(1000);
+    // overflow: A does not read; RXN + 1 longest TLPs
+    rdy_pct[0] = 0;
+    wait_clk(100);
+    for (int i = 0; i < RXN; i++) begin btlp(bseq, MAXLEN, 0, 1); bseq++; end
+    btlp(bseq, MAXLEN);
+    bwait();
+    wait_clk(100);
+    rdy_pct[0] = 100;
+    wait_clk(500);
+    btlp(bseq, 5, 0, 1); bseq++;
+    bwait();
+    wait_clk(300);
+    // finite credit: InitFC1 / InitFC2 with 2 headers; UpdateFC raises it
+    wen[0] = 0;
+    wait_clk(500);
+    link_cycle();
+    exp0.delete();
+    link[0] = 1;
+    b_autoack = 0;
+    wait_dllp(8'h40);
+    bfc(8'h40, 8'd2);
+    bwait();
+    wait_dllp(8'hC0);
+    bfc(8'hC0, 8'd2);
+    bwait();
+    wait_up(0);
+    b_autoack = 1;
+    wen[0] = 1;
+    wait_clk(1500);
+    bfc(8'h80, 8'd6);
+    bwait();
+    wait_clk(1500);
+    bfc(8'h80, 8'd20);
+    bwait();
+    wait_clk(1500);
+    // a TLP ends FC2
+    wen[0] = 0;
+    wait_clk(500);
+    link_cycle();
+    exp0.delete();
+    link[0] = 1;
+    wait_dllp(8'h40);
+    bfc(8'h40, 8'd8);
+    bwait();
+    wait_dllp(8'hC0);
+    bseq = 0;
+    btlp(bseq, 6, 0, 1); bseq++;
+    bwait();
+    wait_up(0);
+    wen[0] = 1;
+    wait_clk(2000);
+
+    // ---- reset while up
+    @(negedge clk);
+    rst_n = 0;
+    wait_clk(3);
+    rst_n = 1;
+    bfm = 0; b_autoack = 0;
+    wen[0] = 0;
+    link = 2'b11;
+    wait_up(0); wait_up(1);
+    wen[0] = 1; wen[1] = 1;
+    wait_clk(3000);
+    wen[0] = 0; wen[1] = 0;
+    drain();
 
     if (errors == 0) $display("TEST PASSED: PCIe");
-    else             $display("TEST FAILED: %0d errors", errors);
-`ifdef VERILATOR
-    begin
-      int visited;
-      visited = 0;
-      for (int s = 0; s < 4; s++) visited += fsm_seen_t[s];
-      for (int s = 0; s < 2; s++) visited += fsm_seen_r[s];
-      $display("FSM_COV: %0d/%0d", visited, PCIe_FSM_TOTAL);
-      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
-    end
-`endif
+    else $display("TEST FAILED: PCIe (%0d errors)", errors);
     $finish;
   end
 
-`ifdef VERILATOR
-  // chunked timeout guard: a single long-pending #delay event corrupts the
-  // 5.006 --timing delay heap once many short-delay resumptions interleave;
-  // chunked delays keep all heap entries short-lived (see docs/COVERAGE.md)
   initial begin
-    repeat (200000) #1000;   // 200 ms in 1-us chunks
-    $display("TIMEOUT"); $finish;
+    #60ms;
+    $display("TEST FAILED: PCIe (timeout)");
+    $finish;
   end
-`else
-  initial begin #10_000_000; $display("TIMEOUT"); $finish; end
-`endif
 endmodule
