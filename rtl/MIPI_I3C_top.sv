@@ -78,14 +78,14 @@ module MIPI_I3C_top #(
   wire ev_scl_f = (scl_d[2:1] == 2'b10);
   // START = SDA falling while SCL high; STOP = SDA rising while SCL high.
   // Both are qualified with "we are not the ones moving SDA".
+  logic od_low;              // open-drain: pull SDA low
+  logic pp_en, pp_val;       // push-pull: drive SDA to pp_val
   wire ev_start = scl_d[1] & (sda_d[2:1] == 2'b10) & ~od_low & ~pp_en;
   wire ev_stop  = scl_d[1] & (sda_d[2:1] == 2'b01) & ~od_low & ~pp_en;
 
   // ------------------------------------------------------------------
   // SDA pad: open-drain pull (address/ACK/arbitration) or push-pull (data)
   // ------------------------------------------------------------------
-  logic od_low;              // open-drain: pull SDA low
-  logic pp_en, pp_val;       // push-pull: drive SDA to pp_val
   assign sda = pp_en ? pp_val : (od_low ? 1'b0 : 1'bz);
 
   // ------------------------------------------------------------------

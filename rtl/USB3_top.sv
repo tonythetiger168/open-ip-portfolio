@@ -90,6 +90,7 @@ module USB3_top #(
   logic [5:0] det_cnt;        // RXDET dwell timer
   logic [6:0] rx_burst_len;   // length of current received LFPS burst
   logic [2:0] rx_bursts;      // completed received Polling.LFPS bursts
+  logic [2:0]  tx_bursts;    // transmitted Polling.LFPS bursts
   logic       rx_in_burst;    // currently inside a received LFPS burst
 
   always_ff @(posedge clk or negedge rst_n) begin
@@ -420,7 +421,6 @@ module USB3_top #(
   tx_state_t tx_state;
 
   logic [5:0]  lfps_cnt;     // LFPS burst/idle pattern position
-  logic [2:0]  tx_bursts;    // transmitted Polling.LFPS bursts
   logic [3:0]  tp_type_q;    // latched response-TP fields
   logic [2:0]  tp_seq_q;
   logic        tp_retry_q;

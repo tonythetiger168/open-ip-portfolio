@@ -39,6 +39,7 @@ module SPMI_top #(
   logic [3:0] cmd;
   logic       sd_oe;
 
+  wire drive_low_c = sd_oe;
   assign sdata   = drive_low_c ? 1'b0 : 1'bz;   // open-drain: ACK + read data
   assign busy    = (state != ST_IDLE) && (state != ST_IGNORE);
   assign irq     = rx_valid;
@@ -47,7 +48,6 @@ module SPMI_top #(
   wire [7:0] head_w = {shift[6:0], sdata_s};
 
   // read data: registered on SCLK fall (the post-address fall presents bit 7)
-  wire drive_low_c = sd_oe;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin

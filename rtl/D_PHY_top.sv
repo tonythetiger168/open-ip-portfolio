@@ -305,6 +305,9 @@ module D_PHY_top #(
   // ------------------------------------------------------------------
   // TX pad drivers
   // ------------------------------------------------------------------
+  wire lpdt_bit0 = (tbit_cnt == 3'd0) ? buf_data[0] : tshift[0];
+  wire lpdt_exit = (tstate == T_LPDT) & (tbit_cnt == 3'd0) & ~buf_valid;
+
   always_comb begin
     // defaults: LP-11 stop, HS drivers off
     d_lp_p  = 1'b1;
@@ -390,8 +393,6 @@ module D_PHY_top #(
 
   // current LPDT line level: bit 0 of a freshly loaded byte in the load
   // cycle; an empty buffer at a byte boundary drives the LP-01 exit space
-  wire lpdt_bit0 = (tbit_cnt == 3'd0) ? buf_data[0] : tshift[0];
-  wire lpdt_exit = (tstate == T_LPDT) & (tbit_cnt == 3'd0) & ~buf_valid;
 
   wire [1:0] rlp = {r_lp_p, r_lp_n};
 

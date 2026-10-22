@@ -123,11 +123,11 @@ module ONFI_top #(
   end
 
   assign tx   = oe_q ? out_q : 1'bz;
-  assign busy = (rstate != R_IDLE) || (tstate != T_IDLE);
 
   // ---------------- RX (length-based framing, start-bit resync) ----------------
   typedef enum logic [1:0] {R_IDLE, R_BYTE} r_t;
   r_t          rstate;
+  assign busy = (rstate != R_IDLE) || (tstate != T_IDLE);
   logic        rxs, rxs_d;
   logic        rtmr_en, rphase;
   logic [15:0] rtmr;
