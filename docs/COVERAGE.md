@@ -1,5 +1,11 @@
 # v2.5 Master Coverage Scoreboard — 117/117 CRV closed
 
+> **Newer results:** [COVERAGE_CLOSURE.md](COVERAGE_CLOSURE.md) has the five-metric flow
+> (`scripts/cov/run_cov.sh`: line, toggle, FSM, SVA and functional coverage, with
+> independent reference-model checkers). 68 IPs are closed there. The
+> clone-template and memory-family IPs are not closed yet. For the closed IPs,
+> it replaces the v2.5 numbers below.
+
 Constrained-random verification with four coverage metrics per DUT:
 **line**, **toggle**, **FSM**, **assertion (SVA-subset)**.
 Target 100% per metric; provably-unreachable points are waiver-listed in
