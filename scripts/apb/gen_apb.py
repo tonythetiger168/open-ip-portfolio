@@ -111,6 +111,10 @@ class Word:
         return v
 
 
+def data_ports(r):
+    return r["data"] if isinstance(r["data"], list) else [r["data"]]
+
+
 def norm_fields(lst):
     out = []
     for f in lst:
@@ -175,13 +179,16 @@ def layout(spec, width, dirn):
             words += pack(r["name"], k, fl, width, r.get("desc", ""))
         elif k in ("stream_in", "stream_out"):
             exp = "input" if k == "stream_in" else "output"
-            assert dirn[r["data"]] == exp and dirn[r["valid"]] == exp, r
-            mapped |= {r["data"], r["valid"]}
+            dports = data_ports(r)
+            assert all(dirn[p] == exp for p in dports) and dirn[r["valid"]] == exp, r
+            mapped |= set(dports) | {r["valid"]}
             if r.get("ready"):
                 assert dirn[r["ready"]] == ("output" if k == "stream_in" else "input"), r
                 mapped.add(r["ready"])
             ws = pack(r["name"], "sin" if k == "stream_in" else "sout",
-                      [{"port": r["data"], "desc": r.get("desc", "")}], width, r.get("desc", ""))
+                      [{"port": p, "desc": r.get("fdesc", {}).get(p, r.get("desc", "") if len(dports) == 1 else "")}
+                       for p in dports], width,
+                      r.get("desc", ""))
             for w in ws:
                 w.reg = r["name"]
             words += ws
@@ -199,6 +206,8 @@ def layout(spec, width, dirn):
         assert dirn[p] == "input", p
         mapped.add(p)
     assert 0 < len(irqb) <= 32 and len(flagb) <= 32
+    names = [n for n, _, _ in irqb]
+    assert len(set(names)) == len(names), f"duplicate interrupt names: {names}"
     for i, w in enumerate(words):
         w.off = 4 * i
     assert 4 * len(words) <= (1 << AW)
@@ -370,9 +379,10 @@ def gen_rtl(P, spec, core):
         else:
             a(f"      if (c_{r['valid']} && (!avail_{n} || (rd && hit[{last}]))) begin")
             for w in ws:
-                f = w.fields[0]
-                a(f"        h_{w.name} <= c_{r['data']}[{f.plo + f.w - 1}:{f.plo}];" if width[r['data']] > 1
-                  else f"        h_{w.name} <= c_{r['data']};")
+                for f in w.fields:
+                    dst = f"h_{w.name}[{f.lo + f.w - 1}:{f.lo}]" if w.wb > 1 else f"h_{w.name}"
+                    src = f"c_{f.port}[{f.plo + f.w - 1}:{f.plo}]" if width[f.port] > 1 else f"c_{f.port}"
+                    a(f"        {dst} <= {src};")
             a(f"        avail_{n} <= 1'b1;")
             a(f"      end else if (rd && hit[{last}]) avail_{n} <= 1'b0;")
     a("    end")
