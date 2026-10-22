@@ -12,7 +12,7 @@
 //     + hsync/vsync/de flag compare vs reference timing model
 //  3. period boundaries: 8px video preamble + 2px guard before every active
 //     line; data island preamble/guard/data layout at line 481
-//  4. AVI InfoFrame: type/ver/len/VIC/aspect/checksum/parity fields, once
+//  4. AVI InfoFrame: type/ver/len/VIC/aspect/checksum/BCH ECC fields, once
 //     per frame (2 frames observed)
 //  5. disparity: every non-video code DC-balanced (5 ones), running video
 //     disparity bounded |disp| <= 16 per channel
@@ -21,7 +21,6 @@
 // ============================================================================
 `timescale 1ns/1ps
 module HDMI_2_1_tb;
-  localparam int DW = 32, AW = 32;
 
   logic clk = 0, rst_n = 0, hpd = 0;
   logic tmds_clk;
@@ -30,7 +29,7 @@ module HDMI_2_1_tb;
 
   int errors = 0;
 
-  HDMI_2_1_top #(.DW(DW), .AW(AW)) dut (
+  HDMI_2_1_top dut (
     .clk(clk), .rst_n(rst_n), .hpd(hpd),
     .tmds_clk(tmds_clk), .tmds_d(tmds_d),
     .hsync(hsync), .vsync(vsync), .de(de), .irq(irq)
@@ -76,7 +75,7 @@ module HDMI_2_1_tb;
       // A3: with hpd low for 2+ cycles the outputs are parked idle
       if (!hpd && !hpd_q)
         sva_check((tmds_d === 3'b000) && (tmds_clk === 1'b0) &&
-                  (de === 1'b0) && (hsync === 1'b0) && (vsync === 1'b0),
+                  (de === 1'b0) && (hsync === 1'b1) && (vsync === 1'b1),
                   "A3 hpd loss: outputs parked");
       // A4: de is only asserted while hpd was high last cycle
       if (de) sva_check(hpd_q === 1'b1, "A4 de implies hpd");
@@ -95,7 +94,9 @@ module HDMI_2_1_tb;
   localparam int HT = 800, VT = 525;
   localparam int HS_B = HACT + HFP, HS_E = HS_B + HSW;   // 656..752
   localparam int VS_B = VACT + VFP, VS_E = VS_B + VSW;   // 490..492
-  localparam int ISL_Y = VACT + 1;                       // 481
+  localparam int ISL_Y = VACT + 1;                       // 481: AVI InfoFrame
+  localparam int SPD_Y = VS_B;                           // 490: SPD InfoFrame
+  localparam int IX = HS_B - 20;                         // island start x
 
   // ------------------------- TMDS decoder (inverse algorithm) -------------------------
   function automatic logic [7:0] tmds_dec(input logic [9:0] q);
@@ -154,7 +155,7 @@ module HDMI_2_1_tb;
   int px = 0, py = 0;
   int frames_done = 0;
   int pixels_checked = 0;
-  int island_count = 0;
+  int island_count = 0, spd_count = 0;
   int disp_run [0:2];
   logic avi_bad = 0;
 
@@ -191,14 +192,16 @@ module HDMI_2_1_tb;
   // ------------------------- per-pixel checker -------------------------
   task automatic check_pixel(input logic [9:0] c0, c1, c2,
                              input logic fde, fhs, fvs);
-    logic e_de, e_hs, e_vs;
+    logic e_de, e_hs, e_vs, pre_line, isl;
     logic [7:0] d0, d1, d2;
     logic [4:0] t0, t1, t2;
     int ii;
     begin
       e_de = (py < VACT) && (px < HACT);
-      e_hs = (px >= HS_B) && (px < HS_E);
-      e_vs = (py >= VS_B) && (py < VS_E);
+      e_hs = !((px >= HS_B) && (px < HS_E));         // VIC 1: active low
+      e_vs = !((py >= VS_B) && (py < VS_E));
+      pre_line = (py == VT - 1) || (py < VACT - 1);   // next line is active
+      isl = (py == ISL_Y) || (py == SPD_Y);
       if (fde !== e_de || fhs !== e_hs || fvs !== e_vs) begin
         errors++;
         $display("ERROR: flags px=%0d py=%0d de=%b/%b hs=%b/%b vs=%b/%b",
@@ -225,37 +228,38 @@ module HDMI_2_1_tb;
             disp_run[ch] = 0;
           end
         end
-      end else if (py < VACT && px >= 798) begin
+      end else if (pre_line && px >= 798) begin
         // ---- video guard band ----
+        disp_run[0] = 0; disp_run[1] = 0; disp_run[2] = 0;
         if (c0 !== 10'b1011001100 || c1 !== 10'b0100110011 ||
-            c2 !== ((e_vs == e_hs) ? 10'b1011001100 : 10'b0100110011)) begin
+            c2 !== 10'b1011001100) begin
           errors++;
           $display("ERROR: video guard px=%0d py=%0d c=%b%b%b", px, py, c2, c1, c0);
         end
-      end else if (py < VACT && px >= 790) begin
+      end else if (pre_line && px >= 790) begin
         // ---- video preamble: 8 px CTL0=1 ----
         if (c0 !== ctl_code({e_vs, e_hs}) || c1 !== ctl_code(2'b01) ||
             c2 !== ctl_code(2'b00)) begin
           errors++;
           $display("ERROR: video preamble px=%0d py=%0d c=%b%b%b", px, py, c2, c1, c0);
         end
-      end else if (py == ISL_Y && px < 8) begin
+      end else if (isl && px >= IX && px < IX + 8) begin
         // ---- data island preamble: CTL3=CTL2=1 ----
-        if (c0 !== ctl_code({e_vs, e_hs}) || c1 !== ctl_code(2'b00) ||
-            c2 !== ctl_code(2'b11)) begin
+        if (c0 !== ctl_code({e_vs, e_hs}) || c1 !== ctl_code(2'b01) ||
+            c2 !== ctl_code(2'b01)) begin
           errors++;
           $display("ERROR: island preamble px=%0d py=%0d c=%b%b%b", px, py, c2, c1, c0);
         end
-      end else if (py == ISL_Y && px < 10) begin
+      end else if (isl && px >= IX && px < IX + 10) begin
         // ---- island leading guard band ----
-        if (c0 !== 10'b1011100010 || c1 !== 10'b0100110011 ||
+        if (terc4_dec(c0) !== {3'b111, e_vs, e_hs} || c1 !== 10'b0100110011 ||
             c2 !== 10'b0100110011) begin
           errors++;
           $display("ERROR: island guard(px<10) px=%0d c=%b%b%b", px, c2, c1, c0);
         end
-      end else if (py == ISL_Y && px < 42) begin
+      end else if (isl && px >= IX && px < IX + 42) begin
         // ---- island data: TERC4 on all channels ----
-        ii = px - 10;
+        ii = px - IX - 10;
         t0 = terc4_dec(c0);
         t1 = terc4_dec(c1);
         t2 = terc4_dec(c2);
@@ -263,30 +267,32 @@ module HDMI_2_1_tb;
           errors++;
           $display("ERROR: TERC4 invalid px=%0d c=%b%b%b", px, c2, c1, c0);
         end else begin
-          if (t0[3:2] !== {e_vs, e_hs} || t0[1] !== 1'b0) begin
+          // ch0 = {not first pixel, header bit, VSYNC, HSYNC}
+          if (t0[1:0] !== {e_vs, e_hs} || t0[3] !== (ii != 0)) begin
             errors++;
-            $display("ERROR: island ch0 sync bits px=%0d t0=%b", px, t0);
+            $display("ERROR: island ch0 sync/first bits px=%0d t0=%b", px, t0);
           end
-          if (ii == 0) island_count++;
-          cap_hdr[ii]       = t0[0];
+          if (ii == 0 && py == ISL_Y) island_count++;
+          cap_hdr[ii]       = t0[2];
           cap_sp0[2*ii]     = t1[0];
-          cap_sp0[2*ii+1]   = t1[1];
-          cap_sp1[2*ii]     = t1[2];
-          cap_sp1[2*ii+1]   = t1[3];
-          cap_sp2[2*ii]     = t2[0];
-          cap_sp2[2*ii+1]   = t2[1];
-          cap_sp3[2*ii]     = t2[2];
+          cap_sp1[2*ii]     = t1[1];
+          cap_sp2[2*ii]     = t1[2];
+          cap_sp3[2*ii]     = t1[3];
+          cap_sp0[2*ii+1]   = t2[0];
+          cap_sp1[2*ii+1]   = t2[1];
+          cap_sp2[2*ii+1]   = t2[2];
           cap_sp3[2*ii+1]   = t2[3];
         end
-      end else if (py == ISL_Y && px < 44) begin
+      end else if (isl && px >= IX && px < IX + 44) begin
         // ---- island trailing guard band ----
-        if (c0 !== 10'b1011100010 || c1 !== 10'b0100110011 ||
+        if (terc4_dec(c0) !== {3'b111, e_vs, e_hs} || c1 !== 10'b0100110011 ||
             c2 !== 10'b0100110011) begin
           errors++;
           $display("ERROR: island guard(px<44) px=%0d c=%b%b%b", px, c2, c1, c0);
         end
       end else begin
         // ---- control period ----
+        disp_run[0] = 0; disp_run[1] = 0; disp_run[2] = 0;
         if (c0 !== ctl_code({e_vs, e_hs}) || c1 !== ctl_code(2'b00) ||
             c2 !== ctl_code(2'b00)) begin
           errors++;
@@ -300,6 +306,15 @@ module HDMI_2_1_tb;
       pixels_checked++;
     end
   endtask
+
+  // BCH ECC over the first n bits (bit 0 first), g(x) = x^8+x^7+x^6+1
+  function automatic logic [7:0] bch(input logic [55:0] d, input int n);
+    logic [7:0] e;
+    e = 8'h00;
+    for (int i = 0; i < 56; i++)
+      if (i < n) e = (e >> 1) ^ ((e[0] ^ d[i]) ? 8'h83 : 8'h00);
+    return e;
+  endfunction
 
   // ------------------------- AVI InfoFrame checker -------------------------
   task automatic check_avi;
@@ -316,9 +331,9 @@ module HDMI_2_1_tb;
         errors++;
         $display("ERROR: AVI header %02h %02h %02h", hb0, hb1, hb2);
       end
-      if (hbp !== (hb0 ^ hb1 ^ hb2)) begin
+      if (hbp !== bch(cap_hdr[23:0], 24)) begin
         errors++;
-        $display("ERROR: AVI header parity %02h exp %02h", hbp, hb0^hb1^hb2);
+        $display("ERROR: AVI header BCH %02h exp %02h", hbp, bch(cap_hdr[23:0], 24));
       end
       for (int i = 0; i < 8; i++) sp0[i] = cap_sp0[8*i +: 8];
       // checksum: two's complement byte sum over header(3) + checksum + PB1..13
@@ -329,23 +344,52 @@ module HDMI_2_1_tb;
         errors++;
         $display("ERROR: AVI checksum sum=%02h", s & 8'hFF);
       end
-      // PB1=0x10 (RGB, active info), PB2=0x10 (4:3), PB4=VIC=1
-      if (sp0[1] !== 8'h10 || sp0[2] !== 8'h10 || sp0[4] !== 8'h01) begin
+      // PB1=0x10 (RGB, active format present), PB2=0x18 (4:3, AF = picture), VIC 1
+      if (sp0[1] !== 8'h10 || sp0[2] !== 8'h18 || sp0[4] !== 8'h01) begin
         errors++;
         $display("ERROR: AVI PB1/PB2/VIC = %02h %02h %02h",
                  sp0[1], sp0[2], sp0[4]);
       end
-      // subpacket parities (XOR simplification)
-      x = 8'h00;
-      for (int i = 0; i < 7; i++) x ^= sp0[i];
+      // subpacket BCH(64,56)
+      x = bch(cap_sp0[55:0], 56);
       if (sp0[7] !== x) begin
         errors++;
-        $display("ERROR: AVI sp0 parity %02h exp %02h", sp0[7], x);
+        $display("ERROR: AVI sp0 BCH %02h exp %02h", sp0[7], x);
       end
       if (cap_sp1 !== 64'h0 || cap_sp2 !== 64'h0 || cap_sp3 !== 64'h0) begin
         errors++;
         $display("ERROR: AVI sp1/2/3 nonzero %h %h %h", cap_sp1, cap_sp2, cap_sp3);
       end
+    end
+  endtask
+
+  // ------------------------- SPD InfoFrame checker -------------------------
+  task automatic check_spd;
+    logic [7:0] pb [0:27];
+    logic [63:0] sp [0:3];
+    int s;
+    begin
+      sp[0] = cap_sp0; sp[1] = cap_sp1; sp[2] = cap_sp2; sp[3] = cap_sp3;
+      if (cap_hdr[23:0] !== 24'h190183) begin
+        errors++; $display("ERROR: SPD header %06h", cap_hdr[23:0]);
+      end
+      if (cap_hdr[31:24] !== bch(cap_hdr[23:0], 24)) begin
+        errors++; $display("ERROR: SPD header BCH");
+      end
+      s = 8'h83 + 8'h01 + 8'h19;
+      for (int k = 0; k < 4; k++) begin
+        if (sp[k][63:56] !== bch(sp[k][55:0], 56)) begin
+          errors++; $display("ERROR: SPD subpacket %0d BCH", k);
+        end
+        for (int i = 0; i < 7; i++) begin pb[7*k+i] = sp[k][8*i +: 8]; s += pb[7*k+i]; end
+      end
+      if ((s & 8'hFF) != 0) begin errors++; $display("ERROR: SPD checksum"); end
+      if ({pb[1], pb[2], pb[3], pb[4], pb[5], pb[6], pb[7], pb[8]} !== {"OpenIP", 16'h0} ||
+          {pb[9], pb[10], pb[11], pb[12], pb[13], pb[14], pb[15], pb[16], pb[17], pb[18],
+           pb[19], pb[20], pb[21], pb[22], pb[23], pb[24]} !== "HDMI 2.1 TX Core") begin
+        errors++; $display("ERROR: SPD vendor/product strings");
+      end
+      spd_count++;
     end
   endtask
 
@@ -369,7 +413,8 @@ module HDMI_2_1_tb;
         get_pixel(c0, c1, c2, fde, fhs, fvs, fck, alive);
         if (alive) begin
           check_pixel(c0, c1, c2, fde, fhs, fvs);
-          if (px == 41 && py == ISL_Y) check_avi();
+          if (px == IX + 41 && py == ISL_Y) check_avi();
+          if (px == IX + 41 && py == SPD_Y) check_spd();
           if (px == HT-1) begin
             px = 0;
             if (py == VT-1) begin
@@ -393,7 +438,7 @@ module HDMI_2_1_tb;
     rst_n = 1'b1;
     repeat (5) @(negedge clk);
     if (tmds_d !== 3'b000 || tmds_clk !== 1'b0 || de !== 1'b0 ||
-        irq !== 1'b0 || hsync !== 1'b0 || vsync !== 1'b0) begin
+        irq !== 1'b0 || hsync !== 1'b1 || vsync !== 1'b1) begin
       errors++;
       $display("ERROR: reset state tmds_d=%b clk=%b de=%b irq=%b",
                tmds_d, tmds_clk, de, irq);
@@ -440,6 +485,22 @@ module HDMI_2_1_tb;
       $display("ERROR: data islands observed %0d exp 2 (one per frame)",
                island_count);
     end
+
+    // Phase D: reset while unplugged clears the "link was running" state,
+    // so irq stays low; the link then restarts cleanly on hpd
+    repeat (1000) @(negedge clk);
+    hpd = 1'b0;
+    repeat (20) @(negedge clk);
+    if (irq !== 1'b1) begin errors++; $display("ERROR: irq not set before reset"); end
+    rst_n = 1'b0;
+    repeat (3) @(negedge clk);
+    if (irq !== 1'b0 || hsync !== 1'b1 || vsync !== 1'b1 || de !== 1'b0) begin
+      errors++; $display("ERROR: reset while unplugged");
+    end
+    rst_n = 1'b1;
+    repeat (10) @(negedge clk);
+    if (irq !== 1'b0) begin errors++; $display("ERROR: irq after reset with hpd low"); end
+    hpd = 1'b1;
 
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ----
@@ -491,6 +552,7 @@ module HDMI_2_1_tb;
     end
 `endif
 
+    if (spd_count == 0) begin errors++; $display("ERROR: no SPD InfoFrame seen"); end
     if (errors == 0) $display("TEST PASSED: HDMI_2_1");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR
