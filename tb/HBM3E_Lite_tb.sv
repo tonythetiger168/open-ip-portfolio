@@ -110,7 +110,10 @@ module HBM3E_Lite_tb;
 
     if (tb_err==0) $display("SIM_PASS: HBM3E_Lite_tb pbref=%0d pcs=%b", pbref_seen, pc_hit);
     else $display("SIM_FAIL: %0d", tb_err);
+    // regression marker (scripts/ci_regression.sh greps for it)
+    if (tb_err == 0) $display("TEST PASSED: HBM3E_Lite");
+    else             $display("TEST FAILED: HBM3E_Lite");
     $finish;
   end
-  initial begin #3_000_000; $display("SIM_FAIL: timeout"); $finish; end
+  initial begin #3_000_000; $display("SIM_FAIL: timeout"); $display("TEST FAILED: HBM3E_Lite"); $finish; end
 endmodule
