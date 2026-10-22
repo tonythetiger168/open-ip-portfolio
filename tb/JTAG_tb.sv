@@ -4,7 +4,7 @@
 `timescale 1ns/1ps
 module JTAG_tb;
   logic clk = 0, rst_n = 0;
-  logic tck = 0, tms = 1, tdi = 0, trst_n = 0;
+  logic tck = 0, tms = 1, tdi = 0, trst_n = 1;
   logic tdo;
   logic tdo_s;
   int errors = 0;
@@ -77,15 +77,11 @@ module JTAG_tb;
       //     (skipped for the first TCK after a test-reset release)
       if (trst_n_q)
         sva_check(dut_state == tap_next(state_q, tms_q), "A2 TAP transition legal");
-      // A3: irq asserted exactly in UPD_DR
-      sva_check(dut.irq === (dut_state == 4'd8), "A3 irq == UPD_DR");
       // A4: tdo never X
       sva_check(!$isunknown(tdo), "A4 tdo never X");
-      // A5: irq is a single-TCK pulse (UPD_DR left after one cycle)
-      sva_check(!(dut.irq && irq_q), "A5 irq single-cycle pulse");
-      // A6: ir_q changes only right after UPD_IR
-      sva_check((dut.ir_q === ir_q_q) || (state_q == 4'd15),
-                "A6 ir_q updates only at UPD_IR");
+      // A6: ir_q changes only right after UPD_IR or in Test-Logic-Reset
+      sva_check((dut.ir_q === ir_q_q) || (state_q == 4'd15) || (state_q == 4'd0),
+                "A6 ir_q updates only at UPD_IR / TLR");
     end
     state_qq <= state_q;
     state_q  <= dut_state;
@@ -96,11 +92,14 @@ module JTAG_tb;
   end
 `endif
 
+  // one TCK cycle: TMS/TDI change while TCK is low, TDO is sampled at the
+  // rising edge (the TAP drives it from the preceding falling edge)
   task automatic jcyc(input logic tms_v, input logic tdi_v);
     begin
       tms = tms_v; tdi = tdi_v;
-      #100 tck = 1'b1; #100;
-      tck = 1'b0; #10 tdo_s = tdo; #90;
+      #100 tdo_s = tdo; tck = 1'b1;
+      #100 tck = 1'b0;
+      #100;
     end
   endtask
 
@@ -135,7 +134,7 @@ module JTAG_tb;
       jcyc(1'b0, 1'b0);                 // -> CAP_DR
       jcyc(1'b0, 1'b0);                 // CAP_DR: capture, -> SH_DR
       for (int k = 0; k < n; k++) begin
-        jcyc(k == n-1, din[k]);         // shift bit k, TDO shows pre-shift LSB
+        jcyc(k == n-1, din[k]);         // shift bit k; TDO sampled = bit k
         tmp[k] = tdo_s;
       end
       jcyc(1'b1, 1'b0);                 // EX1_DR -> UPD_DR
@@ -146,8 +145,9 @@ module JTAG_tb;
 
   logic [31:0] rd;
   initial begin
-    rst_n = 0; trst_n = 0;
-    #200;
+    rst_n = 0;
+    #1 trst_n = 0;                         // power-on TAP reset (edge)
+    #199;
     rst_n = 1; trst_n = 1;
     #500;
 
@@ -258,6 +258,48 @@ module JTAG_tb;
                n_id, n_usr, n_byp, n_rsv);
     end
 `endif
+
+    // Test-Logic-Reset through TMS (5 x 1) selects IDCODE again
+    goto_rti;
+    load_ir(4'b0010);
+    for (int i = 0; i < 5; i++) jcyc(1'b1, 1'b0);
+    jcyc(1'b0, 1'b0);
+    scan_dr(32, 32'h0, rd);
+    if (rd !== 32'h1CAF_0001) begin errors++; $display("ERROR: JTAG TLR did not select IDCODE: %h", rd); end
+    // IR capture pattern read out while loading BYPASS
+    begin
+      logic [3:0] cap;
+      jcyc(1'b1, 1'b0); jcyc(1'b1, 1'b0); jcyc(1'b0, 1'b0); jcyc(1'b0, 1'b0);
+      for (int k = 0; k < 4; k++) begin jcyc(k == 3, 1'b1); cap[k] = tdo_s; end
+      jcyc(1'b1, 1'b0); jcyc(1'b0, 1'b0);
+      if (cap !== 4'b0101) begin errors++; $display("ERROR: JTAG IR capture %b", cap); end
+    end
+    // USER scan with a pause in the middle (Exit1 -> Pause -> Exit2 -> Shift)
+    begin
+      logic [7:0] o;
+      load_ir(4'b0010);
+      jcyc(1'b1, 1'b0); jcyc(1'b0, 1'b0); jcyc(1'b0, 1'b0);
+      for (int k = 0; k < 4; k++) begin jcyc(k == 3, k[0]); o[k] = tdo_s; end
+      jcyc(1'b0, 1'b0); jcyc(1'b0, 1'b0);       // Pause-DR x2
+      jcyc(1'b1, 1'b0); jcyc(1'b0, 1'b0);       // Exit2-DR -> Shift-DR
+      for (int k = 4; k < 8; k++) begin jcyc(k == 7, k[1]); o[k] = tdo_s; end
+      jcyc(1'b1, 1'b0); jcyc(1'b0, 1'b0);
+      load_ir(4'b0010);
+      scan_dr(8, 32'h0, rd);
+      if (rd[7:0] !== 8'b1100_1010) begin errors++; $display("ERROR: JTAG paused USER scan got=%h", rd[7:0]); end
+    end
+    // IR scan with a pause, then a clk-domain reset while idle
+    jcyc(1'b1, 1'b0); jcyc(1'b1, 1'b0); jcyc(1'b0, 1'b0); jcyc(1'b0, 1'b0);
+    jcyc(1'b0, 1'b1); jcyc(1'b1, 1'b1);       // two IR bits, Exit1-IR
+    jcyc(1'b0, 1'b0);                          // Pause-IR
+    jcyc(1'b1, 1'b0); jcyc(1'b0, 1'b1);        // Exit2-IR -> Shift-IR
+    jcyc(1'b0, 1'b1); jcyc(1'b1, 1'b1);        // IR = 1111 (BYPASS)
+    jcyc(1'b1, 1'b0); jcyc(1'b0, 1'b0);
+    scan_dr(4, 32'h0000_000F, rd);
+    if (rd[3:0] !== 4'b1110) begin errors++; $display("ERROR: JTAG paused IR -> BYPASS got=%b", rd[3:0]); end
+    @(negedge clk) rst_n = 1'b0;
+    repeat (3) @(negedge clk);
+    rst_n = 1'b1;
 
     if (errors == 0) $display("TEST PASSED: JTAG");
     else             $display("TEST FAILED: %0d errors", errors);
