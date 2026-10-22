@@ -50,8 +50,6 @@ module OCP_top #(
   (* ram_style = "block" *) logic [DW-1:0] mem [0:DEPTH-1];
 
   // captured request
-  logic [7:0]    idx_q;       // word index maddr[9:2]
-  logic          rd_q;        // 1 = RD, 0 = WR
   logic          err_q;       // request targets reserved/misaligned space
   logic [1:0]    thread_q;
   logic [DW-1:0] rdata_q;
@@ -83,8 +81,6 @@ module OCP_top #(
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       state    <= S_IDLE;
-      idx_q    <= '0;
-      rd_q     <= 1'b0;
       err_q    <= 1'b0;
       thread_q <= 2'b00;
       rdata_q  <= '0;
@@ -96,8 +92,6 @@ module OCP_top #(
           if (cmd_valid) begin
             if (ACCEPT_DLY == 0) begin
               // same-cycle accept: capture now
-              idx_q    <= maddr[9:2];
-              rd_q     <= (mcmd == MCMD_RD);
               err_q    <= req_bad;
               thread_q <= mthreadid;
               rdata_q  <= mem[maddr[9:2]];
@@ -115,8 +109,6 @@ module OCP_top #(
         end
         S_ACCEPT: begin
           // scmdaccept is high this cycle; capture the request
-          idx_q    <= maddr[9:2];
-          rd_q     <= (mcmd == MCMD_RD);
           err_q    <= req_bad;
           thread_q <= mthreadid;
           rdata_q  <= mem[maddr[9:2]];

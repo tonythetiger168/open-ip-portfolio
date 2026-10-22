@@ -3,11 +3,13 @@
 // Self-checking testbench for OCP_IP_Open_Core_Protocol_top (OCP-IP master)
 // TB contains a behavioral OCP slave model: configurable SCmdAccept delay,
 // per-beat write-burst acceptance, 2-cycle read/write response latency,
-// 64x32 memory, reserved region (0x100+) -> SResp=ERR, dead region
-// (0xFFFF_0000) -> never accepts (exercises the master timeout).
+// 64x32 memory, reserved region (0x100+) -> SResp=ERR (3) or, with addr
+// bit 9 set, FAIL (2); dead region (0xFFFF_0000) -> never accepts
+// (exercises the master timeout); optional ERR on one beat of a read burst.
 // Checks: reset state, single/burst/posted write+read data paths, SCmdAccept
-// backpressure + request stability, ERR response injection + irq, timeout
-// abort + irq + recovery, consecutive transactions.
+// backpressure + request stability, ERR/FAIL response injection + irq,
+// mid-burst read error drain, write-data gaps, len 0 clamp, timeout
+// abort + irq + recovery, consecutive transactions, mid-run reset.
 // ============================================================================
 `timescale 1ns/1ps
 module OCP_IP_Open_Core_Protocol_tb;
@@ -116,7 +118,10 @@ module OCP_IP_Open_Core_Protocol_tb;
   logic [4:0]  s_len, s_idx;
   logic [1:0]  s_dly;
   logic        s_err, s_posted;
+  logic [1:0]  s_ecode;                      // ERR (3) or FAIL (2)
   int acc_cnt = 0;
+  int inj_rd_err = -1;                       // read beat answered with ERR
+  int wgap = 0;                              // idle cycles before each wdata
 
   wire slv_see_cmd  = (MCmd != 3'd0);
   wire slv_dead     = (MAddr == 32'hFFFF_0000);   // never accepts
@@ -145,7 +150,7 @@ module OCP_IP_Open_Core_Protocol_tb;
     if (!rst_n) begin
       sstate <= SLV_IDLE; SResp <= 2'd0; SRespLast <= 1'b0; SData <= 32'd0;
       s_addr <= 32'd0; s_len <= 5'd1; s_idx <= 5'd0; s_dly <= 2'd0;
-      s_err  <= 1'b0;  s_posted <= 1'b0;
+      s_err  <= 1'b0;  s_posted <= 1'b0; s_ecode <= 2'd3;
     end else begin
       SResp     <= 2'd0;                    // default : no response
       SRespLast <= 1'b0;
@@ -153,6 +158,7 @@ module OCP_IP_Open_Core_Protocol_tb;
         SLV_IDLE : if (slv_acc) begin
           s_addr <= MAddr; s_len <= MBurstLength; s_idx <= 5'd1;
           s_err  <= (MAddr >= 32'h0000_0100);
+          s_ecode <= MAddr[9] ? 2'd2 : 2'd3;
           if (MCmd == 3'd2) begin                    // RD
             s_dly <= 2'd2; sstate <= SLV_RDWAIT;
           end else begin                             // WR / WRNP : beat 0
@@ -174,7 +180,7 @@ module OCP_IP_Open_Core_Protocol_tb;
         SLV_WRWAIT : begin
           if (s_dly > 2'd1) s_dly <= s_dly - 2'd1;
           else begin
-            SResp     <= s_err ? 2'd2 : 2'd1;        // ERR / DVA
+            SResp     <= s_err ? s_ecode : 2'd1;     // ERR|FAIL / DVA
             SRespLast <= 1'b1;
             sstate    <= SLV_IDLE;
           end
@@ -184,7 +190,7 @@ module OCP_IP_Open_Core_Protocol_tb;
           else begin s_idx <= 5'd0; sstate <= SLV_RDRESP; end
         end
         SLV_RDRESP : begin
-          SResp     <= s_err ? 2'd2 : 2'd1;
+          SResp     <= s_err ? s_ecode : (int'(s_idx) == inj_rd_err) ? 2'd3 : 2'd1;
           SData     <= s_err ? 32'd0 : smem[s_addr[7:2] + s_idx];
           SRespLast <= s_err | (s_idx == s_len - 5'd1);
           if (s_err || (s_idx == s_len - 5'd1)) sstate <= SLV_IDLE;
@@ -243,8 +249,12 @@ module OCP_IP_Open_Core_Protocol_tb;
       end
       if (to != 200) begin errors++; $display("ERROR: desc accept timeout @%h", addr); end
       for (i = 1; i < len; i++) begin
+        if (wgap > 0) begin
+          @(negedge clk); req_valid <= 1'b0;
+          repeat (wgap - 1) @(negedge clk);
+        end
         @(negedge clk);
-        req_wdata <= base + i;
+        req_valid <= 1'b1; req_wdata <= base + i;
         to = 0;
         while (to < 100) begin
           @(posedge clk);
@@ -400,6 +410,64 @@ module OCP_IP_Open_Core_Protocol_tb;
     // CHECK 9: recovery -- normal transaction still works after abort
     cpu_write(32'h0000_0050, 5'd1, 32'h1234_5678, 1'b0, 1'b0);
     cpu_read (32'h0000_0050, 5'd1, 32'h1234_5678, 1'b0);
+
+    // CHECK 10: write-data gaps -- req_valid drops between burst words
+    wgap = 2;
+    cpu_write(32'h0000_0060, 5'd3, 32'h6600_0000, 1'b0, 1'b0);
+    wgap = 0;
+    cpu_read (32'h0000_0060, 5'd3, 32'h6600_0000, 1'b0);
+
+    // CHECK 11: len 0 is issued as a single beat
+    cpu_write(32'h0000_0070, 5'd0, 32'h7000_0007, 1'b0, 1'b0);
+    if (MBurstLength !== 5'd1) begin
+      errors++; $display("ERROR: len 0 not clamped to 1 (MBurstLength=%0d)", MBurstLength);
+    end
+    cpu_read (32'h0000_0070, 5'd0, 32'h7000_0007, 1'b0);
+
+    // CHECK 12: FAIL (SResp=2) is an error too
+    cpu_read (32'h0000_0200, 5'd1, 32'h0, 1'b1);
+    cpu_write(32'h0000_0204, 5'd1, 32'h0, 1'b0, 1'b1);
+
+    // CHECK 13: ERR on beat 1 of a 4-beat read: that beat flags resp_err,
+    //           the other beats still return data and the burst drains
+    begin
+      int b, tw;
+      inj_rd_err = 1;
+      @(negedge clk);
+      req_valid <= 1'b1; req_rw <= 1'b0; req_posted <= 1'b0;
+      req_addr <= 32'h0000_0020; req_len <= 5'd4;
+      @(posedge clk); cpu_idle();
+      for (b = 0; b < 4; b++) begin
+        tw = 0;
+        while (tw < 200) begin @(posedge clk); if (resp_valid) tw = 300; else tw++; end
+        if (tw != 300) begin errors++; $display("ERROR: err-drain beat %0d timeout", b); end
+        else if (resp_err !== (b == 1)) begin
+          errors++; $display("ERROR: err-drain beat %0d resp_err=%b", b, resp_err);
+        end else if (b != 1 && resp_rdata !== 32'hA000_0000 + b) begin
+          errors++; $display("ERROR: err-drain beat %0d data %h", b, resp_rdata);
+        end
+      end
+      @(negedge clk);
+      if (dut.state !== 3'd0) begin errors++; $display("ERROR: not idle after err drain"); end
+      inj_rd_err = -1;
+    end
+    cpu_read (32'h0000_0020, 5'd4, 32'hA000_0000, 1'b0);
+
+    // CHECK 14: reset in the middle of a write burst clears irq and the FSM
+    @(negedge clk);
+    req_valid <= 1'b1; req_rw <= 1'b1; req_posted <= 1'b0;
+    req_addr <= 32'h0000_0080; req_len <= 5'd4; req_wdata <= 32'h1;
+    repeat (3) @(negedge clk);
+    rst_n = 1'b0; req_valid <= 1'b0;
+    repeat (2) @(negedge clk);
+    if (irq !== 1'b0 || MCmd !== 3'd0 || req_ready !== 1'b1) begin
+      errors++; $display("ERROR: mid-run reset did not clear irq/MCmd");
+    end
+    rst_n = 1'b1;
+    @(negedge clk);
+    cpu_write(32'h0000_0090, 5'd2, 32'h9000_0000, 1'b0, 1'b0);
+    cpu_read (32'h0000_0090, 5'd2, 32'h9000_0000, 1'b0);
+    cpu_read (32'h0000_0100, 5'd1, 32'h0, 1'b1);      // irq set again
 
     repeat (2) @(posedge clk);
 
