@@ -9,8 +9,11 @@
   FUNCTIONAL  covergroup bins (v_covergroup) + fc_* cover properties
 
 Exclusions: scripts/cov/exclude/<P>.txt, one per line
-  <METRIC> <regex on point id> # <justification>
-A point is excluded only if it is a hole AND matches; excluded points stay in
+  <METRIC> <regex on point id> # <justification>   (justification mandatory;
+  the regex is everything up to " # ")
+LINE point ids end in " | <source line text>", so an exclusion can name the
+code it waives instead of a line number. A point is excluded only if it is a
+hole AND matches; excluded points stay in
 the total, are counted as closed and listed separately (reported as
 "raw x/y, +N excluded"). Unused exclusion lines are reported as stale.
 
@@ -45,6 +48,12 @@ def main():
     dat, log, proto, rtl = a[0], a[1], a[2], a[3:]
     rtl = set(rtl)
     pts = parse_dat(dat)
+    src = {}
+    for f in rtl:
+        try:
+            src[f] = open(f).read().split("\n")
+        except OSError:
+            src[f] = []
     logtxt = open(log, errors="replace").read()
 
     m = {k: {} for k in ("LINE", "TOGGLE", "FSM", "SVA", "FUNCTIONAL")}
@@ -54,7 +63,9 @@ def main():
         kind = page.split("/")[0]
         f = p.get("f", "")
         if kind in ("v_line", "v_branch") and f in rtl:
-            key = f"{f}:{p.get('l')}:{p.get('o','')}:{p.get('h','')}"
+            ln_no = int(p.get("l", 0))
+            text = src[f][ln_no - 1].strip() if 0 < ln_no <= len(src[f]) else ""
+            key = f"{f}:{ln_no}:{p.get('o','')}:{p.get('h','')} | {text}"
             m["LINE"][key] = m["LINE"].get(key, 0) + p["count"]
         elif kind == "v_toggle" and f in rtl:
             key = f"{p.get('h','')}.{p.get('o','')}"
@@ -82,8 +93,11 @@ def main():
             ln = ln.strip()
             if not ln or ln.startswith("#"):
                 continue
-            met, rx, *why = ln.split(None, 2)
-            excl.append([met, re.compile(rx), (why[0].lstrip("# ") if why else ""), 0])
+            met, rest = ln.split(None, 1)
+            rx, why = rest.split(" # ", 1) if " # " in rest else (rest, "")
+            if not why.strip():
+                sys.exit(f"exclusion without justification: {ln}")
+            excl.append([met, re.compile(rx.strip()), why.strip(), 0])
     except FileNotFoundError:
         pass
 
