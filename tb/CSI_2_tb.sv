@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // ============================================================================
 // Self-checking testbench for CSI_2_top (MIPI CSI-2 RX, packet layer)
-// TB plays the camera/CSI-2 transmitter: serial SoT + packets (1 bit/clk),
-// with ECC + CRC-16 computed here the same way the spec defines them.
-// Checks: reset state / FS-FE short packets / RAW8 long packet line-buffer
-// readback / ECC single-bit correction (data + ECC byte) / ECC double-bit
-// drop + irq / CRC-16 corruption drop + irq / mid-packet abort / back-to-back
-// frames.
+// The TB is the camera transmitter: each HS burst is a random number of
+// HS-zero bits, the B8 sync, one or more packets (each after its own sync
+// byte), then an EoT trailer. ECC and CRC-16 are computed here from the
+// spec equations. A scoreboard predicts frame/line counters, irq, the error
+// flags, last DT/WC and the content of the readable line buffer.
+// Covered: FS/FE/generic shorts, long packets WC 0..520 (past the line
+// buffer), every single-bit header and ECC-byte error (corrected), double
+// errors (dropped), CRC errors (line kept from before), bursts that end
+// inside a packet at every stage, several packets per burst, trailers that
+// must not start a packet, sync found at any bit offset, reset mid-packet.
 // ============================================================================
 `timescale 1ns/1ps
 module CSI_2_tb;
-
+  localparam int LB = 512;
   logic        clk = 0, rst_n = 0;
   logic        rx_bit = 0, rx_valid = 0;
   logic        irq, frame_active;
@@ -19,628 +23,334 @@ module CSI_2_tb;
   logic [3:0]  err_flags;
   logic [8:0]  lb_addr = 0;
   logic [7:0]  lb_rdata;
-
   int errors = 0;
 
-  CSI_2_top dut (
-    .clk(clk), .rst_n(rst_n),
-    .rx_bit(rx_bit), .rx_valid(rx_valid),
-    .irq(irq), .frame_active(frame_active),
-    .frame_cnt(frame_cnt), .line_cnt(line_cnt),
-    .last_dt(last_dt), .last_wc(last_wc),
-    .err_flags(err_flags), .lb_len(lb_len),
-    .lb_addr(lb_addr), .lb_rdata(lb_rdata)
-  );
-
+  CSI_2_top #(.LINE_BYTES(LB)) dut (
+    .clk(clk), .rst_n(rst_n), .rx_bit(rx_bit), .rx_valid(rx_valid),
+    .irq(irq), .frame_active(frame_active), .frame_cnt(frame_cnt), .line_cnt(line_cnt),
+    .last_dt(last_dt), .last_wc(last_wc), .err_flags(err_flags), .lb_len(lb_len),
+    .lb_addr(lb_addr), .lb_rdata(lb_rdata));
   always #5 clk = ~clk;
 
-  // payload staging memory (camera image line)
-  logic [7:0] payload_mem [0:1023];
-
-  // ------------------------------------------------------------------
-  // reference models (same math as DUT, written independently)
-  // ------------------------------------------------------------------
   function automatic logic [5:0] ecc24(input logic [23:0] d);
-    begin
-      ecc24[0] = d[0]^d[1]^d[2]^d[4]^d[5]^d[7]^d[10]^d[11]^d[13]^d[16]^d[20]^d[21]^d[22]^d[23];
-      ecc24[1] = d[0]^d[1]^d[3]^d[4]^d[6]^d[8]^d[10]^d[12]^d[14]^d[17]^d[20]^d[21]^d[22]^d[23];
-      ecc24[2] = d[0]^d[2]^d[3]^d[5]^d[6]^d[9]^d[11]^d[12]^d[15]^d[18]^d[20]^d[21]^d[22];
-      ecc24[3] = d[1]^d[2]^d[3]^d[7]^d[8]^d[9]^d[13]^d[14]^d[15]^d[19]^d[20]^d[21]^d[23];
-      ecc24[4] = d[4]^d[5]^d[6]^d[7]^d[8]^d[9]^d[16]^d[17]^d[18]^d[19]^d[20]^d[22]^d[23];
-      ecc24[5] = d[10]^d[11]^d[12]^d[13]^d[14]^d[15]^d[16]^d[17]^d[18]^d[19]^d[21]^d[22]^d[23];
-    end
+    ecc24[0] = d[0]^d[1]^d[2]^d[4]^d[5]^d[7]^d[10]^d[11]^d[13]^d[16]^d[20]^d[21]^d[22]^d[23];
+    ecc24[1] = d[0]^d[1]^d[3]^d[4]^d[6]^d[8]^d[10]^d[12]^d[14]^d[17]^d[20]^d[21]^d[22]^d[23];
+    ecc24[2] = d[0]^d[2]^d[3]^d[5]^d[6]^d[9]^d[11]^d[12]^d[15]^d[18]^d[20]^d[21]^d[22];
+    ecc24[3] = d[1]^d[2]^d[3]^d[7]^d[8]^d[9]^d[13]^d[14]^d[15]^d[19]^d[20]^d[21]^d[23];
+    ecc24[4] = d[4]^d[5]^d[6]^d[7]^d[8]^d[9]^d[16]^d[17]^d[18]^d[19]^d[20]^d[22]^d[23];
+    ecc24[5] = d[10]^d[11]^d[12]^d[13]^d[14]^d[15]^d[16]^d[17]^d[18]^d[19]^d[21]^d[22]^d[23];
   endfunction
-
-  function automatic logic [15:0] crc16_byte(input logic [15:0] c,
-                                             input logic [7:0]  d);
+  function automatic logic [15:0] crc16(input logic [15:0] c, input logic [7:0] d);
     logic [15:0] v;
-    begin
-      v = c ^ {8'h00, d};
-      for (int k = 0; k < 8; k++)
-        v = v[0] ? {1'b0, v[15:1]} ^ 16'h8408 : {1'b0, v[15:1]};
-      crc16_byte = v;
-    end
+    v = c ^ {8'h00, d};
+    for (int k = 0; k < 8; k++) v = v[0] ? (v >> 1) ^ 16'h8408 : (v >> 1);
+    return v;
   endfunction
 
-  // ------------------------------------------------------------------
-  // lane driving tasks (camera side)
-  // ------------------------------------------------------------------
-  task automatic send_byte(input logic [7:0] d);
+  // ---------------- burst builder ----------------
+  logic [7:0] bb [0:2047];             // bytes of the burst after the first sync
+  int         nb;
+  logic [7:0] pay [0:1023];
+  task automatic add(input logic [7:0] b); begin bb[nb] = b; nb++; end endtask
+  // corrupt: 0 none, hdr_x / ecc_x XOR masks, bad_crc
+  task automatic add_short(input logic [5:0] dt, input logic [1:0] vc, input logic [15:0] d,
+                           input logic [23:0] hx, input logic [7:0] ex);
+    logic [23:0] h;
     begin
-      for (int i = 0; i < 8; i++) begin
-        @(negedge clk);
-        rx_valid <= 1'b1;
-        rx_bit   <= d[i];
-      end
+      h = {d, vc, dt};
+      add(h[7:0] ^ hx[7:0]); add(h[15:8] ^ hx[15:8]); add(h[23:16] ^ hx[23:16]);
+      add({2'b00, ecc24(h)} ^ ex);
     end
   endtask
-
-  task automatic send_idle(input int n);
-    begin
-      @(negedge clk);
-      rx_valid <= 1'b0;
-      rx_bit   <= 1'b0;
-      repeat (n) @(negedge clk);
-    end
-  endtask
-
-  // short packet: DI={VC,DT}, 16-bit data field, ECC
-  task automatic send_short(input logic [5:0] dt, input logic [1:0] vc,
-                            input logic [15:0] data);
-    logic [7:0] b0;
-    begin
-      b0 = {vc, dt};
-      send_byte(8'hB8);
-      send_byte(b0);
-      send_byte(data[7:0]);
-      send_byte(data[15:8]);
-      send_byte({2'b00, ecc24({data, b0})});
-      send_idle(6);
-    end
-  endtask
-
-  // long packet from payload_mem[0..wc-1]; hdr_xor/ecc_xor corrupt the
-  // header/ECC bytes on the wire; bad_crc flips the footer CRC
-  task automatic send_long(input logic [5:0] dt, input logic [1:0] vc,
-                           input logic [15:0] wc,
-                           input logic [23:0] hdr_xor,
-                           input logic [7:0]  ecc_xor,
-                           input bit          bad_crc);
-    logic [7:0]  b0;
+  task automatic add_long(input logic [5:0] dt, input logic [1:0] vc, input int wc,
+                          input logic [23:0] hx, input logic [7:0] ex, input bit bad_crc);
     logic [15:0] c;
     begin
-      b0 = {vc, dt};
-      c  = 16'hFFFF;
-      send_byte(8'hB8);
-      send_byte(b0        ^ hdr_xor[7:0]);
-      send_byte(wc[7:0]   ^ hdr_xor[15:8]);
-      send_byte(wc[15:8]  ^ hdr_xor[23:16]);
-      send_byte({2'b00, ecc24({wc, b0})} ^ ecc_xor);
-      for (int i = 0; i < wc; i++) begin
-        send_byte(payload_mem[i]);
-        c = crc16_byte(c, payload_mem[i]);
-      end
-      if (bad_crc) c = c ^ 16'hA5A5;
-      send_byte(c[7:0]);
-      send_byte(c[15:8]);
-      send_idle(6);
+      add_short(dt, vc, 16'(wc), hx, ex);
+      c = 16'hFFFF;
+      for (int i = 0; i < wc; i++) begin add(pay[i]); c = crc16(c, pay[i]); end
+      if (bad_crc) c = c ^ 16'h0040;
+      add(c[7:0]); add(c[15:8]);
     end
   endtask
 
-  // compare DUT line buffer against payload_mem[0..len-1]
-  task automatic check_line(input int len, input string tag);
+  // send: lead HS-zero bits, B8, bytes [0:nb-1] (cut after cut_bits bits
+  // if >= 0), then trailer bits (inverse of the last bit), then LP
+  task automatic send(input int lead, input int cut_bits, input int trail);
+    int sent;
+    logic last;
     begin
-      if (lb_len !== 16'(len)) begin
-        errors++;
-        $display("ERROR: %s lb_len=%0d exp=%0d", tag, lb_len, len);
+      sent = 0; last = 0;
+      for (int i = 0; i < lead; i++) begin @(negedge clk); rx_valid = 1; rx_bit = 0; end
+      for (int i = 0; i < 8; i++) begin @(negedge clk); rx_valid = 1; rx_bit = 8'hB8 >> i; end
+      for (int k = 0; k < nb; k++)
+        for (int i = 0; i < 8; i++)
+          if (cut_bits < 0 || sent < cut_bits) begin
+            @(negedge clk); rx_valid = 1; rx_bit = bb[k][i]; last = rx_bit; sent++;
+          end
+      for (int i = 0; i < trail; i++) begin @(negedge clk); rx_bit = ~last; end
+      @(negedge clk); rx_valid = 0; rx_bit = 0;
+      repeat (4) @(negedge clk);
+      nb = 0;
+    end
+  endtask
+
+  // ---------------- scoreboard ----------------
+  int   e_fc = 0, e_lc = 0, e_len = 0;
+  logic e_irq = 0, e_act = 0;
+  logic [3:0]  e_err = 0;
+  logic [7:0]  e_dt = 0;
+  logic [15:0] e_wc = 0;
+  logic [7:0]  e_line [0:LB-1];
+
+  task automatic sb_short(input logic [5:0] dt, input logic [1:0] vc, input logic [15:0] d, input bit corr);
+    begin
+      e_dt = {vc, dt}; e_wc = d; e_irq = 0;
+      if (dt == 6'h00) begin e_fc++; e_lc = 0; e_act = 1; e_err = {corr, 3'b000}; end
+      else begin if (dt == 6'h01) e_act = 0; if (corr) e_err[3] = 1; end
+    end
+  endtask
+  task automatic sb_long(input logic [5:0] dt, input logic [1:0] vc, input int wc, input bit corr, input bit bad_crc);
+    begin
+      e_dt = {vc, dt}; e_wc = 16'(wc);
+      if (corr) e_err[3] = 1;
+      if (bad_crc) begin e_irq = 1; e_err[0] = 1; end
+      else begin
+        e_irq = 0; e_lc++; e_len = wc > LB ? LB : wc;
+        for (int i = 0; i < LB; i++) if (i < e_len) e_line[i] = pay[i];
       end
-      for (int i = 0; i < len; i++) begin
-        lb_addr = 9'(i);
-        #1;
-        if (lb_rdata !== payload_mem[i]) begin
-          errors++;
-          $display("ERROR: %s lb[%0d] got=%02h exp=%02h",
-                   tag, i, lb_rdata, payload_mem[i]);
+    end
+  endtask
+  task automatic sb_ecc_drop; begin e_irq = 1; e_err[1] = 1; end endtask
+  // burst cut after cut bits: a header complete by then was accepted
+  task automatic sb_abort(input int cut, input logic [7:0] di, input logic [15:0] wc);
+    begin e_err[2] = 1; if (cut >= 32) begin e_dt = di; e_wc = wc; end end
+  endtask
+
+  task automatic check(input string tag);
+    bit bad;
+    begin
+      if (frame_cnt !== 16'(e_fc) || line_cnt !== 16'(e_lc) || irq !== e_irq ||
+          frame_active !== e_act || err_flags !== e_err || lb_len !== 16'(e_len) ||
+          last_dt !== e_dt || last_wc !== e_wc) begin
+        errors++;
+        $display("ERROR: %s fc=%0d/%0d lc=%0d/%0d irq=%b/%b act=%b/%b err=%h/%h len=%0d/%0d dt=%h/%h wc=%0d/%0d",
+                 tag, frame_cnt, e_fc, line_cnt, e_lc, irq, e_irq, frame_active, e_act,
+                 err_flags, e_err, lb_len, e_len, last_dt, e_dt, last_wc, e_wc);
+      end
+      bad = 0;
+      for (int i = 0; i < e_len; i++) begin
+        lb_addr = 9'(i); #1;
+        if (lb_rdata !== e_line[i] && !bad) begin
+          errors++; bad = 1; $display("ERROR: %s line[%0d]=%h exp %h", tag, i, lb_rdata, e_line[i]);
         end
       end
     end
   endtask
 
-  task automatic check(input bit cond, input string tag);
+  // one good long packet in its own burst
+  task automatic line(input logic [5:0] dt, input int wc);
     begin
-      if (!cond) begin
-        errors++;
-        $display("ERROR: %s", tag);
-      end
+      for (int i = 0; i < wc; i++) pay[i] = $urandom;
+      add_long(dt, 2'd0, wc, 0, 0, 0); send($urandom_range(0, 12), -1, 4);
+      sb_long(dt, 2'd0, wc, 0, 0);
     end
   endtask
-
-`ifdef VERILATOR
-  // =====================================================================
-  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
-  // Tool notes (Verilator 5.006): no native FSM/SVA coverage and
-  // randomize() ignores constraint blocks -> procedural constraints
-  // ($urandom_range + rejection sampling), TB FSM probe, immediate
-  // assertions.
-  // =====================================================================
-  localparam int CSI_FSM_TOTAL = 8;   // S_SYNC..S_CRC1 (rtl enum)
-  logic [7:0] fsm_seen = '0;          // visited-state bitmap
-  wire  [2:0] dut_state = dut.state;  // hierarchical FSM probe
-
-  int sva_total = 0, sva_fail = 0;
-  // counted immediate assertion: every evaluation is one check
-  task automatic sva_check(input bit cond, input string name);
-    begin
-      sva_total++;
-      if (!cond) begin
-        sva_fail++;
-        errors++;
-        $display("SVA_FAIL: %s @%0t", name, $time);
-      end
-    end
+  task automatic short(input logic [5:0] dt, input logic [15:0] d);
+    begin add_short(dt, 2'd1, d, 0, 0); send(3, -1, 4); sb_short(dt, 2'd1, d, 0); end
   endtask
 
-  // FSM coverage: sample DUT state register every clock
-  always @(posedge clk) fsm_seen[dut_state] <= 1'b1;
-
-  // output-invariant assertion suite (sampled coherently pre-NBA)
-  bit        first_cycle = 1;  // skip the very first posedge (DUT reset
-                               // values land in that NBA region)
-  logic [15:0] fc_q = 0;
-  always @(posedge clk) begin
-    if (first_cycle) begin
-      first_cycle <= 0;
-    end else if (!rst_n) begin
-      // A1: outputs quiescent during reset
-      sva_check(irq === 1'b0 && frame_active === 1'b0 && frame_cnt === 16'h0 &&
-                line_cnt === 16'h0 && lb_len === 16'h0 && err_flags === 4'h0,
-                "A1 reset: outputs quiescent");
-    end else begin
-      // A2: payload counter never exceeds the programmed word count
-      sva_check(dut.pay_cnt <= dut.wc, "A2 pay_cnt within wc");
-      // A3: committed line length bounded by the line buffer depth
-      sva_check(lb_len <= 16'd512, "A3 lb_len bounded");
-      // A4: frame counter never decreases
-      sva_check(frame_cnt >= fc_q, "A4 frame_cnt monotone");
-      // A5: an active frame implies at least one frame was started
-      sva_check(!frame_active || (frame_cnt >= 16'd1), "A5 active implies FS");
-      // A6: line buffer read port tracks the array combinationally
-      sva_check(lb_rdata === dut.line_buf[lb_addr], "A6 lb read port");
-      // A7: payload phase only exists for non-zero word counts
-      sva_check((dut_state != 3'd5) || (dut.wc != 16'h0), "A7 S_PAY has wc");
-    end
-    fc_q <= frame_cnt;
-  end
-`endif
-
-  // ------------------------------------------------------------------
-  // test sequence
-  // ------------------------------------------------------------------
   initial begin
-    // ---- reset ----
-    rst_n = 0;
-    repeat (4) @(posedge clk);
+    nb = 0;
+    repeat (4) @(negedge clk);
     rst_n = 1;
-    repeat (2) @(posedge clk);
+    repeat (2) @(negedge clk);
+    check("reset");
 
-    // (1) reset state
-    check(frame_cnt == 0 && line_cnt == 0 && irq == 1'b0 &&
-          frame_active == 1'b0 && lb_len == 0, "reset state");
+    // frame with lines of several sizes
+    short(6'h00, 16'h0001); check("FS");
+    line(6'h2B, 16);  check("RAW8 16");
+    line(6'h2B, 1);   check("RAW8 1");
+    line(6'h24, 0);   check("WC 0");
+    line(6'h2B, LB);  check("full line buffer");
+    line(6'h2C, LB + 8); check("past line buffer");
+    line(6'h1E, 300); check("YUV 300");
+    short(6'h02, 16'h0007); check("LS");
+    short(6'h03, 16'h0007); check("LE does not count a line");
+    short(6'h08, 16'hBEEF); check("generic short");
+    short(6'h01, 16'h0001); check("FE");
 
-    // ---- frame 0: FS + 2 RAW8 lines + FE ----
-    for (int i = 0; i < 16; i++) payload_mem[i] = 8'h10 + i[7:0];
-    send_short(6'h00, 2'd0, 16'd0);                 // FS
-    check(frame_cnt == 1 && frame_active == 1'b1 && line_cnt == 0,
-          "FS: frame_cnt=1 active");
-    send_long(6'h2B, 2'd0, 16'd16, 24'h0, 8'h0, 0); // RAW8 line 0
-    check(line_cnt == 1 && irq == 1'b0, "line0 committed");
-    check(last_dt == 8'h2B && last_wc == 16'd16, "line0 DT/WC status");
-    check_line(16, "line0");
+    // every single-bit header error is corrected; ECC-byte bit errors kept
+    short(6'h00, 16'h0002);
+    for (int b = 0; b < 24; b++) begin
+      for (int i = 0; i < 8; i++) pay[i] = $urandom;
+      add_long(6'h2B, 2'd2, 8, 24'h1 << b, 0, 0); send(1, -1, 2);
+      sb_long(6'h2B, 2'd2, 8, 1, 0);
+      check($sformatf("header bit %0d corrected", b));
+    end
+    for (int b = 0; b < 6; b++) begin
+      add_short(6'h08, 2'd0, 16'(b), 0, 8'h1 << b); send(2, -1, 3);
+      sb_short(6'h08, 2'd0, 16'(b), 1);
+      check($sformatf("ECC bit %0d", b));
+    end
+    // FS with a corrected header starts the frame with only flag 3 set
+    add_short(6'h00, 2'd0, 16'h0003, 24'h000400, 0); send(0, -1, 1);
+    sb_short(6'h00, 2'd0, 16'h0003, 1); check("FS corrected");
 
-    for (int i = 0; i < 32; i++) payload_mem[i] = 8'hA0 + i[7:0];
-    send_long(6'h2B, 2'd0, 16'd32, 24'h0, 8'h0, 0); // RAW8 line 1
-    check(line_cnt == 2, "line1 committed");
-    check_line(32, "line1");
+    // double errors: dropped + irq; good packet clears irq; FS clears flags
+    add_long(6'h2B, 2'd0, 8, 24'h000011, 0, 0); send(2, -1, 2);
+    sb_ecc_drop(); check("double header error");
+    add_short(6'h08, 2'd0, 16'h0, 0, 8'h03); send(2, -1, 2);
+    sb_ecc_drop(); check("double ECC-byte error");
+    line(6'h2B, 12); check("recover");
+    for (int i = 0; i < 8; i++) pay[i] = $urandom;
+    add_long(6'h2B, 2'd0, 8, 0, 0, 1); send(2, -1, 2);
+    sb_long(6'h2B, 2'd0, 8, 0, 1); check("bad CRC keeps the previous line");
+    short(6'h01, 16'h0); check("FE after errors");
+    short(6'h00, 16'h0004); check("FS clears flags");
 
-    send_short(6'h01, 2'd0, 16'd0);                 // FE
-    check(frame_active == 1'b0 && frame_cnt == 1, "FE: frame end");
+    // bursts that end inside a packet, at every stage
+    for (int cut = 4; cut < 8 * (4 + 6 + 2); cut += 7) begin
+      for (int i = 0; i < 6; i++) pay[i] = $urandom;
+      add_long(6'h2B, 2'd0, 6, 0, 0, 0); send(1, cut, 0);
+      sb_abort(cut, 8'h2B, 16'd6); check($sformatf("abort after %0d bits", cut));
+    end
+    add_short(6'h08, 2'd0, 16'h0, 0, 0); send(0, 16, 0);
+    sb_abort(16, 8'h08, 16'h0); check("abort in short header");
+    line(6'h2B, 6); check("recover after aborts");
 
-    // ---- frame 1: ECC single-bit correction ----
-    for (int i = 0; i < 8; i++) payload_mem[i] = 8'h40 + i[7:0];
-    send_short(6'h00, 2'd0, 16'd1);                 // FS frame 1
-    check(frame_cnt == 2 && line_cnt == 0, "FS frame1");
-    // flip header bit 15 (WC[7]) on the wire: must be corrected
-    send_long(6'h2B, 2'd0, 16'd8, 24'h008000, 8'h00, 0);
-    check(line_cnt == 1 && irq == 1'b0 && err_flags[3] == 1'b1,
-          "ECC single-bit (WC) corrected");
-    check(last_wc == 16'd8, "corrected WC=8");
-    check_line(8, "ecc-corr line");
-    // flip one ECC-byte bit on the wire: data untouched, counted corrected
-    send_long(6'h2B, 2'd0, 16'd8, 24'h000000, 8'h10, 0);
-    check(line_cnt == 2 && irq == 1'b0, "ECC single-bit (ECC byte) accepted");
-    check_line(8, "ecc-byte line");
+    // several packets in one burst, then a trailer that holds a stray B8
+    for (int i = 0; i < 20; i++) pay[i] = $urandom;
+    add_short(6'h02, 2'd3, 16'h11, 0, 0); add(8'hB8);
+    add_long(6'h2B, 2'd3, 20, 0, 0, 0); add(8'hB8);
+    add_short(6'h03, 2'd3, 16'h11, 0, 0); add(8'h5A); add(8'hB8);
+    add_short(6'h00, 2'd0, 16'h0, 0, 0);
+    send(5, -1, 6);
+    sb_short(6'h02, 2'd3, 16'h11, 0); sb_long(6'h2B, 2'd3, 20, 0, 0); sb_short(6'h03, 2'd3, 16'h11, 0);
+    check("three packets in one burst, junk after");
+    // sync preceded by HS-zero bits that are not a whole byte
+    for (int lead = 0; lead < 16; lead++) begin
+      add_short(6'h08, 2'd0, 16'(lead), 0, 0); send(lead, -1, 1);
+      sb_short(6'h08, 2'd0, 16'(lead), 0);
+      check($sformatf("lead %0d bits", lead));
+    end
+    // a burst with no sync at all
+    @(negedge clk); rx_valid = 1;
+    for (int i = 0; i < 40; i++) begin @(negedge clk); rx_bit = i[2] ^ i[0]; end
+    @(negedge clk); rx_valid = 0; repeat (3) @(negedge clk);
+    check("no sync");
 
-    // ---- ECC double-bit error: uncorrectable, drop + irq ----
-    send_long(6'h2B, 2'd0, 16'd8, 24'h000003, 8'h00, 0);
-    check(irq == 1'b1 && err_flags[1] == 1'b1 && line_cnt == 2,
-          "ECC double-bit dropped + irq");
+    // every line-buffer bit through 1 and 0
+    for (int i = 0; i < LB; i++) pay[i] = 8'hFF;
+    add_long(6'h2B, 2'd0, LB, 0, 0, 0); send(0, -1, 1); sb_long(6'h2B, 2'd0, LB, 0, 0); check("all ones");
+    for (int i = 0; i < LB; i++) pay[i] = 8'h00;
+    add_long(6'h2B, 2'd0, LB, 0, 0, 0); send(0, -1, 1); sb_long(6'h2B, 2'd0, LB, 0, 0); check("all zeros");
+    for (int i = 0; i < LB; i++) pay[i] = 8'hFF;
+    add_long(6'h2B, 2'd0, LB, 0, 0, 0); send(0, -1, 1); sb_long(6'h2B, 2'd0, LB, 0, 0); check("all ones again");
+    for (int i = 0; i < LB; i++) pay[i] = 8'h00;
+    add_long(6'h2B, 2'd0, LB, 0, 0, 0); send(0, -1, 1); sb_long(6'h2B, 2'd0, LB, 0, 0); check("all zeros again");
 
-    // ---- CRC-16 corruption: drop + irq, then recovery ----
-    for (int i = 0; i < 8; i++) payload_mem[i] = 8'h70 + i[7:0];
-    send_long(6'h2B, 2'd0, 16'd8, 24'h0, 8'h0, 1);  // bad CRC
-    check(irq == 1'b1 && err_flags[0] == 1'b1 && line_cnt == 2,
-          "CRC bad dropped + irq");
-    check(lb_len == 16'd8, "bad CRC line not committed (lb_len kept)");
-    send_long(6'h2B, 2'd0, 16'd8, 24'h0, 8'h0, 0);  // good again
-    check(irq == 1'b0 && line_cnt == 3, "good packet clears irq");
-    check_line(8, "recovery line");
-
-    // ---- mid-packet abort (link idle before packet end) ----
-    send_byte(8'hB8);
-    send_byte(8'h2B);
-    send_idle(6);                                   // abort in header
-    check(err_flags[2] == 1'b1, "mid-packet abort flagged");
-    check(line_cnt == 3, "abort does not commit");
-
-    // ---- back-to-back traffic: 3 lines, no gap issues ----
-    for (int i = 0; i < 12; i++) payload_mem[i] = 8'hC0 + i[7:0];
-    send_long(6'h2B, 2'd0, 16'd12, 24'h0, 8'h0, 0);
-    send_long(6'h2B, 2'd0, 16'd12, 24'h0, 8'h0, 0);
-    send_long(6'h2B, 2'd0, 16'd12, 24'h0, 8'h0, 0);
-    check(line_cnt == 6 && irq == 1'b0, "back-to-back lines");
-    check_line(12, "b2b line");
+    // random traffic
+    for (int t = 0; t < 150; t++) begin
+      int r, wc;
+      logic [5:0] dt;
+      logic [1:0] vc;
+      r = $urandom_range(0, 9);
+      vc = $urandom;
+      if (r < 4) begin
+        wc = ($urandom_range(0, 7) == 0) ? $urandom_range(0, 600) : $urandom_range(0, 64);
+        dt = 6'h10 + 6'($urandom_range(0, 47));
+        for (int i = 0; i < wc; i++) pay[i] = $urandom;
+        add_long(dt, vc, wc, 0, 0, r == 0); send($urandom_range(0, 9), -1, $urandom_range(1, 8));
+        sb_long(dt, vc, wc, 0, r == 0);
+      end else if (r < 8) begin
+        dt = $urandom_range(0, 15);
+        add_short(dt, vc, 16'($urandom), 0, 0);
+        sb_short(dt, vc, {bb[2], bb[1]}, 0);
+        send($urandom_range(0, 9), -1, $urandom_range(1, 8));
+      end else if (r == 8) begin
+        wc = $urandom_range(1, 32);
+        dt = 6'h2A;
+        for (int i = 0; i < wc; i++) pay[i] = $urandom;
+        add_long(dt, vc, wc, 24'h1 << $urandom_range(0, 23), 0, 0); send(2, -1, 2);
+        sb_long(dt, vc, wc, 1, 0);
+      end else begin
+        wc = $urandom_range(1, 70);
+        add_long(6'h2B, vc, 4, 0, 0, 0); send(2, wc, 0);
+        sb_abort(wc, {vc, 6'h2B}, 16'd4);
+      end
+      check($sformatf("random %0d", t));
+    end
 
 `ifdef VERILATOR
-    // ---- v2.5 CRV random phase (directed tests above untouched) ------
-    // 120 randomized transactions. Classes: random frames (FS + 1-3 RAW
-    // long packets with random VC/DT/WC/payload incl. boundary WC=0/512/
-    // 520 + FE) with frame/line-count and line-buffer self-checks; short
-    // packet mixes (FS/LE/generic/FE); error injection (round-robin):
-    // ECC single-bit in header / in ECC byte (corrected), ECC double-bit
-    // (drop + irq), CRC-16 corruption (drop + irq), mid-packet abort at
-    // a random position. A software scoreboard tracks the expected
-    // frame_cnt / line_cnt across the whole phase.
-    begin : crv_phase
-      int n_frm = 0, n_shrt = 0, n_e1h = 0, n_e1e = 0, n_e2 = 0, n_ecrc = 0;
-      int n_abt = 0;
-      int roll, eroll = 0, nl, wc_c, pos;
-      int m_fc, m_lc;                       // scoreboard counts
-      logic [5:0] dt_c;
-      logic [1:0] vc_c;
-      logic [23:0] hx;
-      logic [7:0]  ex;
-      m_fc = frame_cnt;
-      m_lc = line_cnt;
-      for (int t = 0; t < 120; t++) begin
-        roll = $urandom_range(0, 29);
-        if (roll < 11) begin
-          // ---- random frame: FS + 1-3 long packets + FE ----
-          n_frm++;
-          vc_c = 2'($urandom_range(0, 3));
-          send_short(6'h00, vc_c, 16'($urandom_range(0, 65535)));   // FS
-          m_fc++;
-          m_lc = 0;
-          if (frame_cnt !== 16'(m_fc) || frame_active !== 1'b1 ||
-              line_cnt !== 16'd0) begin
-            errors++; $display("ERROR: CRV FS counts got fc=%0d lc=%0d exp fc=%0d",
-                               frame_cnt, line_cnt, m_fc);
-          end
-          nl = 1 + $urandom_range(0, 2);
-          for (int l = 0; l < nl; l++) begin
-            roll = $urandom_range(0, 9);
-            if (roll == 0)      wc_c = 0;               // boundary: empty
-            else if (roll == 1) wc_c = 512;             // boundary: full LB
-            else if (roll == 2) wc_c = 520;             // boundary: > LB
-            else if (roll == 3) wc_c = 200;             // boundary: mid
-            else if (roll == 4) wc_c = 300;             // boundary: mid
-            else                wc_c = 1 + $urandom_range(0, 63);
-            dt_c = 6'h10 + 6'($urandom_range(0, 47));   // long-packet DT
-            for (int i = 0; i < wc_c && i < 1024; i++)
-              payload_mem[i] = 8'($urandom_range(0, 255));
-            send_long(dt_c, vc_c, 16'(wc_c), 24'h0, 8'h0, 0);
-            m_lc++;
-            if (line_cnt !== 16'(m_lc) || irq !== 1'b0) begin
-              errors++; $display("ERROR: CRV line commit lc=%0d exp=%0d irq=%b",
-                                 line_cnt, m_lc, irq);
-            end
-            if (last_wc !== 16'(wc_c)) begin
-              errors++; $display("ERROR: CRV last_wc got=%0d exp=%0d",
-                                 last_wc, wc_c);
-            end
-            check_line(wc_c > 512 ? 512 : wc_c, "CRV line");
-          end
-          send_short(6'h01, vc_c, 16'h0);                          // FE
-          if (frame_active !== 1'b0 || frame_cnt !== 16'(m_fc)) begin
-            errors++; $display("ERROR: CRV FE state");
-          end
-        end else if (roll < 15) begin
-          // ---- short-packet mix: FS + LE/generic shorts + FE ----
-          n_shrt++;
-          vc_c = 2'($urandom_range(0, 3));
-          send_short(6'h00, vc_c, 16'h0);
-          m_fc++;
-          m_lc = 0;
-          nl = 1 + $urandom_range(0, 5);
-          for (int l = 0; l < nl; l++) begin
-            dt_c = 6'($urandom_range(0, 15));           // short-packet DT
-            send_short(dt_c, vc_c, 16'($urandom_range(0, 65535)));
-            if (dt_c == 6'h03) m_lc++;                  // DT_LE
-            if (dt_c == 6'h00) begin m_fc++; m_lc = 0; end  // nested FS
-            if (dt_c == 6'h01) ;                        // FE: active clears
-          end
-          send_short(6'h01, vc_c, 16'h0);
-          if (frame_cnt !== 16'(m_fc) || line_cnt !== 16'(m_lc)) begin
-            errors++; $display("ERROR: CRV short counts fc=%0d/%0d lc=%0d/%0d",
-                               frame_cnt, m_fc, line_cnt, m_lc);
-          end
-          if (irq !== 1'b0) begin
-            errors++; $display("ERROR: CRV irq set during short packets");
-          end
-        end else begin
-          // ---- error-injection classes (round-robin) ----
-          vc_c = 2'd0;
-          for (int i = 0; i < 16; i++)
-            payload_mem[i] = 8'($urandom_range(0, 255));
-          case (eroll)
-            0: begin
-              // ECC single-bit in the 24-bit header: corrected + commit
-              n_e1h++;
-              hx = 24'h1 << $urandom_range(0, 23);
-              send_long(6'h2B, vc_c, 16'd16, hx, 8'h0, 0);
-              m_lc++;
-              if (line_cnt !== 16'(m_lc) || irq !== 1'b0 ||
-                  err_flags[3] !== 1'b1) begin
-                errors++; $display("ERROR: CRV ECC-1bit hdr not corrected");
-              end
-              check_line(16, "CRV ecc1h");
-            end
-            1: begin
-              // ECC single-bit in the ECC byte: accepted + commit
-              n_e1e++;
-              ex = 8'h1 << $urandom_range(0, 5);
-              send_long(6'h2B, vc_c, 16'd16, 24'h0, ex, 0);
-              m_lc++;
-              if (line_cnt !== 16'(m_lc) || irq !== 1'b0) begin
-                errors++; $display("ERROR: CRV ECC-1bit ecc not accepted");
-              end
-              check_line(16, "CRV ecc1e");
-            end
-            2: begin
-              // ECC double-bit: uncorrectable -> drop + irq, line kept
-              n_e2++;
-              hx = (24'h1 << $urandom_range(0, 11)) |
-                   (24'h1 << $urandom_range(12, 23));
-              send_long(6'h2B, vc_c, 16'd16, hx, 8'h0, 0);
-              if (irq !== 1'b1 || err_flags[1] !== 1'b1 ||
-                  line_cnt !== 16'(m_lc)) begin
-                errors++; $display("ERROR: CRV ECC-2bit not dropped");
-              end
-              send_long(6'h2B, vc_c, 16'd16, 24'h0, 8'h0, 0);  // recovery
-              m_lc++;
-              if (irq !== 1'b0 || line_cnt !== 16'(m_lc)) begin
-                errors++; $display("ERROR: CRV ECC-2bit recovery failed");
-              end
-              check_line(16, "CRV ecc2-rec");
-            end
-            3: begin
-              // CRC-16 corruption: drop + irq, lb_len kept
-              n_ecrc++;
-              send_long(6'h2B, vc_c, 16'd16, 24'h0, 8'h0, 1);
-              if (irq !== 1'b1 || err_flags[0] !== 1'b1 ||
-                  line_cnt !== 16'(m_lc)) begin
-                errors++; $display("ERROR: CRV bad CRC not dropped");
-              end
-              send_long(6'h2B, vc_c, 16'd16, 24'h0, 8'h0, 0);  // recovery
-              m_lc++;
-              if (irq !== 1'b0 || line_cnt !== 16'(m_lc)) begin
-                errors++; $display("ERROR: CRV CRC recovery failed");
-              end
-              check_line(16, "CRV crc-rec");
-            end
-            default: begin
-              // mid-packet abort at a random position (header/payload)
-              n_abt++;
-              pos = $urandom_range(0, 5);
-              send_byte(8'hB8);
-              send_byte(8'h2B);
-              if (pos > 0) send_byte(8'd16);
-              if (pos > 1) send_byte(8'h00);
-              if (pos > 2) send_byte({2'b00, ecc24({16'd16, 8'h2B})});
-              if (pos > 3) send_byte(payload_mem[0]);
-              if (pos > 4) send_byte(payload_mem[1]);
-              send_idle(6);                                // abort
-              if (err_flags[2] !== 1'b1 || line_cnt !== 16'(m_lc)) begin
-                errors++; $display("ERROR: CRV abort not flagged");
-              end
-              send_long(6'h2B, vc_c, 16'd16, 24'h0, 8'h0, 0);  // recovery
-              m_lc++;
-              if (line_cnt !== 16'(m_lc)) begin
-                errors++; $display("ERROR: CRV abort recovery failed");
-              end
-              check_line(16, "CRV abt-rec");
-            end
-          endcase
-          eroll = (eroll + 1) % 5;
-        end
+    // counters wrap modulo 2^16: 65537 empty lines, then 65537 frames
+    // (Verilator only: about 9M clocks)
+    short(6'h00, 16'h0); check("FS before wrap");
+    add_long(6'h2B, 2'd0, 0, 0, 0, 0);
+    for (int i = 0; i < 65537; i++) begin
+      for (int k = 0; k < 8; k++) begin @(negedge clk); rx_valid = 1; rx_bit = 8'hB8 >> k; end
+      for (int j = 0; j < 6; j++)
+        for (int k = 0; k < 8; k++) begin @(negedge clk); rx_bit = bb[j][k]; end
+      @(negedge clk); rx_valid = 0; rx_bit = 0;
+    end
+    @(negedge clk);
+    nb = 0;
+    e_lc = 1; e_len = 0; e_dt = 8'h2B; e_wc = 0;
+    check("line counter wrapped");
+    add_short(6'h00, 2'd0, 16'h0, 0, 0);
+    for (int i = 0; i < 65537; i++) begin
+      for (int k = 0; k < 8; k++) begin @(negedge clk); rx_valid = 1; rx_bit = 8'hB8 >> k; end
+      for (int j = 0; j < 4; j++)
+        for (int k = 0; k < 8; k++) begin @(negedge clk); rx_bit = bb[j][k]; end
+      @(negedge clk); rx_valid = 0; rx_bit = 0;
+    end
+    @(negedge clk);
+    nb = 0;
+    e_fc = (e_fc + 65537) % 65536; e_lc = 0; e_dt = 8'h00; e_wc = 0; e_err = 0;
+    check("frame counter wrapped");
+    // the largest long packet: WC = 65535
+    begin
+      logic [15:0] c;
+      logic [7:0]  d;
+      add_short(6'h2B, 2'd0, 16'hFFFF, 0, 0);
+      for (int k = 0; k < 8; k++) begin @(negedge clk); rx_valid = 1; rx_bit = 8'hB8 >> k; end
+      for (int j = 0; j < 4; j++)
+        for (int k = 0; k < 8; k++) begin @(negedge clk); rx_bit = bb[j][k]; end
+      c = 16'hFFFF;
+      for (int i = 0; i < 65535; i++) begin
+        d = 8'(i) ^ 8'(i >> 8);
+        if (i < LB) e_line[i] = d;
+        c = crc16(c, d);
+        for (int k = 0; k < 8; k++) begin @(negedge clk); rx_bit = d[k]; end
       end
-      $display("CRV: 120 txns (frames=%0d shorts=%0d | ecc1h=%0d ecc1e=%0d ecc2=%0d crc=%0d abort=%0d)",
-               n_frm, n_shrt, n_e1h, n_e1e, n_e2, n_ecrc, n_abt);
-
-      // ---- coverage-closure sweep --------------------------------------
-      // (a) exhaustive ECC syndrome decode: single-bit error at every one
-      //     of the 24 header positions and all 6 ECC-byte bits -> every
-      //     entry of the ecc_bit decode table; all packets must correct
-      //     and commit (scoreboard updated).
-      // (b) ECC-corrected SHORT packets (FS/LE/generic/FE) -> corrected-
-      //     path short-packet case arms.
-      // (c) 2100 line-end shorts in one frame -> line_cnt[11:0] toggle.
-      // (d) 600 FS/FE pairs -> frame_cnt[9:0] toggle.
-      send_short(6'h00, 2'd0, 16'h0);                      // FS
-      m_fc++;
-      m_lc = 0;
-      for (int eb = 0; eb < 24; eb++) begin
-        for (int i = 0; i < 8; i++)
-          payload_mem[i] = 8'($urandom_range(0, 255));
-        send_long(6'h2B, 2'd0, 16'd8, 24'h1 << eb, 8'h0, 0);
-        m_lc++;
-        if (line_cnt !== 16'(m_lc) || irq !== 1'b0) begin
-          errors++; $display("ERROR: sweep ECC hdr bit %0d not corrected", eb);
-        end
-        check_line(8, "sweep ecc-hdr");
-      end
-      for (int eb = 0; eb < 6; eb++) begin
-        for (int i = 0; i < 8; i++)
-          payload_mem[i] = 8'($urandom_range(0, 255));
-        send_long(6'h2B, 2'd0, 16'd8, 24'h0, 8'h1 << eb, 0);
-        m_lc++;
-        if (line_cnt !== 16'(m_lc) || irq !== 1'b0) begin
-          errors++; $display("ERROR: sweep ECC byte bit %0d not accepted", eb);
-        end
-        check_line(8, "sweep ecc-byte");
-      end
-      send_short(6'h01, 2'd0, 16'h0);                      // FE
-      // corrected short packets: FS, LE, generic (dt 0x08), FE
-      send_short(6'h00, 2'd0, 16'h0);
-      m_fc++;
-      m_lc = 0;
-      // single-bit header error on an FS short packet (data field = 0)
-      begin
-        logic [7:0] b0;
-        logic [15:0] dd;
-        b0 = {2'd0, 6'h00};
-        dd = 16'h0;
-        send_byte(8'hB8);
-        send_byte(b0 ^ 8'h01);                              // flip bit 0
-        send_byte(dd[7:0]);
-        send_byte(dd[15:8]);
-        send_byte({2'b00, ecc24({dd, b0})});
-        send_idle(6);
-      end
-      m_fc++;                                               // corrected FS
-      m_lc = 0;
-      if (frame_cnt !== 16'(m_fc) || frame_active !== 1'b1) begin
-        errors++; $display("ERROR: sweep corrected FS failed");
-      end
-      // corrected LE short (flip WC-data bit 8)
-      begin
-        logic [7:0] b0;
-        logic [15:0] dd;
-        b0 = {2'd0, 6'h03};
-        dd = 16'h0;
-        send_byte(8'hB8);
-        send_byte(b0);
-        send_byte(dd[7:0]);
-        send_byte(dd[15:8] ^ 8'h01);                        // flip bit 8
-        send_byte({2'b00, ecc24({dd, b0})});
-        send_idle(6);
-      end
-      m_lc++;                                               // corrected LE
-      if (line_cnt !== 16'(m_lc)) begin
-        errors++; $display("ERROR: sweep corrected LE failed");
-      end
-      // corrected generic short (dt 0x08: default arm, no side effect)
-      begin
-        logic [7:0] b0;
-        logic [15:0] dd;
-        b0 = {2'd0, 6'h08};
-        dd = 16'h0;
-        send_byte(8'hB8);
-        send_byte(b0 ^ 8'h20);                              // flip bit 5
-        send_byte(dd[7:0]);
-        send_byte(dd[15:8]);
-        send_byte({2'b00, ecc24({dd, b0})});
-        send_idle(6);
-      end
-      if (line_cnt !== 16'(m_lc) || frame_cnt !== 16'(m_fc)) begin
-        errors++; $display("ERROR: sweep corrected generic changed counts");
-      end
-      // corrected FE short (flip bit 1): frame must close
-      begin
-        logic [7:0] b0;
-        logic [15:0] dd;
-        b0 = {2'd0, 6'h01};
-        dd = 16'h0;
-        send_byte(8'hB8);
-        send_byte(b0 ^ 8'h02);                              // flip bit 1
-        send_byte(dd[7:0]);
-        send_byte(dd[15:8]);
-        send_byte({2'b00, ecc24({dd, b0})});
-        send_idle(6);
-      end
-      if (frame_active !== 1'b0) begin
-        errors++; $display("ERROR: sweep corrected FE failed");
-      end
-      // corrected long packets with wide headers: toggle hc[17:0] both
-      // directions (dt/vc/wc combinations chosen for bit coverage)
-      for (int i = 0; i < 8; i++)
-        payload_mem[i] = 8'($urandom_range(0, 255));
-      send_long(6'h3F, 2'd3, 16'd300, 24'h000008, 8'h0, 0); // flip bit 3
-      m_lc++;
-      send_long(6'h2B, 2'd0, 16'd203, 24'h010000, 8'h0, 0); // flip bit 16
-      m_lc++;
-      send_long(6'h2B, 2'd0, 16'd520, 24'h080000, 8'h0, 0); // flip bit 23
-      m_lc++;
-      if (line_cnt !== 16'(m_lc) || irq !== 1'b0) begin
-        errors++; $display("ERROR: sweep wide-header corrected longs failed");
-      end
-      send_short(6'h01, 2'd0, 16'h0);                      // FE
-      // (c) line_cnt walk: 4200 line-end shorts in one frame
-      send_short(6'h00, 2'd0, 16'h0);
-      m_fc++;
-      m_lc = 0;
-      for (int l = 0; l < 4200; l++) send_short(6'h03, 2'd0, 16'(l));
-      m_lc = 4200;
-      if (line_cnt !== 16'(m_lc)) begin
-        errors++; $display("ERROR: sweep line_cnt got=%0d exp=%0d",
-                           line_cnt, m_lc);
-      end
-      send_short(6'h01, 2'd0, 16'h0);
-      // (d) frame_cnt walk: 1100 FS/FE pairs
-      for (int f = 0; f < 1100; f++) begin
-        send_short(6'h00, 2'd0, 16'(f));
-        send_short(6'h01, 2'd0, 16'h0);
-      end
-      m_fc += 1100;
-      if (frame_cnt !== 16'(m_fc)) begin
-        errors++; $display("ERROR: sweep frame_cnt got=%0d exp=%0d",
-                           frame_cnt, m_fc);
-      end
-      $display("COV_CLOSURE: ECC syndrome sweep + corrected shorts + line/frame walks done");
+      for (int k = 0; k < 16; k++) begin @(negedge clk); rx_bit = c[k]; end
+      @(negedge clk); rx_valid = 0; rx_bit = 0;
+      repeat (3) @(negedge clk);
+      nb = 0;
+      e_lc++; e_len = LB; e_dt = 8'h2B; e_wc = 16'hFFFF; e_irq = 0;
+      check("WC 65535");
     end
 `endif
 
-    // ---- report ----
+    // reset in the middle of a packet; the zero payload and its CRC hold no
+    // B8 pattern, so the rest of the burst cannot fake a packet
+    for (int i = 0; i < 64; i++) pay[i] = 8'h00;
+    add_long(6'h2B, 2'd0, 64, 0, 0, 0);
+    fork
+      send(0, -1, 2);
+      begin repeat (200) @(negedge clk); rst_n = 0; repeat (2) @(negedge clk); rst_n = 1; end
+    join
+    e_fc = 0; e_lc = 0; e_len = 0; e_irq = 0; e_act = 0; e_err = 0; e_dt = 0; e_wc = 0;
+    check("reset mid-packet");
+    line(6'h2B, 10); check("after reset");
+
     if (errors == 0) $display("TEST PASSED: CSI_2");
     else             $display("TEST FAILED: %0d errors", errors);
-`ifdef VERILATOR
-    begin
-      int visited;
-      visited = 0;
-      for (int s = 0; s < CSI_FSM_TOTAL; s++) visited += fsm_seen[s];
-      $display("FSM_COV: %0d/%0d", visited, CSI_FSM_TOTAL);
-      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
-    end
-`endif
     $finish;
   end
 
-  // timeout guard
-`ifdef VERILATOR
-  // Chunked timeout: with Verilator 5.006 a single long-pending #delay
-  // event corrupts the --timing delay heap once many short-delay
-  // resumptions interleave with it (processes lose wakeups and the long
-  // event fires early). 1-us chunks keep all heap entries short-lived.
   initial begin
-    repeat (8000) #1000;    // 8 ms in 1-us chunks
-    $display("TEST FAILED: %0d errors", errors + 1);
-    $finish;
+    repeat (300000) #1000;
+    $display("TEST FAILED: TIMEOUT"); $finish;
   end
-`else
-  initial begin
-    #500000;
-    $display("TEST FAILED: %0d errors", errors + 1);
-    $finish;
-  end
-`endif
-
 endmodule
