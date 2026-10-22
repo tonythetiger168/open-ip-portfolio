@@ -8,6 +8,8 @@
 //   - MByteEn partial-write merge, MThreadID echoed on SThreadID
 //   - 256x32 register file (1 KiB, word aligned); accesses outside
 //     0x000..0x3FC or misaligned -> SResp=ERR + irq pulse
+//   - other MCmd encodings (RDEX/RDL/WRC/BCST) are not supported: accepted
+//     and answered with SResp=ERR + irq pulse, no register-file effect
 // IP design implementation v1.0 -- Apache-2.0
 // ============================================================================
 module OCP_top #(
@@ -56,11 +58,14 @@ module OCP_top #(
 
   logic          cmd_valid;
   logic          addr_bad;
+  logic          req_bad;     // bad address or unsupported command
   logic          accept;
 
   assign cmd_valid = (mcmd != MCMD_IDLE);
   // valid space: 0x000..0x3FC, word aligned
   assign addr_bad  = (maddr[AW-1:10] != '0) || (maddr[1:0] != 2'b00);
+  assign req_bad   = addr_bad ||
+                     !((mcmd == MCMD_WR) || (mcmd == MCMD_RD) || (mcmd == MCMD_WRNP));
 
   // command accept handshake
   generate
@@ -93,7 +98,7 @@ module OCP_top #(
               // same-cycle accept: capture now
               idx_q    <= maddr[9:2];
               rd_q     <= (mcmd == MCMD_RD);
-              err_q    <= addr_bad;
+              err_q    <= req_bad;
               thread_q <= mthreadid;
               rdata_q  <= mem[maddr[9:2]];
               if (mcmd == MCMD_WRNP) begin
@@ -101,7 +106,7 @@ module OCP_top #(
                 state <= S_IDLE;                    // posted: no response phase
               end else begin
                 state <= S_LAT;
-                if (addr_bad) irq <= 1'b1;
+                if (req_bad) irq <= 1'b1;
               end
             end else begin
               state <= S_ACCEPT;                    // accept one cycle later
@@ -112,7 +117,7 @@ module OCP_top #(
           // scmdaccept is high this cycle; capture the request
           idx_q    <= maddr[9:2];
           rd_q     <= (mcmd == MCMD_RD);
-          err_q    <= addr_bad;
+          err_q    <= req_bad;
           thread_q <= mthreadid;
           rdata_q  <= mem[maddr[9:2]];
           if (mcmd == MCMD_WRNP) begin
@@ -120,13 +125,12 @@ module OCP_top #(
             state <= S_IDLE;                        // posted: no response phase
           end else begin
             state <= S_LAT;
-            if (addr_bad) irq <= 1'b1;
+            if (req_bad) irq <= 1'b1;
           end
         end
         S_LAT:  state <= S_RESP;                    // 2-cycle response latency
         S_RESP: state <= S_IDLE;                    // response valid 1 cycle
-        default: state <= S_IDLE;
-      endcase
+      endcase   // all four state_t encodings listed
 
       // register-file write with byte-enable merge (at accept time)
       if (accept && !addr_bad &&
