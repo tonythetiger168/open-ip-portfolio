@@ -27,6 +27,11 @@ def word_bits(w, NI):
     return w.wb
 
 
+def dp(r):
+    d = r["data"] if isinstance(r["data"], list) else [r["data"]]
+    return ", ".join(f"`{x}`" for x in d)
+
+
 def stream_regs(spec):
     return [r for r in spec["regs"] if r["kind"] in ("stream_in", "stream_out")]
 
@@ -169,6 +174,8 @@ def gen_tb(P, spec, core, words, irqb, flagb, pt):
             a(f"    rd_exp(A_{w.name}, 32'h{w.reset():X});")
         if w.kind == "sin":
             a(f"    rd_exp(A_{w.name}, 0);")
+        if w.kind == "cmd":
+            a(f"    rd_exp(A_{w.name}, 0);                             // write-only: reads 0")
     a("  endtask")
     a("")
     a("  task automatic reg_tests;")
@@ -330,9 +337,11 @@ def gen_sva(P, spec, core, words, irqb, flagb, pt):
             pop = f"(m_rd && m_map && m_idx == {last})"
             a(f"      if (c_{r['valid']} && (!m_state_{n} || {pop})) begin")
             for w in ws:
-                f = w.fields[0]
-                src = f"c_{r['data']}" if width[r['data']] == 1 else f"c_{r['data']}[{f.plo + f.w - 1}:{f.plo}]"
-                a(f"        m_w[{words.index(w)}] <= 32'({src});")
+                terms = []
+                for f in w.fields:
+                    src = f"c_{f.port}" if width[f.port] == 1 else f"c_{f.port}[{f.plo + f.w - 1}:{f.plo}]"
+                    terms.append(f"(32'({src}) << {f.lo})")
+                a(f"        m_w[{words.index(w)}] <= {' | '.join(terms)};")
             a(f"        m_state_{n} <= 1;")
             a(f"      end else if ({pop}) m_state_{n} <= 0;")
     a("    end")
@@ -384,7 +393,7 @@ def gen_sva(P, spec, core, words, irqb, flagb, pt):
                 exp = f"m_pulse_{w.name}[{f.lo}]"
                 rv = 0
             elif w.kind == "sin":
-                exp = f"m_w[{i}][{f.w - 1}:0]"
+                exp = f"m_w[{i}][{f.lo + f.w - 1}:{f.lo}]"
                 rv = 0
             else:
                 continue
@@ -603,14 +612,14 @@ def gen_doc(P, spec, core, words, irqb, flagb, pt):
         for r in sr:
             ws = sw(words, r["name"])
             if r["kind"] == "stream_in" and r.get("ready"):
-                a(f"* **{r['name']}** feeds `{r['data']}`/`{r['valid']}`. Writing "
+                a(f"* **{r['name']}** feeds {dp(r)}/`{r['valid']}`. Writing "
                   f"{ws[-1].name} commits the beat: FLAGS.{r['name']}_FULL is set and "
                   f"`{r['valid']}` stays high until the core's `{r['ready']}`; then "
                   f"{r['name']}_DONE is set. A write while full is dropped and sets {r['name']}_OVF.")
             elif r["kind"] == "stream_in":
-                a(f"* **{r['name']}** feeds `{r['data']}`; writing {ws[-1].name} pulses `{r['valid']}` for one clock.")
+                a(f"* **{r['name']}** feeds {dp(r)}; writing {ws[-1].name} pulses `{r['valid']}` for one clock.")
             else:
-                a(f"* **{r['name']}** captures `{r['data']}` when `{r['valid']}` is high and the "
+                a(f"* **{r['name']}** captures {dp(r)} when `{r['valid']}` is high and the "
                   f"register is empty (or is being read in the same clock), and sets "
                   f"FLAGS/IRQ {r['name']}_AVAIL. Reading {ws[-1].name} pops it. A beat that "
                   f"arrives while the register is full is dropped and sets {r['name']}_OVF.")

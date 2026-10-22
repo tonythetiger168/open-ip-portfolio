@@ -86,7 +86,7 @@ module UART_apb #(
       if (wr && hit[5] && !full_TXDATA) full_TXDATA <= 1'b1;
       else if (full_TXDATA && c_tx_ready) full_TXDATA <= 1'b0;
       if (c_rx_valid && (!avail_RXDATA || (rd && hit[6]))) begin
-        h_RXDATA <= c_rx_data[7:0];
+        h_RXDATA[7:0] <= c_rx_data[7:0];
         avail_RXDATA <= 1'b1;
       end else if (rd && hit[6]) avail_RXDATA <= 1'b0;
     end

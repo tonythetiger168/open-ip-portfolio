@@ -60,7 +60,7 @@ module UART_apb_sva (
       if (m_wr && m_map && m_idx == 5 && !m_state_TXDATA) m_state_TXDATA <= 1;
       if (m_state_TXDATA && c_tx_ready) m_state_TXDATA <= 0;
       if (c_rx_valid && (!m_state_RXDATA || (m_rd && m_map && m_idx == 6))) begin
-        m_w[6] <= 32'(c_rx_data[7:0]);
+        m_w[6] <= (32'(c_rx_data[7:0]) << 0);
         m_state_RXDATA <= 1;
       end else if ((m_rd && m_map && m_idx == 6)) m_state_RXDATA <= 0;
     end
