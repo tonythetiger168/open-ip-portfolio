@@ -1,0 +1,11 @@
+# DDR4_Lite synthesis script -- Yosys (open-source flow)
+# The line array is kept as a $mem cell (memory -nomap): in a real flow it
+# maps to an SRAM macro, and flattening it to flops (~2M DFFs) is not a
+# meaningful result for this open flow.
+read_verilog -sv ../rtl/DDR4_Lite_top.sv
+hierarchy -check -top DDR4_Lite_top
+proc; opt; fsm; opt; memory -nomap; opt
+techmap; opt
+stat
+write_json DDR4_Lite_top.json
+write_verilog DDR4_Lite_top_netlist.v
