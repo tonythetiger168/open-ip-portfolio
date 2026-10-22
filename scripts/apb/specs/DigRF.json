@@ -1,0 +1,39 @@
+{
+  "title": "DigRF v4-style baseband / RF IC serial link endpoint (8b/10b, framed logical channels)",
+  "code": "0x4446",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "50ms",
+  "regs": [
+    {"name": "CFG", "kind": "rw", "desc": "Burst and timeout configuration",
+     "fields": [{"port": "cfg_sync", "reset": "2", "desc": "K28.5 sync symbols at the start of a burst (0 = 1)"},
+                {"port": "cfg_hold", "reset": "16", "desc": "K28.5 fillers in a row before the lane stops (K29.7)"},
+                {"port": "cfg_timeout", "reset": "64", "desc": "read timeout, x 16 PCLK"}]},
+    {"name": "CTL", "kind": "stream_in", "data": ["ctl_wdata", "ctl_addr", "ctl_rd"], "valid": "ctl_valid", "ready": "ctl_ready",
+     "desc": "Register access to the peer; writing CTL commits it. A read is answered through RSP (or RSP_TIMEOUT); the next access waits for it",
+     "fdesc": {"ctl_wdata": "write data", "ctl_addr": "peer register address", "ctl_rd": "1 = read, 0 = write"}},
+    {"name": "RSP", "kind": "stream_out", "data": ["rsp_data"], "valid": "rsp_valid",
+     "desc": "Read data from the peer; reading RSP frees it",
+     "fdesc": {"rsp_data": "read data"}},
+    {"name": "INT_TX", "kind": "stream_in", "data": "int_vec", "valid": "int_valid", "ready": "int_ready",
+     "desc": "Interrupt message to the peer; writing INT_TX commits it",
+     "fdesc": {"int_vec": "interrupt vector"}},
+    {"name": "INT_RX", "kind": "stream_out", "data": "int_rx_vec", "valid": "int_rx",
+     "desc": "Interrupt message from the peer; reading INT_RX frees it",
+     "fdesc": {"int_rx_vec": "interrupt vector"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Lane state",
+     "fields": [{"port": "tx_on", "desc": "a burst is being sent"},
+                {"port": "rx_locked", "desc": "the receiver is aligned to the incoming burst"}]}
+  ],
+  "irqs": [
+    {"name": "RSP_TIMEOUT", "port": "rsp_timeout", "desc": "a read got no response within CFG.cfg_timeout"},
+    {"name": "ERR_CODE", "port": "err_code", "desc": "8b/10b code violation or disparity error (the receiver realigns)"},
+    {"name": "ERR_FRAME", "port": "err_frame", "desc": "bad header or size, unexpected control symbol, data between frames, or a response with no matching read"},
+    {"name": "UNDERRUN", "port": "tx_underrun", "desc": "a data payload byte was missing and sent as 0"}
+  ],
+  "notes": [
+    "tx_p / rx_p are the lanes (one bit per PCLK, held at 0 while stopped).",
+    "reg_we / reg_re / reg_addr / reg_wdata / reg_rdata connect to the local register bank the peer accesses; reg_rdata is sampled one PCLK after reg_re.",
+    "dtx_* and drx_* connect to the local data path (IQ samples): dtx_valid offers a frame byte by byte, dtx_size / dtx_chan with its first byte; drx_* delivers received bytes without back-pressure, drx_abort ends a frame that broke off."
+  ]
+}
