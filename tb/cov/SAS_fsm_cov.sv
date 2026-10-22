@@ -72,87 +72,90 @@ bind SAS_top SAS_top__fsm_cov u_fsm_cov (.c_clk(clk), .r_rst_n(rst_n), .s_oob_st
 module SATA_top__fsm_cov (
   input logic c_clk,
   input logic r_rst_n,
-  input logic [2:0] s_hstate,
-  input logic [2:0] s_dstate,
-  input logic [1:0] s_rxw,
-  input logic [2:0] s_hfstate,
-  input logic [3:0] s_dfstate
+  input logic [2:0] s_lk,
+  input logic [1:0] s_rxs,
+  input logic [2:0] s_txs,
+  input logic [3:0] s_q
 );
-  // ---- FSM SATA_top.hstate: 7 states, 9 arcs ----
-  fsm_st__hstate__HOB_RESET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hstate == 3'd0);
-  fsm_st__hstate__HOB_WAITINIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hstate == 3'd1);
-  fsm_st__hstate__HOB_WAKEWAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hstate == 3'd2);
-  fsm_st__hstate__HOB_WAKE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hstate == 3'd3);
-  fsm_st__hstate__HOB_WAITWAKE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hstate == 3'd4);
-  fsm_st__hstate__HOB_ALIGN: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hstate == 3'd5);
-  fsm_st__hstate__HOB_LINK: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hstate == 3'd6);
-  fsm_arc__hstate__HOB_RESET__HOB_WAITINIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hstate == 3'd0 ##1 s_hstate == 3'd1);
-  fsm_arc__hstate__HOB_WAITINIT__HOB_RESET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hstate == 3'd1 ##1 s_hstate == 3'd0);
-  fsm_arc__hstate__HOB_WAITINIT__HOB_WAKEWAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hstate == 3'd1 ##1 s_hstate == 3'd2);
-  fsm_arc__hstate__HOB_WAKEWAIT__HOB_RESET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hstate == 3'd2 ##1 s_hstate == 3'd0);
-  fsm_arc__hstate__HOB_WAKEWAIT__HOB_WAKE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hstate == 3'd2 ##1 s_hstate == 3'd3);
-  fsm_arc__hstate__HOB_WAKE__HOB_WAITWAKE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hstate == 3'd3 ##1 s_hstate == 3'd4);
-  fsm_arc__hstate__HOB_WAITWAKE__HOB_RESET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hstate == 3'd4 ##1 s_hstate == 3'd0);
-  fsm_arc__hstate__HOB_WAITWAKE__HOB_ALIGN: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hstate == 3'd4 ##1 s_hstate == 3'd5);
-  fsm_arc__hstate__HOB_ALIGN__HOB_LINK: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hstate == 3'd5 ##1 s_hstate == 3'd6);
-  // ---- FSM SATA_top.dstate: 7 states, 6 arcs ----
-  fsm_st__dstate__DOB_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd0);
-  fsm_st__dstate__DOB_INITWAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd1);
-  fsm_st__dstate__DOB_INIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd2);
-  fsm_st__dstate__DOB_WAITWAKE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd3);
-  fsm_st__dstate__DOB_ECHOWAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd4);
-  fsm_st__dstate__DOB_ECHO: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd5);
-  fsm_st__dstate__DOB_DONE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd6);
-  fsm_arc__dstate__DOB_IDLE__DOB_INITWAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd0 ##1 s_dstate == 3'd1);
-  fsm_arc__dstate__DOB_INITWAIT__DOB_INIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd1 ##1 s_dstate == 3'd2);
-  fsm_arc__dstate__DOB_INIT__DOB_WAITWAKE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd2 ##1 s_dstate == 3'd3);
-  fsm_arc__dstate__DOB_WAITWAKE__DOB_ECHOWAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd3 ##1 s_dstate == 3'd4);
-  fsm_arc__dstate__DOB_ECHOWAIT__DOB_ECHO: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd4 ##1 s_dstate == 3'd5);
-  fsm_arc__dstate__DOB_ECHO__DOB_DONE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd5 ##1 s_dstate == 3'd6);
-  // ---- FSM SATA_top.rxw: 4 states, 5 arcs ----
-  fsm_st__rxw__XW_HUNT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxw == 2'd0);
-  fsm_st__rxw__XW_DATA: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxw == 2'd1);
-  fsm_st__rxw__XW_CRC: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxw == 2'd2);
-  fsm_st__rxw__XW_EOF: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxw == 2'd3);
-  fsm_arc__rxw__ANY__XW_HUNT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxw != 2'd0 ##1 s_rxw == 2'd0);
-  fsm_arc__rxw__XW_HUNT__XW_DATA: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxw == 2'd0 ##1 s_rxw == 2'd1);
-  fsm_arc__rxw__XW_DATA__XW_CRC: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxw == 2'd1 ##1 s_rxw == 2'd2);
-  fsm_arc__rxw__XW_CRC__XW_EOF: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxw == 2'd2 ##1 s_rxw == 2'd3);
-  fsm_arc__rxw__XW_EOF__XW_HUNT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxw == 2'd3 ##1 s_rxw == 2'd0);
-  // ---- FSM SATA_top.hfstate: 5 states, 6 arcs ----
-  fsm_st__hfstate__HF_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hfstate == 3'd0);
-  fsm_st__hfstate__HF_CMD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hfstate == 3'd1);
-  fsm_st__hfstate__HF_WDAT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hfstate == 3'd2);
-  fsm_st__hfstate__HF_WAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hfstate == 3'd3);
-  fsm_st__hfstate__HF_DONE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hfstate == 3'd4);
-  fsm_arc__hfstate__HF_IDLE__HF_CMD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hfstate == 3'd0 ##1 s_hfstate == 3'd1);
-  fsm_arc__hfstate__HF_CMD__HF_WDAT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hfstate == 3'd1 ##1 s_hfstate == 3'd2);
-  fsm_arc__hfstate__HF_CMD__HF_WAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hfstate == 3'd1 ##1 s_hfstate == 3'd3);
-  fsm_arc__hfstate__HF_WDAT__HF_WAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hfstate == 3'd2 ##1 s_hfstate == 3'd3);
-  fsm_arc__hfstate__HF_WAIT__HF_DONE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hfstate == 3'd3 ##1 s_hfstate == 3'd4);
-  fsm_arc__hfstate__HF_DONE__HF_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hfstate == 3'd4 ##1 s_hfstate == 3'd0);
-  // ---- FSM SATA_top.dfstate: 8 states, 13 arcs ----
-  fsm_st__dfstate__DF_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd0);
-  fsm_st__dfstate__DF_ID_SET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd1);
-  fsm_st__dfstate__DF_ID_WAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd2);
-  fsm_st__dfstate__DF_RD_SET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd3);
-  fsm_st__dfstate__DF_RD_WAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd4);
-  fsm_st__dfstate__DF_WDAT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd5);
-  fsm_st__dfstate__DF_STS_SET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd6);
-  fsm_st__dfstate__DF_STS_WAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd7);
-  fsm_arc__dfstate__DF_IDLE__DF_ID_SET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd0 ##1 s_dfstate == 4'd1);
-  fsm_arc__dfstate__DF_IDLE__DF_RD_SET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd0 ##1 s_dfstate == 4'd3);
-  fsm_arc__dfstate__DF_IDLE__DF_WDAT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd0 ##1 s_dfstate == 4'd5);
-  fsm_arc__dfstate__DF_IDLE__DF_STS_SET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd0 ##1 s_dfstate == 4'd6);
-  fsm_arc__dfstate__DF_ID_SET__DF_ID_WAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd1 ##1 s_dfstate == 4'd2);
-  fsm_arc__dfstate__DF_ID_WAIT__DF_ID_SET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd2 ##1 s_dfstate == 4'd1);
-  fsm_arc__dfstate__DF_ID_WAIT__DF_STS_SET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd2 ##1 s_dfstate == 4'd6);
-  fsm_arc__dfstate__DF_RD_SET__DF_RD_WAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd3 ##1 s_dfstate == 4'd4);
-  fsm_arc__dfstate__DF_RD_WAIT__DF_STS_SET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd4 ##1 s_dfstate == 4'd6);
-  fsm_arc__dfstate__DF_WDAT__DF_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd5 ##1 s_dfstate == 4'd0);
-  fsm_arc__dfstate__DF_WDAT__DF_STS_SET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd5 ##1 s_dfstate == 4'd6);
-  fsm_arc__dfstate__DF_STS_SET__DF_STS_WAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd6 ##1 s_dfstate == 4'd7);
-  fsm_arc__dfstate__DF_STS_WAIT__DF_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dfstate == 4'd7 ##1 s_dfstate == 4'd0);
+  // ---- FSM SATA_top.lk: 6 states, 9 arcs ----
+  fsm_st__lk__LK_RESET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_lk == 3'd0);
+  fsm_st__lk__LK_WINIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_lk == 3'd1);
+  fsm_st__lk__LK_WAKE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_lk == 3'd2);
+  fsm_st__lk__LK_WWAKE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_lk == 3'd3);
+  fsm_st__lk__LK_ALIGN: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_lk == 3'd4);
+  fsm_st__lk__LK_READY: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_lk == 3'd5);
+  fsm_arc__lk__LK_RESET__LK_WINIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_lk == 3'd0 ##1 s_lk == 3'd1);
+  fsm_arc__lk__LK_WINIT__LK_RESET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_lk == 3'd1 ##1 s_lk == 3'd0);
+  fsm_arc__lk__LK_WINIT__LK_WAKE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_lk == 3'd1 ##1 s_lk == 3'd2);
+  fsm_arc__lk__LK_WAKE__LK_WWAKE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_lk == 3'd2 ##1 s_lk == 3'd3);
+  fsm_arc__lk__LK_WWAKE__LK_RESET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_lk == 3'd3 ##1 s_lk == 3'd0);
+  fsm_arc__lk__LK_WWAKE__LK_ALIGN: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_lk == 3'd3 ##1 s_lk == 3'd4);
+  fsm_arc__lk__LK_ALIGN__LK_RESET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_lk == 3'd4 ##1 s_lk == 3'd0);
+  fsm_arc__lk__LK_ALIGN__LK_READY: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_lk == 3'd4 ##1 s_lk == 3'd5);
+  fsm_arc__lk__LK_READY__LK_RESET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_lk == 3'd5 ##1 s_lk == 3'd0);
+  // ---- FSM SATA_top.rxs: 4 states, 7 arcs ----
+  fsm_st__rxs__R_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxs == 2'd0);
+  fsm_st__rxs__R_RDYS: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxs == 2'd1);
+  fsm_st__rxs__R_DATA: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxs == 2'd2);
+  fsm_st__rxs__R_STAT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxs == 2'd3);
+  fsm_arc__rxs__ANY__R_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxs != 2'd0 ##1 s_rxs == 2'd0);
+  fsm_arc__rxs__R_IDLE__R_RDYS: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxs == 2'd0 ##1 s_rxs == 2'd1);
+  fsm_arc__rxs__R_RDYS__R_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxs == 2'd1 ##1 s_rxs == 2'd0);
+  fsm_arc__rxs__R_RDYS__R_DATA: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxs == 2'd1 ##1 s_rxs == 2'd2);
+  fsm_arc__rxs__R_DATA__R_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxs == 2'd2 ##1 s_rxs == 2'd0);
+  fsm_arc__rxs__R_DATA__R_STAT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxs == 2'd2 ##1 s_rxs == 2'd3);
+  fsm_arc__rxs__R_STAT__R_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rxs == 2'd3 ##1 s_rxs == 2'd0);
+  // ---- FSM SATA_top.txs: 7 states, 9 arcs ----
+  fsm_st__txs__T_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_txs == 3'd0);
+  fsm_st__txs__T_XRDY: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_txs == 3'd1);
+  fsm_st__txs__T_SOF: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_txs == 3'd2);
+  fsm_st__txs__T_DATA: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_txs == 3'd3);
+  fsm_st__txs__T_CRC: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_txs == 3'd4);
+  fsm_st__txs__T_EOF: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_txs == 3'd5);
+  fsm_st__txs__T_WTRM: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_txs == 3'd6);
+  fsm_arc__txs__ANY__T_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_txs != 3'd0 ##1 s_txs == 3'd0);
+  fsm_arc__txs__T_IDLE__T_XRDY: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_txs == 3'd0 ##1 s_txs == 3'd1);
+  fsm_arc__txs__T_XRDY__T_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_txs == 3'd1 ##1 s_txs == 3'd0);
+  fsm_arc__txs__T_XRDY__T_SOF: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_txs == 3'd1 ##1 s_txs == 3'd2);
+  fsm_arc__txs__T_SOF__T_DATA: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_txs == 3'd2 ##1 s_txs == 3'd3);
+  fsm_arc__txs__T_DATA__T_CRC: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_txs == 3'd3 ##1 s_txs == 3'd4);
+  fsm_arc__txs__T_CRC__T_EOF: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_txs == 3'd4 ##1 s_txs == 3'd5);
+  fsm_arc__txs__T_EOF__T_WTRM: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_txs == 3'd5 ##1 s_txs == 3'd6);
+  fsm_arc__txs__T_WTRM__T_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_txs == 3'd6 ##1 s_txs == 3'd0);
+  // ---- FSM SATA_top.q: 12 states, 21 arcs ----
+  fsm_st__q__Q_WAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd0);
+  fsm_st__q__Q_ID: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd1);
+  fsm_st__q__Q_ID_DAT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd2);
+  fsm_st__q__Q_ID_STS: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd3);
+  fsm_st__q__Q_FILL: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd4);
+  fsm_st__q__Q_WR: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd5);
+  fsm_st__q__Q_WR_ACT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd6);
+  fsm_st__q__Q_WR_DAT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd7);
+  fsm_st__q__Q_WR_STS: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd8);
+  fsm_st__q__Q_RD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd9);
+  fsm_st__q__Q_RD_DAT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd10);
+  fsm_st__q__Q_RD_STS: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd11);
+  fsm_arc__q__ANY__Q_WAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q != 4'd0 ##1 s_q == 4'd0);
+  fsm_arc__q__Q_WAIT__Q_ID: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd0 ##1 s_q == 4'd1);
+  fsm_arc__q__Q_ID__Q_ID_DAT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd1 ##1 s_q == 4'd2);
+  fsm_arc__q__Q_RD_DAT__Q_FILL: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd10 ##1 s_q == 4'd4);
+  fsm_arc__q__Q_RD_DAT__Q_RD_STS: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd10 ##1 s_q == 4'd11);
+  fsm_arc__q__Q_RD_STS__Q_FILL: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd11 ##1 s_q == 4'd4);
+  fsm_arc__q__Q_ID_DAT__Q_ID: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd2 ##1 s_q == 4'd1);
+  fsm_arc__q__Q_ID_DAT__Q_ID_STS: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd2 ##1 s_q == 4'd3);
+  fsm_arc__q__Q_ID_STS__Q_ID: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd3 ##1 s_q == 4'd1);
+  fsm_arc__q__Q_ID_STS__Q_FILL: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd3 ##1 s_q == 4'd4);
+  fsm_arc__q__Q_FILL__Q_WR: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd4 ##1 s_q == 4'd5);
+  fsm_arc__q__Q_WR__Q_FILL: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd5 ##1 s_q == 4'd4);
+  fsm_arc__q__Q_WR__Q_WR_ACT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd5 ##1 s_q == 4'd6);
+  fsm_arc__q__Q_WR_ACT__Q_FILL: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd6 ##1 s_q == 4'd4);
+  fsm_arc__q__Q_WR_ACT__Q_WR_DAT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd6 ##1 s_q == 4'd7);
+  fsm_arc__q__Q_WR_DAT__Q_FILL: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd7 ##1 s_q == 4'd4);
+  fsm_arc__q__Q_WR_DAT__Q_WR_STS: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd7 ##1 s_q == 4'd8);
+  fsm_arc__q__Q_WR_STS__Q_FILL: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd8 ##1 s_q == 4'd4);
+  fsm_arc__q__Q_WR_STS__Q_RD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd8 ##1 s_q == 4'd9);
+  fsm_arc__q__Q_RD__Q_FILL: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd9 ##1 s_q == 4'd4);
+  fsm_arc__q__Q_RD__Q_RD_DAT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_q == 4'd9 ##1 s_q == 4'd10);
 endmodule
 
-bind SATA_top SATA_top__fsm_cov u_fsm_cov (.c_clk(clk), .r_rst_n(rst_n), .s_hstate(hstate), .s_dstate(dstate), .s_rxw(rxw), .s_hfstate(hfstate), .s_dfstate(dfstate));
+bind SATA_top SATA_top__fsm_cov u_fsm_cov (.c_clk(clk), .r_rst_n(rst_n), .s_lk(lk), .s_rxs(rxs), .s_txs(txs), .s_q(q));
