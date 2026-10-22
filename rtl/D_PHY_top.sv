@@ -17,33 +17,34 @@
 //     (lines held LP-00 until esc_release), Trigger-Reset 8'h46 (4-clk
 //     Mark-1 LP-00 then exit). Exit: [LP-01 space for LPDT] -> LP-10 ->
 //     LP-11.
-//   * Clock lane follows the data-lane HS sequence simultaneously (real
-//     PHY starts the HS clock earlier; simplified) and toggles a
-//     differential HS clock during the HS burst.
+//   * Requests are latched: an hs_req / esc_req pulse that arrives while
+//     the lane is busy is served from the next LP-11 STOP (HS first); a
+//     second esc_req before that replaces the pending command.
+//   * Clock lane follows the data-lane HS entry (LP-01, LP-00) and toggles
+//     a differential HS clock during the HS burst (real PHY starts the HS
+//     clock earlier; simplified).
 //   * RX side decodes the same lane (TB wires TX pads back to RX inputs):
 //     HS sync check + payload byte reassembly, escape entry/command/LPDT
-//     decode, ULPS detect. Protocol violations (bad HS sync, unknown
-//     escape command, illegal LP sequence) raise sticky irq.
-// IP design implementation v1.0 -- Apache-2.0
+//     decode, ULPS detect. Protocol violations (bad HS sync, invalid HS
+//     differential level, unknown escape command, illegal LP sequence)
+//     raise sticky irq.
+// IP design implementation v1.1 -- Apache-2.0
 // ============================================================================
-module D_PHY_top #(
-  parameter int DW = 32,        // retained framework parameter (data width)
-  parameter int AW = 32         // retained framework parameter (address width)
-)(
+module D_PHY_top (
   input  logic       clk,
   input  logic       rst_n,
   output logic       irq,         // sticky protocol-error flag (RX decoder)
   input  logic       irq_clear,   // pulse to clear irq
 
   // ---- HS transmit byte-stream interface ----
-  input  logic       hs_req,      // pulse: start an HS burst (SoT)
+  input  logic       hs_req,      // pulse: request an HS burst (SoT)
   input  logic [7:0] hs_tx_data,  // payload byte
   input  logic       hs_tx_valid,
   output logic       hs_tx_ready, // 1-deep skid buffer free
   output logic       hs_tx_done,  // pulse: burst finished, lane back in LP-11
 
   // ---- escape-mode interface ----
-  input  logic       esc_req,     // pulse: enter escape mode with esc_cmd
+  input  logic       esc_req,     // pulse: request escape mode with esc_cmd
   input  logic [7:0] esc_cmd,     // 8'h87 LPDT / 8'h78 ULPS / 8'h46 Trigger
   input  logic       esc_release, // pulse: exit ULPS
   input  logic [7:0] lpdt_data,   // LPDT payload byte (after cmd 8'h87)
@@ -123,7 +124,9 @@ module D_PHY_top #(
   logic [2:0] tbit_cnt;
   logic [7:0] tshift;
   logic       tlast_bit;
-  logic [2:0] trig_cnt;
+  logic [1:0] trig_cnt;
+  logic       hs_pend, esc_pend;   // latched requests
+  logic [7:0] esc_cmd_p;           // command of the pending escape request
   logic [7:0] esc_cmd_q;
   logic       buf_valid;           // 1-deep payload skid buffer
   logic [7:0] buf_data;
@@ -131,12 +134,14 @@ module D_PHY_top #(
   logic       cur_last;            // last-flag of the byte being shifted
   logic       clk_hs;              // HS clock lane toggle
 
-  assign hs_tx_ready = ~buf_valid &
+  // The buffer is not filled in the cycle where the shifter decides between
+  // the next byte and EoT / exit, so an accepted byte is never left behind.
+  assign hs_tx_ready = ~buf_valid & (tbit_cnt != 3'd7) &
                        ((tstate == T_HS_SYNC) | (tstate == T_HS_DATA));
   // LPDT bytes may be loaded while the escape command is still going out
   // (so the first byte is ready at the LPDT phase boundary).
   assign lpdt_ready  = ~buf_valid &
-                       ((tstate == T_LPDT) |
+                       (((tstate == T_LPDT) & (tbit_cnt != 3'd0)) |
                         ((tstate == T_ESC_CMD) & (esc_cmd_q == ESC_LPDT)));
 
   always_ff @(posedge clk or negedge rst_n) begin
@@ -145,7 +150,10 @@ module D_PHY_top #(
       tbit_cnt   <= 3'd0;
       tshift     <= 8'd0;
       tlast_bit  <= 1'b0;
-      trig_cnt   <= 3'd0;
+      trig_cnt   <= 2'd0;
+      hs_pend    <= 1'b0;
+      esc_pend   <= 1'b0;
+      esc_cmd_p  <= 8'd0;
       esc_cmd_q  <= 8'd0;
       buf_valid  <= 1'b0;
       buf_data   <= 8'd0;
@@ -157,6 +165,11 @@ module D_PHY_top #(
     end else begin
       hs_tx_done <= 1'b0;
       esc_done   <= 1'b0;
+      if (hs_req)  hs_pend <= 1'b1;
+      if (esc_req) begin
+        esc_pend  <= 1'b1;
+        esc_cmd_p <= esc_cmd;
+      end
 
       // payload skid buffer fill (HS byte stream / LPDT byte)
       if (hs_tx_valid && hs_tx_ready) begin
@@ -179,10 +192,13 @@ module D_PHY_top #(
       case (tstate)
         // ---------------- idle / request ----------------
         T_STOP: begin
-          if (hs_req)       tstate <= T_HS_REQ;
-          else if (esc_req) begin
+          if (hs_req || hs_pend) begin
+            tstate  <= T_HS_REQ;
+            hs_pend <= 1'b0;
+          end else if (esc_req || esc_pend) begin
             tstate    <= T_ESC_E1;
-            esc_cmd_q <= esc_cmd;
+            esc_pend  <= 1'b0;
+            esc_cmd_q <= esc_req ? esc_cmd : esc_cmd_p;
           end
         end
 
@@ -249,7 +265,7 @@ module D_PHY_top #(
               ESC_ULPS: tstate <= T_ULPS;
               ESC_TRIG: begin
                 tstate   <= T_TRIG;
-                trig_cnt <= 3'd0;
+                trig_cnt <= 2'd0;
               end
               default:  tstate <= T_EX_10; // host sent unknown cmd: just exit
             endcase
@@ -286,18 +302,16 @@ module D_PHY_top #(
         // ---------------- ULPS / Trigger hold ----------------
         T_ULPS: if (esc_release) tstate <= T_EX_10;
         T_TRIG: begin
-          if (trig_cnt == 3'd3) tstate <= T_EX_10;
-          else                  trig_cnt <= trig_cnt + 3'd1;
+          if (trig_cnt == 2'd3) tstate <= T_EX_10;
+          else                  trig_cnt <= trig_cnt + 2'd1;
         end
 
         // ---------------- escape exit ----------------
         T_EX_SP: tstate <= T_EX_10;
-        T_EX_10: begin
+        default: begin                 // T_EX_10
           tstate   <= T_STOP;
           esc_done <= 1'b1;
         end
-
-        default: tstate <= T_STOP;
       endcase
     end
   end
@@ -321,8 +335,14 @@ module D_PHY_top #(
     c_hs_n  = ~clk_hs;
     c_hs_en = 1'b0;
     case (tstate)
-      T_HS_REQ:   {d_lp_p, d_lp_n} = LP_01;
-      T_HS_SYNC0: {d_lp_p, d_lp_n} = LP_00;
+      T_HS_REQ: begin
+        {d_lp_p, d_lp_n} = LP_01;
+        {c_lp_p, c_lp_n} = LP_01;
+      end
+      T_HS_SYNC0: begin
+        {d_lp_p, d_lp_n} = LP_00;
+        {c_lp_p, c_lp_n} = LP_00;
+      end
       T_HS_HS0: begin
         d_hs_en = 1'b1;
         d_hs_p  = 1'b0;             // HS-0
@@ -388,7 +408,7 @@ module D_PHY_top #(
 
   rstate_t   rstate;
   logic [2:0] rbit_cnt;
-  logic [7:0] rshift;
+  logic [6:0] rshift;               // bits received so far (newest at [6])
   logic       err_sticky;
 
   // current LPDT line level: bit 0 of a freshly loaded byte in the load
@@ -404,7 +424,7 @@ module D_PHY_top #(
     if (!rst_n) begin
       rstate        <= R_STOP;
       rbit_cnt      <= 3'd0;
-      rshift        <= 8'd0;
+      rshift        <= 7'd0;
       err_sticky    <= 1'b0;
       rx_data       <= 8'd0;
       rx_data_valid <= 1'b0;
@@ -444,14 +464,14 @@ module D_PHY_top #(
           end
         end
         R_HS_SYNC: begin
-          if (!r_hs_en) begin
-            err_sticky <= 1'b1;       // HS aborted during sync
+          if (!r_hs_en || r_hs_p == r_hs_n) begin
+            err_sticky <= 1'b1;       // HS aborted / invalid level in sync
             rstate     <= R_ERR;
           end else begin
-            rshift <= {r_hs_p, rshift[7:1]};
+            rshift <= {r_hs_p, rshift[6:1]};
             if (rbit_cnt == 3'd7) begin
               rbit_cnt <= 3'd0;
-              if ({r_hs_p, rshift[7:1]} == HS_SYNC) begin
+              if ({r_hs_p, rshift} == HS_SYNC) begin
                 rstate <= R_HS_DATA;
               end else begin
                 err_sticky <= 1'b1;   // bad sync byte
@@ -465,11 +485,14 @@ module D_PHY_top #(
         R_HS_DATA: begin
           if (!r_hs_en) begin
             rstate <= R_STOP;         // EoT: partial bits (toggle+hold) dropped
+          end else if (r_hs_p == r_hs_n) begin
+            err_sticky <= 1'b1;       // invalid HS differential level
+            rstate     <= R_ERR;
           end else begin
-            rshift <= {r_hs_p, rshift[7:1]};
+            rshift <= {r_hs_p, rshift[6:1]};
             if (rbit_cnt == 3'd7) begin
               rbit_cnt      <= 3'd0;
-              rx_data       <= {r_hs_p, rshift[7:1]};
+              rx_data       <= {r_hs_p, rshift};
               rx_data_valid <= 1'b1;
             end else begin
               rbit_cnt <= rbit_cnt + 3'd1;
@@ -503,12 +526,12 @@ module D_PHY_top #(
         end
         R_ESC_CMD: begin
           if (rlp == LP_10 || rlp == LP_00) begin
-            rshift <= {r_lp_p, rshift[7:1]};   // LP-10='1', LP-00='0'
+            rshift <= {r_lp_p, rshift[6:1]};   // LP-10='1', LP-00='0'
             if (rbit_cnt == 3'd7) begin
               rbit_cnt     <= 3'd0;
-              rx_esc_cmd   <= {r_lp_p, rshift[7:1]};
+              rx_esc_cmd   <= {r_lp_p, rshift};
               rx_esc_valid <= 1'b1;
-              case ({r_lp_p, rshift[7:1]})
+              case ({r_lp_p, rshift})
                 ESC_LPDT: rstate <= R_LPDT;
                 ESC_ULPS: rstate <= R_ULPS;
                 ESC_TRIG: rstate <= R_TRIG;
@@ -531,10 +554,10 @@ module D_PHY_top #(
           if (rbit_cnt == 3'd0 && rlp == LP_01) begin
             rstate <= R_EX1;                   // exit space
           end else if (rlp == LP_10 || rlp == LP_00) begin
-            rshift <= {r_lp_p, rshift[7:1]};
+            rshift <= {r_lp_p, rshift[6:1]};
             if (rbit_cnt == 3'd7) begin
               rbit_cnt      <= 3'd0;
-              rx_data       <= {r_lp_p, rshift[7:1]};
+              rx_data       <= {r_lp_p, rshift};
               rx_data_valid <= 1'b1;
             end else begin
               rbit_cnt <= rbit_cnt + 3'd1;
@@ -578,9 +601,7 @@ module D_PHY_top #(
         end
 
         // ---------------- error resync ----------------
-        R_ERR: if (rlp == LP_11 && !r_hs_en) rstate <= R_STOP;
-
-        default: rstate <= R_STOP;
+        default: if (rlp == LP_11 && !r_hs_en) rstate <= R_STOP;   // R_ERR
       endcase
     end
   end
