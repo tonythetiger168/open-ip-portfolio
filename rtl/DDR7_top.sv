@@ -74,11 +74,13 @@ module DDR7_top #(
   assign dq = (dstate == D_WR) ? {16'hzzzz, wr_data} : 32'hzzzz_zzzz;
 
   // WB helpers (search / push / evict-oldest) inline in the FSM below
-  function automatic int wb_find(input [8:0] a);
-    int f; begin f = -1;
-      for (int i = 0; i < WBN; i++) if (wb_v[i] && wb_a[i] == a) f = i;
-      wb_find = f; end
-  endfunction
+  // write-buffer hit index for the incoming host address (-1 = miss)
+  int wb_f;
+  always @* begin
+    wb_f = -1;
+    for (int i = 0; i < WBN; i++)
+      if (wb_v[i] && wb_a[i] == {haddr[8], haddr[7:0]}) wb_f = i;
+  end
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -123,7 +125,7 @@ module DDR7_top #(
               3'd2: begin                       // RD: flush WB first
                 if (wb_n != 0) begin
                   flush <= 1'b1; fb_i <= '0;
-                  dstate <= D_CAS;
+                  dstate <= D_PRE;
                 end else if (!a_hit) begin
                   if (bank_open[a_bank]) begin
                     bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0];
@@ -135,9 +137,8 @@ module DDR7_top #(
                 end else dstate <= D_RD;
               end
               3'd3: begin                       // WR: merge / push / evict
-                automatic int f = wb_find({haddr[8], haddr[7:0]});
-                if (f >= 0) begin
-                  wb_d[f] <= hwdata;            // merge in place
+                if (wb_f >= 0) begin
+                  wb_d[wb_f[1:0]] <= hwdata;            // merge in place
                 end else if (wb_n < WBN) begin
                   wb_v[wb_n] <= 1'b1; wb_a[wb_n] <= {haddr[8], haddr[7:0]}; wb_d[wb_n] <= hwdata;
                   wb_n <= wb_n + 1'b1;
@@ -159,7 +160,7 @@ module DDR7_top #(
           end else if (ref_cnt == 0) begin
             // refresh must not lose posted writes: flush WB into the array
             ref_walk <= 1'b1; ref_cnt <= TREFI[13:0];
-            if (wb_n != 0) begin flush <= 1'b1; fb_i <= '0; dstate <= D_CAS; end
+            if (wb_n != 0) begin flush <= 1'b1; fb_i <= '0; dstate <= D_PRE; end
             else begin
               for (int i = 0; i < NB; i++) begin
                 bank_open[i] <= 1'b0; rp_t[i] <= TRP[8:0];
@@ -170,7 +171,24 @@ module DDR7_top #(
         end
         D_PRE: begin
           ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0;
-          if (ref_walk) begin timer <= TRFC[8:0]; dstate <= D_RCD; end
+          // WB drain runs here rather than in D_CAS: entering D_CAS with
+          // rd_pending=1 and timer=0 let hdone glitch high for a delta
+          // before flush settled, and a level-sensitive host saw a stale
+          // hrdata.
+          if (flush) begin
+            mem[wb_a[fb_i[1:0]]] <= wb_d[fb_i[1:0]];   // drain one entry per cycle
+            wb_v[fb_i[1:0]] <= 1'b0;
+            if (fb_i == wb_n - 1'b1) begin
+              flush <= 1'b0; wb_n <= '0; fb_i <= '0;
+              if (ref_walk) begin
+                for (int i = 0; i < NB; i++) begin
+                  bank_open[i] <= 1'b0; rp_t[i] <= TRP[8:0];
+                end                              // stay in D_PRE: continue refresh
+              end
+              else dstate <= D_RD;               // flushed: serve the read
+            end else fb_i <= fb_i + 1'b1;
+          end
+          else if (ref_walk) begin timer <= TRFC[8:0]; dstate <= D_RCD; end
           else if (auto_rd || auto_wr) begin
             if (rp_t[act_bank] == 0) dstate <= D_ACT;
           end
@@ -205,20 +223,7 @@ module DDR7_top #(
         end
         D_CAS: begin
           cas_n <= 1'b1; we_n <= 1'b1;
-          if (flush) begin
-            mem[wb_a[fb_i]] <= wb_d[fb_i];      // drain one entry per cycle
-            wb_v[fb_i] <= 1'b0;
-            if (fb_i == wb_n - 1) begin
-              flush <= 1'b0; wb_n <= '0; fb_i <= '0;
-              if (ref_walk) begin
-                for (int i = 0; i < NB; i++) begin
-                  bank_open[i] <= 1'b0; rp_t[i] <= TRP[8:0];
-                end
-                dstate <= D_PRE;                 // continue refresh
-              end
-              else dstate <= D_RD;               // flushed: serve the read
-            end else fb_i <= fb_i + 1'b1;
-          end else if (timer == 0) begin
+          if (timer == 0) begin
             if (rd_pending) hrdata <= mem[{cur_addr[8], cur_addr[7:0]}];
             rd_pending <= 1'b0;
             dstate <= D_IDLE;
