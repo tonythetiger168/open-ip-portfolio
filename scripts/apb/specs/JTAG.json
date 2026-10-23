@@ -1,0 +1,19 @@
+{
+  "title": "IEEE 1149.1 JTAG TAP controller: 16-state TAP, 4-bit IR, IDCODE (0x1CAF0001), BYPASS and an 8-bit USER data register",
+  "code": "0x4A54",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [],
+  "irqs": [
+    {
+      "name": "USER_UPDATE",
+      "port": "irq",
+      "desc": "the debugger wrote the USER register (Update-DR with IR = USER), seen three PCLK edges later through the TCK-to-PCLK synchroniser"
+    }
+  ],
+  "notes": [
+    "tck, tms, tdi, trst_n and tdo are the JTAG port; they pass through unchanged. The TAP runs on tck; only the USER update event crosses into PCLK. TCK must be at most PCLK / 4 for no update to be missed.",
+    "Instructions: 0001 IDCODE (selected in Test-Logic-Reset), 0010 USER, others BYPASS. IR capture is 0101.",
+    "The update event is a toggle in the tck domain that PCLK compares with its own copy. PRESETN clears only the PCLK copy, so after an odd number of USER updates a PRESETN reset (without trst_n) reports one USER_UPDATE when it ends."
+  ]
+}
