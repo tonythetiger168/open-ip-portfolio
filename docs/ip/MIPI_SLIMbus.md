@@ -4,9 +4,8 @@ Protocol IP `MIPI_SLIMbus`, version 2.0. Apache-2.0.
 
 ## Overview
 
-MIPI_SLIMbus_top v2.0: SLIMbus-style TDM bus interface (framer or device)
+MIPI_SLIMbus_top v2.0: SLIMbus-style TDM bus interface (framer or device) with one transmit and one receive data channel
 
-with one transmit and one receive data channel
 - Two-wire multi-drop bus: CLK from the framer, DATA NRZI coded (a 1
 toggles the line, a 0 keeps it). A cell (one bit) per CLK period:
 drivers change DATA after CLK rises, everyone samples as CLK falls.

@@ -4,10 +4,8 @@ Protocol IP `PCIe`, version 2.0. Apache-2.0.
 
 ## Overview
 
-PCIe_top v2.0: PCI Express-style data link layer, one lane (TLP framing
+PCIe_top v2.0: PCI Express-style data link layer, one lane (TLP framing with sequence numbers and LCRC, Ack/Nak with a replay buffer and replay timer, DLLPs with CRC-16, flow control initialization and header credits)
 
-with sequence numbers and LCRC, Ack/Nak with a replay buffer and replay
-timer, DLLPs with CRC-16, flow control initialization and header credits)
 - Line: a PIPE-style symbol interface, one symbol per clk (8b/10b and
 scrambling belong to the PHY). tx_k / rx_k mark K symbols: STP (FB),
 SDP (5C), END (FD), EDB (FE). Between packets the transmitter sends

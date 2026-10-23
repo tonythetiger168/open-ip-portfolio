@@ -4,9 +4,8 @@ Protocol IP `MIPI_SoundWire`, version 2.0. Apache-2.0.
 
 ## Overview
 
-MIPI_SoundWire_top v2.0: SoundWire-style two-wire audio bus interface
+MIPI_SoundWire_top v2.0: SoundWire-style two-wire audio bus interface (manager or peripheral) with control commands and one data port each way
 
-(manager or peripheral) with control commands and one data port each way
 - CLOCK from the manager, DATA multi-drop, double data rate: every CLOCK
 edge ends one bit and starts the next (a bit lasts cfg_div + 1 PCLK on
 the manager, cfg_div >= 11). NRZI: a 1 toggles DATA, a 0 keeps it. A

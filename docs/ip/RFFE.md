@@ -4,9 +4,8 @@ Protocol IP `RFFE`, version 2.0. Apache-2.0.
 
 ## Overview
 
-RFFE_top v2.0: MIPI RFFE-style bus master (the bus owner)
+RFFE_top v2.0: MIPI RFFE-style bus master (the bus owner) The master drives SCLK and runs one command sequence per host command:
 
-The master drives SCLK and runs one command sequence per host command:
 - SSC: with SCLK low, SDATA high for one SCLK period, then low; the
 first SCLK rising edge follows half a period later.
 - Every bit is one SCLK period (2 x (cfg_div + 1) PCLK, high half

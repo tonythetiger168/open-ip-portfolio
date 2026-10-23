@@ -529,10 +529,13 @@ def gen_doc(P, spec, core, words, irqb, flagb, pt):
     a("")
     body = [h for h in header if h and not h.startswith("SPDX") and not set(h) <= set("=-")
             and "Apache-2.0" not in h]
-    for k, h in enumerate(body):
+    # the first paragraph (up to the first bullet) on its own, then the rest
+    j = next((k for k, h in enumerate(body) if h.startswith("- ")), len(body))
+    j = max(j, 1)
+    a(" ".join(body[:j]))
+    a("")
+    for h in body[j:]:
         a(h)
-        if k == 0:
-            a("")
     if spec.get("notes"):
         a("")
         for n in spec["notes"]:

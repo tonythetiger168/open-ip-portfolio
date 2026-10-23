@@ -4,9 +4,8 @@ Protocol IP `DigRF`, version 2.0. Apache-2.0.
 
 ## Overview
 
-DigRF_top v2.0: DigRF v4-style baseband / RF IC serial link endpoint
+DigRF_top v2.0: DigRF v4-style baseband / RF IC serial link endpoint (one TX lane, one RX lane, 8b/10b, framed logical channels)
 
-(one TX lane, one RX lane, 8b/10b, framed logical channels)
 - Line: one bit per clk, symbol bit a first. A stopped lane is held at
 0. 8b/10b coding (IEEE 802.3 clause 36 tables) with running
 disparity; the transmitter starts every burst at RD-.

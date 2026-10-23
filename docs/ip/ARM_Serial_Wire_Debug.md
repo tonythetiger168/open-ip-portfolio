@@ -4,9 +4,8 @@ Protocol IP `ARM_Serial_Wire_Debug`, version 2.0. Apache-2.0.
 
 ## Overview
 
-ARM_Serial_Wire_Debug_top v2.0: Serial Wire Debug port (SW-DP, ADIv5 DPv1
+ARM_Serial_Wire_Debug_top v2.0: Serial Wire Debug port (SW-DP, ADIv5 DPv1 register set, SWD only) with a request port towards the access ports
 
-register set, SWD only) with a request port towards the access ports
 - Pins: SWCLK and SWDIO are synchronised into clk (two flops each); the
 target samples SWDIO at each rising SWCLK edge and changes its own
 SWDIO output 3 clk after that edge. SWCLK high and low times must be

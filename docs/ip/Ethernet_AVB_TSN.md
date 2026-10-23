@@ -4,11 +4,8 @@ Protocol IP `Ethernet_AVB_TSN`, version 2.0. Apache-2.0.
 
 ## Overview
 
-Ethernet_AVB_TSN_top v2.0: TSN egress transmission selection for one
+Ethernet_AVB_TSN_top v2.0: TSN egress transmission selection for one port with 4 traffic classes: IEEE 802.1Qbv time-aware gates, 802.1Qav credit-based shapers, strict priority, a PTP time counter and egress timestamps
 
-port with 4 traffic classes: IEEE 802.1Qbv time-aware gates, 802.1Qav
-credit-based shapers, strict priority, a PTP time counter and egress
-timestamps
 - Line: one byte per clk. A frame of L bytes occupies the line for
 L + 20 clocks (preamble + SFD 8, inter-frame gap 12). The MAC is told
 which frame to send (tx_start, tx_tc, tx_len, tx_ts); the queues show

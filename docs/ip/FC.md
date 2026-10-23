@@ -4,9 +4,8 @@ Protocol IP `FC`, version 2.0. Apache-2.0.
 
 ## Overview
 
-FC_top v2.0: Fibre Channel FC-1 / FC-2 port (8b/10b, ordered sets,
+FC_top v2.0: Fibre Channel FC-1 / FC-2 port (8b/10b, ordered sets, class 3 frames, buffer-to-buffer credit)
 
-class 3 frames, buffer-to-buffer credit)
 - Line: one bit per clk, symbol bit a first, 8b/10b coding (the IEEE
 802.3 clause 36 tables) with running disparity, starting at RD-. The
 transmitter sends transmission words (4 characters) all the time.
