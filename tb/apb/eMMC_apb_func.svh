@@ -83,16 +83,16 @@
     rd_exp(A_IRQ_STATUS, 0);
 
     // ---- data-phase faults, masked ----
-    fault(card.F_CRC7, 24, "R1 CRC7 (CMD24)");      wait_rounds(1, "after CRC7");
+    fault(card.F_CRC7, 24, "R1 CRC7 (CMD24)");      check(dut.u_core.err_crc7, "err_crc7"); wait_rounds(1, "after CRC7");
     fault(card.F_STAT, 17, "R1 status (CMD17)");    wait_rounds(1, "after status");
-    fault(card.F_STAT, 24, "R1 status (CMD24)");    wait_rounds(1, "after status 24");
-    fault(card.F_MUTE, 24, "no R1 (CMD24)");        wait_rounds(1, "after mute");
-    fault(card.F_TOK, 24, "negative CRC status");   wait_rounds(1, "after token");
+    fault(card.F_STAT, 24, "R1 status (CMD24)");    check(dut.u_core.err_status && !dut.u_core.err_timeout, "err_status"); wait_rounds(1, "after status 24");
+    fault(card.F_MUTE, 24, "no R1 (CMD24)");        check(dut.u_core.err_timeout, "err_timeout"); wait_rounds(1, "after mute");
+    fault(card.F_TOK, 24, "negative CRC status");   check(dut.u_core.err_crc16, "err_crc16"); wait_rounds(1, "after token");
     // ---- on the irq pin ----
     wr(A_IRQ_ENABLE, 1 << IRQ_ERR); en = 1;
     fault(card.F_BUSYHOLD, 24, "busy timeout");     wait_rounds(1, "after busy hold");
     fault(card.F_RDCRC, 17, "read CRC16");          wait_rounds(1, "after read crc");
-    fault(card.F_RDDATA, 17, "read compare");       wait_rounds(1, "after compare");
+    fault(card.F_RDDATA, 17, "read compare");       check(dut.u_core.err_cmp, "err_cmp"); wait_rounds(1, "after compare");
     fault(card.F_RDMUTE, 17, "no read data");       wait_rounds(1, "after read mute");
 
     // ---- init-phase faults after emmc_rst_n / PRESETN ----
