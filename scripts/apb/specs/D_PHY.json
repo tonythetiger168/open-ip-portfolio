@@ -1,0 +1,76 @@
+{
+  "title": "MIPI D-PHY lane pair (clock lane + data lane): HS bursts (SoT, B8 sync, bytes, EoT), escape mode (LPDT, ULPS, trigger), and the same lane decoded on the receive side",
+  "code": "0x4450",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Lane requests (latched by the core and served from the next LP-11 stop, HS first)",
+      "fields": [
+        {"port": "hs_req", "desc": "write 1: request an HS burst; its bytes come from HS_TX"},
+        {"port": "esc_req", "desc": "write 1: request escape mode with ESC.esc_cmd (a second request before it is served replaces the command)"},
+        {"port": "esc_release", "desc": "write 1: leave ULPS"},
+        {"port": "irq_clear", "desc": "write 1: clear the receiver's sticky error"}
+      ]
+    },
+    {
+      "name": "ESC",
+      "kind": "rw",
+      "desc": "Escape command",
+      "fields": [
+        {"port": "esc_cmd", "reset": "0", "desc": "0x87 LPDT (bytes from LPDT), 0x78 ULPS, 0x46 trigger reset; taken by CMD.esc_req"}
+      ]
+    },
+    {
+      "name": "HS_TX",
+      "kind": "stream_in",
+      "data": ["hs_tx_data"],
+      "valid": "hs_tx_valid",
+      "ready": "hs_tx_ready",
+      "desc": "HS payload byte; one byte every eight clocks, and the burst ends (EoT) when the next byte is not there in time"
+    },
+    {
+      "name": "LPDT",
+      "kind": "stream_in",
+      "data": ["lpdt_data", "lpdt_last"],
+      "valid": "lpdt_valid",
+      "ready": "lpdt_ready",
+      "desc": "LPDT byte; the escape ends after a byte with last set, or when the next byte is not there in time",
+      "fdesc": {"lpdt_data": "LPDT payload byte", "lpdt_last": "last byte"}
+    },
+    {
+      "name": "RX",
+      "kind": "stream_out",
+      "data": ["rx_data"],
+      "valid": "rx_data_valid",
+      "desc": "Byte decoded from the receive lane (HS payload or LPDT); reading RX frees it"
+    },
+    {
+      "name": "RX_ESC",
+      "kind": "stream_out",
+      "data": ["rx_esc_cmd"],
+      "valid": "rx_esc_valid",
+      "desc": "Escape command decoded from the receive lane; reading RX_ESC frees it"
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Receiver state",
+      "fields": [
+        {"port": "rx_hs_active", "desc": "an HS burst is being decoded"},
+        {"port": "rx_ulps", "desc": "the receive lane is in ULPS"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "HS_SENT", "port": "hs_tx_done", "desc": "an HS burst finished and the lane is back in LP-11"},
+    {"name": "ESC_DONE", "port": "esc_done", "desc": "an escape sequence finished (LP-11)"},
+    {"name": "ERROR", "port": "irq", "desc": "the receiver saw a protocol violation (bad HS sync, invalid HS level, unknown escape command, illegal LP sequence); sticky in the core, so the bit is set again on every clock until CMD.irq_clear"}
+  ],
+  "notes": [
+    "d_lp_p / d_lp_n / d_hs_p / d_hs_n / d_hs_en (data lane), c_lp_p / c_lp_n / c_hs_p / c_hs_n / c_hs_en (clock lane) and r_lp_p / r_lp_n / r_hs_p / r_hs_n / r_hs_en (the receive lane) pass through unchanged. Each LP state and each HS or LPDT bit lasts one PCLK.",
+    "A byte takes eight clocks on the lane: HS_TX and LPDT must be written, and RX read, at that rate (one holding register each; a byte arriving with RX full is dropped, RX_OVF). The escape command encoding is simplified to one bit per clock (LP-10 one, LP-00 zero)."
+  ]
+}
