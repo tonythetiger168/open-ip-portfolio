@@ -22,7 +22,7 @@ module USB2_0_tb;
   int   sync_zeros = 7;                // SYNC length (zeros before the 1)
 
   USB2_0_top #(.BAUD_DIV(20), .MAXB(MAXB)) dut (
-    .clk(clk), .rst_n(rst_n), .dp(dp), .dm(dm), .busy(busy), .irq(irq));
+    .clk(clk), .rst_n(rst_n), .dp(dp), .dm(dm), .busy(busy), .rx_err(), .irq(irq));
 
   always #5 clk = ~clk;
   assign dp = h_oe ? h_dp : 1'bz;

@@ -70,8 +70,9 @@ def core_ports(path, top):
     params = []
     if mod.header.parameters is not None:
         for d in mod.header.parameters.declarations:
-            if str(d).strip() != ",":
-                params.append(str(d).strip())
+            d = re.sub(r"//[^\n]*|/\*.*?\*/", "", str(d), flags=re.S).strip()
+            if d and d != ",":
+                params.append(re.sub(r"\s+", " ", d))
     decl, last = {}, None
     for pd in mod.header.ports.ports:
         if str(pd).strip() == ",":

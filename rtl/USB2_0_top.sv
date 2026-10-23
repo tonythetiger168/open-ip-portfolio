@@ -10,7 +10,8 @@
 //     NRZI with bit stuffing from SYNC on, EOP = 2 bits SE0 + 1 bit J, then
 //     release (the bus pull-ups hold J).
 // Any receive error (SYNC, stuffing, PID, overflow, alignment, CRC) sets the
-// sticky rx_err, drops the frame and waits for an idle bus (8 bits of J).
+// sticky rx_err output (cleared by reset), drops the frame and waits for an
+// idle bus (8 bits of J).
 // Apache-2.0
 // ============================================================================
 module USB2_0_top #(
@@ -22,6 +23,7 @@ module USB2_0_top #(
   inout  tri          dp,
   inout  tri          dm,
   output logic        busy,
+  output logic        rx_err,         // sticky: a frame was received in error
   output logic        irq
 );
   localparam int BP  = 2 * BAUD_DIV;           // clk per bit
@@ -74,7 +76,7 @@ module USB2_0_top #(
   logic [7:0]    rbuf [0:MAXB+1];      // payload + CRC16
   logic [LW-1:0] rx_len;
   logic [3:0]    icnt;                 // consecutive J samples (idle hunt)
-  logic          rx_err, rx_done;
+  logic          rx_done;
   wire           d    = (line_j == rprev_j);   // NRZI: no transition = 1
   wire  [7:0]    rbyte = {d, rsh};
   wire           rx_ok = rbit == 3'd0 && nbyte >= BW'(3) && rcrc == 16'hB001;
@@ -228,7 +230,5 @@ module USB2_0_top #(
 
   assign busy = (rstate != R_IDLE) || (tstate != T_IDLE);
   assign irq  = rx_done;
-  // rx_err is a debug status: this pinout has no register port to read it
-  wire _unused = &{1'b0, rx_err};
 
 endmodule
