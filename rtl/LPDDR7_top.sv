@@ -4,9 +4,11 @@
 // Architecture thesis: adaptive page policy. Each bank keeps a 2-bit hit
 // counter: hits push it toward open-page, misses pull toward closed-page;
 // a bank at counter==0 that misses is auto-closed after its burst (DDR6
-// style), while hot banks stay open (DDR4 style). The policy emerges from
+// style), while hot banks stay open (DDR4 style). An ACT to the open row
+// counts as a hit and causes no pin traffic; a host PRE resets the count. The policy emerges from
 // traffic rather than being fixed per IP. 8 banks, per-bank refresh.
-// Contract identical to DDR_top. Timings projected.
+// Commands reach the pins as framed beats on the 8-bit CA bus. Contract
+// identical to DDR_top. Timings projected.
 // ============================================================================
 module LPDDR7_top #(
   parameter int NCH = 2
@@ -28,12 +30,10 @@ module LPDDR7_top #(
   output logic [2:0]  trace_cmd,
   output logic [31:0] trace_addr
 );
-  // LPDDR command/address bus as on main: the internal DDR-style command
-  // encodes onto CA, with CS_n asserted for any command
+  // internal DDR-style command bus; it reaches the pins as CA frames
   logic [16:0] addr;
   logic        ras_n, cas_n, we_n;
-  assign ca   = {2'b00, ras_n, cas_n, we_n, addr[2:0]};
-  assign cs_n = ras_n & cas_n & we_n;
+  logic [2:0]  ba;                    // bank of the command on the bus
   localparam int CL=28, TRCD=15, TRP=15, TRC=52, TRAS=38, TRFC=160, TREFI=1560;
   localparam int CHW = (NCH <= 2) ? 1 : $clog2(NCH);   // channel select: haddr[8 +: CHW]
   localparam int NB = 8;
@@ -60,6 +60,7 @@ module LPDDR7_top #(
   logic [15:0] wr_data;
   logic [2:0]  cur_bank, act_bank;
   logic        rd_pending, ref_walk, auto_rd, auto_wr, auto_close;
+  logic        pre_need;             // the command's bank was open: PRE it
   logic        auto_act, pre_done, ref_req;
 
   wire [2:0] a_bank = {a_ch, haddr[10:9]};
@@ -80,7 +81,7 @@ module LPDDR7_top #(
 
   assign ck_t = clk;  assign ck_c = ~clk;  assign cke = rst_n;
   assign dqs  = 2'bzz;
-  assign hready = (dstate == D_IDLE);
+  assign hready = (dstate == D_IDLE) && (ref_cnt != 0);   // a due refresh goes first
   assign hdone  = (dstate == D_CAS) && (timer == 0) && rd_pending;
   assign trace_valid = (dstate == D_ACT && act_ok) || (dstate == D_RD) || (dstate == D_WR);
   assign trace_cmd   = (dstate == D_ACT) ? 3'd1 : (dstate == D_RD) ? 3'd2 : 3'd3;
@@ -90,14 +91,36 @@ module LPDDR7_top #(
     assign dq[16*g +: 16] = (dstate == D_WR && c_ch == g) ? wr_data : 16'hzzzz;
   end
 
+  // ---- CA bus. Each command goes out as a frame of 8-bit beats: beat 0
+  // (cs_n low) = {code, bank, 2 pad bits}, code 1 ACT, 2 RD, 3 WR, 4 PRE, 6 REF;
+  // then the row (ACT, 2 beats) or column (RD / WR, 1 beat) follows
+  // LSB first with cs_n high. PRE and REF are one beat (per-bank).
+  wire [2:0] ca_code = ({ras_n, cas_n, we_n} == 3'b011) ? 3'd1 :
+                       ({ras_n, cas_n, we_n} == 3'b101) ? 3'd2 :
+                       ({ras_n, cas_n, we_n} == 3'b100) ? 3'd3 :
+                       ({ras_n, cas_n, we_n} == 3'b010) ? 3'd4 :
+                       ({ras_n, cas_n, we_n} == 3'b001) ? 3'd6 : 3'd0;
+  logic [13:0] ca_sh;                  // payload still to send
+  logic [1:0]  ca_left;               // payload beats still to send
+  assign cs_n = (ca_code == 3'd0);
+  assign ca   = !cs_n ? {ca_code, ba, 2'b0} : (ca_left != 0) ? ca_sh[7:0] : '0;
+  always_ff @(posedge clk or negedge rst_n)
+    if (!rst_n) begin ca_sh <= '0; ca_left <= '0; end
+    else if (!cs_n) begin
+      ca_sh   <= (ca_code == 3'd1) ? addr[13:0] : {6'b0, addr[7:0]};
+      ca_left <= (ca_code == 3'd1) ? 2'd2 : (ca_code == 3'd2 || ca_code == 3'd3) ? 2'd1 : '0;
+    end else if (ca_left != 0) begin
+      ca_sh <= ca_sh >> 8; ca_left <= ca_left - 1'b1;
+    end
+
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       dstate <= D_IDLE; timer <= '0; ref_cnt <= TREFI[13:0];
       auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0;
       cur_addr <= '0; wr_data <= '0; rd_pending <= 1'b0;
-      ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; auto_close <= 1'b0;
+      ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= 1'b0; auto_close <= 1'b0;
       cur_bank <= '0; act_bank <= '0; ref_bank <= '0;
-      ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1; addr <= '0; hrdata <= '0;
+      ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1; addr <= '0; ba <= '0; hrdata <= '0;
       for (int i = 0; i < NB; i++) begin
         open_row[i] <= '0; bank_open[i] <= 1'b0; hit_cnt[i] <= '0;
         rp_t[i] <= '0; ras_t[i] <= '0; rc_t[i] <= '0;
@@ -115,19 +138,18 @@ module LPDDR7_top #(
       case (dstate)
         D_IDLE: begin
           ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;
-          if (hvalid) begin
+          if (hvalid && ref_cnt != 0) begin
             cur_addr <= haddr; wr_data <= hwdata; cur_bank <= a_bank;
             rd_pending <= (hcmd == 3'd2); ref_walk <= 1'b0; auto_act <= 1'b0;
-            auto_rd <= 1'b0; auto_wr <= 1'b0; auto_close <= 1'b0;
+            auto_close <= 1'b0;
+            auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= bank_open[a_bank];
             case (hcmd)
               3'd1: begin
                 act_bank <= a_bank;
-                if (a_hit) begin
+                if (a_hit)                       // page already open: no pin traffic
                   hit_cnt[a_bank] <= (hit_cnt[a_bank] == 2'd3) ? 2'd3
                                       : hit_cnt[a_bank] + 1'b1;  // hot page
-                  dstate <= D_ACT;               // re-ACT same page: refresh row
-                  open_row[a_bank] <= haddr[31:18];
-                end else if (bank_open[a_bank]) begin
+                else if (bank_open[a_bank] && (open_row[a_bank] != haddr[31:18])) begin
                   hit_cnt[a_bank] <= (hit_cnt[a_bank] == 0) ? 0
                                       : hit_cnt[a_bank] - 1'b1;  // miss evidence
                   rp_t[a_bank] <= TRP[8:0];      // conflict: PRE, then ACT the new row
@@ -157,9 +179,9 @@ module LPDDR7_top #(
                 end
               end
               3'd4: begin
-                bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0];
-                hit_cnt[a_bank] <= '0;
+                if (bank_open[a_bank]) begin bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0]; end
                 dstate <= D_PRE;
+                hit_cnt[a_bank] <= '0;
               end
               default: ;
             endcase
@@ -168,6 +190,7 @@ module LPDDR7_top #(
             if (bank_open[ref_bank]) begin
               bank_open[ref_bank] <= 1'b0; rp_t[ref_bank] <= TRP[8:0];
             end
+            pre_need <= bank_open[ref_bank];  // PRE the bank only if it is open
             ref_bank <= ref_bank + 1'b1;
             dstate <= D_PRE;
           end
@@ -181,20 +204,21 @@ module LPDDR7_top #(
             if (bank_open[ref_bank]) begin
               bank_open[ref_bank] <= 1'b0; rp_t[ref_bank] <= TRP[8:0];
             end
+            pre_need <= bank_open[ref_bank];  // PRE the bank only if it is open
             ref_bank <= ref_bank + 1'b1;
             dstate <= D_PRE;
           end else if (!pre_done) begin
             // PRE/PREA waits for tRAS, and tRP counts from the real issue
-            if (!ref_walk && rp_z[cur_bank]) pre_done <= 1'b1;   // bank already closed
+            if (!pre_need) pre_done <= 1'b1;   // bank already closed
             else if (pre_ok) begin
-              ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0; addr[10] <= 1'b0;
+              ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0; addr[10] <= 1'b0; ba <= pre_tgt;
               rp_t[pre_tgt] <= TRP[8:0];
               pre_done <= 1'b1;
             end
           end else begin
             if (ref_walk) begin                 // REF once tRP is met
               if (rp_ok) begin
-                ras_n <= 1'b0; cas_n <= 1'b0; we_n <= 1'b1;
+                ras_n <= 1'b0; cas_n <= 1'b0; we_n <= 1'b1; ba <= ref_tgt;
                 timer <= TRFC[8:0]; dstate <= D_RCD;
               end
             end
@@ -208,7 +232,7 @@ module LPDDR7_top #(
         end
         D_ACT: begin
           if (act_ok) begin                 // tRP and tRC met for this bank
-            ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b1;
+            ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b1; ba <= act_bank;
             addr <= {3'b0, open_row[act_bank]};
             ras_t[act_bank] <= TRAS[8:0]; rc_t[act_bank] <= TRC[8:0];
             timer <= TRCD[8:0];
@@ -226,12 +250,12 @@ module LPDDR7_top #(
           end
         end
         D_RD: begin
-          cas_n <= 1'b0; we_n <= 1'b1;
+          cas_n <= 1'b0; we_n <= 1'b1; ba <= cur_bank;
           addr <= {9'b0, cur_addr[7:0]};
           dstate <= D_CAS; timer <= CL[8:0];
         end
         D_WR: begin
-          cas_n <= 1'b0; we_n <= 1'b0;
+          cas_n <= 1'b0; we_n <= 1'b0; ba <= cur_bank;
           addr <= {9'b0, cur_addr[7:0]};
           mem[{c_ch, cur_addr[7:0]}] <= wr_data;
           dstate <= D_CAS; timer <= CL[8:0];
@@ -242,7 +266,7 @@ module LPDDR7_top #(
             if (rd_pending) hrdata <= mem[{c_ch, cur_addr[7:0]}];
             rd_pending <= 1'b0;
             if (auto_close) begin
-              auto_close <= 1'b0;
+              auto_close <= 1'b0; pre_need <= 1'b1;
               bank_open[cur_bank] <= 1'b0; rp_t[cur_bank] <= TRP[8:0];
               dstate <= D_PRE;               // adaptive closed-page exit
             end else begin ref_req <= (ref_cnt == 0); dstate <= (ref_cnt == 0) ? D_PRE : D_IDLE; end
