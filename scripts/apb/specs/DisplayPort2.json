@@ -1,0 +1,37 @@
+{
+  "title": "DisplayPort source slice: one 8b/10b main-link lane, link training (clock recovery, TPS1) over a Manchester-coded AUX channel, I2C-over-AUX EDID read, video lines with blanking and MSA, HPD",
+  "code": "0x4432",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "60ms",
+  "pins": ["lane_valid", "link_trained", "train_fail", "edid_valid"],
+  "regs": [
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Link state, as driven on the pins",
+      "fields": [
+        {"port": "lane_valid", "desc": "the main lane is up (training patterns, video or fill)"},
+        {"port": "link_trained", "desc": "training completed; video lines are being sent"},
+        {"port": "train_fail", "desc": "training failed after all retries (until HPD low or reset)"},
+        {"port": "edid_valid", "desc": "EDID holds the first 8 EDID bytes"}
+      ]
+    },
+    {
+      "name": "EDID",
+      "kind": "ro",
+      "desc": "EDID bytes 0 to 7",
+      "fields": [
+        {"port": "edid", "desc": "byte i in bits [8i+7:8i] (EDID0 holds bytes 0 to 3), valid with STATUS.edid_valid"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "TRAINED", "port": "link_trained", "desc": "the link is trained; set on every clock it stays trained, so clear it once and mask it"},
+    {"name": "TRAIN_FAIL", "port": "irq", "desc": "training failed; the core holds it until HPD low or reset, so the bit is set again on every clock until then"}
+  ],
+  "notes": [
+    "lane_p (main link, 1 bit per PCLK, 8b/10b, bit 'a' first), aux_tx_p / aux_tx_en / aux_rx_p (AUX, Manchester-II at two PCLK per bit) and sink_present (HPD) pass through unchanged; lane_valid, link_trained, train_fail and edid_valid also drive pins.",
+    "The core runs on its own: HPD high starts training (DPCD link rate, lane count, clock recovery and TPS1 with status polls, then the EDID read), each AUX operation retried three times. The APB side observes the result."
+  ]
+}
