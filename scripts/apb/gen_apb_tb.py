@@ -74,6 +74,9 @@ def gen_tb(P, spec, core, words, irqb, flagb, pt):
     a("// through the registers and its protocol pins. The bound checker")
     a(f"// tb/cov/{P}_apb_sva.sv checks every read and every core input on every clock.")
     a("`timescale 1ns/1ps")
+    if os.path.exists(os.path.join(ROOT, "tb", "apb", f"{P}_apb_models.svh")):
+        # separate modules the IP part instantiates (e.g. a card or device model)
+        a(f"`include \"apb/{P}_apb_models.svh\"")
     a(f"module {P}_apb_tb;")
     a("  logic        PCLK = 0, PRESETN = 0, PSEL = 0, PENABLE = 0, PWRITE = 0;")
     a(f"  logic [{AW-1}:0] PADDR = 0;")
