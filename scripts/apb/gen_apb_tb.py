@@ -457,7 +457,9 @@ def gen_sva(P, spec, core, words, irqb, flagb, pt):
             if r.get("ren"):
                 a(f"  `SVA_INV(a_core_{r['ren']}, c_{r['ren']} == m_bus_rd_{r['name']})")
                 rst_terms.append(f"!c_{r['ren']}")
-            if r.get("raddr"):
+            if r.get("raddr") and r["raddr"] == r.get("waddr"):
+                a(f"  `SVA_IMP(a_core_{r['raddr']}_rd, m_bus_rd_{r['name']}, int'(u_core.{r['raddr']}) == ({sel}))")
+            elif r.get("raddr"):
                 a(f"  `SVA_INV(a_core_{r['raddr']}, int'(u_core.{r['raddr']}) == (m_bus_rd_{r['name']} ? ({sel}) : 0))")
     for r in stream_regs(spec):
         if r["kind"] == "stream_in":
