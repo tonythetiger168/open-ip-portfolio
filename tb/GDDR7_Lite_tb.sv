@@ -1,142 +1,95 @@
 // SPDX-License-Identifier: Apache-2.0
-// GDDR7_Lite_tb -- S1 PAM2 round trip / S2 PAM3 mode (LUT encode+decode via
-// data integrity, BL6 burst count on the symbol bus) / S3 dual channel /
-// S4 mode switch back.
+// GDDR7_Lite TB: 2 channels x 4 banks (haddr[9] channel, haddr[8:7] bank),
+// row haddr[18:10], line haddr[6:4]. Shared host tests in
+// lite_tb_common.svh (line writes with and without beat gaps, reads, row
+// conflicts, MR file and programmed CL / CWL, host and auto refresh,
+// rejected commands, busy, back-to-back, random traffic, reset with a read
+// in flight); ip_extra adds PAM3 (BL6 symbol bus) traffic in every entry,
+// lines written in one mode and read in the other, both channels, timing
+// corner cases and random traffic with mode switches. The checker
+// tb/cov/GDDR7_Lite_sva.sv checks every pin, including each PAM3 symbol.
 `timescale 1ns/1ps
+`define TB_NO_DLL
+`define TB_OOR 32'h0008_0000
 module GDDR7_Lite_tb;
-  localparam integer T_RP=6, T_RCD=6, T_RAS=16, T_REFI=64;
-  reg clk=0, rst_n, hvalid;
-  reg [2:0] hcmd; reg [31:0] haddr; reg [15:0] hwdata;
-  wire hready, hdone, irq, pam3;
-  wire [15:0] hrdata;
-  wire ck_t, ck_c, cke, cs_n, act_n, ras_n, cas_n, we_n;
-  wire [1:0] ba; wire [13:0] addr;
+  logic clk = 0, rst_n = 0;
+  logic hvalid, hready, hdone, irq, pam3;
+  logic [2:0] hcmd;
+  logic [31:0] haddr;
+  logic [15:0] hwdata, hrdata;
+  logic ck_t, ck_c, cke, cs_n, act_n, ras_n, cas_n, we_n;
+  logic [1:0] ba;
+  logic [13:0] addr;
   tri [31:0] dq; tri [1:0] dqs;
-  wire trace_valid; wire [3:0] trace_cmd; wire [31:0] trace_addr;
-  integer tb_err=0, cyc=0, seed=32'hD00D;
-  integer burst_beats=0, burst_len_err=0;
+  logic trace_valid; logic [3:0] trace_cmd; logic [31:0] trace_addr;
 
-  GDDR7_Lite_top #(.T_REFI(T_REFI)) dut (
-    .clk(clk), .rst_n(rst_n), .hvalid(hvalid), .hready(hready), .hcmd(hcmd),
-    .haddr(haddr), .hwdata(hwdata), .hrdata(hrdata), .hdone(hdone), .irq(irq),
-    .pam3(pam3), .ck_t(ck_t), .ck_c(ck_c), .cke(cke),
-    .cs_n(cs_n), .act_n(act_n), .ras_n(ras_n), .cas_n(cas_n), .we_n(we_n),
-    .ba(ba), .addr(addr), .dq(dq), .dqs(dqs),
-    .trace_valid(trace_valid), .trace_cmd(trace_cmd), .trace_addr(trace_addr));
-
+  localparam int T_REFI = 400, NBANK = 8, NLINES = 8 * 512 * 8, CL0 = 11, CWL0 = 8;
+  GDDR7_Lite_top #(.T_RC(40), .T_WTR(8), .T_REFI(T_REFI), .CL(CL0), .CWL(CWL0)) dut (.*);
   always #5 clk = ~clk;
-  always @(posedge clk) cyc <= cyc + 1;
 
-  function [15:0] data_word(input [31:0] a, input int b);
-    data_word = a[15:0] ^ (16'h0101 * b[15:0]) ^ 16'h5A5A;
+  function automatic logic [31:0] mk(input int b, input int row, input int line);
+    mk = $urandom;
+    mk[31:19] = 0; mk[9:7] = b[2:0]; mk[18:10] = row[8:0]; mk[6:4] = line[2:0];
   endfunction
-  function [31:0] mk(input ch, input [1:0] bnk, input [8:0] row, input [2:0] ln);
-    mk = {13'h0, row, ch, bnk, ln, 4'h0};   // [18:10]=row [9]=ch [8:7]=bank
-  endfunction                                // [6:4]=line
-
-  task fe_write_line(input [31:0] a);
-    begin
-      @(negedge clk); hcmd <= 3'd2; haddr <= a; hvalid <= 1'b1;
-      @(negedge clk); hvalid <= 1'b0;
-      for (int b=0;b<8;b++) begin hwdata <= data_word(a,b); @(negedge clk); end
-      wait (hdone === 1'b1); @(negedge clk);
+  function automatic int lidx(input logic [31:0] a);
+    return int'({a[9:7], a[18:10], a[6:4]});
+  endfunction
+  task automatic pam(input bit on); mrw(2, {7'h0, on}); endtask
+  task automatic ip_extra;
+    logic [31:0] a;
+    // the far rows
+    wrl(mk(6, 511, 5)); rdl(mk(6, 511, 5)); rdl(mk(6, 0, 5));
+    // PAM3: every entry, closed bank / hit / conflict, lines written in
+    // PAM2 read back in PAM3 and the other way round
+    pam(1);
+    for (int b = 0; b < NBANK; b++) begin
+      rdl(mk(b, 1, 0)); wrl(mk(b, 1, 2), 1); rdl(mk(b, 1, 2));
+      wrl(mk(b, 5, 4)); rdl(mk(b, 5, 4)); rdl(mk(b, 1, 7));
     end
-  endtask
-  task fe_read_check(input [31:0] a);
-    reg [15:0] got;
-    begin
-      @(negedge clk); hcmd <= 3'd1; haddr <= a; hvalid <= 1'b1;
-      @(negedge clk); hvalid <= 1'b0;
-      wait (hready === 1'b0); wait (hready === 1'b1);
-      for (int b=0;b<8;b++) begin
-        @(posedge clk); #1 got = hrdata;
-        if (got !== data_word(a,b)) begin
-          tb_err = tb_err + 1;
-          $display("FAIL: rd mismatch a=%h b=%0d got=%h exp=%h cyc=%0d", a,b,got,data_word(a,b),cyc);
-        end
-      end
-      @(negedge clk);
-    end
-  endtask
-  task fe_mrw(input [2:0] i, input [7:0] v);
-    begin
-      @(negedge clk); hcmd <= 3'd3; haddr <= {29'h0,i}; hwdata <= {8'h0,v}; hvalid <= 1'b1;
-      @(negedge clk); hvalid <= 1'b0; wait (hdone === 1'b1); @(negedge clk);
-    end
-  endtask
-
-  // burst-length monitor: count dq-driven beats per burst, expect 8 (PAM2)
-  // or 6 (PAM3); trit lanes [31:16] must be Z in PAM2
-  reg dq_driven = 0;
-  always @(posedge clk) if (rst_n) begin
-    if (dut.dq_oe === 1'b1) begin
-      if (!dq_driven) begin dq_driven <= 1'b1; burst_beats <= 1; end
-      else burst_beats <= burst_beats + 1;
-      if (!pam3 && dq[31:16] !== 16'hzzzz) begin
-        tb_err = tb_err + 1; $display("FAIL: PAM2 upper lanes driven");
-      end
-    end else if (dq_driven) begin
-      dq_driven <= 1'b0;
-      if ((pam3 && burst_beats != 6) || (!pam3 && burst_beats != 8)) begin
-        tb_err = tb_err + 1;
-        $display("FAIL: burst len %0d in mode pam3=%b cyc=%0d", burst_beats, pam3, cyc);
+    pam(0);
+    for (int b = 0; b < NBANK; b++) begin rdl(mk(b, 1, 2)); rdl(mk(b, 5, 4)); end
+    // RD right after a WR (tWTR), PRE right after a WR (tWR), and a
+    // conflict right after the row opened (tRC), in both modes
+    for (int m = 0; m < 2; m++) begin
+      pam(m[0]);
+      for (int b = 0; b < NBANK; b++) begin
+        wrl(mk(b, 6, 1)); rdl(mk(b, 6, 2));
+        wrl(mk(b, 6, 3)); rdl(mk(b, 7, 3));
+        rdl(mk(b, 8, 0)); rdl(mk(b, 9, 0));
       end
     end
-  end
-
-  integer la[0:7], lp[0:7];
-  initial begin for (int i=0;i<8;i++) begin la[i]=-1000; lp[i]=-1000; end end
-  wire [3:0] ent = {addr[11], ba};
-  always @(posedge clk) if (rst_n && !cs_n) begin
-    if (!act_n) begin
-      if (cyc-lp[ent] < T_RP) begin tb_err=tb_err+1; $display("FAIL: tRP"); end
-      la[ent] <= cyc;
-    end else if (!ras_n && cas_n && !we_n) begin
-      if (cyc-la[ent] < T_RAS) begin tb_err=tb_err+1; $display("FAIL: tRAS"); end
-      lp[ent] <= cyc;
-    end else if (ras_n && !cas_n) begin
-      if (cyc-la[ent] < T_RCD) begin tb_err=tb_err+1; $display("FAIL: tRCD"); end
+    pam(0);
+    // the far row and back in every entry
+    for (int b = 0; b < NBANK; b++) begin
+      wrl(mk(b, 511, 6)); rdl(mk(b, 511, 6)); rdl(mk(b, 0, 6));
     end
-  end
+    // every MR bit both ways
+    for (int i = 0; i < 8; i++) begin
+      mrw(i, 8'hFF); mrr(i, 8'hFF); mrw(i, 8'h00); mrr(i, 8'h00);
+    end
+    mrw(0, 8'h0F); mrw(1, 8'h0F);        // CL 20, CWL 20
+    for (int b = 0; b < NBANK; b++) begin
+      pam(b[0]); wrl(mk(b, 4, b)); rdl(mk(b, 4, b));
+    end
+    mrw(0, 8'(CL0 - 5)); mrw(1, 8'(CWL0 - 5));
+    // random traffic with mode switches and refreshes
+    for (int k = 0; k < 300; k++) begin
+      a = mk($urandom_range(0, NBANK - 1), $urandom_range(0, 3), $urandom_range(0, 7));
+      case ($urandom_range(0, 11))
+        0: refh();
+        1: pam($urandom_range(0, 1));
+        2, 3, 4, 5: rdl(a);
+        default: wrl(a, $urandom_range(0, 3) == 0);
+      endcase
+      if ($urandom_range(0, 19) == 0) idle($urandom_range(1, T_REFI));
+    end
+    pam(0);
+  endtask
 
-  reg [31:0] r_addr, wlog[0:255]; integer wlog_n=0;
+  `include "lite_tb_common.svh"
+
   initial begin
-    rst_n=0; hvalid=0; hcmd=0; haddr=0; hwdata=0;
-    repeat (6) @(negedge clk); rst_n=1; repeat (2) @(negedge clk);
-
-    // S1: PAM2 (reset default) round trip
-    fe_write_line(mk(1'b0, 2'd1, 9'h05, 3'd3));
-    fe_read_check(mk(1'b0, 2'd1, 9'h05, 3'd3));
-    // S2: PAM3 on -- round trip proves encoder+decoder end to end
-    fe_mrw(3'd0, 8'h07);            // MR0: CL=12, pam3=1
-    if (pam3 !== 1'b1) begin tb_err=tb_err+1; $display("FAIL: pam3 not set"); end
-    fe_write_line(mk(1'b1, 2'd2, 9'h011, 3'd0));
-    fe_read_check(mk(1'b1, 2'd2, 9'h011, 3'd0));
-    fe_write_line(mk(1'b0, 2'd0, 9'h020, 3'd7));
-    fe_read_check(mk(1'b0, 2'd0, 9'h020, 3'd7));
-    // S3: randomized traffic in PAM3
-    wlog_n = 0;
-    for (int t=0;t<60;t++) begin
-      if ((t%2==0)||(wlog_n==0)) begin
-        r_addr = {$random(seed)} & 32'h7FFF & ~32'hF;
-        fe_write_line(r_addr); wlog[wlog_n]=r_addr; wlog_n=wlog_n+1;
-      end else begin
-        fe_read_check(wlog[($random(seed)&32'h7FFF_FFFF)%wlog_n]);
-      end
-    end
-    for (int i=0;i<wlog_n;i++) fe_read_check(wlog[i]);
-    // S4: back to PAM2; previously written PAM3 data is re-read through
-    // the PAM2 path (mem holds the trit image -- read path decodes per
-    // CURRENT mode, so this read checks mode-switch data consistency)
-    fe_mrw(3'd0, 8'h06);            // pam3=0
-    fe_read_check(mk(1'b1, 2'd2, 9'h011, 3'd0));
-
-    if (tb_err==0) $display("SIM_PASS: GDDR7_Lite_tb");
-    else $display("SIM_FAIL: %0d", tb_err);
-    // regression marker (scripts/ci_regression.sh greps for it)
-    if (tb_err == 0) $display("TEST PASSED: GDDR7_Lite");
-    else             $display("TEST FAILED: GDDR7_Lite");
-    $finish;
+    repeat (4000) #10000;
+    $display("TIMEOUT"); $finish;
   end
-  initial begin #3_000_000; $display("SIM_FAIL: timeout"); $display("TEST FAILED: GDDR7_Lite"); $finish; end
 endmodule

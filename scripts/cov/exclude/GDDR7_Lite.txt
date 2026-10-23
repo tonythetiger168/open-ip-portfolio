@@ -1,0 +1,10 @@
+# GDDR7_Lite: unreachable branches under the TB configuration and pin bits
+# that are constant by the command format.
+LINE if:GDDR7_Lite_top \| if \(ref_pending && !ref_ack\) ref_overrun # unreachable unless tREFI is shorter than one engine operation (about 100 clocks); the TB runs tREFI = 400, and every pending refresh is served at the next idle engine clock
+LINE else:GDDR7_Lite_top \| if \(rp_done\[eng_bank\] && rc_done\[eng_bank\] && rrd_done\) # unreachable: a bank is closed only by the PRE of a row conflict (which goes on through ENG_PRE_WAIT) or by a refresh PREA, after which tRP + tRFC exceed tRP, tRC and tRRD
+LINE case:GDDR7_Lite_top \| default: eng <= ENG_IDLE; # unused 4-bit encodings of the 14-state engine enum
+TOGGLE GDDR7_Lite_top\.ref_overrun: # unreachable, as the overrun line above
+TOGGLE GDDR7_Lite_top\.addr\[(9|12|13)\]: # always 0: rows are 9 bits and the column is {line, 4'h0}; addr[10] is the all-bank PRE flag, addr[11] the channel
+TOGGLE GDDR7_Lite_top\.trace_cmd\[3\]: # always 0: commands 0..4; the port keeps the 4-bit width of the original interface
+TOGGLE GDDR7_Lite_top\.trace_addr\[([0-9]|1[01]|2[1-9]|3[01])\]: # always 0: trace_addr is {11'h0, row, 12'h0}
+TOGGLE GDDR7_Lite_top\.trit_reg\[(5|11|17|23|29|35|41|47|53|59|65|71|77|83|89|95|101|107|113|119|125|131|137|143|149|155|161|167|173|179|185|191)\]: # upper bit of each nibble's most significant trit: that trit is v / 9, 0 or 1 for a nibble v <= 15, so the bit is 0 by the 4-bit-to-3-trit code

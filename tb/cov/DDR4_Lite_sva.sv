@@ -17,7 +17,8 @@ module DDR4_Lite_sva (
   input logic [1:0]  ba,
   input logic [13:0] addr,
   input logic [15:0] dq,
-  input logic [1:0]  dqs
+  input logic [1:0]  dqs,
+  input logic        dq_oe, dqs_oe     // output enables (DUT internals)
 );
   `COV_CLOCKING(clk, !rst_n)
   localparam int NB = 4, NLINES = 4 * 512 * 8;
@@ -32,7 +33,8 @@ module DDR4_Lite_sva (
   function automatic int idx_of(input logic [31:0] a); return int'({a[8:7], a[17:9], a[6:4]}); endfunction
   function automatic logic in_range(input logic [31:0] a); return a[31:18] == 0; endfunction
 
-  logic        q_cs_n, q_act_n, q_ras_n, q_cas_n, q_we_n, q_hready, q_hdone, q_irq, q_tv;
+  logic        q_cs_n, q_act_n, q_ras_n, q_cas_n, q_we_n, q_hready, q_hdone, q_irq, q_tv,
+               q_dq_oe, q_dqs_oe;
   logic [1:0]  q_ba, q_dqs;
   logic [13:0] q_addr;
   logic [15:0] q_dq, q_hrdata;
@@ -42,6 +44,7 @@ module DDR4_Lite_sva (
     q_cs_n <= cs_n; q_act_n <= act_n; q_ras_n <= ras_n; q_cas_n <= cas_n; q_we_n <= we_n;
     q_ba <= ba; q_addr <= addr; q_dq <= dq; q_dqs <= dqs;
     q_hready <= hready; q_hdone <= hdone; q_hrdata <= hrdata; q_irq <= irq;
+    q_dq_oe <= dq_oe; q_dqs_oe <= dqs_oe;
     q_tv <= trace_valid; q_tc <= trace_cmd; q_ta <= trace_addr;
   end
   wire [1:0] pin_bank = q_ba;

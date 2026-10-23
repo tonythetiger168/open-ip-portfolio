@@ -6,6 +6,9 @@
 //   index into the scoreboard; task ip_extra (IP-specific tests)
 // Read data: the 8 hrdata values of the 8 clocks ending with hdone.
 
+`ifndef TB_OOR
+`define TB_OOR 32'h0004_0000             // lowest address bit that must be 0
+`endif
   logic [15:0] sb [NLINES*8];            // expected words, by line*8+beat
   initial for (int i = 0; i < NLINES * 8; i++) sb[i] = '0;   // the DUT zeroes its array
   int n_rd = 0, n_wr = 0, errors = 0;
@@ -95,7 +98,11 @@
     // ---- mode registers: read the reset values, change CL / CWL, the
     // MR0 DLL-reset bit, the other registers
     mrr(0, 8'(CL0 - 5)); mrr(1, 8'(CWL0 - 5));
+`ifdef TB_NO_DLL
+    mrw(0, 8'h0F); mrr(0, 8'h0F);          // CL 20
+`else
     mrw(0, 8'h8F); mrr(0, 8'h0F);          // CL 20; bit 7 self-clears
+`endif
     mrw(1, 8'h00);                          // CWL 5
     for (int k = 0; k < 12; k++) begin
       a = rnd_addr();
@@ -112,7 +119,7 @@
     rdl(mk(0, 1, 1)); refh(); refh();
     // ---- rejected commands: out-of-range addresses, illegal codes; NOP
     imm(3'd0, $urandom);
-    imm(3'd1, 32'h8000_0000 | mk(1, 1, 1)); imm(3'd2, 32'h0004_0000 | mk(1, 1, 1));
+    imm(3'd1, 32'h8000_0000 | mk(1, 1, 1)); imm(3'd2, `TB_OOR | mk(1, 1, 1));
     imm(3'd6, 0); imm(3'd7, 0);
     // ---- commands presented while busy are not taken
     cmd(3'd1, mk(2, 1, 0), 0);
