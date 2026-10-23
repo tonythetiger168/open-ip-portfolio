@@ -156,7 +156,9 @@
       // ---- pin command
       drn = op_v && (`MEM_CHK_DRAINING);
       // the host command has done its own pin work (what is left is refresh)
-      wd = !op_v || (op_c == 3'd2 ? s_done : op_c == 3'd3 ? (`MEM_CHK_WR_DONE) :
+      // (an RD / WR that must auto-precharge is not done before its PRE)
+      wd = !op_v || (op_c == 3'd2 ? s_done && !((`MEM_CHK_AP_MUST) && !s_apre) :
+                     op_c == 3'd3 ? (`MEM_CHK_WR_DONE) && !((`MEM_CHK_AP_MUST) && !s_apre) :
                      op_c == 3'd1 ? (s_act || op_hit) : (s_pre || !op_open));
       rpre = 0;
       tb = 0;
