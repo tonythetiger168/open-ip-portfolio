@@ -1,0 +1,35 @@
+{
+  "title": "Serial Wire Debug port (ADIv5 SW-DP, DPv1 registers) with a software access port",
+  "code": "0x5357",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "50ms",
+  "regs": [
+    {"name": "PWR", "kind": "rw", "desc": "Power controller acknowledges (driven by software)",
+     "fields": [{"port": "cdbgpwrupack", "reset": "0", "desc": "debug power-up acknowledge (CTRL/STAT.CDBGPWRUPACK)"},
+                {"port": "csyspwrupack", "reset": "0", "desc": "system power-up acknowledge (CTRL/STAT.CSYSPWRUPACK)"}]},
+    {"name": "APREQ", "kind": "stream_out", "data": ["ap_wdata", "ap_write", "ap_sel", "ap_addr"], "valid": "ap_req",
+     "desc": "AP access requested by the debugger; reading APREQ1 frees it. Answer every request through APRESP",
+     "fdesc": {"ap_wdata": "write data", "ap_write": "1 = write, 0 = read", "ap_sel": "SELECT.APSEL",
+               "ap_addr": "AP register word address {SELECT.APBANKSEL, A[3:2]}"}},
+    {"name": "APRESP", "kind": "stream_in", "data": ["ap_rdata", "ap_err"], "valid": "ap_done",
+     "desc": "Completes the AP access in progress; writing APRESP1 commits it (ignored when no access is in progress)",
+     "fdesc": {"ap_rdata": "read data (reads only)", "ap_err": "1 = the access failed (sets CTRL/STAT.STICKYERR)"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Port state",
+     "fields": [{"port": "ap_busy", "desc": "an AP access is in progress (the debugger gets WAIT)"},
+                {"port": "lockout", "desc": "waiting for a line reset"},
+                {"port": "cdbgpwrupreq", "desc": "debug power-up requested"},
+                {"port": "csyspwrupreq", "desc": "system power-up requested"}]}
+  ],
+  "irqs": [
+    {"name": "LINE_RESET", "port": "line_reset", "desc": "a line reset was seen"},
+    {"name": "PROTO_ERR", "port": "proto_err", "desc": "protocol error: request parity, stop or park bit, or a first packet other than a DPIDR read"},
+    {"name": "WAIT", "port": "ack_wait", "desc": "a packet was answered with WAIT"},
+    {"name": "FAULT", "port": "ack_fault", "desc": "a packet was answered with FAULT"},
+    {"name": "ABORT", "port": "ap_abort", "desc": "the debugger aborted the AP access in progress (DAPABORT)"}
+  ],
+  "notes": [
+    "swclk, swdio_in, swdio_out and swdio_oe connect to the SWD pins (swdio_oe = 1: the port drives SWDIO). SWCLK high and low times must be at least 4 PCLK periods.",
+    "Software acts as the access ports: on APREQ_AVAIL read APREQ0/APREQ1, perform the access, then write APRESP0 (read data) and APRESP1 (error flag)."
+  ]
+}

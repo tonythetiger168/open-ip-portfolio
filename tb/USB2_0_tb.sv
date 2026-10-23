@@ -1,361 +1,306 @@
 // SPDX-License-Identifier: Apache-2.0
-// Self-checking testbench: host bit-bangs USB FS packets; device echoes.
+// Self-checking testbench for USB2_0_top (FS echo engine).
+// Host BFM bit-bangs spec framing: SYNC, PID, payload, inverted CRC16
+// (x^16+x^15+x^2+1, init 0xFFFF, LSB first), NRZI with a stuffed 0 after
+// every six 1s counted from SYNC on, EOP = 2 bits SE0 + 1 bit J. The bus
+// has the FS pull-up on D+ and a pull-down on D-.
+// The host decoder checks every echo: SYNC, stuffing, PID check, CRC16
+// residual, EOP shape, the 2..6.5-bit turnaround and the echoed payload.
+// Error frames (bad SYNC, stuffing, PID, CRC, alignment, length, EOP) must
+// set rx_err and produce no echo; the device must recover on the next frame.
 `timescale 1ns/1ps
 module USB2_0_tb;
-  localparam int BIT = 400;
+  localparam int BIT  = 400;           // ns per bit at BAUD_DIV 20, clk 10 ns
+  localparam int MAXB = 8;
   logic clk = 0, rst_n = 0;
-  tri1 dp, dm;
+  tri1 dp;                             // FS device pull-up
+  tri0 dm;
   logic h_oe = 0, h_dp = 1, h_dm = 0;
-  int errors = 0;
+  logic busy, irq;
+  int   errors = 0;
+  int   hbit = BIT;                    // host bit period (drift tests)
+  int   sync_zeros = 7;                // SYNC length (zeros before the 1)
 
-`ifdef VERILATOR
-  wire busy, irq;   // v2.5: observed for assertions/self-check (Verilator only)
-`endif
-  USB2_0_top #(.BAUD_DIV(20)) dut (
-    .clk(clk), .rst_n(rst_n), .dp(dp), .dm(dm),
-`ifdef VERILATOR
-    .busy(busy), .irq(irq));
-`else
-    .busy(), .irq());
-`endif
+  USB2_0_top #(.BAUD_DIV(20), .MAXB(MAXB)) dut (
+    .clk(clk), .rst_n(rst_n), .dp(dp), .dm(dm), .busy(busy), .rx_err(), .irq(irq));
 
   always #5 clk = ~clk;
   assign dp = h_oe ? h_dp : 1'bz;
   assign dm = h_oe ? h_dm : 1'bz;
 
-  logic hl = 1;
-  logic [3:0] hrun = 0;
-  task automatic h_bit(input logic b);
-    begin
-      if (!b) hl = ~hl;
-      h_oe = 1; h_dp = hl; h_dm = ~hl;
-      #(BIT);
-    end
-  endtask
-  task automatic h_bit_stuffed(input logic b);
-    begin
-      if (hrun == 6) begin h_bit(1'b0); hrun = 1; end
-      h_bit(b);
-      if (b) hrun = hrun + 1; else hrun = 1;
-    end
-  endtask
+  int irq_cnt = 0;
+  always @(posedge clk) if (irq) irq_cnt++;
 
-  function automatic logic [15:0] crc(input logic [15:0] cc, input logic b);
-    logic fb;
-    begin
-      fb = cc[0] ^ b;
-      crc = cc >> 1;
-      if (fb) crc = crc ^ 16'h8005;
-    end
+  function automatic logic [15:0] crc_u(input logic [15:0] c, input logic b);
+    crc_u = (c >> 1) ^ ((c[0] ^ b) ? 16'hA001 : 16'h0000);
   endfunction
 
-  logic [7:0] txp [0:7];
-  logic [7:0] rxp [0:7];
-  logic [7:0] sync_b, pid_b, pl_b;
-  task automatic host_send_data(input logic [3:0] pid, input int len);
-    logic [15:0] c;
+  logic [7:0] txp [0:15];
+  logic [7:0] rxp [0:15];
+
+  // ------------------------------------------------------------------
+  // host transmitter
+  //   mode 0 good          1 CRC corrupted    2 PID check broken
+  //        3 stuff error   4 extra dribble bit (misaligned)
+  //        5 SE0 inside SYNC  6 K right after the EOP SE0
+  //        7 short SYNC (1 after two zeros)
+  // ------------------------------------------------------------------
+  logic hl;                            // current line level, 1 = J
+  int   hones;
+  bit   stuff_err_now;
+  task automatic h_level(input logic j);
+    begin h_oe = 1; h_dp = j; h_dm = ~j; #(hbit); end
+  endtask
+  task automatic h_raw(input logic b);   // NRZI, no stuffing
+    begin if (!b) hl = ~hl; h_level(hl); end
+  endtask
+  task automatic h_send_bit(input logic b);
     begin
-      hrun = 0;
-      sync_b = 8'h80;
-      pid_b  = {~pid, pid};
-      for (int i = 0; i < 8; i++) h_bit(sync_b[i]);
-      for (int i = 0; i < 8; i++) h_bit_stuffed(pid_b[i]);
-      c = 16'hFFFF;
-      for (int i = 0; i < len; i++) begin
-        pl_b = txp[i];
-        for (int j = 0; j < 8; j++) begin
-          h_bit_stuffed(pl_b[j]);
-          c = crc(c, pl_b[j]);
-        end
+      h_raw(b);
+      hones = b ? hones + 1 : 0;
+      if (hones == 6) begin
+        h_raw(stuff_err_now ? 1'b1 : 1'b0);
+        hones = stuff_err_now ? 7 : 0;
+        stuff_err_now = 0;
       end
-      c = ~c;
-      for (int i = 0; i < 16; i++) h_bit_stuffed(c[i]);
-      h_oe = 1; h_dp = 0; h_dm = 0; #(BIT*2);
-      hl = 1; h_dp = 1; h_dm = 0; #(BIT);
+    end
+  endtask
+  task automatic h_eop(input int se0_bits);
+    begin
+      h_oe = 1; h_dp = 0; h_dm = 0; #(hbit * se0_bits);
+      hl = 1; h_level(1'b1);
       h_oe = 0;
     end
   endtask
 
-  task automatic host_recv(output logic [3:0] pid, output int len);
-    logic prev, b;
-    logic [7:0] sh;
-    int n;
-    logic [3:0] run;
-    begin
-      len = 0; pid = 0; n = 0; sh = 0; run = 0;
-      wait (dp === 1'b0 && dm === 1'b1);
-      #(BIT/2);
-      prev = 1'b1;
-      for (int i = 0; i < 8; i++) begin
-        b = ((dp === 1'b1) == prev);
-        prev = (dp === 1'b1);
-        #(BIT);
-      end
-      while (!(dp === 1'b0 && dm === 1'b0)) begin
-        b = ((dp === 1'b1) == prev);
-        prev = (dp === 1'b1);
-        if (run == 6) begin
-          run = 1;
-        end else begin
-          if (b) run = run + 1; else run = 1;
-          sh = {b, sh[7:1]};
-          if (n % 8 == 7) begin
-            if (n / 8 == 0) pid = sh[3:0];
-            else if (n/8 <= 8) rxp[(n/8)-1] = sh;
-          end
-          n = n + 1;
-        end
-        #(BIT);
-      end
-      #(BIT*3);
-      len = (n / 8) - 3;  // minus PID(1) + CRC16(2) bytes
-    end
-  endtask
-
-`ifdef VERILATOR
-  // =====================================================================
-  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
-  // Tool notes (Verilator 5.006): no native FSM/SVA coverage and
-  // randomize() ignores constraint blocks -> procedural constraints
-  // ($urandom_range + rejection sampling), TB FSM probe, immediate
-  // assertions.
-  // =====================================================================
-  localparam int USB20_FSM_TOTAL = 7;  // rstate {R_IDLE,R_SYNC,R_PKT} + tstate {T_IDLE,T_PKT,T_EOP0,T_EOPJ}
-  logic [6:0] fsm_seen = '0;           // visited-state bitmap
-  wire  [1:0] dut_rstate = dut.rstate; // hierarchical FSM probes
-  wire  [1:0] dut_tstate = dut.tstate;
-
-  int sva_total = 0, sva_fail = 0;
-  // counted immediate assertion: every evaluation is one check
-  task automatic sva_check(input bit cond, input string name);
-    begin
-      sva_total++;
-      if (!cond) begin
-        sva_fail++;
-        errors++;
-        $display("SVA_FAIL: %s @%0t", name, $time);
-      end
-    end
-  endtask
-
-  // irq/rx_done pulse counter for the CRV self-checks
-  int irq_cnt = 0;
-  always @(posedge clk) if (irq) irq_cnt <= irq_cnt + 1;
-
-  // FSM coverage: sample both DUT state registers every clock
-  always @(posedge clk) begin
-    fsm_seen[dut_rstate]     <= 1'b1;
-    fsm_seen[3 + dut_tstate] <= 1'b1;
-  end
-
-  // output-invariant assertion suite (sampled coherently pre-NBA)
-  logic irq_q = 0, err_q = 0;
-  always @(posedge clk) begin
-    if (!rst_n) begin
-      // A1: outputs quiescent during reset
-      sva_check(busy === 1'b0 && irq === 1'b0, "A1 reset: outputs quiescent");
-    end else begin
-      // A2: both state registers hold legal enum encodings
-      sva_check(dut_rstate <= 2'd2 && dut_tstate <= 2'd3, "A2 state encoding legal");
-      // A3: busy flag consistent with RX/TX FSM states
-      sva_check(busy === ((dut_rstate != 2'd0) || (dut_tstate != 2'd0)),
-                "A3 busy matches FSM activity");
-      // A4: irq (rx_done) is a single-cycle pulse
-      sva_check(!(irq && irq_q), "A4 irq single-cycle pulse");
-      // A5: rx_err is sticky once set (cleared only by reset)
-      sva_check(!err_q || dut.rx_err, "A5 rx_err sticky");
-      // A6: device never drives both dp and dm high (only J/K/SE0 are legal)
-      sva_check(!(dut.oe_q && dut.dp_q === 1'b1 && dut.dm_q === 1'b1),
-                "A6 no illegal SE1 drive");
-      // A7: dp/dm lines never X
-      sva_check(dp !== 1'bx && dm !== 1'bx, "A7 lines not X");
-    end
-    irq_q <= irq;
-    err_q <= dut.rx_err;
-  end
-
-  // ---- CRV frame tasks (error injection) ------------------------------
-  // cmode: 0 = good, 1 = corrupt CRC16, 2 = bad PID check nibble,
-  //        3 = bit-stuff violation (8 raw ones), 4 = short frame (SYNC+PID+EOP)
-  task automatic crv_send(input logic [3:0] pid, input int len, input int cmode);
+  task automatic send(input logic [3:0] pid, input int len, input int mode);
     logic [15:0] c;
+    logic [7:0]  pb;
     begin
-      repeat (20) #(BIT);   // inter-frame gap: let echo EOP fully retire
-      hrun = 0;
-      sync_b = 8'h80;
-      pid_b  = (cmode == 2) ? {pid, pid} : {~pid, pid};
-      for (int i = 0; i < 8; i++) h_bit(sync_b[i]);
-      for (int i = 0; i < 8; i++) h_bit_stuffed(pid_b[i]);
-      if (cmode == 3) begin
-        // 8 raw one-bits: run of 8 ones -> DUT must flag a stuff error
-        for (int i = 0; i < 8; i++) h_bit(1'b1);
-        for (int i = 0; i < 8; i++) h_bit(txp[0][i]);
-      end else if (cmode != 4) begin
-        c = 16'hFFFF;
-        for (int i = 0; i < len; i++) begin
-          pl_b = txp[i];
-          for (int j = 0; j < 8; j++) begin
-            h_bit_stuffed(pl_b[j]);
-            c = crc(c, pl_b[j]);
-          end
-        end
-        c = ~c; if (cmode == 1) c = c ^ 16'hA5A5;
-        for (int i = 0; i < 16; i++) h_bit_stuffed(c[i]);
-      end
-      // cmode 4: stop after PID -> ridx < 3 at SE0
-      h_oe = 1; h_dp = 0; h_dm = 0; #(BIT*2);
-      hl = 1; h_dp = 1; h_dm = 0; #(BIT);
-      h_oe = 0;
-    end
-  endtask
-
-  // one CRV transaction with self-check (echo compare / silence check)
-  task automatic crv_txn(input logic [3:0] pid, input int len, input int cmode);
-    logic [3:0] rp;
-    int         rl;
-    bit         bad;
-    begin
-      irq_cnt = 0;
-      crv_send(pid, len, cmode);
-      if (cmode == 0) begin
-        host_recv(rp, rl);
-        if (rp !== pid) begin
-          errors++; $display("ERROR: CRV pid got=%h exp=%h", rp, pid);
-        end
-        if (rl !== len) begin
-          errors++; $display("ERROR: CRV len got=%0d exp=%0d", rl, len);
-        end
-        bad = 0;
-        for (int i = 0; i < len; i++)
-          if (rxp[i] !== txp[i]) begin
-            errors++; bad = 1;
-            $display("ERROR: CRV pl[%0d] got=%h exp=%h (pid=%h len=%0d)", i, rxp[i], txp[i], pid, len);
-          end
-        if (bad) begin
-          $write("       sent:"); for (int i=0;i<len;i++) $write(" %02x", txp[i]); $write("\n");
-          $write("       recv:"); for (int i=0;i<len;i++) $write(" %02x", rxp[i]); $write("\n");
-        end
-        if (irq_cnt != 1) begin
-          errors++; $display("ERROR: CRV irq pulses=%0d exp=1", irq_cnt);
-        end
+      hl = 1; hones = 0; stuff_err_now = 0;
+      if (mode == 5) begin
+        for (int i = 0; i < 3; i++) h_send_bit(1'b0);
+        h_eop(2);
+      end else if (mode == 7) begin
+        h_send_bit(1'b0); h_send_bit(1'b0); h_send_bit(1'b1);
+        for (int i = 0; i < 8; i++) h_send_bit(i[0]);
+        h_eop(2);
       end else begin
-        // bad frame: no echo, rx_err flagged. Wait longer than a full echo
-        // frame (chunked short delays only: a single long-pending #delay
-        // corrupts the 5.006 timing heap; see docs/COVERAGE.md note 1).
-        repeat (150) #(BIT);
-        if (irq_cnt != 0) begin
-          errors++; $display("ERROR: CRV bad frame echoed (irq_cnt=%0d)", irq_cnt);
-        end
-        if (busy !== 1'b0) begin
-          errors++; $display("ERROR: CRV busy stuck after bad frame (cmode=%0d)", cmode);
-        end
-        if (dut.rx_err !== 1'b1) begin
-          errors++; $display("ERROR: CRV rx_err not set after bad frame (cmode=%0d)", cmode);
-        end
+        for (int i = 0; i < sync_zeros; i++) h_send_bit(1'b0);
+        h_send_bit(1'b1);
+        pb = (mode == 2) ? {pid, pid} : {~pid, pid};
+        for (int i = 0; i < 8; i++) h_send_bit(pb[i]);
+        c = 16'hFFFF;
+        for (int i = 0; i < len; i++)
+          for (int j = 0; j < 8; j++) begin
+            if (mode == 3 && i == 0 && j == 0) begin
+              txp[0] = 8'hFF; stuff_err_now = 1;    // 7th 1 instead of the stuff 0
+            end
+            h_send_bit(txp[i][j]);
+            c = crc_u(c, txp[i][j]);
+          end
+        c = ~c;
+        if (mode == 1) c = c ^ 16'h0100;
+        for (int i = 0; i < 16; i++) h_send_bit(c[i]);
+        if (mode == 4) h_send_bit(1'b0);
+        if (mode == 6) begin
+          h_oe = 1; h_dp = 0; h_dm = 0; #(hbit);
+          hl = 0; h_level(1'b0);
+          for (int i = 0; i < 9; i++) h_level(1'b1);
+          h_oe = 0;
+        end else h_eop(2);
       end
     end
   endtask
-`endif
 
+  // ------------------------------------------------------------------
+  // host receiver: decodes and checks one device frame
+  // ------------------------------------------------------------------
+  int  rlen, n_tail_stuff = 0;
   logic [3:0] rpid;
-  int rlen;
-  initial begin
-    for (int i = 0; i < 8; i++) txp[i] = 8'hA0 + i * 8'h11;
-    rst_n = 0; repeat(10) @(posedge clk);
-    rst_n = 1; repeat(20) @(posedge clk);
-
-    host_send_data(4'h3, 4);
-    host_recv(rpid, rlen);
-    if (rpid !== 4'h3) begin errors++; $display("ERROR: USB pid got=%h exp=3", rpid); end
-    if (rlen !== 4) begin errors++; $display("ERROR: USB len got=%0d exp=4", rlen); end
-    for (int i = 0; i < 4; i++) begin
-      if (rxp[i] !== txp[i]) begin errors++; $display("ERROR: USB b%0d got=%h exp=%h", i, rxp[i], txp[i]); end
-    end
-    if (dut.rx_err !== 1'b0) begin errors++; $display("ERROR: USB rx_err set"); end
-
-    repeat (50) @(posedge clk);
-
-    txp[0] = 8'hFF;
-    host_send_data(4'hB, 1);
-    host_recv(rpid, rlen);
-    if (rpid !== 4'hB) begin errors++; $display("ERROR: USB pid2 got=%h exp=B", rpid); end
-    if (rlen !== 1) begin errors++; $display("ERROR: USB len2 got=%0d exp=1", rlen); end
-    if (rxp[0] !== 8'hFF) begin errors++; $display("ERROR: USB b0 got=%h exp=FF", rxp[0]); end
-    if (dut.rx_err !== 1'b0) begin errors++; $display("ERROR: USB rx_err2 set"); end
-
-`ifdef VERILATOR
-    // ---- v2.5 CRV random phase (directed tests above untouched) ----
-    begin : crv_phase
-      int n_good = 0, n_badcrc = 0, n_badpid = 0, n_stuff = 0, n_short = 0;
-      int roll, len_c;
-      logic [3:0] pid_c;
-      for (int t = 0; t < 100; t++) begin
-        roll  = $urandom_range(0, 9);
-        len_c = $urandom_range(0, 8);           // payload 0..8 bytes (0 = header-only)
-        pid_c = $urandom_range(0, 15);          // any PID nibble (echoed)
-        // v2.5.1 FIXED: PID=F is now echo-compared like any other nibble --
-        // rtl/USB2_0_top.sv TX run_cnt is reset at the SYNC->PID boundary,
-        // so pid_b=8'h0F no longer inserts a spurious stuff bit (was RTL
-        // bug 3 in docs/coverage/W2_USB.md).
-        if (roll < 5 && pid_c == 4'hF) pid_c = 4'hF;
-        for (int i = 0; i < 8; i++) txp[i] = $urandom_range(0, 255);
-        if (t == 0) begin
-          n_good++; crv_txn(4'h3, 1, 0);        // force min payload boundary
-        end else if (t == 1) begin
-          n_good++; crv_txn(4'hB, 8, 0);        // force max payload boundary
-        end else if (t == 3) begin
-          n_good++; crv_txn(4'h3, 0, 0);        // force zero-payload boundary
-        end else if (t == 2) begin
-          // deterministic bad-PID probe: rx_err must go 0->1 on this frame
-          // (no prior error injection), proving the PID-check rx_err line runs
-          if (dut.rx_err !== 1'b0) begin
-            errors++; $display("ERROR: CRV rx_err set before first bad frame");
-          end
-          n_badpid++; crv_txn(pid_c, len_c, 2);
-        end else if (t == 4) begin
-          n_good++; crv_txn(4'hF, 2, 0);        // v2.5.1: deterministic PID=F lock
-        end else if (roll < 5) begin
-          n_good++;   crv_txn(pid_c, len_c, 0);
-        end else if (roll < 7) begin
-          n_badcrc++; crv_txn(pid_c, len_c, 1);
-        end else if (roll < 8) begin
-          n_badpid++; crv_txn(pid_c, len_c, 2);
-        end else if (roll < 9) begin
-          n_stuff++;  crv_txn(pid_c, len_c, 3);
-        end else begin
-          n_short++;  crv_txn(pid_c, len_c, 4);
+  task automatic recv_check(input logic [3:0] pid, input int len);
+    logic prev, b, cur;
+    logic [7:0] sh;
+    logic [15:0] c;
+    int n, ones, wt, se0n;
+    bit last_stuff;
+    realtime t_eop, t_k;
+    begin
+      t_eop = $realtime;
+      wt = 0;
+      while (!(dp === 1'b0 && dm === 1'b1) && wt < 20 * BIT) begin #1; wt++; end
+      t_k = $realtime;
+      if (wt >= 20 * BIT) begin errors++; $display("ERROR: no echo for pid %h len %0d", pid, len); end
+      else begin
+        // turnaround from the host's EOP end (SE0 -> J), one bit before
+        // the host released the bus: 2 .. 6.5 bit times
+        if (t_k - t_eop + BIT < 2.0 * BIT || t_k - t_eop + BIT > 6.5 * BIT) begin
+          errors++; $display("ERROR: turnaround %0t ns out of range", t_k - t_eop + BIT);
         end
+        #(BIT / 2);
+        prev = 1'b1; n = 0; ones = 0; last_stuff = 0; sh = 0; c = 16'hFFFF; rpid = 0;
+        for (int i = 0; i < 8; i++) begin           // SYNC 0000_0001
+          cur = (dp === 1'b1);
+          b = (cur == prev); prev = cur;
+          if (b !== (i == 7)) begin errors++; $display("ERROR: echo SYNC bit %0d", i); end
+          ones = b ? ones + 1 : 0;
+          #(BIT);
+        end
+        while (!(dp === 1'b0 && dm === 1'b0)) begin
+          if (dp === dm) begin errors++; $display("ERROR: SE1 on bus"); end
+          cur = (dp === 1'b1);
+          b = (cur == prev); prev = cur;
+          if (ones == 6) begin
+            if (b) begin errors++; $display("ERROR: echo missing stuff bit"); end
+            ones = 0; last_stuff = 1;
+          end else begin
+            last_stuff = 0;
+            ones = b ? ones + 1 : 0;
+            sh = {b, sh[7:1]};
+            if (n >= 8) c = crc_u(c, b);
+            if (n % 8 == 7) begin
+              if (n == 7) rpid = sh[3:0];
+              if (n == 7 && sh[7:4] !== ~sh[3:0]) begin errors++; $display("ERROR: echo PID check"); end
+              if (n >= 15 && (n / 8) - 1 < 16) rxp[(n / 8) - 1] = sh;
+            end
+            n++;
+          end
+          #(BIT);
+        end
+        if (last_stuff) n_tail_stuff++;
+        se0n = 0;
+        while (dp === 1'b0 && dm === 1'b0) begin se0n++; #(BIT); end
+        if (se0n != 2) begin errors++; $display("ERROR: echo EOP SE0 %0d bits", se0n); end
+        if (!(dp === 1'b1 && dm === 1'b0)) begin errors++; $display("ERROR: echo EOP not J"); end
+        #(BIT);
+        rlen = n / 8 - 3;
+        if (n % 8 != 0) begin errors++; $display("ERROR: echo not byte aligned"); end
+        if (c !== 16'hB001) begin errors++; $display("ERROR: echo CRC16 residual %h", c); end
+        if (rpid !== pid) begin errors++; $display("ERROR: echo pid %h exp %h", rpid, pid); end
+        if (rlen != len) begin errors++; $display("ERROR: echo len %0d exp %0d", rlen, len); end
+        for (int i = 0; i < len && i < 16; i++)
+          if (rxp[i] !== txp[i]) begin
+            errors++; $display("ERROR: echo byte %0d %h exp %h", i, rxp[i], txp[i]);
+          end
       end
-      $display("CRV: 100 txns (good=%0d bad_crc=%0d bad_pid=%0d stuff=%0d short=%0d)",
-               n_good, n_badcrc, n_badpid, n_stuff, n_short);
     end
-`endif
+  endtask
+
+  task automatic good(input logic [3:0] pid, input int len);
+    int c0;
+    begin
+      c0 = irq_cnt;
+      send(pid, len, 0);
+      recv_check(pid, len);
+      if (irq_cnt != c0 + 1) begin errors++; $display("ERROR: irq count %0d", irq_cnt - c0); end
+      #(4 * BIT);
+      if (busy !== 1'b0) begin errors++; $display("ERROR: busy after echo"); end
+    end
+  endtask
+
+  task automatic bad(input logic [3:0] pid, input int len, input int mode);
+    int c0;
+    begin
+      // rx_err is sticky: clear it with a reset so each case is checked
+      @(negedge clk) rst_n = 0; repeat (3) @(negedge clk); rst_n = 1;
+      #(2 * BIT);
+      c0 = irq_cnt;
+      send(pid, len, mode);
+      #(30 * BIT);
+      if (irq_cnt != c0) begin errors++; $display("ERROR: mode %0d frame echoed", mode); end
+      if (dut.rx_err !== 1'b1) begin errors++; $display("ERROR: mode %0d rx_err not set", mode); end
+      if (busy !== 1'b0) begin errors++; $display("ERROR: mode %0d busy stuck", mode); end
+      good(4'h3, 2);                                // recovery
+    end
+  endtask
+
+  initial begin
+    for (int i = 0; i < 16; i++) txp[i] = 8'hA0 + 8'(i * 17);
+    repeat (10) @(negedge clk);
+    rst_n = 1;
+    #(4 * BIT);
+    if (busy !== 1'b0 || irq !== 1'b0 || dp !== 1'b1 || dm !== 1'b0) begin
+      errors++; $display("ERROR: reset state");
+    end
+
+    // directed good frames: lengths 0..MAXB, every PID nibble
+    good(4'h3, 4);
+    good(4'hB, 0);
+    good(4'hF, 1);
+    for (int l = 0; l <= MAXB; l++) good(4'(l), l);
+    for (int p = 0; p < 16; p++) good(4'(p), 1);
+    // all-ones payload: stuff bits inside and across bytes
+    for (int i = 0; i < MAXB; i++) txp[i] = 8'hFF;
+    good(4'h3, MAXB);
+    for (int i = 0; i < MAXB; i++) txp[i] = 8'h00;
+    good(4'hC, MAXB);
+    if (dut.rx_err !== 1'b0) begin errors++; $display("ERROR: rx_err after good frames"); end
+
+    // host clock drift: the receiver re-centres on every transition
+    for (int i = 0; i < MAXB; i++) txp[i] = 8'hFF;
+    hbit = BIT + 4; good(4'h3, MAXB);
+    hbit = BIT - 4; good(4'h3, MAXB);
+    hbit = BIT;
+    // longer SYNC (extra KJ pairs) and the shortest accepted one (5 zeros)
+    sync_zeros = 11; good(4'h3, 1);
+    sync_zeros = 5;  good(4'h3, 1);
+    sync_zeros = 7;
+
+    // error frames
+    for (int i = 0; i < 16; i++) txp[i] = $urandom;
+    bad(4'h3, 3, 1);                                // CRC
+    bad(4'h3, 3, 2);                                // PID check
+    bad(4'h3, 3, 3);                                // stuffing
+    bad(4'h3, 3, 4);                                // misaligned
+    bad(4'h3, 3, 5);                                // SE0 in SYNC
+    bad(4'h3, 3, 6);                                // K after SE0
+    bad(4'h3, 3, 7);                                // short SYNC
+    bad(4'h3, MAXB + 1, 0);                         // too long
+    // PID only, no CRC: too short
+    begin
+      @(negedge clk) rst_n = 0; repeat (3) @(negedge clk); rst_n = 1;
+      #(2 * BIT);
+      hl = 1; hones = 0; stuff_err_now = 0;
+      for (int i = 0; i < 7; i++) h_send_bit(1'b0);
+      h_send_bit(1'b1);
+      for (int i = 0; i < 8; i++) h_send_bit(i < 4 ? 1'b1 : 1'b0);
+      h_eop(2);
+      #(30 * BIT);
+      if (dut.rx_err !== 1'b1) begin errors++; $display("ERROR: short frame rx_err not set"); end
+      good(4'h3, 2);
+    end
+
+    // reset in the middle of an echo: lines released, engine idle
+    txp[0] = 8'h5A; txp[1] = 8'hA5;
+    send(4'h3, 2, 0);
+    #(8 * BIT);
+    @(negedge clk) rst_n = 0;
+    #(2 * BIT);
+    if (dp !== 1'b1 || dm !== 1'b0 || busy !== 1'b0) begin
+      errors++; $display("ERROR: reset during echo");
+    end
+    rst_n = 1;
+    #(4 * BIT);
+    good(4'h3, 2);
+
+    // random traffic
+    for (int t = 0; t < 120; t++) begin
+      int l;
+      l = $urandom_range(0, MAXB);
+      for (int i = 0; i < l; i++) txp[i] = $urandom;
+      good(4'($urandom), l);
+    end
+    if (n_tail_stuff == 0) begin errors++; $display("ERROR: no echo ended with a stuff bit"); end
+
     if (errors == 0) $display("TEST PASSED: USB2.0");
     else             $display("TEST FAILED: %0d errors", errors);
-`ifdef VERILATOR
-    begin
-      int visited;
-      visited = 0;
-      for (int s = 0; s < USB20_FSM_TOTAL; s++) visited += fsm_seen[s];
-      $display("FSM_COV: %0d/%0d", visited, USB20_FSM_TOTAL);
-      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
-    end
-`endif
     $finish;
   end
 
-`ifdef VERILATOR
-  // CRV phase adds ~12 ms of bus traffic: extend the guard. The timeout is
-  // chunked into 1-us delays: with Verilator 5.006 a single long-pending
-  // #delay event corrupts the --timing delay heap once many short-delay
-  // resumptions interleave with it (see docs/COVERAGE.md note 1).
+  // timeout guard in 1-us chunks: one long pending #delay is fragile with
+  // the --timing scheduler
   initial begin
-    repeat (30000) #1000;   // 30 ms in 1-us chunks
-    $display("TIMEOUT"); $finish;
+    repeat (80000) #1000;
+    $display("TEST FAILED: TIMEOUT"); $finish;
   end
-`else
-  initial begin
-    #10_000_000; $display("TIMEOUT"); $finish;
-  end
-`endif
 endmodule

@@ -5,12 +5,16 @@
 //          START + addr[6:0] + cmd[7:0] + data[15:0] + CRC4 + ACK/NACK slot,
 //        GET reads back {4'h0, vdac} + CRC4; set/get voltage commands with an
 //        internal 12-bit DAC code register and a voltage ramp FSM (10 mV/clk,
-//        1 code = 1 mV). NACK on illegal address / bad CRC / unknown command.
+//        1 code = 1 mV). NACK on illegal address / bad CRC / unknown command
+//        / a SET code that does not fit the 12-bit DAC (data[15:12] != 0).
+//        A frame abandoned by the master (no sclk rise for TIMEOUT clk
+//        cycles) is dropped, so the next START is decoded from bit 0.
 // IP design implementation v1.0 -- Apache-2.0
 // ============================================================================
 module AVSBus__Adaptive_Voltage_Scaling__top #(
   parameter int DW = 32,          // data width (framework parameter)
-  parameter int AW = 32           // address width (framework parameter)
+  parameter int AW = 32,          // address width (framework parameter)
+  parameter int TIMEOUT = 1024    // clk cycles without sclk rise -> drop frame
 )(
   input  logic        clk,
   input  logic        rst_n,
@@ -66,6 +70,9 @@ module AVSBus__Adaptive_Voltage_Scaling__top #(
   logic [3:0]   crc_calc;
   logic [19:0]  tx_shift;    // {rdata16, crc4} for GET readback
   logic [4:0]   tx_cnt;
+  localparam int TOW = $clog2(TIMEOUT + 1);
+  logic [TOW-1:0] idle_cnt;  // clk cycles since the last sclk rise in a frame
+  wire          timed_out = (idle_cnt == TOW'(TIMEOUT));
 
   wire [6:0]  rx_addr = rx_shift[34:28];
   wire [7:0]  rx_cmd  = rx_shift[27:20];
@@ -73,14 +80,14 @@ module AVSBus__Adaptive_Voltage_Scaling__top #(
   wire [3:0]  rx_crc  = rx_shift[3:0];
 
   wire addr_ok = (rx_addr == SLAVE_ADDR);
-  wire cmd_ok  = (rx_cmd == CMD_SET) || (rx_cmd == CMD_GET);
+  wire cmd_ok  = (rx_cmd == CMD_GET) ||
+                 (rx_cmd == CMD_SET && rx_data[15:12] == 4'h0);   // code in range
   wire crc_ok  = (rx_crc == crc_calc);
   wire ack_ok  = addr_ok && crc_ok && cmd_ok;
 
   // ------------------------- voltage ramp registers -------------------------
   logic [11:0] vdac_q;         // current code
   logic [11:0] vtgt_q;         // target code
-  wire  [15:0] get_word = {4'h0, vdac_q};
 
   // ==========================================================================
   // sequential logic
@@ -95,6 +102,7 @@ module AVSBus__Adaptive_Voltage_Scaling__top #(
       crc_calc  <= 4'h0;
       tx_shift  <= '0;
       tx_cnt    <= '0;
+      idle_cnt  <= '0;
       vdac_q    <= 12'h000;
       vtgt_q    <= 12'h000;
       irq       <= 1'b0;
@@ -111,8 +119,14 @@ module AVSBus__Adaptive_Voltage_Scaling__top #(
           vdac_q <= ((vdac_q - vtgt_q) > RAMP_STEP) ? vdac_q - RAMP_STEP : vtgt_q;
       end
 
+      // ---------------- frame timeout --------------------------------------
+      if (avstate == AV_IDLE || sclk_rise) idle_cnt <= '0;
+      else if (!timed_out)                 idle_cnt <= idle_cnt + 1'b1;
+
       // ---------------- serial frame FSM (sclk rising-edge driven) --------
-      case (avstate)
+      if (timed_out) begin
+        avstate <= AV_IDLE;                     // abandoned frame
+      end else case (avstate)
         AV_IDLE: if (sclk_rise && sbit) begin   // START bit
           avstate  <= AV_RX;
           bit_cnt  <= '0;
@@ -132,7 +146,7 @@ module AVSBus__Adaptive_Voltage_Scaling__top #(
           if (ack_ok && (rx_cmd == CMD_SET))
             vtgt_q <= rx_data[11:0];
           if (ack_ok && (rx_cmd == CMD_GET)) begin
-            tx_shift <= {get_word, crc4_vec16(get_word)};
+            tx_shift <= {4'h0, vdac_q, crc4_vec16({4'h0, vdac_q})};
             tx_cnt   <= '0;
             avstate  <= AV_TX;
           end else begin
@@ -151,7 +165,7 @@ module AVSBus__Adaptive_Voltage_Scaling__top #(
         end
 
         AV_DONE: avstate <= AV_IDLE;
-        default: avstate <= AV_IDLE;
+        default: avstate <= AV_IDLE;            // unused encodings 5..7
       endcase
     end
   end

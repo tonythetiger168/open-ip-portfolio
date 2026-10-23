@@ -1,249 +1,326 @@
 // SPDX-License-Identifier: Apache-2.0
-// Self-checking TB: master drives req flit with credits; checks rsp flit.
+// UALink_top testbench: a TB originator on the four UPLI channels.
+//  - the originator counts the request and data credits it is granted,
+//    sends requests (reads and writes of 1..8 beats, FETCH_ADD, SWAP, CAS
+//    with and without a match) and their data beats on their own schedule,
+//    and grants read and write response credits at a variable rate
+//  - a reference memory takes each request's effect in order; every
+//    response is checked in order on its channel (tag, data, last, status)
+//  - error requests (invalid command, misaligned, past the memory, atomic
+//    with len != 0), a wrong od_last, a request and a data beat without a
+//    credit, a response credit past 15; reset with traffic in flight
+// The bound checker (tb/cov/UALink_sva.sv) checks every output on every
+// clock against its own model.
 `timescale 1ns/1ps
 module UALink_tb;
+  localparam int MW = 16, RQ = 4, DQ = 8;
   logic clk = 0, rst_n = 0;
-  logic [43:0] txreqflit = '0;
-  logic        txreqflitv = 0;
-  logic        txreqlcrdv;
-  logic [33:0] rxrspflit;
-  logic        rxrspflitv;
-  logic        rxrsplcrdv = 0;
-  int errors = 0;
-
-  UALink_top dut (
-    .clk(clk), .rst_n(rst_n),
-    .txreqflit(txreqflit), .txreqflitv(txreqflitv), .txreqlcrdv(txreqlcrdv),
-    .rxrspflit(rxrspflit), .rxrspflitv(rxrspflitv), .rxrsplcrdv(rxrsplcrdv),
-    .busy(), .irq());
-
   always #5 clk = ~clk;
+  int errors = 0;
+  task automatic fail(input string s);
+    errors++;
+    $display("ERROR: %s @%0t", s, $time);
+  endtask
+  task automatic wait_clk(input int n); repeat (n) @(negedge clk); endtask
 
-`ifdef VERILATOR
-  // =====================================================================
-  // v2.5 CRV instrumentation (tool build only; iverilog path unchanged)
-  // FSM probed: dut.cstate (C_IDLE/C_LAT/C_SEND, 3 states).
-  // =====================================================================
-  localparam int UALINK_FSM_TOTAL = 3;  // C_IDLE..C_SEND
-  logic [2:0] fsm_seen = '0;            // visited-state bitmap
-  wire  [1:0] dut_state = dut.cstate;
+  logic        req_valid = 0, od_valid = 0, od_last = 0, rd_crd = 0, wr_crd = 0;
+  logic [2:0]  req_cmd = 0, req_len = 0;
+  logic [7:0]  req_tag = 0, od_be = 0;
+  logic [15:0] req_addr = 0;
+  logic [63:0] od_data = 0;
+  wire         req_crd, od_crd, rd_valid, rd_last, wr_valid, ev_err, ev_proto;
+  wire  [7:0]  rd_tag, wr_tag;
+  wire  [63:0] rd_data;
+  wire  [1:0]  rd_status, wr_status;
+  UALink_top #(.MW(MW), .RQ(RQ), .DQ(DQ)) dut (.*);
 
-  int sva_total = 0, sva_fail = 0;
-  // counted immediate assertion: every evaluation is one check
-  task automatic sva_check(input bit cond, input string name);
-    begin
-      sva_total++;
-      if (!cond) begin
-        sva_fail++;
-        errors++;
-        $display("SVA_FAIL: %s @%0t", name, $time);
-      end
+  // ---------------- reference ----------------
+  logic [63:0] r_mem [0:MW-1];
+  initial for (int i = 0; i < MW; i++) r_mem[i] = 0;
+  logic [74:0] e_rd [$];                         // {tag, data, last, status}
+  logic [9:0]  e_wr [$];                         // {tag, status}
+  logic [72:0] oq [$];                           // data beats to send {data, be, last}
+  int n_req = 0, n_rd = 0, n_wr = 0, n_err = 0, x_err = 0, n_proto = 0, x_proto = 0;
+  int n_ok_rd = 0, n_ok_wr = 0, n_at = 0;
+
+  // knobs
+  int  p_req = 60, p_od = 70, p_rc = 70, p_wc = 70, p_err = 0;
+  bit  req_on = 0, crd_on = 1;
+  bit  nocrd_req = 0, nocrd_od = 0, bad_last = 0;
+  int  fix_w = -1, fix_len = 0, fix_cmd = -1;    // a fixed request
+  logic [63:0] fix_data = 0;
+
+  // one request: its effect on the reference, its expected responses, its data
+  task automatic make_req(output logic [2:0] cmd, output logic [15:0] addr, output logic [2:0] len, input logic [7:0] tag);
+    int w, k, st, nb;
+    bit bad, at;
+    logic [63:0] d [0:7];
+    logic [7:0]  be [0:7];
+    logic [63:0] old;
+    k = $urandom % 100;
+    cmd = k < 35 ? 0 : k < 70 ? 1 : k < 80 ? 2 : k < 90 ? 3 : 4;
+    w = $urandom % MW;
+    len = $urandom % 8;
+    if (cmd >= 2 || w + len >= MW) len = cmd >= 2 ? 0 : MW - 1 - w;
+    addr = 16'(w * 8);
+    if (fix_cmd >= 0) begin cmd = fix_cmd; w = fix_w; len = fix_len; addr = 16'(w * 8); end
+    if ($urandom % 100 < p_err) begin
+      case ($urandom % 5)
+        0: cmd = 5 + $urandom % 3;
+        1: addr[2:0] = 1 + $urandom % 7;
+        2: if (cmd >= 2) len = 1 + $urandom % 7; else addr[2:0] = 1 + $urandom % 7;
+        3: begin addr = $urandom; addr[2:0] = 0; if (addr[15:3] + (cmd >= 2 ? 0 : len) < MW) addr[15] = 1; end
+        default: if (cmd <= 1) begin                   // runs past the last word
+                   w = MW - 1 - $urandom % 4; len = 4 + $urandom % 4; addr = 16'(w * 8);
+                 end else addr[15:14] = 2'b11;
+      endcase
     end
+    at = cmd >= 2 && cmd <= 4;
+    bad = cmd > 4 || addr[2:0] != 0 || at && len != 0;
+    w = addr[15:3];
+    st = bad ? 2 : w + (at ? 0 : len) >= MW ? 1 : 0;
+    nb = cmd == 1 ? len + 1 : cmd == 2 || cmd == 3 ? 1 : cmd == 4 ? 2 : 0;
+    for (int i = 0; i < nb; i++) begin
+      d[i] = {$urandom, $urandom};
+      be[i] = $urandom % 3 == 0 ? 8'hFF : 8'($urandom);
+      if (fix_cmd >= 0) begin d[i] = fix_data; be[i] = 8'hFF; end
+    end
+    if (cmd == 4 && st == 0 && $urandom % 2) d[0] = r_mem[w];        // CAS: a match
+    for (int i = 0; i < nb; i++) oq.push_back({d[i], be[i], i == nb - 1});
+    if (st != 0) x_err++;
+    case (cmd)
+      0: if (st != 0) e_rd.push_back({tag, 64'd0, 1'b1, 2'(st)});
+         else for (int i = 0; i <= len; i++) e_rd.push_back({tag, r_mem[w + i], i == len, 2'd0});
+      1: begin
+        if (st == 0)
+          for (int i = 0; i <= len; i++)
+            for (int b = 0; b < 8; b++) if (be[i][b]) r_mem[w + i][8*b +: 8] = d[i][8*b +: 8];
+        e_wr.push_back({tag, 2'(st)});
+      end
+      2, 3, 4: begin
+        if (st != 0) e_rd.push_back({tag, 64'd0, 1'b1, 2'(st)});
+        else begin
+          old = r_mem[w];
+          e_rd.push_back({tag, old, 1'b1, 2'd0});
+          r_mem[w] = cmd == 2 ? old + d[0] : cmd == 3 ? d[0] : old == d[0] ? d[1] : old;
+          n_at++;
+        end
+      end
+      default: e_wr.push_back({tag, 2'(st)});
+    endcase
   endtask
 
-  // FSM coverage: sample DUT state register every clock
-  always @(posedge clk) fsm_seen[dut_state] <= 1'b1;
-
-
-
-  // output-invariant assertion suite (sampled coherently pre-NBA)
-  logic rst_n_q = 1'b1;
-  always @(posedge clk) begin
-    if (!rst_n) begin
-      // A1: outputs quiescent during reset (one cycle for regs to init)
-      if (!rst_n_q)
-        sva_check(rxrspflitv === 1'b0 && dut.busy === 1'b0,
-                  "A1 reset: outputs quiescent");
-    end else begin
-      // A2: response-valid exactly reflects C_SEND with a credit
-      sva_check(rxrspflitv === ((dut_state == 2'd2) && (dut.tx_crd != 0)),
-                "A2 flitv == C_SEND+credit");
-      // A3: busy exactly reflects non-idle
-      sva_check(dut.busy === (dut_state != 2'd0), "A3 busy == !C_IDLE");
-      // A4: acceptance credit counter never exceeds the max
-      sva_check(dut.rx_crd <= 4'd8, "A4 rx_crd within max");
-      // A5: response credit counter never exceeds the max
-      sva_check(dut.tx_crd <= 4'd8, "A5 tx_crd within max");
-      // A6: irq mirrors response-valid
-      sva_check(dut.irq === rxrspflitv, "A6 irq == flitv");
-      // A7: valid response flits carry the OK opcode and set tag bit
-      sva_check(!rxrspflitv ||
-                (rxrspflit[33:29] === 5'b00001 && rxrspflit[0] === 1'b1),
-                "A7 rsp flit opcode/tag");
-    end
-    rst_n_q <= rst_n;
-  end
-`endif
-
-  // grant response credits periodically (master side)
-`ifdef VERILATOR
-  // constant grant in the coverage build: a second forever-coroutine with
-  // thousands of suspends can lose wakeups under the 5.006 timing scheduler
-  // (see docs/COVERAGE.md note 1), which would starve the response path
-  initial begin
-    rxrsplcrdv = 0;
-    repeat(4) @(posedge clk);
-    rxrsplcrdv = 1;
-    @(posedge clk);          // one low->high->pulse for toggle coverage
-    rxrsplcrdv = 0;
-    @(posedge clk);
-    rxrsplcrdv = 1;
-  end
-`else
-  initial begin
-    rxrsplcrdv = 0;
-    repeat(4) @(posedge clk);
-    forever begin
-      repeat(8) @(posedge clk);
-      rxrsplcrdv <= 1;
-      @(posedge clk);
-      rxrsplcrdv <= 0;
+  // ---------------- originator ----------------
+  int m_rq = 0, m_od = 0;                        // credits held
+  int c_rd = 0, c_wr = 0;                        // response credits the completer holds
+  int fix_n = 0;                                 // fixed requests still to send
+  bit raw = 0;                                   // send raw_* as is
+  logic [2:0] raw_cmd = 0, raw_len = 0;
+  logic [7:0] raw_tag = 0;
+  logic [15:0] raw_addr = 0;
+  always @(negedge clk) begin : b_req
+    logic [2:0]  c, l;
+    logic [15:0] a;
+    req_valid = 0;
+    {req_cmd, req_tag, req_addr, req_len} = $urandom;
+    if (rst_n && req_crd) m_rq++;
+    if (rst_n && nocrd_req) begin
+      nocrd_req = 0; req_valid = 1; x_proto++;
+    end else if (rst_n && raw && m_rq > 0) begin
+      raw = 0; req_valid = 1; req_cmd = raw_cmd; req_tag = raw_tag; req_addr = raw_addr; req_len = raw_len;
+      m_rq--; n_req++;
+    end else if (rst_n && m_rq > 0 && (req_on && $urandom % 100 < p_req || fix_n > 0)) begin
+      if (fix_n > 0) fix_n--;
+      req_tag = $urandom;
+      make_req(c, a, l, req_tag);
+      req_valid = 1; req_cmd = c; req_addr = a; req_len = l;
+      m_rq--; n_req++;
     end
   end
-`endif
-
-  task automatic send_req(input logic [11:0] txn, input logic [31:0] addr);
-    begin
-      // wait for an acceptance credit from the slave
-      @(posedge clk);
-      while (!txreqlcrdv) @(posedge clk);
-      txreqflit  <= {txn, addr};
-      txreqflitv <= 1'b1;
-      @(posedge clk);
-      txreqflitv <= 1'b0;
-      txreqflit  <= '0;
+  always @(negedge clk) begin : b_od
+    logic [72:0] b;
+    od_valid = 0;
+    {od_data, od_be, od_last} = {$urandom, $urandom, $urandom};
+    if (rst_n && od_crd) m_od++;
+    if (rst_n && nocrd_od) begin
+      nocrd_od = 0; od_valid = 1; x_proto++;
+    end else if (rst_n && m_od > 0 && oq.size() != 0 && $urandom % 100 < p_od) begin
+      b = oq.pop_front();
+      od_valid = 1; {od_data, od_be, od_last} = b;
+      if (bad_last) begin bad_last = 0; od_last = !od_last; x_proto++; end
+      m_od--;
     end
+  end
+  bit over_rd = 0, over_wr = 0;
+  always @(negedge clk) begin
+    rd_crd = 0; wr_crd = 0;
+    if (rst_n && (crd_on && c_rd < 15 && $urandom % 100 < p_rc || over_rd)) begin
+      rd_crd = 1;
+      if (over_rd) begin over_rd = 0; x_proto++; end else c_rd++;
+    end
+    if (rst_n && (crd_on && c_wr < 15 && $urandom % 100 < p_wc || over_wr)) begin
+      wr_crd = 1;
+      if (over_wr) begin over_wr = 0; x_proto++; end else c_wr++;
+    end
+  end
+
+  // ---------------- responses ----------------
+  always @(negedge clk) if (rst_n) begin : b_chk
+    logic [74:0] e;
+    logic [9:0]  f;
+    if (ev_proto) n_proto++;
+    if (ev_err) n_err++;
+    if (rd_valid) begin
+      c_rd--; n_rd++;
+      if (e_rd.size() == 0) fail("read response with none expected");
+      else begin
+        e = e_rd.pop_front();
+        if ({rd_tag, rd_data, rd_last, rd_status} !== e)
+          fail($sformatf("RD tag %h data %h last %0d st %0d, expected tag %h data %h last %0d st %0d",
+                         rd_tag, rd_data, rd_last, rd_status, e[74:67], e[66:3], e[2], e[1:0]));
+        if (e[1:0] == 0) n_ok_rd++;
+      end
+    end
+    if (wr_valid) begin
+      c_wr--; n_wr++;
+      if (e_wr.size() == 0) fail("write response with none expected");
+      else begin
+        f = e_wr.pop_front();
+        if ({wr_tag, wr_status} !== f)
+          fail($sformatf("WR tag %h st %0d, expected tag %h st %0d", wr_tag, wr_status, f[9:2], f[1:0]));
+        if (f[1:0] == 0) n_ok_wr++;
+      end
+    end
+  end
+
+  task automatic drain(input string ph);
+    int t;
+    t = 0;
+    while ((e_rd.size() != 0 || e_wr.size() != 0 || oq.size() != 0 || fix_n != 0) && t < 20000) begin @(negedge clk); t++; end
+    if (t == 20000) fail($sformatf("%s: stuck (%0d reads, %0d writes, %0d beats left)", ph, e_rd.size(), e_wr.size(), oq.size()));
+    wait_clk(5);
+    if (n_proto != x_proto) fail($sformatf("%s: ev_proto %0d, expected %0d", ph, n_proto, x_proto));
+    if (n_err != x_err) fail($sformatf("%s: ev_err %0d, expected %0d", ph, n_err, x_err));
+    $display("%s: %0d requests, %0d read beats (%0d OK), %0d write responses (%0d OK), %0d atomics, %0d errors",
+             ph, n_req, n_rd, n_ok_rd, n_wr, n_ok_wr, n_at, n_err);
+  endtask
+  // fixed requests: n of cmd at word w, len, data
+  task automatic fixed(input int cmd, input int w, input int len, input logic [63:0] d, input int n);
+    fix_cmd = cmd; fix_w = w; fix_len = len; fix_data = d; fix_n = n;
+    while (fix_n != 0) @(negedge clk);
+    fix_cmd = -1;
   endtask
 
-  task automatic expect_rsp(input logic [11:0] txn, input logic [15:0] data);
-    logic [33:0] r;
-    begin
-      r = '0;
-      wait (rxrspflitv === 1'b1);
-      @(posedge clk); #1;
-      r = rxrspflit;
-      if (r[28:17] !== txn) begin
-        errors++; $display("ERROR: UALink rsp txn got=%h exp=%h", r[28:17], txn);
-      end
-      if (r[16:1] !== data) begin
-        errors++; $display("ERROR: UALink rsp data got=%h exp=%h", r[16:1], data);
-      end
-      if (r[33:29] !== 5'b00001) begin
-        errors++; $display("ERROR: UALink rsp opcode got=%b", r[33:29]);
-      end
-    end
+  // a READ (or an invalid command) sent as is, that fails with status st
+  task automatic raw_bad(input logic [2:0] c, input logic [15:0] a, input logic [2:0] l, input int st);
+    while (raw) @(negedge clk);
+    if (c == 0) e_rd.push_back({8'h3C, 64'd0, 1'b1, 2'(st)}); else e_wr.push_back({8'h3C, 2'(st)});
+    x_err++;
+    raw_cmd = c; raw_tag = 8'h3C; raw_addr = a; raw_len = l; raw = 1;
+    while (raw) @(negedge clk);
+  endtask
+  task automatic raw_ur(input logic [15:0] a, input logic [2:0] l);
+    raw_bad(0, a, l, 1);
   endtask
 
   initial begin
-    rst_n = 0; repeat(10) @(posedge clk);
-    rst_n = 1; repeat(20) @(posedge clk);
-
-    send_req(12'hA5A, 32'hDEAD_BEEF);
-    expect_rsp(12'hA5A, 16'hBEEF);
-    repeat(10) @(posedge clk);
-    send_req(12'h123, 32'hCAFE_0001);
-    expect_rsp(12'h123, 16'h0001);
-`ifdef VERILATOR
-    $display("DBG: directed done");
-`endif
-
-`ifdef VERILATOR
-    // ---- v2.5 CRV random phase (directed tests above untouched) ----
-    // 110 randomized flit transactions: random txnID/addr (normal),
-    // boundary values (all-zero/all-one fields), and credit-protocol error
-    // injection (flit offered while the DUT is busy must be ignored).
-    // Fully inlined via macros (no timing-task coroutine chains): chained
-    // task awaits hit the 5.006 timing-scheduler corruption after ~2k
-    // suspensions; a single coroutine with plain awaits avoids it.
-    begin : crv_phase
-      int n_norm = 0, n_bnd = 0, n_inj = 0;
-      logic [11:0] txn;
-      logic [31:0] addr;
-      logic [33:0] r_c;
-      int roll;
-      for (int t = 0; t < 110; t++) begin
-        roll = $urandom_range(0, 9);
-        txn  = $urandom_range(0, 4095);
-        addr = $urandom;
-        if (roll < 8) begin
-          n_norm++;
-          if (t % 11 == 0)      begin txn = 12'h000; addr = 32'h0;        end
-          else if (t % 13 == 0) begin txn = 12'hFFF; addr = 32'hFFFF_FFFF; end
-        end else begin
-          n_bnd++;
-          txn  = (t % 2 == 0) ? 12'h000 : 12'hFFF;
-          addr = (t % 2 == 0) ? 32'hFFFF_FFFF : 32'h0000_0000;
-        end
-        // inlined send_req: fixed settle instead of credit polling (the
-        // 8-deep acceptance credit can never be exhausted at ~1 flit / 9
-        // clks with a 6-clk response loop), bounded by construction
-        begin
-          repeat (2) @(posedge clk);
-          txreqflit  <= {txn, addr};
-          txreqflitv <= 1'b1;
-          @(posedge clk);
-          txreqflitv <= 1'b0;
-          txreqflit  <= '0;
-        end
-        if (roll >= 8) begin
-          // error injection: junk flit while the DUT is busy (C_LAT)
-          n_inj++;
-          @(negedge clk);
-          txreqflit  <= {12'h555, 32'h5555_5555};
-          txreqflitv <= 1'b1;
-          @(negedge clk);
-          txreqflitv <= 1'b0;
-          txreqflit  <= '0;
-        end
-        // inlined expect_rsp (bounded wait; junk flit must be ignored)
-        begin
-          int wt2;
-          wt2 = 0;
-          while (!rxrspflitv && wt2 < 2000) begin @(posedge clk); wt2++; end
-          if (wt2 >= 2000) begin
-            errors++;
-            $display("ERROR: CRV rsp timeout t=%0d cstate=%0d tx_crd=%0d rx_crd=%0d lat=%0d lcrdv=%b",
-                     t, dut.cstate, dut.tx_crd, dut.rx_crd, dut.lat_cnt, rxrsplcrdv);
-          end
-        end
-        @(posedge clk); #1;
-        r_c = rxrspflit;
-        if (r_c[28:17] !== txn || r_c[16:1] !== addr[15:0] ||
-            r_c[33:29] !== 5'b00001) begin
-          errors++;
-          $display("ERROR: CRV rsp got=%h exp txn=%h data=%h", r_c, txn, addr[15:0]);
-        end
-      end
-      $display("CRV: 110 flits (normal=%0d boundary=%0d busy_inject=%0d)",
-               n_norm, n_bnd, n_inj);
+    wait_clk(3);
+    rst_n = 1;
+    // a request before any credit
+    nocrd_req = 1;
+    wait_clk(10);
+    if (m_rq != RQ || m_od != DQ) fail($sformatf("%0d / %0d credits after reset", m_rq, m_od));
+    // every memory bit both ways
+    fixed(1, 0, 7, '1, 1); fixed(1, 8, 7, '1, 1);
+    fixed(0, 0, 7, 0, 1); fixed(0, 8, 7, 0, 1);
+    fixed(1, 0, 7, '0, 1); fixed(1, 8, 7, '0, 1);
+    fixed(0, 0, 7, 0, 1); fixed(0, 8, 7, 0, 1);
+    drain("fill");
+    // random traffic
+    req_on = 1;
+    wait_clk(3000);
+    req_on = 0;
+    drain("random");
+    // response credits scarce, data slow
+    p_rc = 8; p_wc = 8; p_od = 30; req_on = 1;
+    wait_clk(2000);
+    req_on = 0;
+    drain("slow");
+    // everything fast
+    p_rc = 100; p_wc = 100; p_od = 100; p_req = 100; req_on = 1;
+    wait_clk(1500);
+    req_on = 0;
+    drain("fast");
+    // error requests
+    p_rc = 70; p_wc = 70; p_od = 70; p_req = 60; p_err = 40; req_on = 1;
+    wait_clk(3000);
+    req_on = 0; p_err = 0;
+    drain("errors");
+    // the top of the address space, and every request slot with high address bits
+    raw_ur(16'hFFF8, 7);
+    for (int i = 0; i < RQ; i++) raw_ur(16'h0080, 0);
+    // misaligned or invalid and past the memory: BAD
+    raw_bad(0, 16'h0081, 0, 2);
+    raw_bad(0, 16'h0074, 3, 2);
+    raw_bad(6, 16'h0400, 0, 2);
+    drain("high addresses");
+    // write response credits run out
+    p_wc = 0; req_on = 1;
+    while (c_wr != 0 || e_wr.size() == 0) @(negedge clk);
+    wait_clk(20);
+    p_wc = 5;
+    wait_clk(1000);
+    req_on = 0; p_wc = 70;
+    drain("write credits scarce");
+    // a wrong od_last: early, and missing
+    bad_last = 1; fixed(1, 2, 3, 64'h1234_5678, 1);
+    drain("early last");
+    bad_last = 1; fixed(1, 3, 0, 64'h55, 1);
+    drain("missing last");
+    // a write's data ahead of it: the data slots fill, then a beat without a credit
+    for (int i = 0; i < DQ; i++) begin
+      oq.push_back({64'(64'h0101_0101_0101_0101 * (i + 1)), 8'hFF, i == DQ - 1});
+      r_mem[4 + i] = 64'h0101_0101_0101_0101 * (i + 1);
     end
-`endif
-
-    if (errors == 0) $display("TEST PASSED: UALink");
-    else             $display("TEST FAILED: %0d errors", errors);
-`ifdef VERILATOR
-    begin
-      int visited;
-      visited = 0;
-      for (int s = 0; s < UALINK_FSM_TOTAL; s++) visited += fsm_seen[s];
-      $display("FSM_COV: %0d/%0d", visited, UALINK_FSM_TOTAL);
-      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
-    end
-`endif
+    while (m_od != 0 || oq.size() != 0) @(negedge clk);
+    wait_clk(3);
+    nocrd_od = 1;
+    wait_clk(3);
+    e_wr.push_back({8'hA7, 2'd0});
+    raw_cmd = 1; raw_tag = 8'hA7; raw_addr = 16'(4 * 8); raw_len = 7; raw = 1;
+    drain("data ahead");
+    // response credits past 15
+    req_on = 0; crd_on = 1; p_rc = 100; p_wc = 100;
+    while (c_rd != 15 || c_wr != 15) @(negedge clk);
+    crd_on = 0;
+    over_rd = 1; wait_clk(3);
+    over_wr = 1; wait_clk(3);
+    crd_on = 1;
+    drain("credits past 15");
+    // reset with traffic in flight
+    p_rc = 50; p_wc = 50; req_on = 1;
+    while (!(rd_valid && e_rd.size() > 1 && oq.size() != 0)) @(negedge clk);
+    rst_n = 0;
+    req_on = 0;
+    wait_clk(3);
+    e_rd.delete(); e_wr.delete(); oq.delete();
+    for (int i = 0; i < MW; i++) r_mem[i] = 0;
+    m_rq = 0; m_od = 0; c_rd = 0; c_wr = 0;
+    n_proto = 0; x_proto = 0; n_err = 0; x_err = 0;
+    rst_n = 1;
+    wait_clk(3);
+    req_on = 1;
+    wait_clk(1000);
+    req_on = 0;
+    drain("after reset");
+    if (errors == 0) $display("TEST PASSED: UALink (%0d requests, %0d read beats, %0d write responses)", n_req, n_rd, n_wr);
+    else $display("TEST FAILED: UALink (%0d errors)", errors);
     $finish;
   end
 
-`ifdef VERILATOR
-  // chunked timeout guard: a single long-pending #delay event corrupts the
-  // 5.006 --timing delay heap once many short-delay resumptions interleave;
-  // chunked delays keep all heap entries short-lived (see docs/COVERAGE.md)
   initial begin
-    repeat (4000) #1000;   // 4 ms in 1-us chunks
-    $display("TIMEOUT"); $finish;
+    #10ms;
+    $display("TEST FAILED: UALink (timeout)");
+    $finish;
   end
-`else
-  initial begin
-    #500_000; $display("TIMEOUT"); $finish;
-  end
-`endif
 endmodule

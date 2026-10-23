@@ -1,0 +1,1 @@
+TOGGLE \.tx_er: # pass-through of the core output tied 0 by design (see GMII.txt): the MAC datapath never signals a transmit coding error

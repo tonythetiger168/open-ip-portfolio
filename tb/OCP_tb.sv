@@ -35,6 +35,85 @@ module OCP_tb;
   );
 
   always #5 clk = ~clk;
+
+  // ------------------------------------------------------------------
+  // second instance: same-cycle accept (ACCEPT_DLY = 0), own master
+  // ------------------------------------------------------------------
+  logic [2:0]      m0_cmd = 3'b000;
+  logic [AW-1:0]   m0_addr = '0;
+  logic [DW-1:0]   m0_data = '0;
+  logic [DW/8-1:0] m0_be = 4'hF;
+  logic [1:0]      m0_tid = 2'b00;
+  logic            s0_acc, s0_irq;
+  logic [DW-1:0]   s0_data;
+  logic [1:0]      s0_resp, s0_tid;
+  bit              dut0_done = 1'b0;
+
+  OCP_top #(.DW(DW), .AW(AW), .ACCEPT_DLY(0)) dut0 (
+    .clk(clk), .rst_n(rst_n),
+    .mcmd(m0_cmd), .maddr(m0_addr), .mdata(m0_data),
+    .mbyteen(m0_be), .mthreadid(m0_tid),
+    .scmdaccept(s0_acc), .sdata(s0_data), .sresp(s0_resp),
+    .sthreadid(s0_tid), .irq(s0_irq)
+  );
+
+  // one transfer on dut0: accept must be immediate; a non-posted command
+  // answers on the 2nd cycle after accept (sampled at negedge)
+  task automatic o0_xfer(input logic [2:0] cmd, input logic [AW-1:0] a,
+                         input logic [DW-1:0] d, input logic [3:0] be,
+                         input logic [1:0] tid, input logic [1:0] exp_resp,
+                         input logic [DW-1:0] exp_data, input bit hold_next = 0);
+    begin
+      @(negedge clk);
+      m0_cmd = cmd; m0_addr = a; m0_data = d; m0_be = be; m0_tid = tid;
+      #1;
+      if (s0_acc !== 1'b1) begin errors++; $display("ERROR: OCP dut0 no same-cycle accept @%h", a); end
+      @(negedge clk);
+      m0_cmd = 3'b000;
+      if (cmd == MCMD_WRNP) begin
+        if (s0_resp !== 2'b00) begin errors++; $display("ERROR: OCP dut0 WRNP responded"); end
+        if (hold_next) begin                          // read back right behind it
+          m0_cmd = MCMD_RD; m0_tid = 2'd2; #1;
+          if (s0_acc !== 1'b1) begin errors++; $display("ERROR: OCP dut0 no accept after WRNP"); end
+          @(negedge clk) m0_cmd = 3'b000;
+          @(negedge clk);
+          if (s0_resp !== 2'b01 || s0_data !== d) begin
+            errors++; $display("ERROR: OCP dut0 read behind WRNP resp=%b data=%h", s0_resp, s0_data);
+          end
+        end
+      end else begin
+        if (s0_resp !== 2'b00) begin errors++; $display("ERROR: OCP dut0 early response"); end
+        if (hold_next) m0_cmd = MCMD_RD;            // next command waits while busy
+        @(negedge clk);
+        if (s0_resp !== exp_resp || s0_tid !== tid ||
+            (cmd == MCMD_RD && exp_resp == 2'b01 && s0_data !== exp_data)) begin
+          errors++;
+          $display("ERROR: OCP dut0 cmd=%0d @%h resp=%b tid=%b data=%h exp %b/%h",
+                   cmd, a, s0_resp, s0_tid, s0_data, exp_resp, exp_data);
+        end
+        if (hold_next && s0_acc !== 1'b0) begin errors++; $display("ERROR: OCP dut0 accepted while busy"); end
+      end
+    end
+  endtask
+
+  initial begin
+    @(posedge rst_n); repeat (2) @(posedge clk);
+    o0_xfer(MCMD_WR,   32'h010, 32'h0D10_0010, 4'hF, 2'd1, 2'b01, '0);
+    o0_xfer(MCMD_RD,   32'h010, '0, 4'hF, 2'd2, 2'b01, 32'h0D10_0010);
+    o0_xfer(MCMD_WRNP, 32'h014, 32'h0D10_0014, 4'hF, 2'd0, 2'b00, '0, 1'b1);
+    o0_xfer(MCMD_WR,   32'h014, 32'hFFFF_FFFF, 4'h0, 2'd3, 2'b01, '0);   // no lanes
+    o0_xfer(MCMD_RD,   32'h014, '0, 4'hF, 2'd3, 2'b01, 32'h0D10_0014, 1'b1);
+    // held RD (addr 0x014) is accepted on the first idle cycle
+    o0_xfer(MCMD_RD,   32'h014, '0, 4'hF, 2'd0, 2'b01, 32'h0D10_0014);
+    for (int c = 3; c < 8; c++)
+      if (c != 5)                                       // RDEX/RDL/WRC/BCST
+        o0_xfer(3'(c), 32'h010, 32'hBAD0_0000, 4'hF, 2'(c), 2'b11, '0);
+    o0_xfer(MCMD_RD,   32'h010, '0, 4'hF, 2'd1, 2'b01, 32'h0D10_0010);  // untouched
+    o0_xfer(MCMD_RD,   32'h400, '0, 4'hF, 2'd1, 2'b11, '0);
+    o0_xfer(MCMD_WR,   32'h011, 32'h1, 4'hF, 2'd1, 2'b11, '0);
+    o0_xfer(MCMD_WRNP, 32'h800, 32'h1, 4'hF, 2'd0, 2'b00, '0);
+    dut0_done = 1'b1;
+  end
   logic irq_mon = 1'b0;
   always @(posedge clk) if (irq) irq_mon <= 1'b1;
 
@@ -84,7 +163,7 @@ module OCP_tb;
       // A4: SCmdAccept exactly reflects S_ACCEPT (ACCEPT_DLY=1 build)
       sva_check(scmdaccept === (dut_state == 2'd1), "A4 scmdaccept == S_ACCEPT");
       // A5: SResp=ERR only for a request captured as bad-address
-      sva_check((sresp !== 2'b10) || dut.err_q, "A5 ERR implies err_q");
+      sva_check((sresp !== 2'b11) || dut.err_q, "A5 ERR implies err_q");
       // A6: state register holds a legal encoding (all 4 used)
       sva_check(dut_state <= 2'd3, "A6 state legal");
     end
@@ -262,14 +341,14 @@ module OCP_tb;
     // (mode #2); the module-level irq_mon flag replaces them here. The
     // iverilog path keeps the original fork structure bit-identical.
     irq_mon = 0;
-    ocp_read(32'h800, '0, 2'b01, 2'b10);   // expect SResp=ERR
+    ocp_read(32'h800, '0, 2'b01, 2'b11);   // expect SResp=ERR
     repeat (2) @(posedge clk);
     if (!irq_mon) begin
       errors++;
       $display("ERROR: OCP reserved RD: no irq pulse");
     end
     irq_mon = 0;
-    ocp_write(32'hFFC, 32'hDEAD_DEAD, 4'hF, 2'b00, 2'b10); // expect ERR
+    ocp_write(32'hFFC, 32'hDEAD_DEAD, 4'hF, 2'b00, 2'b11); // expect ERR
     repeat (2) @(posedge clk);
     if (!irq_mon) begin
       errors++;
@@ -286,7 +365,7 @@ module OCP_tb;
             if (irq) irq_seen = 1;
           end
         end
-        ocp_read(32'h800, '0, 2'b01, 2'b10);   // expect SResp=ERR
+        ocp_read(32'h800, '0, 2'b01, 2'b11);   // expect SResp=ERR
       join
       if (!irq_seen) begin
         errors++;
@@ -303,7 +382,7 @@ module OCP_tb;
             if (irq) irq_seen = 1;
           end
         end
-        ocp_write(32'hFFC, 32'hDEAD_DEAD, 4'hF, 2'b00, 2'b10); // expect ERR
+        ocp_write(32'hFFC, 32'hDEAD_DEAD, 4'hF, 2'b00, 2'b11); // expect ERR
       join
       if (!irq_seen) begin
         errors++;
@@ -313,12 +392,39 @@ module OCP_tb;
 `endif
 
     // CHECK 7: error injection - misaligned address
-    ocp_read(32'h002, '0, 2'b00, 2'b10);       // expect SResp=ERR
+    ocp_read(32'h002, '0, 2'b00, 2'b11);       // expect SResp=ERR
 
     // reserved write must not corrupt regfile
     ocp_read(32'h000, 32'hA500_0000, 2'b00, 2'b01);
 
     repeat (5) @(posedge clk);
+    // unsupported MCmd encodings on the ACCEPT_DLY=1 instance -> ERR
+    for (int c = 3; c < 8; c++)
+      if (c != 5) begin
+        logic [1:0] rsp; logic [DW-1:0] dd; int lat;
+        ocp_cmd(3'(c), 32'h000, 32'hBAD0_0000, 4'hF, 2'(c));
+        ocp_wait_resp(rsp, dd, lat);
+        if (rsp !== 2'b11) begin errors++; $display("ERROR: OCP MCmd=%0d resp=%b exp ERR", c, rsp); end
+      end
+    ocp_read(32'h000, 32'hA500_0000, 2'b00, 2'b01);       // regfile untouched
+
+    // reset in the response latency of a read
+    wait (dut0_done);
+    @(negedge clk);
+    mcmd <= MCMD_RD; maddr <= 32'h004; mthreadid <= 2'b01;
+    do @(posedge clk); while (!scmdaccept);
+    @(negedge clk); mcmd <= MCMD_IDLE;
+    @(negedge clk);                                    // response still pending
+    rst_n = 0;
+    @(negedge clk);
+    if (sresp !== 2'b00 || scmdaccept !== 1'b0 || irq !== 1'b0) begin
+      errors++; $display("ERROR: OCP outputs not quiescent in reset");
+    end
+    rst_n = 1;
+    repeat (4) @(posedge clk);
+    if (sresp !== 2'b00) begin errors++; $display("ERROR: OCP stale response after reset"); end
+    ocp_read(32'h004, 32'hA500_0001, 2'b01, 2'b01);       // regfile survives reset
+
 
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ----
@@ -359,13 +465,13 @@ module OCP_tb;
             n_np++;
           end else begin
             ocp_write(ba, db, be_v, tid_v,
-                      (ba[31:10] != 0 || ba[1:0] != 0) ? 2'b10 : 2'b01);
+                      (ba[31:10] != 0 || ba[1:0] != 0) ? 2'b11 : 2'b01);
             n_wr++;
           end
           if (ba[31:10] != 0 || ba[1:0] != 0) n_err++;
         end else begin
           ocp_read(ba, (ba[31:10] == 0 && ba[1:0] == 0) ? sh_mem[ba[9:2]] : 32'h0,
-                   tid_v, (ba[31:10] != 0 || ba[1:0] != 0) ? 2'b10 : 2'b01);
+                   tid_v, (ba[31:10] != 0 || ba[1:0] != 0) ? 2'b11 : 2'b01);
           n_rd++;
           if (ba[31:10] != 0 || ba[1:0] != 0) n_err++;
         end

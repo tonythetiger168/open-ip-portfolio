@@ -1,0 +1,1 @@
+LINE \| default: state <= ST_UNATTACHED;   // unused encoding # defensive recovery for the unused 2-bit encoding of the 3-state attach FSM; unreachable

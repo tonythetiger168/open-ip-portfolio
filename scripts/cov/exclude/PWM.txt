@@ -1,0 +1,1 @@
+TOGGLE \.counter\[(2[2-9]|3[01])\]: # counter bit k first toggles after 2^k clocks of one period (>= 4M cycles); bits 0-21 and every period/duty bit are exercised, and the compare logic is width-generic

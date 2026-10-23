@@ -80,7 +80,7 @@ module ARM_Q_Channel_Low_Power_Interface_tb;
   localparam int QCH_FSM_TOTAL = 5;   // Q_RUN..Q_DENIED (rtl enum)
   logic [4:0] fsm_seen = '0;          // visited-state bitmap
   wire  [2:0] dut_state = dut.state;  // hierarchical FSM probe
-  wire  [7:0] dut_act   = dut.act_cnt;
+  wire  [7:0] dut_act   = 8'(dut.act_cnt);
 
   int sva_total = 0, sva_fail = 0;
   // counted immediate assertion: every evaluation is one check
@@ -247,18 +247,26 @@ module ARM_Q_Channel_Low_Power_Interface_tb;
           n_wk++;
         end
       end
-      // ---- targeted toggle closure: hold dev_event high so the
-      // statistics counter increments every clock through 8192+ values
-      // (closes evt_count[12:0]; higher bits need >= 2^13 events, i.e.
-      // impractical simulation length, and are waived)
-      @(negedge clk); dev_event = 1'b1;
-      repeat (8200) @(negedge clk);
-      @(negedge clk); dev_event = 1'b0;
-      q_restore();   // leave the channel in Q_RUN
       $display("CRV: 120 cycles (accept=%0d deny=%0d illegal=%0d wake=%0d)",
                n_acc, n_dny, n_ill, n_wk);
     end
 `endif
+    // controller drops qreqn again during Q_EXIT (protocol violation):
+    // irq flags it and the device returns to Q_STOPPED
+    repeat (20) @(negedge clk);
+    q_request(0);
+    @(negedge clk); qreqn = 1'b1;              // -> Q_EXIT
+    @(negedge clk); qreqn = 1'b0; #1;          // drop again in Q_EXIT
+    chk(irq === 1'b1, "exit-drop: irq expected");
+    @(negedge clk); #1;
+    chk(qacceptn === 1'b0, "exit-drop: device must stay stopped");
+    // reset while stopped: back to Q_RUN with qactive clear
+    pulse_event();
+    rst_n = 1'b0; #1;
+    chk(qacceptn === 1'b1 && qdeny === 1'b0 && qactive === 1'b0, "reset: Q_RUN expected");
+    @(negedge clk); rst_n = 1'b1; qreqn = 1'b1;
+    @(negedge clk);
+
     if (errors == 0) $display("TEST PASSED: ARM_Q_Channel_Low_Power_Interface");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR

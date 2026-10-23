@@ -1,0 +1,92 @@
+{
+  "title": "MIPI CSI-2 receiver, packet layer on a 1 bit per clock HS lane: SoT sync, header ECC (single-bit correction), short packets (frame start / end), long packets with CRC-16 into a ping-pong line buffer",
+  "code": "0x4332",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "200ms",
+  "regs": [
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Receiver state",
+      "fields": [
+        {
+          "port": "frame_active",
+          "desc": "between a Frame Start and a Frame End"
+        },
+        {
+          "port": "err_flags",
+          "desc": "[0] CRC error, [1] uncorrectable header, [2] burst ended inside a packet, [3] header corrected; they accumulate and clear at Frame Start"
+        },
+        {
+          "port": "lb_len",
+          "desc": "bytes in the readable line (the last long packet with a good CRC, at most 512)"
+        }
+      ]
+    },
+    {
+      "name": "COUNTS",
+      "kind": "ro",
+      "desc": "Counters",
+      "fields": [
+        {
+          "port": "frame_cnt",
+          "desc": "Frame Starts received (wraps)"
+        },
+        {
+          "port": "line_cnt",
+          "desc": "good long packets since the last Frame Start"
+        }
+      ]
+    },
+    {
+      "name": "LAST",
+      "kind": "ro",
+      "desc": "Last accepted header",
+      "fields": [
+        {
+          "port": "last_dt",
+          "desc": "{VC[1:0], DT[5:0]}"
+        },
+        {
+          "port": "last_wc",
+          "desc": "word count (long packet) or data field (short packet)"
+        }
+      ]
+    },
+    {
+      "name": "LB_ADDR",
+      "kind": "rw",
+      "desc": "Line buffer read address",
+      "fields": [
+        {
+          "port": "lb_addr",
+          "reset": "0",
+          "desc": "byte of the readable line shown in LB_DATA"
+        }
+      ]
+    },
+    {
+      "name": "LB_DATA",
+      "kind": "ro",
+      "desc": "Line buffer data",
+      "fields": [
+        {
+          "port": "lb_rdata",
+          "desc": "byte LB_ADDR of the last good line"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "ERROR",
+      "port": "irq",
+      "desc": "a CRC error or an uncorrectable header; the core holds it until the next good packet, so the bit is set again on every clock until then"
+    }
+  ],
+  "notes": [
+    "rx_bit and rx_valid are the lane pins (rx_valid high for one HS burst, one bit per PCLK, LSB first); they pass through unchanged.",
+    "The line buffer is double-buffered: a long packet fills the back half and a good CRC swaps the halves, so LB_DATA always reads the last good line. Bytes beyond 512 are checked but not stored."
+  ]
+}

@@ -8,13 +8,12 @@
 //     internally, including the 56..64-byte two-block corner case
 //   * HMAC mode: 512-bit key block written as 4x128 words; ipad/opad and the
 //     two-pass H(K^opad || H(K^ipad || msg)) are computed automatically
-//   * digest[255:0] + done; any start/key/msg write while busy -> irq pulse
+//   * digest[255:0] + done; any start/key/msg write while busy -> irq pulse;
+//     a start with msg_len > 64 is rejected (irq pulse, engine stays idle)
 // IP design implementation v1.0 -- Apache-2.0
 // ============================================================================
-module Crypto___Security_Engine_top #(
-  parameter int DW = 32,   // word width
-  parameter int AW = 32    // (framework) address width
-)(
+module Crypto___Security_Engine_top (
+
   input  logic         clk,
   input  logic         rst_n,
   // message block port (4 x 128-bit, MSW first)
@@ -118,8 +117,9 @@ module Crypto___Security_Engine_top #(
   assign busy   = (cs != S_IDLE);
   assign digest = {dr[0], dr[1], dr[2], dr[3], dr[4], dr[5], dr[6], dr[7]};
 
-  // message bit length contribution of the message blocks
-  wire [9:0] bitlen = (mode_q ? 10'd512 : 10'd0) + {len_q, 3'b000};
+  // hashed byte count of the inner pass (key block + message), 0..128;
+  // the 64-bit big-endian bit length is {.., nbytes, 3'b000}
+  wire [7:0] nbytes = (mode_q ? 8'd64 : 8'd0) + {1'b0, len_q};
 
   // ------------------------------------------------------------------
   // padded-block byte construction
@@ -130,8 +130,8 @@ module Crypto___Security_Engine_top #(
       if (p < len_q)           msg0_byte = msg_q[511-8*p -: 8];
       else if (p == len_q)     msg0_byte = 8'h80;
       else if ((len_q <= 7'd55) && (p >= 7'd56))
-        msg0_byte = (p == 7'd62) ? {6'h0, bitlen[9:8]} :
-                    (p == 7'd63) ? bitlen[7:0] : 8'h00;
+        msg0_byte = (p == 7'd62) ? {5'h0, nbytes[7:5]} :
+                    (p == 7'd63) ? {nbytes[4:0], 3'b000} : 8'h00;
       else                     msg0_byte = 8'h00;
     end
   endfunction
@@ -140,15 +140,15 @@ module Crypto___Security_Engine_top #(
     begin
       if ((len_q == 7'd64) && (p == 7'd0)) msg1_byte = 8'h80;
       else if (p >= 7'd56)
-        msg1_byte = (p == 7'd62) ? {6'h0, bitlen[9:8]} :
-                    (p == 7'd63) ? bitlen[7:0] : 8'h00;
+        msg1_byte = (p == 7'd62) ? {5'h0, nbytes[7:5]} :
+                    (p == 7'd63) ? {nbytes[4:0], 3'b000} : 8'h00;
       else                     msg1_byte = 8'h00;
     end
   endfunction
   // HMAC outer block: inner digest || 0x80 || 0 || 64'd768
   function automatic logic [7:0] outer_byte(input logic [6:0] p);
     begin
-      if (p < 7'd32)       outer_byte = dr[p[4:0] >> 2][31-8*(p[1:0]) -: 8];
+      if (p < 7'd32)       outer_byte = dr[p[4:2]][31-8*(p[1:0]) -: 8];
       else if (p == 7'd32) outer_byte = 8'h80;
       else if (p == 7'd62) outer_byte = 8'h03;   // 768 = 0x300
       else                 outer_byte = 8'h00;
@@ -160,7 +160,7 @@ module Crypto___Security_Engine_top #(
                                            input logic [3:0] wi);
     logic [6:0] p;
     begin
-      p = {wi, 2'b00};
+      p = {1'b0, wi, 2'b00};
       case (bt)
         B_IPAD:  blk_word = key_q[511-32*wi -: 32] ^ 32'h36363636;
         B_OPAD:  blk_word = key_q[511-32*wi -: 32] ^ 32'h5c5c5c5c;
@@ -168,9 +168,8 @@ module Crypto___Security_Engine_top #(
                              msg0_byte(p+7'd2), msg0_byte(p+7'd3)};
         B_MSG1:  blk_word = {msg1_byte(p), msg1_byte(p+7'd1),
                              msg1_byte(p+7'd2), msg1_byte(p+7'd3)};
-        B_OUTER: blk_word = {outer_byte(p), outer_byte(p+7'd1),
+        default: blk_word = {outer_byte(p), outer_byte(p+7'd1),   // B_OUTER
                              outer_byte(p+7'd2), outer_byte(p+7'd3)};
-        default: blk_word = 32'h0;
       endcase
     end
   endfunction
@@ -237,7 +236,9 @@ module Crypto___Security_Engine_top #(
       if (start && (cs != S_IDLE)) irq <= 1'b1;
 
       case (cs)
-        S_IDLE: if (start) begin
+        S_IDLE: if (start && msg_len > 7'd64) begin
+          irq <= 1'b1;                     // over-long message: rejected
+        end else if (start) begin
           mode_q   <= mode;
           len_q    <= msg_len;
           blk_type <= mode ? B_IPAD : B_MSG0;
@@ -282,7 +283,7 @@ module Crypto___Security_Engine_top #(
           done <= 1'b1;
           cs   <= S_IDLE;
         end
-        default: cs <= S_IDLE;
+        default: cs <= S_IDLE;            // unused encodings
       endcase
     end
   end

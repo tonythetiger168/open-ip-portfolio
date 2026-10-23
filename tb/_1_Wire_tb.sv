@@ -33,9 +33,9 @@ module _1_Wire_tb;
     begin
       m_low = 1; `OW_DLY(600*US*10);   // reset pulse >= 480us
       m_low = 0;
-      `OW_DLY(30*US*10);               // presence window
+      `OW_DLY(70*US*10);               // master samples presence at 70us
       presence = (dq === 1'b0);
-      `OW_DLY(400*US*10);
+      `OW_DLY(410*US*10);
     end
   endtask
 
@@ -154,13 +154,22 @@ module _1_Wire_tb;
     if (!rx_seen)  begin errors++; $display("ERROR: 1-Wire rx_valid never pulsed after post-read reset"); end
     if (rx_byte !== 8'h33) begin errors++; $display("ERROR: 1-Wire post-reset rx=%h exp=33", rx_byte); end
 
+    // bus reset in the middle of the read byte: presence again, and the
+    // next command is received normally
+    ow_reset(presence);
+    for (int i = 0; i < 8; i++) ow_write_bit(i[0]);   // command 0xAA
+    for (int i = 0; i < 3; i++) ow_read_bit(b);
+    ow_reset(presence);
+    if (!presence) begin errors++; $display("ERROR: 1-Wire no presence after mid-read reset"); end
+    rx_seen = 1'b0;
+    for (int i = 0; i < 8; i++) ow_write_bit(i < 4);  // command 0x0F
+    repeat(5) @(posedge clk);
+    if (!rx_seen || rx_byte !== 8'h0F) begin errors++; $display("ERROR: 1-Wire after mid-read reset rx=%h", rx_byte); end
+
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ----
-    // 105 randomized transactions. Each txn re-resets the DUT (rst_n
-    // pulse): the RTL only detects a 1-Wire reset pulse from ST_IDLE —
-    // after a read phase the slave sits in ST_WAIT_SLOT and a long low is
-    // mis-sampled as a 0 write bit (recorded as RTL bug W6-5, not fixed),
-    // so back-to-back bus resets without a hard reset are not possible.
+    // 105 randomized transactions; every 4th starts with a hard rst_n, the
+    // rest rely on the bus reset pulse being detected from any state.
     // Per txn: 600us reset + presence check, random command byte write
     // (rx_byte/rx_valid checked), random read byte (tx_byte driven back).
     // Every 10th txn: short 100us low glitch -> must NOT produce presence.
@@ -170,11 +179,14 @@ module _1_Wire_tb;
       logic [7:0] cmd_v, tx_v, rd_v;
       logic       pr_v, b_v;
       for (int t = 0; t < 105; t++) begin
-        // hard reset for a clean ST_IDLE (see W6-5)
-        rst_n = 1'b0; m_low = 1'b0;
-        repeat (10) @(posedge clk);
-        rst_n = 1'b1;
-        repeat (10) @(posedge clk);
+        // a hard reset before some transactions; the others start from
+        // wherever the previous one left the slave (bus reset from any state)
+        if (t % 4 == 0 || t % 10 == 9) begin   // glitch txns start from idle
+          rst_n = 1'b0; m_low = 1'b0;
+          repeat (10) @(posedge clk);
+          rst_n = 1'b1;
+          repeat (10) @(posedge clk);
+        end
         rx_seen = 1'b0;
         cmd_v = $urandom_range(0, 255);
         tx_v  = $urandom_range(0, 255);
@@ -196,12 +208,12 @@ module _1_Wire_tb;
           n_ok++;
           // ---- reset pulse + presence ----
           m_low = 1; repeat (600*US) @(posedge clk);
-          m_low = 0; repeat (30*US) @(posedge clk);
+          m_low = 0; repeat (70*US) @(posedge clk);
           pr_v = (dq === 1'b0);
           if (!pr_v) begin
             errors++; $display("ERROR: CRV no presence t=%0d", t);
           end
-          repeat (400*US) @(posedge clk);
+          repeat (410*US) @(posedge clk);
           // ---- write command byte (LSB first) ----
           for (int i = 0; i < 8; i++) begin
             m_low = 1; repeat (2*US) @(posedge clk);

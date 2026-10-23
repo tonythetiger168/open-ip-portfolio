@@ -7,12 +7,9 @@
 //     (key_we/key_widx/key), start/din[127:0]/enc_dec -> busy/done/dout
 //   * Command queue depth 1: a new start or key write while busy is a
 //     protocol violation -> irq pulse (command ignored)
-// IP design implementation v1.0 -- Apache-2.0
+// IP design implementation v1.1 -- Apache-2.0
 // ============================================================================
-module CSE_top #(
-  parameter int DW = 32,   // key word width
-  parameter int AW = 32    // (framework) address width
-)(
+module CSE_top (
   input  logic         clk,
   input  logic         rst_n,
   // key write port (4 x 32-bit words, MSW first)
@@ -357,7 +354,6 @@ module CSE_top #(
           done <= 1'b1;
           cs   <= C_IDLE;
         end
-        default: cs <= C_IDLE;
       endcase
     end
   end

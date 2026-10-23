@@ -22,7 +22,7 @@ module QSPI_top (
   logic [1:0] mode;
   logic       dir;          // 0 = slave drives io (quad read), 1 = release (quad write)
   logic [2:0] bit_cnt;      // std: 0..7
-  logic [1:0] qcnt;         // quad nibble counter 0..1
+  logic       qcnt;         // quad nibble counter 0..1
   logic       sclk_d, byte_done;
 
   // output drive: std drives io[1]; quad drives io[3:0] with tx nibbles
@@ -31,35 +31,34 @@ module QSPI_top (
   // boolean; the old boolean assign drove all four io bits whenever any
   // OE bit was set (std mode io_oe=4'b0010 drove io[0]=tx_q[4] against
   // master MOSI)
-  assign io[0] = io_oe[0] ? io_out[0] : 1'bz;
-  assign io[1] = io_oe[1] ? io_out[1] : 1'bz;
-  assign io[2] = io_oe[2] ? io_out[2] : 1'bz;
-  assign io[3] = io_oe[3] ? io_out[3] : 1'bz;
+  // before the first SCLK falling edge of a frame the pins show the first
+  // bit/nibble combinationally from tx_q and mode, so a register write just
+  // before CSn falls is never presented stale; afterwards io_out shifts
+  logic       started;      // a falling SCLK edge occurred in this frame
+  wire        std_mode = (mode == 2'd0);
+  wire  [3:0] first_out = std_mode ? {2'b00, tx_q[7], 1'b0} : tx_q[7:4];
+  wire  [3:0] pin_out   = started ? io_out : first_out;
+  assign io[0] = io_oe[0] ? pin_out[0] : 1'bz;
+  assign io[1] = io_oe[1] ? pin_out[1] : 1'bz;
+  assign io[2] = io_oe[2] ? pin_out[2] : 1'bz;
+  assign io[3] = io_oe[3] ? pin_out[3] : 1'bz;
 
-  wire std_mode = (mode == 2'd0);
+  // pin direction is a pure function of mode/dir (combinational, so a mode
+  // change can never leave quad drivers enabled in std mode)
+  assign io_oe = std_mode ? 4'b0010 : (dir ? 4'b0000 : 4'b1111);
 
-  // present first bit while SCLK low (mode 0 timing), update on falling edge
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      io_oe <= 4'b0010; io_out <= 4'b0010;  // std MISO=1 idle
+      io_out  <= '0;
+      started <= 1'b0;
     end else if (csn) begin
-      // present first output while CSn high: std -> tx[7] on io[1]; quad -> tx[7:4]
-      io_oe       <= std_mode ? 4'b0010 : (dir ? 4'b0000 : 4'b1111);
-      io_out[3:2] <= tx_q[7:6];
-      io_out[1]   <= std_mode ? tx_q[7] : tx_q[5];
-      io_out[0]   <= tx_q[4];
+      started <= 1'b0;
     end else if (sclk_d && !sclk) begin     // SCLK falling: advance output
-      if (std_mode) begin
-        io_oe  <= 4'b0010;
-        io_out[1] <= tx_q[7 - bit_cnt];    // bit_cnt already incremented on sample
-      end else if (!dir) begin              // quad read: slave drives tx nibbles
-        io_oe  <= 4'b1111;
-        io_out <= (qcnt == 2'd0) ? tx_q[7:4] : tx_q[3:0];
-      end else begin
-        io_oe  <= 4'b0000;                 // quad write: release for master
-      end
-    end else if (!std_mode) begin
-      io_oe <= dir ? 4'b0000 : 4'b1111;    // quad: reflect dir even between edges
+      started <= 1'b1;
+      if (std_mode)
+        io_out <= {2'b00, tx_q[7 - bit_cnt], 1'b0};  // bit_cnt incremented on sample
+      else
+        io_out <= qcnt ? tx_q[3:0] : tx_q[7:4];
     end
   end
 
@@ -81,9 +80,8 @@ module QSPI_top (
           end else bit_cnt <= bit_cnt + 1'b1;
         end else begin
           rx_q <= {rx_q[3:0], io[3:0]};      // 4 bits per clock, MSB nibble first
-          if (qcnt == 2'd1) begin
-            qcnt <= '0; byte_done <= 1'b1;
-          end else qcnt <= qcnt + 1'b1;
+          if (qcnt) byte_done <= 1'b1;
+          qcnt <= !qcnt;
         end
       end
       if (csn) begin bit_cnt <= '0; qcnt <= '0; end

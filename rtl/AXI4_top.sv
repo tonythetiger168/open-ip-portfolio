@@ -207,8 +207,7 @@ module AXI4_top #(
             end
           end
         end
-        default: rstate <= R_IDLE;
-      endcase
+      endcase   // 1-bit enum, both encodings listed
     end
   end
 

@@ -1,0 +1,277 @@
+{
+  "title": "MIPI DSI host transmitter, packet layer on a 1 bit per clock HS lane: short and long packets with header ECC and CRC-16, DCS writes, video-mode lines, DCS read with bus turn-around and an ECC-checked response",
+  "code": "0x4453",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "100ms",
+  "pins": [
+    "tx_oe"
+  ],
+  "regs": [
+    {
+      "name": "CMD",
+      "kind": "rw",
+      "desc": "Command",
+      "fields": [
+        {
+          "port": "cmd_op",
+          "reset": "0",
+          "desc": "0 raw short packet (DT cmd_dt, data LEN), 1 DCS short write without parameter, 2 DCS short write with PL0 as parameter, 3 DCS long write of LEN payload bytes, 4 video line (HSS, HSE, HBP of LEN2 zero bytes, HACT of LEN bytes), 5 DCS read and bus turn-around; 6 and 7 are rejected (ERROR)"
+        },
+        {
+          "port": "cmd_dt",
+          "reset": "0",
+          "desc": "data type of a raw short packet"
+        },
+        {
+          "port": "cmd_dcs",
+          "reset": "0",
+          "desc": "DCS command byte"
+        }
+      ]
+    },
+    {
+      "name": "LEN",
+      "kind": "rw",
+      "desc": "Lengths",
+      "fields": [
+        {
+          "port": "cmd_len",
+          "reset": "0",
+          "desc": "raw short packet data, long-write length or HACT length (a payload above 32 bytes, or HACT not a multiple of 3, is rejected: ERROR)"
+        },
+        {
+          "port": "cmd_len2",
+          "reset": "0",
+          "desc": "HBP blanking length of a video line"
+        }
+      ]
+    },
+    {
+      "name": "GO",
+      "kind": "cmd",
+      "desc": "Start",
+      "fields": [
+        {
+          "port": "cmd_valid",
+          "desc": "write 1: run CMD with LEN (ignored while STATUS.busy)"
+        }
+      ]
+    },
+    {
+      "name": "PAYLOAD",
+      "kind": "bus",
+      "wen": "pl_we",
+      "waddr": "pl_addr",
+      "wdata": "pl_wdata",
+      "words": [
+        {
+          "name": "PL0",
+          "w": 0,
+          "desc": "payload RAM byte 0 (write only)"
+        },
+        {
+          "name": "PL1",
+          "w": 1,
+          "desc": "payload RAM byte 1 (write only)"
+        },
+        {
+          "name": "PL2",
+          "w": 2,
+          "desc": "payload RAM byte 2 (write only)"
+        },
+        {
+          "name": "PL3",
+          "w": 3,
+          "desc": "payload RAM byte 3 (write only)"
+        },
+        {
+          "name": "PL4",
+          "w": 4,
+          "desc": "payload RAM byte 4 (write only)"
+        },
+        {
+          "name": "PL5",
+          "w": 5,
+          "desc": "payload RAM byte 5 (write only)"
+        },
+        {
+          "name": "PL6",
+          "w": 6,
+          "desc": "payload RAM byte 6 (write only)"
+        },
+        {
+          "name": "PL7",
+          "w": 7,
+          "desc": "payload RAM byte 7 (write only)"
+        },
+        {
+          "name": "PL8",
+          "w": 8,
+          "desc": "payload RAM byte 8 (write only)"
+        },
+        {
+          "name": "PL9",
+          "w": 9,
+          "desc": "payload RAM byte 9 (write only)"
+        },
+        {
+          "name": "PL10",
+          "w": 10,
+          "desc": "payload RAM byte 10 (write only)"
+        },
+        {
+          "name": "PL11",
+          "w": 11,
+          "desc": "payload RAM byte 11 (write only)"
+        },
+        {
+          "name": "PL12",
+          "w": 12,
+          "desc": "payload RAM byte 12 (write only)"
+        },
+        {
+          "name": "PL13",
+          "w": 13,
+          "desc": "payload RAM byte 13 (write only)"
+        },
+        {
+          "name": "PL14",
+          "w": 14,
+          "desc": "payload RAM byte 14 (write only)"
+        },
+        {
+          "name": "PL15",
+          "w": 15,
+          "desc": "payload RAM byte 15 (write only)"
+        },
+        {
+          "name": "PL16",
+          "w": 16,
+          "desc": "payload RAM byte 16 (write only)"
+        },
+        {
+          "name": "PL17",
+          "w": 17,
+          "desc": "payload RAM byte 17 (write only)"
+        },
+        {
+          "name": "PL18",
+          "w": 18,
+          "desc": "payload RAM byte 18 (write only)"
+        },
+        {
+          "name": "PL19",
+          "w": 19,
+          "desc": "payload RAM byte 19 (write only)"
+        },
+        {
+          "name": "PL20",
+          "w": 20,
+          "desc": "payload RAM byte 20 (write only)"
+        },
+        {
+          "name": "PL21",
+          "w": 21,
+          "desc": "payload RAM byte 21 (write only)"
+        },
+        {
+          "name": "PL22",
+          "w": 22,
+          "desc": "payload RAM byte 22 (write only)"
+        },
+        {
+          "name": "PL23",
+          "w": 23,
+          "desc": "payload RAM byte 23 (write only)"
+        },
+        {
+          "name": "PL24",
+          "w": 24,
+          "desc": "payload RAM byte 24 (write only)"
+        },
+        {
+          "name": "PL25",
+          "w": 25,
+          "desc": "payload RAM byte 25 (write only)"
+        },
+        {
+          "name": "PL26",
+          "w": 26,
+          "desc": "payload RAM byte 26 (write only)"
+        },
+        {
+          "name": "PL27",
+          "w": 27,
+          "desc": "payload RAM byte 27 (write only)"
+        },
+        {
+          "name": "PL28",
+          "w": 28,
+          "desc": "payload RAM byte 28 (write only)"
+        },
+        {
+          "name": "PL29",
+          "w": 29,
+          "desc": "payload RAM byte 29 (write only)"
+        },
+        {
+          "name": "PL30",
+          "w": 30,
+          "desc": "payload RAM byte 30 (write only)"
+        },
+        {
+          "name": "PL31",
+          "w": 31,
+          "desc": "payload RAM byte 31 (write only)"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Host state",
+      "fields": [
+        {
+          "port": "cmd_busy",
+          "desc": "a command is running (sending, or waiting for the BTA response)"
+        },
+        {
+          "port": "tx_oe",
+          "desc": "the host owns the lane (low during the bus turn-around)"
+        },
+        {
+          "port": "pkt_cnt",
+          "desc": "packets sent (wraps)"
+        }
+      ]
+    },
+    {
+      "name": "BTA",
+      "kind": "ro",
+      "desc": "Read response",
+      "fields": [
+        {
+          "port": "bta_data",
+          "desc": "{data1, data0, DI} of the last accepted response, single-bit errors corrected"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "BTA_DONE",
+      "port": "bta_done",
+      "desc": "a read response was accepted (BTA holds it)"
+    },
+    {
+      "name": "ERROR",
+      "port": "irq",
+      "desc": "a command rejected, an Acknowledge-and-Error-Report response with error bits, no response within BTA_TO (512) clocks, a bad SoT byte or an uncorrectable response header"
+    }
+  ],
+  "notes": [
+    "tx_bit and tx_valid (the HS lane, one bit per PCLK, LSB first, idle 1), tx_oe (the host owns the lane) and rx_bit (driven by the peripheral after the turn-around) pass through unchanged; tx_oe is also readable in STATUS.",
+    "PL0..PL31 write the 32-byte payload RAM (write only, whole words: a partial-strobe write gets PSLVERR). The lane states (LP, HS entry) are abstracted to tx_valid."
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "title": "HDMI source, TMDS mode (educational slice): 640x480@60 timing, TMDS 8b/10b video, control periods with preambles, TERC4 data islands carrying the AVI and SPD InfoFrames, serialised 1 bit per clock",
+  "code": "0x484D",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "100ms",
+  "pins": ["hsync", "vsync", "de"],
+  "regs": [
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Video timing (the same levels as the hsync / vsync / de pins)",
+      "fields": [
+        {"port": "hsync", "desc": "horizontal sync, active low (VIC 1)"},
+        {"port": "vsync", "desc": "vertical sync, active low (VIC 1)"},
+        {"port": "de", "desc": "active video pixel"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "HPD_LOST", "port": "irq", "desc": "hpd went low after the link had run; level in the core, so the bit is set again on every clock until hpd returns"}
+  ],
+  "notes": [
+    "The link runs on its own from the internal demo pattern while hpd is high; hpd low stops the TMDS outputs and restarts the timing at pixel (0,0) on return.",
+    "hpd (in) and tmds_clk / tmds_d[2:0] (TMDS clock and data channels, 1 bit per clock, pixel period 10 clocks) pass through unchanged; hsync / vsync / de also stay pins."
+  ]
+}

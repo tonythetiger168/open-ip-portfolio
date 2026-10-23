@@ -2,13 +2,16 @@
 // ============================================================================
 // SAS protocol Open IP -- SAS initiator (OOB + SSP frame link layer)
 // -- Apache-2.0
-// Open IP design implementation v2.4
+// Open IP design implementation v2.5
 // ============================================================================
 // Implementation scope:
 //  - OOB FSM: COMRESET-style burst/idle pattern (106 symbol burst + 318 symbol
-//    idle), COMINIT exchange detection, then PHY READY.
+//    idle), COMINIT exchange detection, then PHY READY. A burst is detected
+//    when at least 64 consecutive '1's end.
 //  - Link layer: ALIGN idle primitive (32'h7B4A4ABC) inserted between frames,
-//    1 bit/clk serialisation, MSB-first per 32-bit dword, tx_n = ~tx_p.
+//    1 bit per bit time, MSB-first per 32-bit dword, tx_n = ~tx_p.
+//  - The receiver hunts SOF bit by bit (dword alignment) and then takes
+//    whole dwords until EOF.
 //  - SSP frame: SOF(32'hA5A50001) + HDR{len[31:24],type[23:16],dst[15:8],
 //    src[7:0]} + PAYLOAD(len x 32-bit, len<=16) + CRC32 + EOF(32'hA5A50002).
 //  - CRC32: poly 32'h04C11DB7 (reflected form 32'hEDB88320), init all-ones,
@@ -16,18 +19,20 @@
 //    processed one 32-bit dword per step over HDR + PAYLOAD.
 //  - Functional unit: 16x32-bit register file. type 8'h01 = write,
 //    8'h02 = read request, 8'h83 = read response (payload[0] = reg value).
-//  - Built-in initiator sequencer issues write / read-verify transactions so
-//    the IP exercises itself over the loopback link.
+//    Only payload dword 0 is used; further dwords are CRC-checked only.
+//  - Built-in initiator sequencer (SAS address 8'h01) issues write /
+//    read-verify transactions with pseudo-random data (xorshift32) so the
+//    IP exercises itself over the loopback link; a read response must come
+//    from the register just written and carry the written value.
 //  - irq: 1-clk pulse on CRC error or protocol violation (oversize len,
-//    bad EOF, unknown frame type, bad register address, link timeout).
+//    bad EOF, unknown frame type, bad register address, missing payload,
+//    link timeout).
 //  NOTE: refclk is kept for interface compatibility; this simplified model
-//  uses clk as the line bit clock (1 bit/clk) and does not use refclk.
-//  rx_n is the inverted companion of rx_p and is not used by the simplified
-//  receiver (single-ended sampling on rx_p).
+//  uses clk as the line bit clock and does not use refclk. rx_n is the
+//  inverted companion of rx_p and is not used by the simplified receiver
+//  (single-ended sampling on rx_p).
 // ============================================================================
 module SAS_top #(
-  parameter int DW = 32,       // data width
-  parameter int AW = 32,       // address width
   parameter int BIT_CLKS = 1   // clk cycles per serial bit (bit-rate divider)
 )(
   input  logic           clk,
@@ -49,13 +54,15 @@ module SAS_top #(
   localparam int          OOB_BURST   = 106;          // COMRESET/COMINIT burst
   localparam int          OOB_IDLE    = 318;          // inter-burst idle
   localparam int          OOB_DET_MIN = 64;           // min burst run to detect
+  localparam int          OCW         = $clog2(OOB_IDLE);
+  localparam int          BRW         = $clog2(OOB_DET_MIN + 1);
   // Link timeout: counts bit-traffic latency, so it scales with BIT_CLKS.
-  // BIT_CLKS=1 keeps the legacy value 512 and 10-bit counter width.
   localparam int          SQ_TMO      = 512 * BIT_CLKS;
-  localparam int          SQW         = 10 + ((BIT_CLKS > 1) ? $clog2(BIT_CLKS) : 0);
+  localparam int          SQW         = $clog2(SQ_TMO + 1);
   localparam logic [7:0]  T_WRITE     = 8'h01;        // register write
   localparam logic [7:0]  T_RDREQ     = 8'h02;        // register read request
   localparam logic [7:0]  T_RDRSP     = 8'h83;        // register read response
+  localparam logic [7:0]  MY_ADDR     = 8'h01;        // initiator SAS address
 
   // ------------------------- CRC32 (Ethernet FCS style) ---------------------
   // poly 04C11DB7 reflected -> EDB88320, init/xorout all-ones, per-dword step
@@ -78,91 +85,84 @@ module SAS_top #(
   typedef enum logic [2:0] {
     OB_CR_BURST, OB_CR_IDLE, OB_CI_BURST, OB_CI_IDLE, OB_DONE
   } oob_t;
-  oob_t        oob_state;
-  logic [9:0]  oob_cnt;
-  logic        cr_seen, ci_seen;
-  logic        phy_ready;
+  oob_t           oob_state;
+  logic [OCW-1:0] oob_cnt;
+  logic           cr_seen, ci_seen;
+  logic           phy_ready;
 
-  // RX burst-run monitor (used during OOB)
-  logic [7:0]  brun;
-  logic        oob_det;
+  // RX burst-run monitor (used during OOB): run length saturates at the
+  // detection threshold
+  logic [BRW-1:0] brun;
+  logic           oob_det;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      brun    <= 8'd0;
+      brun    <= '0;
       oob_det <= 1'b0;
     end else begin
-      oob_det <= 1'b0;
-      if (rx_p) begin
-        if (brun != 8'hFF) brun <= brun + 8'd1;
-      end else begin
-        if (brun >= OOB_DET_MIN[7:0]) oob_det <= 1'b1;
-        brun <= 8'd0;
-      end
+      oob_det <= !rx_p && (brun == BRW'(OOB_DET_MIN));
+      if (!rx_p)                           brun <= '0;
+      else if (brun != BRW'(OOB_DET_MIN))  brun <= brun + 1'b1;
     end
   end
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       oob_state <= OB_CR_BURST;
-      oob_cnt   <= 10'd0;
+      oob_cnt   <= '0;
       cr_seen   <= 1'b0;
       ci_seen   <= 1'b0;
       phy_ready <= 1'b0;
     end else begin
       case (oob_state)
         OB_CR_BURST: begin                    // transmit COMRESET burst
-          if (oob_cnt == OOB_BURST-1) begin
-            oob_cnt   <= 10'd0;
+          oob_cnt <= oob_cnt + 1'b1;
+          if (oob_cnt == OCW'(OOB_BURST-1)) begin
+            oob_cnt   <= '0;
             cr_seen   <= 1'b0;
             oob_state <= OB_CR_IDLE;
-          end else oob_cnt <= oob_cnt + 10'd1;
+          end
         end
         OB_CR_IDLE: begin                     // idle, watch for COMINIT
           if (oob_det) cr_seen <= 1'b1;
-          if (oob_cnt == OOB_IDLE-1) begin
-            oob_cnt   <= 10'd0;
-            oob_state <= cr_seen ? OB_CI_BURST : OB_CR_BURST;
-          end else oob_cnt <= oob_cnt + 10'd1;
+          oob_cnt <= oob_cnt + 1'b1;
+          if (oob_cnt == OCW'(OOB_IDLE-1)) begin
+            oob_cnt   <= '0;
+            oob_state <= (cr_seen || oob_det) ? OB_CI_BURST : OB_CR_BURST;
+          end
         end
         OB_CI_BURST: begin                    // transmit COMINIT burst
-          if (oob_cnt == OOB_BURST-1) begin
-            oob_cnt   <= 10'd0;
+          oob_cnt <= oob_cnt + 1'b1;
+          if (oob_cnt == OCW'(OOB_BURST-1)) begin
+            oob_cnt   <= '0;
             ci_seen   <= 1'b0;
             oob_state <= OB_CI_IDLE;
-          end else oob_cnt <= oob_cnt + 10'd1;
+          end
         end
-      OB_CI_IDLE: begin                     // idle, watch for COMINIT ack
+        OB_CI_IDLE: begin                     // idle, watch for COMINIT ack
           if (oob_det) ci_seen <= 1'b1;
-          if (oob_cnt == OOB_IDLE-1) begin
-            oob_cnt <= 10'd0;
-            if (ci_seen) begin
+          oob_cnt <= oob_cnt + 1'b1;
+          if (oob_cnt == OCW'(OOB_IDLE-1)) begin
+            oob_cnt <= '0;
+            if (ci_seen || oob_det) begin
               oob_state <= OB_DONE;
               phy_ready <= 1'b1;
             end else oob_state <= OB_CI_BURST;
-          end else oob_cnt <= oob_cnt + 10'd1;
+          end
         end
-        OB_DONE: begin
-          phy_ready <= 1'b1;
-        end
-        default: oob_state <= OB_CR_BURST;
+        default: ;                            // OB_DONE
       endcase
     end
   end
 
   // OOB line drive: constant burst pattern, idle otherwise
-  logic oob_drive;
-  always_comb begin
-    oob_drive = (oob_state == OB_CR_BURST) || (oob_state == OB_CI_BURST);
-  end
+  wire oob_drive = (oob_state == OB_CR_BURST) || (oob_state == OB_CI_BURST);
 
   // ------------------------- TX link layer ----------------------------------
-  // TX frames carry at most 1 payload dword (len 0 or 1); RX accepts len<=16.
   // Bit-rate divider: per-bit shift/sample logic advances only on bit_tick.
-  // BIT_CLKS=1 keeps the legacy 1-bit-per-clk behavior (bit_tick constant 1).
   localparam int BCW = (BIT_CLKS <= 1) ? 1 : $clog2(BIT_CLKS);
   logic [BCW-1:0] bd_cnt;
-  wire bit_tick = (BIT_CLKS <= 1) || (bd_cnt == BIT_CLKS-1);
+  wire bit_tick = (BIT_CLKS <= 1) || (bd_cnt == BCW'(BIT_CLKS-1));
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n)          bd_cnt <= '0;
     else if (bit_tick)   bd_cnt <= '0;
@@ -172,121 +172,117 @@ module SAS_top #(
   typedef enum logic [2:0] {
     TS_ALIGN, TS_SOF, TS_HDR, TS_PAY, TS_CRC, TS_EOF
   } tx_t;
-  tx_t        tx_state;
+  // frame kinds the initiator sends
+  localparam logic [1:0] K_WR = 2'd0, K_RQ = 2'd1, K_RS = 2'd2;
+  tx_t         tx_state;
   logic [31:0] tx_shift;
-  logic [5:0]  tx_bit_cnt;
-  logic [4:0]  f_len;
-  logic [7:0]  f_type, f_dst, f_src;
+  logic [4:0]  tx_bit_cnt;
+  logic [1:0]  f_kind;
+  logic [7:0]  f_dst;
+  logic [3:0]  f_src;               // own address 1 or the register read
   logic [31:0] f_data;
   logic [31:0] crc_acc;
 
+  // header dword of a frame kind
+  function automatic logic [31:0] hdr(input logic [1:0] k, input logic [7:0] d,
+                                      input logic [3:0] s);
+    case (k)
+      K_WR:    hdr = {8'd1, T_WRITE, d, 4'h0, s};
+      K_RQ:    hdr = {8'd0, T_RDREQ, d, 4'h0, s};
+      default: hdr = {8'd1, T_RDRSP, d, 4'h0, s};
+    endcase
+  endfunction
+
   // request from initiator sequencer
-  logic        app_req, app_ack;
-  logic [4:0]  app_len;
-  logic [7:0]  app_type, app_dst;
+  logic        app_req, app_ack, app_rd;
+  logic [3:0]  app_addr;
   logic [31:0] app_data;
   // request from RX target handler (read response)
   logic        rsp_req_set, rsp_pending;
-  logic [7:0]  rsp_dst, rsp_src;
+  logic [7:0]  rsp_dst;
+  logic [3:0]  rsp_src;
   logic [31:0] rsp_data;
-
-  // observability for TB (payload dword of a write frame on the wire)
-  logic        tx_pay_active, cur_is_write;
-  always_comb begin
-    tx_pay_active = (tx_state == TS_PAY);
-    cur_is_write  = (f_type == T_WRITE) &&
-                    (tx_state == TS_SOF || tx_state == TS_HDR ||
-                     tx_state == TS_PAY || tx_state == TS_CRC ||
-                     tx_state == TS_EOF);
-  end
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      tx_state   <= TS_ALIGN;
-      tx_shift   <= PRIM_ALIGN;
-      tx_bit_cnt <= 6'd0;
-      f_len      <= 5'd0;
-      f_type     <= 8'd0;
-      f_dst      <= 8'd0;
-      f_src      <= 8'd0;
-      f_data     <= 32'd0;
-      crc_acc    <= 32'd0;
-      app_ack    <= 1'b0;
+      tx_state    <= TS_ALIGN;
+      tx_shift    <= PRIM_ALIGN;
+      tx_bit_cnt  <= '0;
+      f_kind      <= K_WR;
+      f_dst       <= 8'd0;
+      f_src       <= 4'd0;
+      f_data      <= 32'd0;
+      crc_acc     <= 32'd0;
+      app_ack     <= 1'b0;
       rsp_pending <= 1'b0;
     end else if (!phy_ready) begin
-      tx_state   <= TS_ALIGN;
-      tx_shift   <= PRIM_ALIGN;
-      tx_bit_cnt <= 6'd0;
-      app_ack    <= 1'b0;
-      rsp_pending <= 1'b0;
+      tx_state    <= TS_ALIGN;
+      tx_shift    <= PRIM_ALIGN;
+      tx_bit_cnt  <= '0;
     end else begin
       app_ack <= 1'b0;
       if (rsp_req_set) rsp_pending <= 1'b1;
       if (bit_tick) begin
-      tx_bit_cnt <= tx_bit_cnt + 6'd1;
-      tx_shift   <= {tx_shift[30:0], 1'b0};
-      if (tx_bit_cnt == 6'd31) begin
-        tx_bit_cnt <= 6'd0;
-        case (tx_state)
-          TS_ALIGN: begin                       // idle primitive; take requests
-            if (rsp_pending || rsp_req_set) begin
-              f_len    <= 5'd1;
-              f_type   <= T_RDRSP;
-              f_dst    <= rsp_dst;
-              f_src    <= rsp_src;
-              f_data   <= rsp_data;
-              rsp_pending <= 1'b0;
-              tx_shift <= SSP_SOF;
-              tx_state <= TS_SOF;
-            end else if (app_req) begin
-              f_len    <= app_len;
-              f_type   <= app_type;
-              f_dst    <= app_dst;
-              f_src    <= 8'h01;                // initiator SAS address
-              f_data   <= app_data;
-              app_ack  <= 1'b1;
-              tx_shift <= SSP_SOF;
-              tx_state <= TS_SOF;
-            end else begin
-              tx_shift <= PRIM_ALIGN;           // keep sending ALIGN
+        tx_bit_cnt <= tx_bit_cnt + 5'd1;
+        tx_shift   <= {tx_shift[30:0], 1'b0};
+        if (tx_bit_cnt == 5'd31) begin
+          case (tx_state)
+            TS_ALIGN: begin                     // idle primitive; take requests
+              if (rsp_pending || rsp_req_set) begin
+                f_kind   <= K_RS;
+                f_dst    <= rsp_dst;
+                f_src    <= rsp_src;
+                f_data   <= rsp_data;
+                rsp_pending <= 1'b0;
+                tx_shift <= SSP_SOF;
+                tx_state <= TS_SOF;
+              end else if (app_req && !app_ack) begin
+                f_kind   <= app_rd ? K_RQ : K_WR;
+                f_dst    <= {4'd0, app_addr};
+                f_src    <= MY_ADDR[3:0];
+                f_data   <= app_data;
+                app_ack  <= 1'b1;
+                tx_shift <= SSP_SOF;
+                tx_state <= TS_SOF;
+              end else begin
+                tx_shift <= PRIM_ALIGN;         // keep sending ALIGN
+              end
             end
-          end
-          TS_SOF: begin                         // SOF on wire -> load HEADER
-            tx_shift <= {f_len, f_type, f_dst, f_src};
-            crc_acc  <= crc32_dw(32'hFFFF_FFFF, {f_len, f_type, f_dst, f_src});
-            tx_state <= TS_HDR;
-          end
-          TS_HDR: begin                         // HEADER on wire
-            if (f_len == 5'd0) begin
-              tx_shift <= crc_acc ^ 32'hFFFF_FFFF;
+            TS_SOF: begin                       // SOF on wire -> load HEADER
+              tx_shift <= hdr(f_kind, f_dst, f_src);
+              crc_acc  <= crc32_dw(32'hFFFF_FFFF, hdr(f_kind, f_dst, f_src));
+              tx_state <= TS_HDR;
+            end
+            TS_HDR: begin                       // HEADER on wire
+              if (f_kind == K_RQ) begin
+                tx_shift <= ~crc_acc;
+                tx_state <= TS_CRC;
+              end else begin
+                tx_shift <= f_data;
+                crc_acc  <= crc32_dw(crc_acc, f_data);
+                tx_state <= TS_PAY;
+              end
+            end
+            TS_PAY: begin                       // PAYLOAD on wire -> load CRC
+              tx_shift <= ~crc_acc;
               tx_state <= TS_CRC;
-            end else begin
-              tx_shift <= f_data;
-              crc_acc  <= crc32_dw(crc_acc, f_data);
-              tx_state <= TS_PAY;
             end
-          end
-          TS_PAY: begin                         // PAYLOAD on wire -> load CRC
-            tx_shift <= crc_acc ^ 32'hFFFF_FFFF;
-            tx_state <= TS_CRC;
-          end
-          TS_CRC: begin                         // CRC on wire -> load EOF
-            tx_shift <= SSP_EOF;
-            tx_state <= TS_EOF;
-          end
-          TS_EOF: begin                         // EOF on wire -> back to ALIGN
-            tx_shift <= PRIM_ALIGN;
-            tx_state <= TS_ALIGN;
-          end
-          default: tx_state <= TS_ALIGN;
-        endcase
+            TS_CRC: begin                       // CRC on wire -> load EOF
+              tx_shift <= SSP_EOF;
+              tx_state <= TS_EOF;
+            end
+            default: begin                      // TS_EOF on wire -> ALIGN
+              tx_shift <= PRIM_ALIGN;
+              tx_state <= TS_ALIGN;
+            end
+          endcase
+        end
       end
-      end // bit_tick
     end
   end
 
   // serial line drive
-  assign tx_p = rst_n ? (phy_ready ? tx_shift[31] : oob_drive) : 1'b0;
+  assign tx_p = rst_n && (phy_ready ? tx_shift[31] : oob_drive);   // idle in reset
   assign tx_n = ~tx_p;
 
   // ------------------------- RX link layer ----------------------------------
@@ -294,9 +290,9 @@ module SAS_top #(
     RS_IDLE, RS_HDR, RS_PAY, RS_CRC, RS_EOF
   } rx_t;
   rx_t         rx_state;
-  logic [31:0] rx_sh;
-  logic [5:0]  rx_bit_cnt;
-  logic [31:0] rx_pay [0:15];
+  logic [30:0] rx_sh;
+  logic [4:0]  rx_bit_cnt;
+  logic [31:0] rx_pay0;           // payload dword 0
   logic [4:0]  pay_idx;
   logic [4:0]  r_len;
   logic [7:0]  r_type, r_dst, r_src;
@@ -306,138 +302,116 @@ module SAS_top #(
   // functional unit: 16x32-bit register file
   logic [31:0] regs [0:15];
 
-  // observability / event pulses
+  // event pulses
   logic        wr_evt;
-  logic [3:0]  wr_addr;
-  logic [31:0] wr_data;
   logic        rsp_evt;
   logic [31:0] rsp_val;
+  logic [7:0]  rsp_from;
   logic        crc_err_pulse, proto_err_pulse;
-  logic [15:0] crc_err_cnt;
 
-  logic [31:0] rx_dw;
-  logic        dw_rdy;
-  assign rx_dw  = {rx_sh[30:0], rx_p};
-  assign dw_rdy = (rx_bit_cnt == 6'd31);
+  wire [31:0] rx_dw  = {rx_sh, rx_p};
+  wire        dw_rdy = (rx_bit_cnt == 5'd31);
 
-  integer k;
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       rx_state    <= RS_IDLE;
-      rx_sh       <= 32'd0;
-      rx_bit_cnt  <= 6'd0;
-      pay_idx     <= 5'd0;
-      r_len       <= 5'd0;
-      r_type      <= 8'd0;
-      r_dst       <= 8'd0;
-      r_src       <= 8'd0;
-      rcrc        <= 32'd0;
+      rx_sh       <= '0;
+      rx_bit_cnt  <= '0;
+      pay_idx     <= '0;
+      r_len       <= '0;
+      r_type      <= '0;
+      r_dst       <= '0;
+      r_src       <= '0;
+      rcrc        <= '0;
+      rx_pay0     <= '0;
       crc_ok_flag <= 1'b0;
       wr_evt      <= 1'b0;
-      wr_addr     <= 4'd0;
-      wr_data     <= 32'd0;
       rsp_evt     <= 1'b0;
-      rsp_val     <= 32'd0;
+      rsp_val     <= '0;
+      rsp_from    <= '0;
       rsp_req_set <= 1'b0;
-      rsp_dst     <= 8'd0;
-      rsp_src     <= 8'd0;
-      rsp_data    <= 32'd0;
-      crc_err_pulse  <= 1'b0;
-      proto_err_pulse<= 1'b0;
-      crc_err_cnt <= 16'd0;
-      for (k = 0; k < 16; k = k + 1) regs[k] <= 32'd0;
+      rsp_dst     <= '0;
+      rsp_src     <= '0;
+      rsp_data    <= '0;
+      crc_err_pulse   <= 1'b0;
+      proto_err_pulse <= 1'b0;
+      for (int k = 0; k < 16; k++) regs[k] <= 32'd0;
     end else if (!phy_ready) begin
       rx_state    <= RS_IDLE;
-      rx_sh       <= 32'd0;
-      rx_bit_cnt  <= 6'd0;
-      wr_evt      <= 1'b0;
-      rsp_evt     <= 1'b0;
-      rsp_req_set <= 1'b0;
-      crc_err_pulse  <= 1'b0;
-      proto_err_pulse<= 1'b0;
+      rx_sh       <= '0;
     end else begin
-      wr_evt         <= 1'b0;
-      rsp_evt        <= 1'b0;
-      rsp_req_set    <= 1'b0;
-      crc_err_pulse  <= 1'b0;
-      proto_err_pulse<= 1'b0;
+      wr_evt          <= 1'b0;
+      rsp_evt         <= 1'b0;
+      rsp_req_set     <= 1'b0;
+      crc_err_pulse   <= 1'b0;
+      proto_err_pulse <= 1'b0;
       if (bit_tick) begin
-      rx_bit_cnt <= rx_bit_cnt + 6'd1;
-      rx_sh      <= {rx_sh[30:0], rx_p};
-      if (dw_rdy) begin
-        rx_bit_cnt <= 6'd0;
+        rx_bit_cnt <= rx_bit_cnt + 5'd1;
+        rx_sh      <= rx_dw[30:0];
         case (rx_state)
-          RS_IDLE: begin
-            if (rx_dw == SSP_SOF) rx_state <= RS_HDR;
+          RS_IDLE: begin                        // hunt SOF on every bit
+            if (rx_dw == SSP_SOF) begin
+              rx_state   <= RS_HDR;
+              rx_bit_cnt <= '0;
+            end
           end
-          RS_HDR: begin
-            // Finding #4 defensive guard: clamp the received payload length
-            // so rx_pay[0:15] cannot be overrun (framing continues past the
-            // clamp, so the CRC/END checks reject the truncated frame).
-            r_len  <= (rx_dw[31:24] > 8'd16) ? 5'd16 : rx_dw[31:24][4:0];
+          RS_HDR: if (dw_rdy) begin
+            // clamp the stored length; a violation drops the frame
+            r_len  <= rx_dw[28:24];
             r_type <= rx_dw[23:16];
             r_dst  <= rx_dw[15:8];
             r_src  <= rx_dw[7:0];
             rcrc   <= crc32_dw(32'hFFFF_FFFF, rx_dw);
-            if (rx_dw[31:24] > 5'd16) begin     // len violation
+            pay_idx <= '0;
+            if (rx_dw[31:24] > 8'd16) begin     // len violation
               proto_err_pulse <= 1'b1;
               rx_state        <= RS_IDLE;
-            end else if (rx_dw[31:24] == 5'd0) begin
-              rx_state <= RS_CRC;
-            end else begin
-              pay_idx  <= 5'd0;
-              rx_state <= RS_PAY;
-            end
+            end else if (rx_dw[31:24] == 8'd0) rx_state <= RS_CRC;
+            else                               rx_state <= RS_PAY;
           end
-          RS_PAY: begin
-            rx_pay[pay_idx] <= rx_dw;
-            rcrc            <= crc32_dw(rcrc, rx_dw);
-            if (pay_idx == r_len - 5'd1) rx_state <= RS_CRC;
+          RS_PAY: if (dw_rdy) begin
+            if (pay_idx == 5'd0) rx_pay0 <= rx_dw;
+            rcrc    <= crc32_dw(rcrc, rx_dw);
             pay_idx <= pay_idx + 5'd1;
+            if (pay_idx == r_len - 5'd1) rx_state <= RS_CRC;
           end
-          RS_CRC: begin
-            if (rx_dw == (rcrc ^ 32'hFFFF_FFFF)) begin
-              crc_ok_flag <= 1'b1;
-              case (r_type)
+          RS_CRC: if (dw_rdy) begin
+            crc_ok_flag <= (rx_dw == ~rcrc);
+            if (rx_dw != ~rcrc) crc_err_pulse <= 1'b1;   // bad frame: discard
+            rx_state <= RS_EOF;
+          end
+          default: if (dw_rdy) begin            // RS_EOF: act on a good frame
+            rx_state <= RS_IDLE;
+            if (crc_ok_flag) begin
+              if (rx_dw != SSP_EOF) proto_err_pulse <= 1'b1;
+              else case (r_type)
                 T_WRITE: begin                  // register write
-                  if ((r_len >= 5'd1) && (r_dst < 8'd16)) begin
-                    regs[r_dst[3:0]] <= rx_pay[0];
+                  if (r_len != 5'd0 && r_dst < 8'd16) begin
+                    regs[r_dst[3:0]] <= rx_pay0;
                     wr_evt           <= 1'b1;
-                    wr_addr          <= r_dst[3:0];
-                    wr_data          <= rx_pay[0];
                   end else proto_err_pulse <= 1'b1;
                 end
                 T_RDREQ: begin                  // register read request
                   if (r_dst < 8'd16) begin
                     rsp_req_set <= 1'b1;        // queue read response frame
                     rsp_dst     <= r_src;
-                    rsp_src     <= r_dst;
+                    rsp_src     <= r_dst[3:0];
                     rsp_data    <= regs[r_dst[3:0]];
                   end else proto_err_pulse <= 1'b1;
                 end
                 T_RDRSP: begin                  // read response
-                  if (r_len >= 5'd1) begin
-                    rsp_evt <= 1'b1;
-                    rsp_val <= rx_pay[0];
+                  if (r_len != 5'd0) begin
+                    rsp_evt  <= 1'b1;
+                    rsp_val  <= rx_pay0;
+                    rsp_from <= r_src;
                   end else proto_err_pulse <= 1'b1;
                 end
                 default: proto_err_pulse <= 1'b1; // unknown frame type
               endcase
-            end else begin
-              crc_ok_flag    <= 1'b0;
-              crc_err_pulse  <= 1'b1;           // bad frame: discard + flag
-              crc_err_cnt    <= crc_err_cnt + 16'd1;
             end
-            rx_state <= RS_EOF;
           end
-          RS_EOF: begin
-            if (crc_ok_flag && (rx_dw != SSP_EOF)) proto_err_pulse <= 1'b1;
-            rx_state <= RS_IDLE;
-          end
-          default: rx_state <= RS_IDLE;
         endcase
       end
-      end // bit_tick
     end
   end
 
@@ -445,14 +419,26 @@ module SAS_top #(
   typedef enum logic [2:0] {
     SQ_INIT, SQ_WR, SQ_WR_WAIT, SQ_RD, SQ_RD_WAIT, SQ_GAP
   } sq_t;
-  sq_t         sq_state;
+  sq_t            sq_state;
   logic [SQW-1:0] sq_tmo;
   // inter-transaction gap in raw clks (wall-clock pacing, not scaled)
-  logic [5:0]  gap_cnt;
-  logic [3:0]  sq_addr;
-  logic [31:0] sq_wdata;
-  logic [15:0] ok_cnt, mm_cnt;
-  logic        tmo_err_pulse;
+  logic [5:0]     gap_cnt;
+  logic [3:0]     sq_addr;
+  logic [31:0]    sq_wdata;
+  logic [7:0]     ok_cnt, mm_cnt;   // verified / mismatching read-backs
+  logic           tmo_err_pulse;
+
+  function automatic logic [31:0] xs32(input logic [31:0] x);
+    logic [31:0] y;
+    y = x ^ (x << 13);
+    y = y ^ (y >> 17);
+    xs32 = y ^ (y << 5);
+  endfunction
+
+  assign app_req = (sq_state == SQ_WR) || (sq_state == SQ_RD);
+  assign app_rd  = (sq_state == SQ_RD);
+  assign app_addr = sq_addr;
+  assign app_data = sq_wdata;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -460,80 +446,54 @@ module SAS_top #(
       sq_tmo        <= '0;
       gap_cnt       <= 6'd0;
       sq_addr       <= 4'd0;
-      sq_wdata      <= 32'h5A5A_0000;
-      ok_cnt        <= 16'd0;
-      mm_cnt        <= 16'd0;
-      app_req       <= 1'b0;
-      app_len       <= 5'd0;
-      app_type      <= 8'd0;
-      app_dst       <= 8'd0;
-      app_data      <= 32'd0;
+      sq_wdata      <= 32'h5A5A_C3C3;
+      ok_cnt        <= 8'd0;
+      mm_cnt        <= 8'd0;
       tmo_err_pulse <= 1'b0;
     end else begin
       tmo_err_pulse <= 1'b0;
       case (sq_state)
         SQ_INIT: begin
           if (phy_ready) begin
-            if (gap_cnt == 6'd63) begin
-              gap_cnt  <= 6'd0;
-              sq_state <= SQ_WR;
-            end else gap_cnt <= gap_cnt + 6'd1;
+            gap_cnt <= gap_cnt + 6'd1;
+            if (gap_cnt == 6'd63) sq_state <= SQ_WR;
           end
         end
-        SQ_WR: begin                          // issue register write frame
-          app_req  <= 1'b1;
-          app_len  <= 5'd1;
-          app_type <= T_WRITE;
-          app_dst  <= {4'd0, sq_addr};
-          app_data <= sq_wdata;
-          if (app_ack) begin
-            app_req  <= 1'b0;
-            sq_tmo   <= '0;
-            sq_state <= SQ_WR_WAIT;
-          end
+        SQ_WR: if (app_ack) begin             // write frame taken
+          sq_tmo   <= '0;
+          sq_state <= SQ_WR_WAIT;
         end
         SQ_WR_WAIT: begin                     // wait for looped-back write
-          if (wr_evt) begin
-            sq_state <= SQ_RD;
-          end else if (sq_tmo == SQ_TMO[SQW-1:0]) begin
+          sq_tmo <= sq_tmo + 1'b1;
+          if (wr_evt) sq_state <= SQ_RD;
+          else if (sq_tmo == SQW'(SQ_TMO)) begin
             tmo_err_pulse <= 1'b1;
             sq_state      <= SQ_RD;
-          end else sq_tmo <= sq_tmo + 1'b1;
-        end
-        SQ_RD: begin                          // issue register read request
-          app_req  <= 1'b1;
-          app_len  <= 5'd0;
-          app_type <= T_RDREQ;
-          app_dst  <= {4'd0, sq_addr};
-          if (app_ack) begin
-            app_req  <= 1'b0;
-            sq_tmo   <= '0;
-            sq_state <= SQ_RD_WAIT;
           end
         end
+        SQ_RD: if (app_ack) begin             // read request taken
+          sq_tmo   <= '0;
+          sq_state <= SQ_RD_WAIT;
+        end
         SQ_RD_WAIT: begin                     // verify read response
-          if (rsp_evt) begin
-            if (rsp_val === sq_wdata) ok_cnt <= ok_cnt + 16'd1;
-            else                      mm_cnt <= mm_cnt + 16'd1;
-            sq_wdata <= sq_wdata + 32'h0001_0101;
+          sq_tmo <= sq_tmo + 1'b1;
+          if (rsp_evt || sq_tmo == SQW'(SQ_TMO)) begin
+            if (!rsp_evt)
+              tmo_err_pulse <= 1'b1;
+            else if (rsp_val == sq_wdata && rsp_from == {4'd0, sq_addr})
+              ok_cnt <= ok_cnt + 8'd1;
+            else
+              mm_cnt <= mm_cnt + 8'd1;
+            sq_wdata <= xs32(sq_wdata);
             sq_addr  <= sq_addr + 4'd1;
             gap_cnt  <= 6'd0;
             sq_state <= SQ_GAP;
-          end else if (sq_tmo == SQ_TMO[SQW-1:0]) begin
-            tmo_err_pulse <= 1'b1;
-            sq_wdata      <= sq_wdata + 32'h0001_0101;
-            sq_addr       <= sq_addr + 4'd1;
-            gap_cnt       <= 6'd0;
-            sq_state      <= SQ_GAP;
-          end else sq_tmo <= sq_tmo + 1'b1;
+          end
         end
-        SQ_GAP: begin                         // inter-transaction gap
-          if (gap_cnt == 6'd31) begin
-            gap_cnt  <= 6'd0;
-            sq_state <= SQ_WR;
-          end else gap_cnt <= gap_cnt + 6'd1;
+        default: begin                        // SQ_GAP: inter-transaction gap
+          gap_cnt <= gap_cnt + 6'd1;
+          if (gap_cnt == 6'd31) sq_state <= SQ_WR;
         end
-        default: sq_state <= SQ_INIT;
       endcase
     end
   end
@@ -543,5 +503,7 @@ module SAS_top #(
     if (!rst_n) irq <= 1'b0;
     else        irq <= crc_err_pulse | proto_err_pulse | tmo_err_pulse;
   end
+
+  wire _unused = &{1'b0, rx_n, refclk, ok_cnt, mm_cnt};
 
 endmodule

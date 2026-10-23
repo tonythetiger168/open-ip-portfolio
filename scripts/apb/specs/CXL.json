@@ -1,0 +1,43 @@
+{
+  "title": "CXL.mem Type 3 device transaction layer: M2S Req and RwD in, S2M NDR and DRS out, host-managed device memory with a 2-bit meta state, poison and an HDM range decoder",
+  "code": "0x4358",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "20ms",
+  "regs": [
+    {"name": "CTRL", "kind": "rw", "desc": "HDM decoder",
+     "fields": [{"port": "hdm_base", "reset": "0", "desc": "first host line address (byte address bits 21:6) of the device's LINES = 16 lines; change it only while no message is in flight"}]},
+    {"name": "REQ", "kind": "stream_in", "data": ["req_addr", "req_tag", "req_opcode", "req_meta_field", "req_meta_value", "req_snp_type"],
+     "valid": "req_valid", "ready": "req_ready",
+     "desc": "M2S Req message; writing REQ1 sends it (the core holds up to RQD = 4 requests)",
+     "fdesc": {"req_addr": "host line address", "req_tag": "tag, returned in the response",
+               "req_opcode": "MemInv 0, MemRd 1, MemRdData 2, MemSpecRd 8, MemInvNT 9, MemClnEvct 10 (others are dropped: ERR_OPCODE)",
+               "req_meta_field": "Meta0-State 00, No-Op 11 (01, 10: ERR_PROTO, taken as No-Op)",
+               "req_meta_value": "new meta state for Meta0-State: Invalid 00, Any 10, Shared 11",
+               "req_snp_type": "SnpType (1xx: ERR_PROTO)"}},
+    {"name": "RWD", "kind": "stream_in", "data": ["rwd_addr", "rwd_tag", "rwd_data", "rwd_be", "rwd_opcode", "rwd_meta_field", "rwd_meta_value", "rwd_snp_type", "rwd_poison"],
+     "valid": "rwd_valid", "ready": "rwd_ready",
+     "desc": "One beat of an M2S RwD message (8 beats of 8 bytes, beat 0 first); writing RWD3 sends the beat. The header fields are taken from beat 0; RWD0 need not be written again for beats 1..7",
+     "fdesc": {"rwd_addr": "host line address", "rwd_tag": "tag, returned in the NDR", "rwd_data": "8 data bytes",
+               "rwd_be": "byte enables (MemWrPtl)", "rwd_opcode": "MemWr 1, MemWrPtl 2 (others are dropped: ERR_OPCODE)",
+               "rwd_meta_field": "Meta0-State 00, No-Op 11", "rwd_meta_value": "new meta state",
+               "rwd_snp_type": "SnpType", "rwd_poison": "the data is poisoned"}},
+    {"name": "NDR", "kind": "stream_out", "data": ["ndr_tag", "ndr_opcode", "ndr_meta_value", "ndr_devload"], "valid": "ndr_valid", "ready": "ndr_ready",
+     "desc": "S2M NDR message (completion of MemInv, MemInvNT, MemClnEvct, MemWr, MemWrPtl); reading it pops it",
+     "fdesc": {"ndr_tag": "the request's tag", "ndr_opcode": "Cmp 0, Cmp-S 1, Cmp-E 2", "ndr_meta_value": "the line's meta state before the request",
+               "ndr_devload": "DevLoad: Light 0, Optimal 1, Moderate 2, Severe 3"}},
+    {"name": "DRS", "kind": "stream_out", "data": ["drs_data", "drs_tag", "drs_meta_value", "drs_devload", "drs_poison", "drs_last"], "valid": "drs_valid", "ready": "drs_ready",
+     "desc": "One beat of an S2M DRS MemData message (8 beats per line); reading DRS2 pops it",
+     "fdesc": {"drs_data": "8 data bytes", "drs_tag": "the request's tag", "drs_meta_value": "the line's meta state before the request",
+               "drs_devload": "DevLoad", "drs_poison": "the line is poisoned (or the address was out of range)", "drs_last": "the eighth beat"}}
+  ],
+  "irqs": [
+    {"name": "ERR_RANGE", "port": "ev_range", "desc": "a request or write outside the HDM range (reads return poisoned zeros, writes are dropped; both complete)"},
+    {"name": "ERR_OPCODE", "port": "ev_opcode", "desc": "an unsupported opcode: the message was dropped without a response"},
+    {"name": "ERR_PROTO", "port": "ev_proto", "desc": "a reserved MetaField or SnpType (taken as No-Op)"},
+    {"name": "POISON_RD", "port": "ev_poison", "desc": "a read returned a poisoned line"}
+  ],
+  "notes": [
+    "The core parameters LINES (16 cache lines of device memory) and RQD (4 Req FIFO entries) keep their defaults; device memory is zero after reset."
+  ]
+}

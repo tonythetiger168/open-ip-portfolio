@@ -251,6 +251,8 @@ module TileLink__TL_UL_TL_C__tb;
     tl_xact(3'd4, 32'h0000_0010, 32'h0, 4'h3, 3'd2, 8'h69, 1'b1, 32'h0);
     // PutPartial with zero mask
     tl_xact(3'd1, 32'h0000_0010, 32'h0, 4'h0, 3'd2, 8'h6A, 1'b1, 32'h0);
+    // PutFull with a partial mask
+    tl_xact(3'd0, 32'h0000_0010, 32'hBAD0_BAD0, 4'h7, 3'd2, 8'h6C, 1'b1, 32'h0);
     // out-of-range address (>= 0x100)
     tl_xact(3'd4, 32'h0000_0100, 32'h0, 4'hF, 3'd2, 8'h6B, 1'b1, 32'h0);
     if (irq !== 1'b1) begin
@@ -299,6 +301,27 @@ module TileLink__TL_UL_TL_C__tb;
       tl_xact(3'd4, 32'h0000_0040, 32'h0, 4'hF, 3'd2, 8'h90, 1'b0, 32'h9000_0000);
       tl_xact(3'd4, 32'h0000_004C, 32'h0, 4'hF, 3'd2, 8'h91, 1'b0, 32'h9000_0003);
     end
+
+    // CHECK 8: reserved a_param is an error; request waits while D is stalled;
+    // reset with a response pending clears d_valid and the sticky irq
+    @(negedge clk);
+    a_valid <= 1'b1; a_opcode <= 3'd4; a_param <= 3'd1; a_size <= 3'd2; a_source <= 8'hA0;
+    a_address <= 32'h0000_0010; a_mask <= 4'hF;
+    @(posedge clk); @(negedge clk);
+    a_valid <= 1'b0; a_param <= 3'd0;
+    if (!d_valid || d_error !== 1'b1) begin errors++; $display("ERROR: a_param!=0 not rejected"); end
+    d_ready <= 1'b0;
+    a_valid <= 1'b1; a_opcode <= 3'd4; a_source <= 8'hA1;   // waits behind the stalled D
+    repeat (2) @(negedge clk);
+    if (a_ready !== 1'b0) begin errors++; $display("ERROR: a_ready while D stalled"); end
+    a_valid <= 1'b0;
+    rst_n = 0;
+    @(negedge clk);
+    if (d_valid !== 1'b0 || irq !== 1'b0 || a_ready !== 1'b1) begin
+      errors++; $display("ERROR: TL reset state d_valid=%b irq=%b", d_valid, irq);
+    end
+    rst_n = 1; d_ready <= 1'b1;
+    tl_xact(3'd4, 32'h0000_0010, 32'h0, 4'hF, 3'd2, 8'hA2, 1'b0, 32'hDEAD_BEEF);
 
     repeat (2) @(posedge clk);
 

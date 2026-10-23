@@ -3,8 +3,16 @@
 // USB3 protocol IP -- SuperSpeed link + protocol layer (simplified)
 //   * Symbol-parallel serial link: 1 symbol/clk, 8-bit symbol, on the
 //     tx_p/tx_n and rx_p/rx_n differential pairs (_n carries the complement)
-//   * LFPS out-of-band handshake: RXDET -> Polling.LFPS burst/idle counting
-//     -> U0 (link_up). LFPS burst = repeated 8'hAA symbols, idle = 8'h00.
+//   * Symbol decode: a received symbol is valid only when rx_n == ~rx_p; an
+//     invalid symbol inside a packet aborts it (irq), and is never counted
+//     as LFPS or taken as a packet start.
+//   * LFPS out-of-band handshake: RXDET (32 clk) -> Polling.LFPS: the device
+//     sends 16-symbol LFPS bursts + 16 idle; U0 (link_up) once it has sent
+//     two bursts and received two bursts of >= 8 symbols. LFPS burst =
+//     repeated 8'hAA symbols, idle = 8'h00.
+//   * Warm reset: in U0, 32 consecutive LFPS symbols between packets drop
+//     the link back to RXDET and clear the sequence numbers and any
+//     transfer in progress (buffer contents, block flags and irq are kept).
 //   * Ordered-set framing:
 //       DPH : SOF(8'hBC) + {route,type} + {seq,blk} + CRC5
 //       DPP : START(8'h5A) + fixed 16-dword payload + CRC32 + END(8'h3C)
@@ -15,12 +23,9 @@
 //     -> NRDY; device IN data retransmitted on LBAD / ACK timeout.
 //   * Function unit: bulk OUT writes / bulk IN reads a 64x32 buffer
 //     (4 blocks x 16 dwords, one DPP carries exactly one block).
-// IP design implementation v1.0 -- Apache-2.0
+// IP design implementation v1.1 -- Apache-2.0
 // ============================================================================
-module USB3_top #(
-  parameter int DW = 32,        // data width (buffer word width)
-  parameter int AW = 32         // address width (kept for framework contract)
-)(
+module USB3_top (
   input  logic       clk,
   input  logic       rst_n,
   input  logic [7:0] rx_p,      // received symbol (differential +)
@@ -87,48 +92,64 @@ module USB3_top #(
   typedef enum logic [1:0] {LK_RXDET, LK_POLL, LK_U0} link_state_t;
   link_state_t link_state;
 
-  logic [5:0] det_cnt;        // RXDET dwell timer
-  logic [6:0] rx_burst_len;   // length of current received LFPS burst
-  logic [2:0] rx_bursts;      // completed received Polling.LFPS bursts
-  logic       rx_in_burst;    // currently inside a received LFPS burst
+  wire        rx_ok   = (rx_n == ~rx_p);           // valid differential symbol
+  wire        rx_lfps = rx_ok && (rx_p == SYM_LFPS);
+
+  logic [4:0] det_cnt;        // RXDET dwell timer
+  logic [3:0] rx_burst_len;   // length of current received LFPS burst (sat. 8)
+  logic [1:0] rx_bursts;      // completed received Polling.LFPS bursts (sat. 2)
+  logic [1:0] tx_bursts;      // transmitted Polling.LFPS bursts (sat. 2)
+  logic [4:0] warm_cnt;       // consecutive LFPS symbols seen in U0
+  logic       warm;           // warm-reset pulse (link back to RXDET)
+  logic       rx_idle;        // packet receiver between packets
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       link_state   <= LK_RXDET;
-      det_cnt      <= 6'd0;
-      rx_burst_len <= 7'd0;
-      rx_bursts    <= 3'd0;
-      rx_in_burst  <= 1'b0;
+      det_cnt      <= 5'd0;
+      rx_burst_len <= 4'd0;
+      rx_bursts    <= 2'd0;
+      warm_cnt     <= 5'd0;
+      warm         <= 1'b0;
       link_up      <= 1'b0;
     end else begin
+      warm <= 1'b0;
       case (link_state)
         LK_RXDET: begin
-          det_cnt <= det_cnt + 6'd1;
-          if (det_cnt == 6'd31) begin
-            link_state <= LK_POLL;
-            det_cnt    <= 6'd0;
+          det_cnt <= det_cnt + 5'd1;
+          if (det_cnt == 5'd31) begin
+            link_state   <= LK_POLL;
+            rx_burst_len <= 4'd0;
+            rx_bursts    <= 2'd0;
           end
         end
         LK_POLL: begin
           // received Polling.LFPS burst/idle counting
-          if (rx_p == SYM_LFPS) begin
-            rx_in_burst <= 1'b1;
-            if (rx_burst_len < 7'd100)
-              rx_burst_len <= rx_burst_len + 7'd1;
+          if (rx_lfps) begin
+            if (rx_burst_len != 4'd8)
+              rx_burst_len <= rx_burst_len + 4'd1;
           end else begin
-            if (rx_in_burst && (rx_burst_len >= 7'd8) && (rx_bursts < 3'd4))
-              rx_bursts <= rx_bursts + 3'd1;
-            rx_in_burst  <= 1'b0;
-            rx_burst_len <= 7'd0;
+            if ((rx_burst_len == 4'd8) && (rx_bursts != 2'd2))
+              rx_bursts <= rx_bursts + 2'd1;
+            rx_burst_len <= 4'd0;
           end
           // link up once both directions sent >= 2 Polling.LFPS bursts
-          if ((rx_bursts >= 3'd2) && (tx_bursts >= 3'd2)) begin
+          if ((rx_bursts == 2'd2) && (tx_bursts == 2'd2)) begin
             link_state <= LK_U0;
             link_up    <= 1'b1;
+            warm_cnt   <= 5'd0;
           end
         end
-        default: begin // LK_U0
-          link_up <= 1'b1;
+        default: begin // LK_U0: watch for a warm reset between packets
+          if (rx_lfps && rx_idle) begin
+            warm_cnt <= warm_cnt + 5'd1;
+            if (warm_cnt == 5'd31) begin
+              link_state <= LK_RXDET;
+              link_up    <= 1'b0;
+              warm       <= 1'b1;
+            end
+          end else
+            warm_cnt <= 5'd0;
         end
       endcase
     end
@@ -150,15 +171,16 @@ module USB3_top #(
     RX_TP1, RX_TP2, RX_TP3, RX_TP4
   } rx_state_t;
   rx_state_t rx_state;
+  assign rx_idle = (rx_state == RX_IDLE);
 
   logic [7:0]  dph_s1_q, dph_s2_q;      // captured DPH fields
   logic [2:0]  dph_seq_q;
   logic [1:0]  dph_blk_q;
   logic [7:0]  tp_s1_q,  tp_s2_q;       // captured TP fields
   logic [6:0]  rx_pay_cnt;              // payload byte counter 0..63
-  logic [31:0] pay_shift;               // dword assembly, LSB-first
+  logic [23:0] pay_shift;               // dword assembly, LSB-first
   logic [31:0] rx_crc;                  // running payload CRC32
-  logic [31:0] crc_shift;               // received CRC32 assembly
+  logic [23:0] crc_shift;               // received CRC32 assembly
   logic [31:0] crc_rcvd;                // received CRC32 value
   logic [2:0]  rx_exp;                  // expected OUT sequence number
 
@@ -192,9 +214,9 @@ module USB3_top #(
       tp_s1_q    <= 8'd0;
       tp_s2_q    <= 8'd0;
       rx_pay_cnt <= 7'd0;
-      pay_shift  <= 32'd0;
+      pay_shift  <= 24'd0;
       rx_crc     <= 32'd0;
-      crc_shift  <= 32'd0;
+      crc_shift  <= 24'd0;
       crc_rcvd   <= 32'd0;
       rx_exp     <= 3'd0;
       valid_blk  <= 4'd0;
@@ -244,12 +266,18 @@ module USB3_top #(
       end
 
       // ---- packet receiver FSM --------------------------------------
+      if (!rx_idle && !rx_ok) begin
+        rx_state <= RX_IDLE;           // symbol decode error inside a packet
+        irq      <= 1'b1;
+      end else
       case (rx_state)
         RX_IDLE: begin
-          if (rx_p == SYM_DPH)
-            rx_state <= RX_DH1;
-          else if (rx_p == SYM_TP)
-            rx_state <= RX_TP1;
+          if (link_state == LK_U0 && rx_ok) begin
+            if (rx_p == SYM_DPH)
+              rx_state <= RX_DH1;
+            else if (rx_p == SYM_TP)
+              rx_state <= RX_TP1;
+          end
         end
 
         // ---- DPH: SOF s1 s2 CRC5 ----
@@ -264,7 +292,7 @@ module USB3_top #(
           rx_state  <= RX_DH3;
         end
         RX_DH3: begin
-          if (rx_p == crc5_16({dph_s2_q, dph_s1_q})) begin
+          if (rx_p == {3'b000, crc5_16({dph_s2_q, dph_s1_q})}) begin
             if (dph_s1_q[3:0] == TYPE_DATA)
               rx_state <= RX_PS;
             else
@@ -288,27 +316,27 @@ module USB3_top #(
         end
         RX_PAY: begin
           rx_crc    <= crc32_b(rx_crc, rx_p);
-          pay_shift <= {rx_p, pay_shift[31:8]};
+          pay_shift <= {rx_p, pay_shift[23:8]};
           if (rx_pay_cnt[1:0] == 2'b11)
-            rx_buf[rx_pay_cnt[5:2]] <= {rx_p, pay_shift[31:8]};
+            rx_buf[rx_pay_cnt[5:2]] <= {rx_p, pay_shift};
           rx_pay_cnt <= rx_pay_cnt + 7'd1;
           if (rx_pay_cnt == 7'd63)
             rx_state <= RX_RC0;
         end
         RX_RC0: begin
-          crc_shift <= {rx_p, crc_shift[31:8]};
+          crc_shift <= {rx_p, crc_shift[23:8]};
           rx_state  <= RX_RC1;
         end
         RX_RC1: begin
-          crc_shift <= {rx_p, crc_shift[31:8]};
+          crc_shift <= {rx_p, crc_shift[23:8]};
           rx_state  <= RX_RC2;
         end
         RX_RC2: begin
-          crc_shift <= {rx_p, crc_shift[31:8]};
+          crc_shift <= {rx_p, crc_shift[23:8]};
           rx_state  <= RX_RC3;
         end
         RX_RC3: begin
-          crc_rcvd <= {rx_p, crc_shift[31:8]};
+          crc_rcvd <= {rx_p, crc_shift};
           rx_state <= RX_END;
         end
         RX_END: begin
@@ -362,14 +390,14 @@ module USB3_top #(
           rx_state <= RX_TP3;
         end
         RX_TP3: begin
-          if (rx_p == crc5_16({tp_s2_q, tp_s1_q}))
+          if (rx_p == {3'b000, crc5_16({tp_s2_q, tp_s1_q})})
             rx_state <= RX_TP4;
           else begin
             rx_state <= RX_IDLE;
             irq      <= 1'b1;
           end
         end
-        RX_TP4: begin
+        default: begin                 // RX_TP4
           rx_state <= RX_IDLE;
           if (rx_p != SYM_END) begin
             irq <= 1'b1;
@@ -403,8 +431,18 @@ module USB3_top #(
           // host NRDY: leave await_ack set; ACK watchdog retransmits
         end
 
-        default: rx_state <= RX_IDLE;
       endcase
+
+      // ---- warm reset: abandon sequence state and transfers ---------
+      if (warm) begin
+        rx_exp     <= 3'd0;
+        tx_seq     <= 3'd0;
+        in_pend    <= 1'b0;
+        in_active  <= 1'b0;
+        await_ack  <= 1'b0;
+        resend_req <= 1'b0;
+        rsp_pend   <= 1'b0;
+      end
     end
   end
 
@@ -419,8 +457,7 @@ module USB3_top #(
   } tx_state_t;
   tx_state_t tx_state;
 
-  logic [5:0]  lfps_cnt;     // LFPS burst/idle pattern position
-  logic [2:0]  tx_bursts;    // transmitted Polling.LFPS bursts
+  logic [4:0]  lfps_cnt;     // LFPS burst/idle pattern position
   logic [3:0]  tp_type_q;    // latched response-TP fields
   logic [2:0]  tp_seq_q;
   logic        tp_retry_q;
@@ -445,8 +482,8 @@ module USB3_top #(
     if (!rst_n) begin
       tx_state     <= TX_LFPS;
       tx_p         <= SYM_IDLE;
-      lfps_cnt     <= 6'd0;
-      tx_bursts    <= 3'd0;
+      lfps_cnt     <= 5'd0;
+      tx_bursts    <= 2'd0;
       tp_type_q    <= TP_ACK;
       tp_seq_q     <= 3'd0;
       tp_retry_q   <= 1'b0;
@@ -462,23 +499,24 @@ module USB3_top #(
       in_taken     <= 1'b0;
       resend_taken <= 1'b0;
       in_sent      <= 1'b0;
+      if (warm) begin                  // warm reset: back to link training
+        tx_state  <= TX_LFPS;
+        tx_p      <= SYM_IDLE;
+        lfps_cnt  <= 5'd0;
+        tx_bursts <= 2'd0;
+      end else
       case (tx_state)
         // ---- Polling.LFPS generation: 16 burst + 16 idle, repeating ----
         TX_LFPS: begin
-          if (link_state == LK_POLL && lfps_cnt < 6'd16)
-            tx_p <= SYM_LFPS;
-          else
-            tx_p <= SYM_IDLE;
-          if (lfps_cnt == 6'd31) begin
-            lfps_cnt <= 6'd0;
-            if (tx_bursts < 3'd4)
-              tx_bursts <= tx_bursts + 3'd1;
-          end else begin
-            lfps_cnt <= lfps_cnt + 6'd1;
-          end
-          if (link_up) begin
+          tx_p <= SYM_IDLE;
+          if (link_up)
             tx_state <= TX_IDLE;
-            tx_p     <= SYM_IDLE;
+          else if (link_state == LK_POLL) begin
+            if (!lfps_cnt[4])
+              tx_p <= SYM_LFPS;
+            lfps_cnt <= lfps_cnt + 5'd1;
+            if (lfps_cnt == 5'd15 && tx_bursts != 2'd2)
+              tx_bursts <= tx_bursts + 2'd1;
           end
         end
 
@@ -519,8 +557,8 @@ module USB3_top #(
           tx_state <= TX_TP3;
         end
         TX_TP3: begin
-          tx_p     <= crc5_16({tp_seq_q, tp_retry_q, tp_blk_q, 1'b0, 1'b0,
-                               4'h0, tp_type_q});
+          tx_p     <= {3'b000, crc5_16({tp_seq_q, tp_retry_q, tp_blk_q, 1'b0, 1'b0,
+                                        4'h0, tp_type_q})};
           tx_state <= TX_TP4;
         end
         TX_TP4: begin
@@ -542,7 +580,7 @@ module USB3_top #(
           tx_state <= TX_DH3;
         end
         TX_DH3: begin
-          tx_p     <= crc5_16({tx_seq, in_blk, 3'b000, 4'h0, TYPE_DATA});
+          tx_p     <= {3'b000, crc5_16({tx_seq, in_blk, 3'b000, 4'h0, TYPE_DATA})};
           tx_state <= TX_PS;
         end
         TX_PS: begin
@@ -574,13 +612,11 @@ module USB3_top #(
           tx_p     <= ~(tx_crc[31:24]);
           tx_state <= TX_END;
         end
-        TX_END: begin
+        default: begin                 // TX_END
           tx_p     <= SYM_END;
           in_sent  <= 1'b1;
           tx_state <= TX_IDLE;
         end
-
-        default: tx_state <= TX_IDLE;
       endcase
     end
   end

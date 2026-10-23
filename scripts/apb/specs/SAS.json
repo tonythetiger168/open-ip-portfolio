@@ -1,0 +1,14 @@
+{
+  "title": "SAS initiator: OOB (COMRESET / COMINIT) bring-up, then an SSP-style frame link (SOF, header, payload, CRC-32, EOF, ALIGN idle) with a built-in write / read-verify sequencer over a 16 x 32-bit register file",
+  "code": "0x5341",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [],
+  "irqs": [
+    {"name": "ERR", "port": "irq", "desc": "a received frame failed (CRC error, bad EOF, oversize length, unknown type, bad register address, missing payload) or a transaction timed out"}
+  ],
+  "notes": [
+    "tx_p / tx_n (serial out, 1 bit per PCLK), rx_p / rx_n (serial in; only rx_p is sampled) and refclk (unused by the simplified model) pass through unchanged. The initiator runs on its own after reset and verifies its own traffic over the link.",
+    "The registers report the link's error events; frame contents stay on the serial pins."
+  ]
+}

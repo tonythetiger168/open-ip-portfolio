@@ -1,0 +1,3 @@
+# DDR4_Lite_apb: core pin bits that are constant (see scripts/cov/exclude/DDR4_Lite.txt), seen at the wrapper's pass-through ports.
+TOGGLE \.addr\[(9|11|12|13)\]: # always 0: rows are 9 bits and the column is {line, 4'h0}; addr[10] is the all-bank PRE flag
+TOGGLE \.trace_addr\[([0-9]|1[01]|2[1-9]|3[01])\]: # always 0: trace_addr is {11'h0, row, 12'h0}

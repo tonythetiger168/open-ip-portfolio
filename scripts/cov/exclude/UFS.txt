@@ -1,0 +1,1 @@
+LINE \| default: rx_state <= RX_SOF; # inner decode case: RX_SOF is handled by the outer case and the 3 unused rx_state encodings are unreachable

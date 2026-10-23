@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // ============================================================================
 // Self-checking testbench for USB3_top -- SystemVerilog
-// Host-side link partner model: LFPS handshake, DPH/DPP bulk transfers,
-// ACK/NRDY/LBAD transaction packets, error injection.
-// IP design verification v1.0 -- Apache-2.0
+// Host-side link partner: LFPS training (short / invalid / long bursts),
+// DPH/DPP bulk OUT transfers, ACK/NRDY/LBAD transaction packets, bulk IN with
+// retransmission (LBAD, ACK timeout, give-up), sequence wrap, symbol decode
+// errors, warm reset (between packets, during an IN transfer, while the
+// device transmits) and reset in U0. A shadow of the bulk buffer checks every
+// IN payload. Under Verilator the bound checker (tb/cov/USB3_sva.sv) predicts
+// tx_p, link_up and irq on every clock.
+// IP design verification v1.1 -- Apache-2.0
 // ============================================================================
 `timescale 1ns/1ps
 module USB3_tb;
@@ -21,842 +26,491 @@ module USB3_tb;
   localparam logic [3:0] TP_LBAD   = 4'hB;
 
   logic       clk = 0, rst_n = 0;
-  logic [7:0] rx_p, rx_n;
+  logic [7:0] rx_p = SYM_IDLE, rx_n = ~SYM_IDLE;
   logic [7:0] tx_p, tx_n;
   logic       link_up, irq;
 
   int errors = 0;
 
-  // payload staging (filled before bulk_out, compared in bulk_in)
-  logic [31:0] dbuf    [0:15];
-  logic [31:0] exp_buf [0:15];
-
-  USB3_top dut (
-    .clk(clk), .rst_n(rst_n),
-    .rx_p(rx_p), .rx_n(rx_n),
-    .tx_p(tx_p), .tx_n(tx_n),
-    .link_up(link_up), .irq(irq)
-  );
+  USB3_top dut (.clk(clk), .rst_n(rst_n), .rx_p(rx_p), .rx_n(rx_n),
+                .tx_p(tx_p), .tx_n(tx_n), .link_up(link_up), .irq(irq));
 
   always #5 clk = ~clk;
 
-  // count DUT-transmitted LFPS cycles before link up
-  int dut_lfps_cycles;
-  always @(posedge clk or negedge rst_n) begin
-    if (!rst_n) dut_lfps_cycles <= 0;
-    else if (!link_up && tx_p === SYM_LFPS) dut_lfps_cycles <= dut_lfps_cycles + 1;
-  end
+  task automatic fail(input string m);
+    errors++;
+    $display("ERROR @%0t: %s", $time, m);
+  endtask
 
   // ------------------------------------------------------------------
-  // CRC functions (mirror DUT)
+  // host model state
   // ------------------------------------------------------------------
+  logic [31:0] dbuf  [0:15];      // payload of the next OUT packet
+  logic [31:0] mem_m [0:63];      // shadow of the device bulk buffer
+  logic [3:0]  vblk_m;            // blocks written
+  logic [2:0]  oseq, iseq;        // next OUT / IN sequence numbers
+
   function automatic logic [4:0] crc5_16(input logic [15:0] d);
     logic [4:0] c;
     logic       fb;
-    begin
-      c = 5'h1F;
-      for (int i = 0; i < 16; i++) begin
-        fb = d[i] ^ c[0];
-        c  = {fb, c[4], c[3] ^ fb, c[2], c[1]};
-      end
-      crc5_16 = ~c;
+    c = 5'h1F;
+    for (int i = 0; i < 16; i++) begin
+      fb = d[i] ^ c[0];
+      c  = {fb, c[4], c[3] ^ fb, c[2], c[1]};
     end
+    crc5_16 = ~c;
   endfunction
 
-  function automatic logic [31:0] crc32_b(input logic [31:0] c_in,
-                                          input logic [7:0]  d);
+  function automatic logic [31:0] crc32_b(input logic [31:0] c_in, input logic [7:0] d);
     logic [31:0] c;
     logic        fb;
-    begin
-      c = c_in;
-      for (int i = 0; i < 8; i++) begin
-        fb = d[i] ^ c[0];
-        c  = c >> 1;
-        if (fb) c = c ^ 32'hEDB8_8320;
-      end;
-      crc32_b = c;
+    c = c_in;
+    for (int i = 0; i < 8; i++) begin
+      fb = d[i] ^ c[0];
+      c  = c >> 1;
+      if (fb) c = c ^ 32'hEDB8_8320;
     end
+    crc32_b = c;
   endfunction
 
   // ------------------------------------------------------------------
-  // symbol driver (host -> DUT), one symbol per clk
+  // symbol driver (host -> device), one symbol per clk
   // ------------------------------------------------------------------
-  task automatic tx_sym(input logic [7:0] s);
-    begin
-      @(negedge clk);
-      rx_p <= s;
-      rx_n <= ~s;
-    end
+  task automatic sym(input logic [7:0] s);
+    @(negedge clk); rx_p = s; rx_n = ~s;
+  endtask
+  task automatic bad_sym(input logic [7:0] s);        // invalid: rx_n != ~rx_p
+    @(negedge clk); rx_p = s; rx_n = s;
+  endtask
+  task automatic idle(input int n);
+    repeat (n) sym(SYM_IDLE);
   endtask
 
   // ------------------------------------------------------------------
-  // packet builders
+  // packets
   // ------------------------------------------------------------------
-  task automatic send_dph(input logic [3:0] typ, input logic [2:0] seq,
-                          input logic [1:0] blk);
+  // hi: reserved upper header bits (ignored by the device)
+  task automatic send_dph(input logic [3:0] typ, input logic [2:0] seq, input logic [1:0] blk,
+                          input logic [3:0] hi = 4'h0, input logic [2:0] lo = 3'b000,
+                          input logic bad_crc = 0);
     logic [7:0] s1, s2;
-    begin
-      s1 = {4'h0, typ};
-      s2 = {seq, blk, 3'b000};
-      tx_sym(SYM_DPH);
-      tx_sym(s1);
-      tx_sym(s2);
-      tx_sym(crc5_16({s2, s1}));
-    end
+    s1 = {hi, typ};
+    s2 = {seq, blk, lo};
+    sym(SYM_DPH); sym(s1); sym(s2);
+    sym({3'b000, crc5_16({s2, s1})} ^ (bad_crc ? 8'h01 : 8'h00));
   endtask
 
-  task automatic send_dpp(input logic corrupt);
+  // err: 0 good, 1 bad CRC32, 2 bad END
+  task automatic send_dpp(input int err = 0);
     logic [31:0] c, f;
     logic [7:0]  b;
-    begin
-      tx_sym(SYM_DPP);
-      c = 32'hFFFF_FFFF;
-      for (int i = 0; i < 16; i++) begin
-        for (int j = 0; j < 4; j++) begin
-          b = dbuf[i][8*j +: 8];
-          tx_sym(b);
-          c = crc32_b(c, b);
-        end
+    sym(SYM_DPP);
+    c = 32'hFFFF_FFFF;
+    for (int i = 0; i < 16; i++)
+      for (int j = 0; j < 4; j++) begin
+        b = dbuf[i][8*j +: 8];
+        sym(b);
+        c = crc32_b(c, b);
       end
-      f = ~c;
-      if (corrupt) f = f ^ 32'h0000_0001;
-      tx_sym(f[7:0]);
-      tx_sym(f[15:8]);
-      tx_sym(f[23:16]);
-      tx_sym(f[31:24]);
-      tx_sym(SYM_END);
-    end
+    f = ~c;
+    if (err == 1) f = f ^ 32'h0000_0100;
+    sym(f[7:0]); sym(f[15:8]); sym(f[23:16]); sym(f[31:24]);
+    sym((err == 2) ? 8'h00 : SYM_END);
   endtask
 
-  task automatic send_tp(input logic [3:0] typ, input logic [2:0] seq,
-                         input logic rtry, input logic [1:0] blk,
-                         input logic in_req);
+  // err: 0 good, 1 bad CRC5, 2 bad END
+  task automatic send_tp(input logic [3:0] typ, input logic [2:0] seq, input logic rtry,
+                         input logic [1:0] blk, input logic in_req, input int err = 0,
+                         input logic [3:0] hi = 4'h0, input logic b0 = 1'b0);
     logic [7:0] s1, s2;
-    begin
-      s1 = {4'h0, typ};
-      s2 = {seq, rtry, blk, in_req, 1'b0};
-      tx_sym(SYM_TP);
-      tx_sym(s1);
-      tx_sym(s2);
-      tx_sym(crc5_16({s2, s1}));
-      tx_sym(SYM_END);
-    end
+    s1 = {hi, typ};
+    s2 = {seq, rtry, blk, in_req, b0};
+    sym(SYM_TP); sym(s1); sym(s2);
+    sym({3'b000, crc5_16({s2, s1})} ^ ((err == 1) ? 8'h04 : 8'h00));
+    sym((err == 2) ? 8'hFF : SYM_END);
   endtask
 
   // ------------------------------------------------------------------
-  // receivers (DUT -> host)
+  // receivers (device -> host)
   // ------------------------------------------------------------------
+  task automatic wait_sym(input logic [7:0] s, input int to, output bit got);
+    int t;
+    t = 0;
+    while (tx_p !== s && t < to) begin @(negedge clk); t++; end
+    got = (tx_p === s);
+  endtask
+
   task automatic recv_tp(output logic [3:0] typ, output logic [2:0] seq,
                          output logic rtry, output logic [1:0] blk);
-    logic [7:0] s1, s2, c5, es;
-    int t;
-    begin
-      typ = 4'h0; seq = 3'd0; rtry = 1'b0; blk = 2'd0;
-      t = 0;
-      while (tx_p !== SYM_TP && t < 400) begin @(negedge clk); t = t + 1; end
-      if (t >= 400) begin
-        errors++;
-        $display("ERROR: timeout waiting for transaction packet");
-      end else begin
-        @(negedge clk); s1 = tx_p;
-        @(negedge clk); s2 = tx_p;
-        @(negedge clk); c5 = tx_p;
-        @(negedge clk); es = tx_p;
-        if (c5 !== crc5_16({s2, s1})) begin
-          errors++; $display("ERROR: TP CRC5 mismatch, got %h exp %h",
-                             c5, crc5_16({s2, s1}));
-        end
-        if (es !== SYM_END) begin
-          errors++; $display("ERROR: TP END framing missing, got %h", es);
-        end
-        typ  = s1[3:0];
-        seq  = s2[7:5];
-        rtry = s2[4];
-        blk  = s2[3:2];
-      end
+    logic [7:0] s1, s2, c5;
+    bit got;
+    typ = 0; seq = 0; rtry = 0; blk = 0;
+    wait_sym(SYM_TP, 200, got);
+    if (!got) fail("timeout waiting for transaction packet");
+    else begin
+      @(negedge clk); s1 = tx_p;
+      @(negedge clk); s2 = tx_p;
+      @(negedge clk); c5 = tx_p;
+      @(negedge clk);
+      if (c5 !== {3'b000, crc5_16({s2, s1})}) fail("TP CRC5");
+      if (tx_p !== SYM_END) fail("TP END");
+      if (s1[7:4] !== 4'h0 || s2[1:0] !== 2'b00) fail("TP reserved bits");
+      typ = s1[3:0]; seq = s2[7:5]; rtry = s2[4]; blk = s2[3:2];
     end
   endtask
 
-  // receive one device IN data packet and compare against exp_buf
-  task automatic recv_dpp(input logic [2:0] exp_seq, input logic [1:0] exp_blk);
-    logic [7:0]  s1, s2, c5, sym;
-    logic [31:0] c, word, crc_r;
-    int t;
-    begin
-      t = 0;
-      while (tx_p !== SYM_DPH && t < 400) begin @(negedge clk); t = t + 1; end
-      if (t >= 400) begin
-        errors++;
-        $display("ERROR: timeout waiting for IN DPH");
-      end else begin
-        @(negedge clk); s1 = tx_p;
-        @(negedge clk); s2 = tx_p;
-        @(negedge clk); c5 = tx_p;
-        if (s1[3:0] !== TYPE_DATA) begin
-          errors++; $display("ERROR: IN DPH type %h != DATA", s1[3:0]);
-        end
-        if (s2[7:5] !== exp_seq) begin
-          errors++; $display("ERROR: IN seq %0d, expected %0d", s2[7:5], exp_seq);
-        end
-        if (s2[4:3] !== exp_blk) begin
-          errors++; $display("ERROR: IN blk %0d, expected %0d", s2[4:3], exp_blk);
-        end
-        if (c5 !== crc5_16({s2, s1})) begin
-          errors++; $display("ERROR: IN DPH CRC5 mismatch");
-        end
-        @(negedge clk); sym = tx_p;
-        if (sym !== SYM_DPP) begin
-          errors++; $display("ERROR: IN DPP start missing, got %h", sym);
-        end
-        c = 32'hFFFF_FFFF;
-        for (int i = 0; i < 16; i++) begin
-          word = 32'd0;
-          for (int j = 0; j < 4; j++) begin
-            @(negedge clk); sym = tx_p;
-            c = crc32_b(c, sym);
-            word[8*j +: 8] = sym;
-          end
-          if (word !== exp_buf[i]) begin
-            errors++;
-            $display("ERROR: IN data dword %0d: got %h exp %h",
-                     i, word, exp_buf[i]);
-          end
-        end
-        crc_r = 32'd0;
-        for (int j = 0; j < 4; j++) begin
-          @(negedge clk); crc_r[8*j +: 8] = tx_p;
-        end
-        if (crc_r !== ~c) begin
-          errors++; $display("ERROR: IN CRC32 got %h exp %h", crc_r, ~c);
-        end
-        @(negedge clk);
-        if (tx_p !== SYM_END) begin
-          errors++; $display("ERROR: IN END framing missing, got %h", tx_p);
-        end
-      end
-    end
+  task automatic expect_tp(input logic [3:0] et, input logic [2:0] es, input logic ert,
+                           input logic [1:0] eb, input string m);
+    logic [3:0] t; logic [2:0] s; logic r; logic [1:0] b;
+    recv_tp(t, s, r, b);
+    if (t !== et || s !== es || r !== ert || b !== eb)
+      fail($sformatf("%s: TP type %h seq %0d rtry %b blk %0d, exp %h %0d %b %0d",
+                     m, t, s, r, b, et, es, ert, eb));
   endtask
 
-  // ------------------------------------------------------------------
-  // high-level transactions
-  // ------------------------------------------------------------------
-  task automatic bulk_out(input logic [1:0] blk, input logic [2:0] seq,
-                          input logic corrupt, input logic [3:0] exp_typ,
-                          input logic exp_retry);
-    logic [3:0] typ;
-    logic [2:0] rseq;
-    logic       rtry;
-    logic [1:0] rblk;
-    begin
-      send_dph(TYPE_DATA, seq, blk);
-      send_dpp(corrupt);
-      recv_tp(typ, rseq, rtry, rblk);
-      if (typ !== exp_typ) begin
-        errors++;
-        $display("ERROR: OUT blk%0d seq%0d: TP %h, expected %h",
-                 blk, seq, typ, exp_typ);
-      end
-      if (rseq !== seq) begin
-        errors++;
-        $display("ERROR: OUT blk%0d: ACK seq %0d, expected %0d", blk, rseq, seq);
-      end
-      if (exp_typ == TP_ACK && rtry !== exp_retry) begin
-        errors++;
-        $display("ERROR: OUT blk%0d: retry flag %b, expected %b",
-                 blk, rtry, exp_retry);
-      end
-      tx_sym(SYM_IDLE);
-      tx_sym(SYM_IDLE);
-    end
-  endtask
-
-  // request an IN transfer, verify data, complete with host ACK
-  task automatic bulk_in(input logic [1:0] blk, input logic [2:0] dseq);
-    begin
-      send_tp(TP_ACK, 3'd0, 1'b0, blk, 1'b1);   // IN request
-      tx_sym(SYM_IDLE);
-      recv_dpp(dseq, blk);
-      send_tp(TP_ACK, dseq, 1'b0, blk, 1'b0);   // host ACK completes transfer
-      tx_sym(SYM_IDLE);
-    end
-  endtask
-
-  task automatic fill_pattern(input logic [31:0] base);
-    begin
-      for (int i = 0; i < 16; i++) begin
-        dbuf[i]    = base + i;
-        exp_buf[i] = base + i;
-      end
-    end
-  endtask
-
-`ifdef VERILATOR
-  // =====================================================================
-  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
-  // Tool notes (Verilator 5.006): no native FSM/SVA coverage and
-  // randomize() ignores constraint blocks -> procedural constraints
-  // ($urandom_range + rejection sampling), TB FSM probe, immediate
-  // assertions.
-  // =====================================================================
-  localparam int USB3_FSM_TOTAL = 36;  // link(3) + rx(15) + tx(18)
-  logic [35:0] fsm_seen = '0;          // visited-state bitmap
-  wire  [1:0]  dut_lk = dut.link_state;  // hierarchical FSM probes
-  wire  [3:0]  dut_rx = dut.rx_state;
-  wire  [4:0]  dut_tx = dut.tx_state;
-
-  int sva_total = 0, sva_fail = 0;
-  // counted immediate assertion: every evaluation is one check
-  task automatic sva_check(input bit cond, input string name);
-    begin
-      sva_total++;
-      if (!cond) begin
-        sva_fail++;
-        errors++;
-        $display("SVA_FAIL: %s @%0t", name, $time);
-      end
-    end
-  endtask
-
-  task automatic check(input bit cond, input string msg);
-    begin
-      if (cond) $display("[OK]   %s", msg);
-      else begin
-        errors++;
-        $display("[FAIL] %s", msg);
-      end
-    end
-  endtask
-
-  // FSM coverage: sample all three DUT state registers every clock
-  always @(posedge clk) begin
-    fsm_seen[dut_lk]       <= 1'b1;
-    fsm_seen[3 + dut_rx]   <= 1'b1;
-    fsm_seen[18 + dut_tx]  <= 1'b1;
-  end
-
-  // output-invariant assertion suite (sampled coherently pre-NBA)
-  logic prev_link_up = 1'b0;
-  // v2.5.1 FIXED: the give-up path no longer launches a 5th DPP and
-  // await_ack can no longer re-arm with in_active==0 (was RTL bug 4 in
-  // docs/coverage/W2_USB.md) -- A7 is back to a strict implication.
-  always @(posedge clk) begin
-    if (!rst_n) begin
-      // A1: outputs quiescent during reset
-      sva_check(link_up === 1'b0 && irq === 1'b0 && tx_p === SYM_IDLE,
-                "A1 reset: outputs quiescent");
-    end else begin
-      // A2: state registers hold legal enum encodings
-      sva_check(dut_lk <= 2'd2 && dut_rx <= 4'd14 && dut_tx <= 5'd17,
-                "A2 state encodings legal");
-      // A3: differential complement maintained
-      sva_check(tx_n === ~tx_p, "A3 tx_n = ~tx_p");
-      // A4: status outputs never X
-      sva_check(irq !== 1'bx && link_up !== 1'bx, "A4 status not X");
-      // A5: link_up sticky once U0 reached
-      sva_check((prev_link_up !== 1'b1) || (link_up === 1'b1),
-                "A5 link_up sticky");
-      // A6: before U0 only LFPS/idle symbols may be emitted
-      sva_check(link_up || (tx_p === SYM_IDLE) || (tx_p === SYM_LFPS),
-                "A6 pre-U0 emits only LFPS/idle");
-      // A7: ACK watchdog only runs during an active IN transfer (strict;
-      // the v2.5 giveup_window exception was removed with the RTL fix).
-      sva_check(!dut.await_ack || dut.in_active,
-                "A7 await_ack implies in_active");
-    end
-    prev_link_up <= link_up;
-  end
-
-  // ---- constrained-random link-partner model ---------------------------
-  int          exp_seq_m;               // model of DUT rx_exp (OUT seq)
-  int          tx_seq_m;                // model of DUT tx_seq (IN seq)
-  bit          valid_m [0:3];           // block-written model
-  logic [31:0] mem_m [0:63];            // shadow of DUT bulk_mem
-  bit          irq_m;                   // sticky irq model (never cleared)
-
-  // random payload into dbuf + expected-device-view mirror
-  task automatic crv_fill;
-    begin
-      for (int i = 0; i < 16; i++) dbuf[i] = $urandom;
-    end
-  endtask
-
-  // commit a just-ACKed OUT block into the shadow model
-  task automatic crv_commit(input int blk);
-    begin
-      for (int i = 0; i < 16; i++) mem_m[blk*16 + i] = dbuf[i];
-      valid_m[blk] = 1'b1;
-    end
-  endtask
-
-  // no DUT traffic for n clks (dropped-packet scenarios)
-  task automatic crv_expect_quiet(input int n, input string tag);
-    bit q;
-    begin
-      q = 1'b1;
-      repeat (n) begin
-        @(negedge clk);
-        if (tx_p !== SYM_IDLE) q = 1'b0;
-      end
-      check(q, {tag, ": no response (link quiet)"});
-    end
-  endtask
-
-  // 1. good bulk OUT, random block/payload; seq tracked by model
-  task automatic crv_out_good;
-    int blk;
-    begin
-      blk = $urandom_range(0, 3);
-      crv_fill;
-      bulk_out(blk[1:0], exp_seq_m[2:0], 1'b0, TP_ACK, 1'b0);
-      crv_commit(blk);
-      exp_seq_m = (exp_seq_m + 1) % 8;
-      check(dut.rx_exp === exp_seq_m[2:0], "CRV model/DUT rx_exp in sync");
-    end
-  endtask
-
-  // 2. bad CRC32 OUT -> LBAD + irq, host retransmits -> ACK
-  task automatic crv_out_badcrc;
-    int blk;
-    begin
-      blk = $urandom_range(0, 3);
-      crv_fill;
-      bulk_out(blk[1:0], exp_seq_m[2:0], 1'b1, TP_LBAD, 1'b0);
-      repeat (2) tx_sym(SYM_IDLE);
-      check(irq === 1'b1, "CRV bad CRC32: irq raised");
-      irq_m = 1'b1;
-      bulk_out(blk[1:0], exp_seq_m[2:0], 1'b0, TP_ACK, 1'b0);
-      crv_commit(blk);
-      exp_seq_m = (exp_seq_m + 1) % 8;
-    end
-  endtask
-
-  // 3. duplicate seq -> ACK with retry flag, buffer not rewritten
-  task automatic crv_out_dup;
-    int blk;
-    begin
-      if (exp_seq_m == 0) begin crv_out_good; return; end
-      blk = $urandom_range(0, 3);
-      crv_fill;                          // different payload, must be dropped
-      bulk_out(blk[1:0], (exp_seq_m - 1) % 8, 1'b0, TP_ACK, 1'b1);
-    end
-  endtask
-
-  // 4. out-of-order seq -> NRDY + irq, buffer not rewritten
-  task automatic crv_out_ooo;
-    int blk, sq;
-    begin
-      blk = $urandom_range(0, 3);
-      // +2..+6 mod 8: never exp (in-order) nor exp-1 (duplicate)
-      sq  = (exp_seq_m + $urandom_range(2, 6)) % 8;
-      crv_fill;
-      bulk_out(blk[1:0], sq[2:0], 1'b0, TP_NRDY, 1'b0);
-      repeat (2) tx_sym(SYM_IDLE);
-      check(irq === 1'b1, "CRV out-of-order seq: irq raised");
-      irq_m = 1'b1;
-    end
-  endtask
-
-  // 5. good bulk IN of a written block, payload vs shadow model
-  task automatic crv_in_good;
-    int blk;
-    begin
-      blk = $urandom_range(0, 3);
-      if (!valid_m[blk]) begin crv_out_good; return; end
-      for (int i = 0; i < 16; i++) exp_buf[i] = mem_m[blk*16 + i];
-      bulk_in(blk[1:0], tx_seq_m[2:0]);
-      tx_seq_m = (tx_seq_m + 1) % 8;
-    end
-  endtask
-
-  // 6. bulk IN with LBAD -> retransmission (same seq), then host ACK
-  task automatic crv_in_lbad;
-    int blk;
-    begin
-      blk = $urandom_range(0, 3);
-      if (!valid_m[blk]) begin crv_out_good; return; end
-      for (int i = 0; i < 16; i++) exp_buf[i] = mem_m[blk*16 + i];
-      send_tp(TP_ACK, 3'd0, 1'b0, blk[1:0], 1'b1);   // IN request
-      tx_sym(SYM_IDLE);
-      recv_dpp(tx_seq_m[2:0], blk[1:0]);             // first attempt
-      send_tp(TP_LBAD, 3'd0, 1'b0, blk[1:0], 1'b0);  // host reports bad
-      tx_sym(SYM_IDLE);
-      recv_dpp(tx_seq_m[2:0], blk[1:0]);             // retransmission
-      send_tp(TP_ACK, tx_seq_m[2:0], 1'b0, blk[1:0], 1'b0);
-      tx_sym(SYM_IDLE);
-      tx_seq_m = (tx_seq_m + 1) % 8;
-    end
-  endtask
-
-  // 7. IN request for a never-written block -> NRDY
-  task automatic crv_in_nrdy;
-    int blk;
-    logic [3:0] t2; logic [2:0] s2; logic r2; logic [1:0] b2;
-    begin
-      blk = $urandom_range(0, 3);
-      if (valid_m[blk]) begin crv_in_good; return; end
-      send_tp(TP_ACK, 3'd0, 1'b0, blk[1:0], 1'b1);
-      tx_sym(SYM_IDLE);
-      recv_tp(t2, s2, r2, b2);
-      check(t2 === TP_NRDY, "CRV IN unwritten block -> NRDY");
-      check(b2 === blk[1:0], "CRV NRDY carries requested block");
-      tx_sym(SYM_IDLE);
-      tx_sym(SYM_IDLE);
-    end
-  endtask
-
-  // 8. DPH with bad CRC5 -> silently dropped + irq, no response
-  task automatic crv_bad_dph;
-    logic [7:0] s1, s2;
-    begin
-      s1 = {4'h0, TYPE_DATA};
-      s2 = {$urandom_range(0, 7), $urandom_range(0, 3), 3'b000};
-      tx_sym(SYM_DPH);
-      tx_sym(s1);
-      tx_sym(s2);
-      tx_sym(crc5_16({s2, s1}) ^ 8'h01);   // corrupt CRC5
-      repeat (4) tx_sym(SYM_IDLE);
-      check(irq === 1'b1, "CRV bad DPH CRC5: irq raised");
-      irq_m = 1'b1;
-      crv_expect_quiet(20, "CRV bad DPH CRC5");
-    end
-  endtask
-
-  // 9. TP with bad CRC5 -> silently dropped + irq, no response
-  task automatic crv_bad_tp;
-    logic [7:0] s1, s2;
-    begin
-      s1 = {4'h0, TP_ACK};
-      s2 = 8'h04;                          // in_req=1, blk0
-      tx_sym(SYM_TP);
-      tx_sym(s1);
-      tx_sym(s2);
-      tx_sym(crc5_16({s2, s1}) ^ 8'h02);   // corrupt CRC5
-      tx_sym(SYM_END);
-      repeat (4) tx_sym(SYM_IDLE);
-      check(irq === 1'b1, "CRV bad TP CRC5: irq raised");
-      irq_m = 1'b1;
-      crv_expect_quiet(20, "CRV bad TP CRC5");
-    end
-  endtask
-
-  // 10. DPP with wrong END framing -> irq, no TP, no commit
-  task automatic crv_bad_end;
-    logic [31:0] c, f;
-    logic [7:0]  b;
-    int          blk;
-    begin
-      blk = $urandom_range(0, 3);
-      crv_fill;
-      send_dph(TYPE_DATA, exp_seq_m[2:0], blk[1:0]);
-      tx_sym(SYM_DPP);
+  // one device IN data packet, payload compared against the shadow buffer
+  task automatic recv_dpp(input logic [2:0] es, input logic [1:0] eb);
+    logic [7:0]  s1, s2, c5, x;
+    logic [31:0] c, w, cr;
+    bit got;
+    wait_sym(SYM_DPH, 400, got);
+    if (!got) fail("timeout waiting for IN DPH");
+    else begin
+      @(negedge clk); s1 = tx_p;
+      @(negedge clk); s2 = tx_p;
+      @(negedge clk); c5 = tx_p;
+      if (s1 !== {4'h0, TYPE_DATA}) fail("IN DPH type");
+      if (s2 !== {es, eb, 3'b000}) fail($sformatf("IN DPH seq/blk %h exp %0d/%0d", s2, es, eb));
+      if (c5 !== {3'b000, crc5_16({s2, s1})}) fail("IN DPH CRC5");
+      @(negedge clk);
+      if (tx_p !== SYM_DPP) fail("IN DPP start");
       c = 32'hFFFF_FFFF;
-      for (int i = 0; i < 16; i++)
+      for (int i = 0; i < 16; i++) begin
+        w = 0;
         for (int j = 0; j < 4; j++) begin
-          b = dbuf[i][8*j +: 8];
-          tx_sym(b);
-          c = crc32_b(c, b);
+          @(negedge clk); x = tx_p;
+          c = crc32_b(c, x);
+          w[8*j +: 8] = x;
         end
-      f = ~c;
-      tx_sym(f[7:0]);  tx_sym(f[15:8]);  tx_sym(f[23:16]);  tx_sym(f[31:24]);
-      tx_sym(8'h00);                       // wrong END framing
-      repeat (4) tx_sym(SYM_IDLE);
-      check(irq === 1'b1, "CRV bad END: irq raised");
-      irq_m = 1'b1;
-      crv_expect_quiet(20, "CRV bad END");
-    end
-  endtask
-
-  // 11. DPH not followed by DPP start -> irq
-  task automatic crv_missing_dpp;
-    int blk;
-    begin
-      blk = $urandom_range(0, 3);
-      send_dph(TYPE_DATA, exp_seq_m[2:0], blk[1:0]);
-      tx_sym(SYM_IDLE);                    // missing DPP start
-      repeat (4) tx_sym(SYM_IDLE);
-      check(irq === 1'b1, "CRV missing DPP: irq raised");
-      irq_m = 1'b1;
-      crv_expect_quiet(20, "CRV missing DPP");
-    end
-  endtask
-
-  // 12. unsupported DPH type (good CRC5) -> silently dropped, no irq change
-  task automatic crv_unsup_type;
-    logic [3:0] typ_u;
-    logic [7:0] s1, s2;
-    begin
-      typ_u = $urandom_range(0, 15);
-      if (typ_u == TYPE_DATA) typ_u = 4'h0;   // rejection: keep unsupported
-      s1 = {4'h0, typ_u};
-      s2 = {$urandom_range(0, 7), $urandom_range(0, 3), 3'b000};
-      tx_sym(SYM_DPH);
-      tx_sym(s1);
-      tx_sym(s2);
-      tx_sym(crc5_16({s2, s1}));           // good CRC5
-      repeat (4) tx_sym(SYM_IDLE);
-      check(irq === irq_m, "CRV unsupported DPH type: no irq change");
-      crv_expect_quiet(20, "CRV unsupported DPH type");
-    end
-  endtask
-
-  // 14. give-up: 4 consecutive failed IN attempts -> DUT abandons the
-  // transfer (in_active cleared, irq raised), tx_seq not advanced
-  task automatic crv_giveup;
-    int blk;
-    begin
-      blk = $urandom_range(0, 3);
-      if (!valid_m[blk]) begin crv_out_good; return; end
-      for (int i = 0; i < 16; i++) exp_buf[i] = mem_m[blk*16 + i];
-      send_tp(TP_ACK, 3'd0, 1'b0, blk[1:0], 1'b1);   // IN request
-      tx_sym(SYM_IDLE);
-      recv_dpp(tx_seq_m[2:0], blk[1:0]);             // attempt 1
-      for (int r = 0; r < 3; r++) begin
-        send_tp(TP_LBAD, 3'd0, 1'b0, blk[1:0], 1'b0);
-        tx_sym(SYM_IDLE);
-        recv_dpp(tx_seq_m[2:0], blk[1:0]);           // retransmission
+        if (w !== mem_m[{eb, 4'(i)}]) fail($sformatf("IN blk %0d dword %0d: %h exp %h",
+                                                     eb, i, w, mem_m[{eb, 4'(i)}]));
       end
-      send_tp(TP_LBAD, 3'd0, 1'b0, blk[1:0], 1'b0);  // 4th failure: give up
-      repeat (6) tx_sym(SYM_IDLE);
-      check(irq === 1'b1, "CRV give-up after 4 attempts: irq raised");
-      // v2.5.1 FIXED (was RTL bug 4 in docs/coverage/W2_USB.md): give-up
-      // suppresses the already-launched retransmission -- no 5th DPP,
-      // await_ack stays clear (strict A7), tx_seq is not advanced, and the
-      // link is quiet immediately.
-      crv_expect_quiet(20, "CRV give-up");
+      cr = 0;
+      for (int j = 0; j < 4; j++) begin @(negedge clk); cr[8*j +: 8] = tx_p; end
+      if (cr !== ~c) fail("IN CRC32");
+      @(negedge clk);
+      if (tx_p !== SYM_END) fail("IN END");
     end
   endtask
 
-  // 13. ACK timeout: host drops the ACK, DUT watchdog retransmits the DPP
-  task automatic crv_ack_timeout;
-    int blk;
-    begin
-      blk = $urandom_range(0, 3);
-      if (!valid_m[blk]) begin crv_out_good; return; end
-      for (int i = 0; i < 16; i++) exp_buf[i] = mem_m[blk*16 + i];
-      send_tp(TP_ACK, 3'd0, 1'b0, blk[1:0], 1'b1);
-      tx_sym(SYM_IDLE);
-      recv_dpp(tx_seq_m[2:0], blk[1:0]);   // first attempt
-      repeat (300) tx_sym(SYM_IDLE);       // no ACK: watchdog fires
-      recv_dpp(tx_seq_m[2:0], blk[1:0]);   // watchdog retransmission
-      send_tp(TP_ACK, tx_seq_m[2:0], 1'b0, blk[1:0], 1'b0);
-      tx_sym(SYM_IDLE);
-      tx_seq_m = (tx_seq_m + 1) % 8;
-    end
+  task automatic expect_quiet(input int n, input string m);
+    bit q;
+    q = 1;
+    repeat (n) begin @(negedge clk); if (tx_p !== SYM_IDLE) q = 0; end
+    if (!q) fail({m, ": unexpected device traffic"});
   endtask
-`endif
+
+  task automatic expect_irq(input bit e, input string m);
+    if (irq !== e) fail($sformatf("%s: irq %b exp %b", m, irq, e));
+  endtask
+
+  // ------------------------------------------------------------------
+  // transactions
+  // ------------------------------------------------------------------
+  task automatic fill(input bit rnd, input logic [31:0] base = 0);
+    for (int i = 0; i < 16; i++) dbuf[i] = rnd ? $urandom : base + i;
+  endtask
+
+  task automatic commit(input logic [1:0] blk);
+    for (int i = 0; i < 16; i++) mem_m[{blk, 4'(i)}] = dbuf[i];
+    vblk_m[blk] = 1;
+  endtask
+
+  // in-order OUT, ACKed and committed
+  task automatic out_good(input logic [1:0] blk, input bit rnd = 1);
+    fill(rnd, {14'd0, blk, 16'h0});
+    send_dph(TYPE_DATA, oseq, blk, 4'($urandom), 3'($urandom));
+    send_dpp();
+    expect_tp(TP_ACK, oseq, 0, blk, "OUT in order");
+    commit(blk);
+    oseq++;
+    idle(2);
+  endtask
+
+  task automatic in_req(input logic [1:0] blk);
+    send_tp(TP_ACK, 3'($urandom), 0, blk, 1, 0, 4'($urandom), 1'($urandom));
+  endtask
+
+  // IN of a written block, completed by the host ACK
+  task automatic in_good(input logic [1:0] blk);
+    in_req(blk); idle(1);
+    recv_dpp(iseq, blk);
+    send_tp(TP_ACK, iseq, 0, blk, 0);
+    iseq++;
+    idle(2);
+  endtask
+
+  // link training: n host bursts of len LFPS symbols, gap idle between
+  task automatic train(input int len = 16, input int n = 40, input int gap = 16);
+    int k;
+    k = 0;
+    while (!link_up && k < n) begin
+      repeat (len) sym(SYM_LFPS);
+      idle(gap);
+      k++;
+    end
+    if (!link_up) fail("link training");
+    idle(4);
+    oseq = 0; iseq = 0;
+  endtask
+
+  task automatic hard_reset;
+    @(negedge clk); rst_n = 0;
+    rx_p = SYM_IDLE; rx_n = ~SYM_IDLE;
+    repeat (3) @(negedge clk);
+    if (tx_p !== SYM_IDLE || link_up || irq) fail("reset state");
+    rst_n = 1;
+    vblk_m = 0;
+  endtask
+
+  task automatic warm_reset;
+    repeat (32) sym(SYM_LFPS);
+    @(negedge clk);
+    if (link_up) fail("warm reset: link still up");
+    idle(4);
+  endtask
 
   // ------------------------------------------------------------------
   // test sequence
   // ------------------------------------------------------------------
-  logic [3:0] typ;
-  logic [2:0] rseq;
-  logic       rtry;
-  logic [1:0] rblk;
-  int         t;
-  logic       quiet;
-
+  bit got;
   initial begin
-    rx_p = SYM_IDLE;
-    rx_n = ~SYM_IDLE;
-    rst_n = 0;
-    repeat (5) @(negedge clk);
-
-    // ---- check 1: reset state -------------------------------------
-    if (tx_p !== SYM_IDLE) begin
-      errors++; $display("ERROR: reset tx_p=%h, expected idle", tx_p);
-    end
-    if (link_up !== 1'b0) begin
-      errors++; $display("ERROR: reset link_up=%b", link_up);
-    end
-    if (irq !== 1'b0) begin
-      errors++; $display("ERROR: reset irq=%b", irq);
-    end
+    for (int i = 0; i < 64; i++) mem_m[i] = 0;
+    for (int i = 0; i < 16; i++) dbuf[i] = 0;
+    vblk_m = 0; oseq = 0; iseq = 0;
+    repeat (4) @(negedge clk);
+    if (tx_p !== SYM_IDLE || link_up || irq) fail("reset state");
     rst_n = 1;
 
-    // ---- check 2: LFPS handshake (Polling.LFPS burst/idle -> U0) ---
-    repeat (40) tx_sym(SYM_IDLE);          // RXDET dwell
-    repeat (2) begin                        // 2 Polling.LFPS bursts
-      repeat (16) tx_sym(SYM_LFPS);
-      repeat (16) tx_sym(SYM_IDLE);
+    // ---------------- training: LFPS during RXDET, invalid LFPS, short
+    // bursts, a packet before U0, then long bursts
+    repeat (20) sym(SYM_LFPS);
+    idle(14);
+    repeat (12) bad_sym(SYM_LFPS);
+    idle(2);
+    repeat (3) begin repeat (5) sym(SYM_LFPS); idle(10); end
+    send_tp(TP_ACK, 0, 0, 0, 1);                    // not yet in U0: ignored
+    expect_irq(0, "packet before U0");
+    if (link_up) fail("link up on short bursts");
+    train(24);
+    expect_irq(0, "training");
+
+    // ---------------- basic OUT / IN
+    out_good(0, 0);
+    send_tp(TP_ACK, 3, 0, 1, 1); idle(1);
+    expect_tp(TP_NRDY, 3, 0, 1, "IN of unwritten block");
+    idle(2);
+    in_good(0);
+    out_good(1); out_good(2); out_good(3);
+    in_good(3); in_good(1); in_good(2);
+    expect_irq(0, "error-free traffic");
+
+    // ---------------- host TPs the device ignores
+    send_tp(TP_ACK, 5, 0, 0, 0);                    // ACK without IN transfer
+    send_tp(TP_LBAD, 5, 0, 0, 0);                   // LBAD without IN transfer
+    send_tp(TP_NRDY, 1, 1, 2, 0, 0, 4'hF, 1);       // NRDY from host
+    send_tp(4'h3, 2, 0, 3, 1);                      // unknown TP type
+    send_dph(4'hE, 1, 1, 4'hC, 3'b101);             // unsupported DPH types
+    send_dph(4'h0, 2, 0, 4'h3, 3'b010);
+    send_dph(4'h9, 3, 2, 4'h0, 3'b000);             // differs from DATA only in bit 3
+    idle(4);
+    bad_sym(8'h12); bad_sym(8'h00);                 // invalid symbols between packets
+    sym(SYM_LFPS); sym(SYM_IDLE);
+    expect_quiet(20, "ignored packets");
+    expect_irq(0, "ignored packets");
+
+    // ---------------- IN retransmission: LBAD, wrong-seq ACK, host NRDY,
+    // ACK timeout, busy request
+    in_req(2); idle(1);
+    recv_dpp(iseq, 2);
+    send_tp(TP_ACK, iseq + 3'd1, 0, 2, 0);          // wrong sequence: ignored
+    send_tp(TP_LBAD, 0, 0, 2, 0);
+    recv_dpp(iseq, 2);
+    send_tp(TP_NRDY, iseq, 0, 2, 0);                // host not ready: watchdog resends
+    recv_dpp(iseq, 2);                              // after the ACK timeout
+    send_tp(TP_ACK, iseq, 0, 2, 0);
+    iseq++; idle(2);
+    // busy: second IN request while the first is in flight -> NRDY after the DPP
+    in_req(1);
+    fork
+      begin idle(1); send_tp(TP_ACK, 6, 0, 3, 1); end
+      begin recv_dpp(iseq, 1); expect_tp(TP_NRDY, 6, 0, 3, "IN busy"); end
+    join
+    send_tp(TP_ACK, iseq, 0, 1, 0);
+    iseq++; idle(2);
+    // OUT while an IN DPP is being transmitted: its ACK waits for the DPP
+    in_req(0);
+    fork
+      begin idle(1); fill(1); send_dph(TYPE_DATA, oseq, 2); send_dpp(); end
+      begin recv_dpp(iseq, 0); expect_tp(TP_ACK, oseq, 0, 2, "OUT during IN"); end
+    join
+    commit(2); oseq++;
+    send_tp(TP_ACK, iseq, 0, 0, 0);
+    iseq++; idle(2);
+    // OUT response and IN request pending together: response goes first
+    fill(1);
+    send_dph(TYPE_DATA, oseq, 3); send_dpp();
+    fork
+      in_req(3);
+      expect_tp(TP_ACK, oseq, 0, 3, "OUT before IN");
+    join
+    commit(3); oseq++;
+    recv_dpp(iseq, 3);
+    send_tp(TP_ACK, iseq, 0, 3, 0);
+    iseq++; idle(2);
+    // ACK timeout and an OUT response falling due on the same clock: the
+    // response goes first, then the retransmission
+    in_req(0); idle(1);
+    recv_dpp(iseq, 0);
+    idle(182);
+    fill(0, 32'h0102_0000);
+    send_dph(TYPE_DATA, oseq, 1); send_dpp();
+    expect_tp(TP_ACK, oseq, 0, 1, "OUT at ACK timeout");
+    commit(1); oseq++;
+    recv_dpp(iseq, 0);
+    send_tp(TP_ACK, iseq, 0, 0, 0);
+    iseq++; idle(2);
+    expect_irq(0, "retransmission");
+
+    // ---------------- OUT errors
+    fill(1);
+    send_dph(TYPE_DATA, oseq, 1); send_dpp(1);      // bad CRC32 -> LBAD
+    expect_tp(TP_LBAD, oseq, 0, 1, "bad CRC32");
+    expect_irq(1, "bad CRC32");
+    send_dph(TYPE_DATA, oseq, 1); send_dpp();       // host retransmits
+    expect_tp(TP_ACK, oseq, 0, 1, "OUT retransmission");
+    commit(1); oseq++;
+    fill(1);                                        // duplicate: retry ACK, no rewrite
+    send_dph(TYPE_DATA, oseq - 3'd1, 1); send_dpp();
+    expect_tp(TP_ACK, oseq - 3'd1, 1, 1, "duplicate");
+    send_dph(TYPE_DATA, oseq + 3'd3, 0); send_dpp(); // out of order -> NRDY
+    expect_tp(TP_NRDY, oseq + 3'd3, 0, 0, "out of order");
+    in_good(1); in_good(0);
+
+    hard_reset(); train();
+    out_good(0);
+    send_dph(TYPE_DATA, oseq, 0, 0, 0, 1);          // bad header CRC5
+    idle(4); expect_irq(1, "bad DPH CRC5");
+    hard_reset(); train();
+    send_dph(TYPE_DATA, oseq, 0); sym(SYM_IDLE);    // DPP start missing
+    idle(4); expect_irq(1, "missing DPP");
+    hard_reset(); train();
+    fill(1); send_dph(TYPE_DATA, oseq, 0); send_dpp(2); // bad END
+    idle(4); expect_irq(1, "DPP bad END");
+    expect_quiet(10, "DPP bad END");
+    hard_reset(); train();
+    send_tp(TP_ACK, 0, 0, 0, 1, 1);                 // bad TP CRC5
+    idle(4); expect_irq(1, "bad TP CRC5");
+    expect_quiet(10, "bad TP CRC5");
+    hard_reset(); train();
+    send_tp(TP_ACK, 0, 0, 0, 1, 2);                 // bad TP END
+    idle(4); expect_irq(1, "bad TP END");
+    hard_reset(); train();
+    sym(SYM_DPH); sym(8'h01); bad_sym(8'h55);       // decode error in a header
+    idle(4); expect_irq(1, "decode error");
+    hard_reset(); train();
+    fill(1); send_dph(TYPE_DATA, 0, 0); sym(SYM_DPP);
+    for (int i = 0; i < 10; i++) sym(8'(i));
+    bad_sym(8'h77);                                  // decode error in a payload
+    idle(4);
+    sym(SYM_TP); bad_sym(8'h0A);                     // and in a TP
+    idle(4); expect_irq(1, "decode error in payload");
+    out_good(1); in_good(1);                        // device recovered
+
+    // ---------------- give-up after four attempts
+    hard_reset(); train();
+    out_good(2);
+    in_req(2); idle(1);
+    recv_dpp(iseq, 2);
+    for (int r = 0; r < 3; r++) begin
+      send_tp(TP_LBAD, 0, 0, 2, 0);
+      recv_dpp(iseq, 2);
     end
-    t = 0;
-    while (!link_up && t < 400) begin tx_sym(SYM_IDLE); t = t + 1; end
-    if (!link_up) begin
-      errors++; $display("ERROR: LFPS handshake did not reach U0");
-    end
-    if (dut_lfps_cycles < 16) begin
-      errors++;
-      $display("ERROR: DUT transmitted only %0d LFPS cycles", dut_lfps_cycles);
-    end
-    if (irq !== 1'b0) begin
-      errors++; $display("ERROR: irq set during error-free link training");
-    end
-    repeat (4) tx_sym(SYM_IDLE);
+    send_tp(TP_LBAD, 0, 0, 2, 0);
+    idle(4); expect_irq(1, "give-up");
+    expect_quiet(40, "give-up");
+    in_good(2);                                     // same sequence number again
 
-    // ---- check 3: bulk OUT block0 seq0 -> ACK ----------------------
-    fill_pattern(32'hA500_0000);
-    bulk_out(2'd0, 3'd0, 1'b0, TP_ACK, 1'b0);
+    // ---------------- sequence wrap
+    for (int i = 0; i < 10; i++) out_good(2'(i));
+    for (int i = 0; i < 10; i++) in_good(2'(i));
 
-    // ---- check 4: IN request for never-written block -> NRDY -------
-    send_tp(TP_ACK, 3'd0, 1'b0, 2'd1, 1'b1);
-    tx_sym(SYM_IDLE);
-    recv_tp(typ, rseq, rtry, rblk);
-    if (typ !== TP_NRDY) begin
-      errors++;
-      $display("ERROR: IN of unwritten block: TP %h, expected NRDY", typ);
-    end
-    tx_sym(SYM_IDLE);
-    tx_sym(SYM_IDLE);
+    // ---------------- warm reset
+    hard_reset(); train();
+    out_good(0); out_good(1); in_good(0);
+    repeat (20) sym(SYM_LFPS);                      // too short: no warm reset
+    idle(2);
+    if (!link_up) fail("20 LFPS symbols dropped the link");
+    for (int i = 0; i < 16; i++) dbuf[i] = 32'hAAAA_AAAA;   // LFPS-like payload
+    send_dph(TYPE_DATA, oseq, 2); send_dpp();
+    expect_tp(TP_ACK, oseq, 0, 2, "AA payload");
+    commit(2); oseq++;
+    if (!link_up) fail("AA payload dropped the link");
+    warm_reset();
+    train();
+    in_good(2);                                     // data kept, IN sequence restarted
+    out_good(3);                                    // OUT sequence restarted
+    in_req(3); idle(1);                             // warm reset while waiting for ACK
+    recv_dpp(iseq, 3);
+    warm_reset();
+    train();
+    expect_quiet(300, "after warm reset");          // transfer abandoned
+    in_req(1); idle(1);                             // warm reset while transmitting
+    wait_sym(SYM_DPH, 50, got);
+    if (!got) fail("IN DPH before warm reset");
+    warm_reset();
+    train();
+    in_good(1);
+    expect_irq(0, "warm resets");
 
-    // ---- check 5: bulk IN block0 with LBAD -> retransmission -------
-    send_tp(TP_ACK, 3'd0, 1'b0, 2'd0, 1'b1);   // IN request blk0
-    tx_sym(SYM_IDLE);
-    recv_dpp(3'd0, 2'd0);                       // first attempt
-    send_tp(TP_LBAD, 3'd0, 1'b0, 2'd0, 1'b0);   // host reports bad packet
-    tx_sym(SYM_IDLE);
-    recv_dpp(3'd0, 2'd0);                       // retransmission, same seq
-    send_tp(TP_ACK, 3'd0, 1'b0, 2'd0, 1'b0);    // host ACK completes
-    tx_sym(SYM_IDLE);
-
-    // ---- check 6: back-to-back bulk OUT blocks 1,2 -----------------
-    fill_pattern(32'h5A00_1000);
-    bulk_out(2'd1, 3'd1, 1'b0, TP_ACK, 1'b0);
-    fill_pattern(32'hC300_2000);
-    bulk_out(2'd2, 3'd2, 1'b0, TP_ACK, 1'b0);
-
-    // ---- check 7: bulk IN readback blocks 1,2 (OUT->IN compare) ----
-    for (int i = 0; i < 16; i++) exp_buf[i] = 32'h5A00_1000 + i;
-    bulk_in(2'd1, 3'd1);
-    for (int i = 0; i < 16; i++) exp_buf[i] = 32'hC300_2000 + i;
-    bulk_in(2'd2, 3'd2);
-
-    // ---- check 8: bad CRC32 injection -> LBAD + irq, then retry ----
-    fill_pattern(32'h1234_5000);
-    bulk_out(2'd3, 3'd3, 1'b1, TP_LBAD, 1'b0);  // corrupted CRC32
-    repeat (2) tx_sym(SYM_IDLE);
-    if (irq !== 1'b1) begin
-      errors++; $display("ERROR: irq not set after bad-CRC32 injection");
-    end
-    bulk_out(2'd3, 3'd3, 1'b0, TP_ACK, 1'b0);   // host retransmission
-    for (int i = 0; i < 16; i++) exp_buf[i] = 32'h1234_5000 + i;
-    bulk_in(2'd3, 3'd3);                        // verify recovered data
-
-    // ---- check 9: out-of-order seq injection -> NRDY ---------------
-    fill_pattern(32'hDEAD_0000);
-    bulk_out(2'd0, 3'd6, 1'b0, TP_NRDY, 1'b0);  // expected seq is 4
-
-    // ---- check 10: duplicate seq -> ACK with retry flag ------------
-    fill_pattern(32'hFFFF_0000);
-    bulk_out(2'd0, 3'd3, 1'b0, TP_ACK, 1'b1);   // duplicate of seq3
-
-    // ---- check 11: buffer not corrupted by 9/10, readback block0 ---
-    for (int i = 0; i < 16; i++) exp_buf[i] = 32'hA500_0000 + i;
-    bulk_in(2'd0, 3'd4);
-
-    // ---- check 12: after final ACK link stays quiet (no resend) ----
-    quiet = 1'b1;
-    repeat (300) begin
-      @(negedge clk);
-      if (tx_p !== SYM_IDLE) quiet = 1'b0;
-    end
-    if (!quiet) begin
-      errors++; $display("ERROR: DUT retransmitted after host ACK");
-    end
-
-`ifdef VERILATOR
-    // ---------------- v2.5 CRV random phase (directed above untouched) --
-    begin : crv_phase
-      int n_og = 0, n_bc = 0, n_dup = 0, n_ooo = 0, n_ig = 0, n_lb = 0,
-          n_nr = 0, n_bd = 0, n_bt = 0, n_be = 0, n_md = 0, n_ut = 0,
-          n_to = 0, n_gu = 0;
-      int roll;
-      // models start from the directed-test end state:
-      //   rx_exp=4 (seq0..3 committed), tx_seq=5 (five completed INs),
-      //   all four blocks written, irq sticky since check 8
-      exp_seq_m = 4;
-      tx_seq_m  = 5;
-      for (int b = 0; b < 4; b++) valid_m[b] = 1'b1;
-      for (int i = 0; i < 16; i++) begin
-        mem_m[0*16+i] = 32'hA500_0000 + i;
-        mem_m[1*16+i] = 32'h5A00_1000 + i;
-        mem_m[2*16+i] = 32'hC300_2000 + i;
-        mem_m[3*16+i] = 32'h1234_5000 + i;
-      end
-      irq_m = 1'b1;
-      // deterministic first pass: guarantee the ACK-watchdog retransmission
-      // and the 4-attempt give-up path
-      crv_ack_timeout; n_to++;
-      crv_giveup;      n_gu++;
-      for (int t = 0; t < 100; t++) begin
-        roll = $urandom_range(0, 99);
-        if (roll < 25) begin
-          n_og++;  crv_out_good;
-        end else if (roll < 33) begin
-          n_bc++;  crv_out_badcrc;
-        end else if (roll < 41) begin
-          n_dup++; crv_out_dup;
-        end else if (roll < 49) begin
-          n_ooo++; crv_out_ooo;
-        end else if (roll < 67) begin
-          n_ig++;  crv_in_good;
-        end else if (roll < 75) begin
-          n_lb++;  crv_in_lbad;
-        end else if (roll < 81) begin
-          n_nr++;  crv_in_nrdy;
-        end else if (roll < 86) begin
-          n_bd++;  crv_bad_dph;
-        end else if (roll < 90) begin
-          n_bt++;  crv_bad_tp;
-        end else if (roll < 94) begin
-          n_be++;  crv_bad_end;
-        end else if (roll < 97) begin
-          n_md++;  crv_missing_dpp;
-        end else if (roll < 99) begin
-          n_ut++;  crv_unsup_type;
-        end else begin
-          n_to++;  crv_ack_timeout;
+    // ---------------- random traffic
+    for (int n = 0; n < 40; n++) begin
+      case ($urandom % 4)
+        0, 1: out_good(2'($urandom));
+        default: begin : rnd_in
+          int b;
+          b = $urandom % 4;
+          if (vblk_m[b]) in_good(2'(b));
+          else out_good(2'(b));
         end
-      end
-      $display("CRV: 102 txns (out_good=%0d out_badcrc=%0d out_dup=%0d out_ooo=%0d in_good=%0d in_lbad=%0d in_nrdy=%0d bad_dph=%0d bad_tp=%0d bad_end=%0d missing_dpp=%0d unsup_type=%0d ack_timeout=%0d giveup=%0d)",
-               n_og, n_bc, n_dup, n_ooo, n_ig, n_lb, n_nr, n_bd, n_bt, n_be,
-               n_md, n_ut, n_to, n_gu);
+      endcase
     end
-`endif
-    // ---- summary ----------------------------------------------------
-    if (errors == 0)
-      $display("TEST PASSED: USB3");
-    else
-      $display("TEST FAILED: %0d errors", errors);
-`ifdef VERILATOR
-    begin
-      int visited;
-      visited = 0;
-      for (int s = 0; s < USB3_FSM_TOTAL; s++) visited += fsm_seen[s];
-      $display("FSM_COV: %0d/%0d", visited, USB3_FSM_TOTAL);
-      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
-    end
-`endif
+
+    // ---------------- fast host: U0 still waits for the device's two bursts
+    hard_reset();
+    idle(34);
+    repeat (2) begin repeat (8) sym(SYM_LFPS); sym(SYM_IDLE); end
+    idle(10);
+    if (link_up) fail("U0 before the device sent two bursts");
+    train(8, 40, 1);
+    out_good(0); in_good(0);
+
+    // ---------------- reset in U0
+    @(negedge clk); rst_n = 0;
+    repeat (3) @(negedge clk);
+    if (link_up || irq || tx_p !== SYM_IDLE) fail("reset in U0");
+    rst_n = 1;
+    repeat (10) @(negedge clk);
+
+    if (errors == 0) $display("TEST PASSED: USB3");
+    else $display("TEST FAILED: USB3 (%0d errors)", errors);
     $finish;
   end
 
-`ifdef VERILATOR
-  // CRV phase adds ~0.2 ms of link traffic: extend the guard. The timeout
-  // is chunked into 1-us delays: with Verilator 5.006 a single long-pending
-  // #delay event corrupts the --timing delay heap (docs/COVERAGE.md note 1).
   initial begin
-    repeat (6000) #1000;    // 6 ms in 1-us chunks
-    $display("ERROR: TIMEOUT");
-    $display("TEST FAILED: %0d errors", errors + 1);
+    #20ms;
+    $display("TEST FAILED: USB3 (timeout)");
     $finish;
   end
-`else
-  // timeout guard
-  initial begin
-    #3000000;
-    $display("ERROR: TIMEOUT");
-    $display("TEST FAILED: %0d errors", errors + 1);
-    $finish;
-  end
-`endif
 
 endmodule

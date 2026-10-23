@@ -1,0 +1,16 @@
+{
+  "title": "UALink completer on the UPLI: READ, WRITE, FETCH_ADD, SWAP and CAS to a small memory over the request, originator data, read response and write response channels, each credited",
+  "code": "0x554C",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "20ms",
+  "regs": [],
+  "irqs": [
+    {"name": "ERR", "port": "ev_err", "desc": "a response with a non-OK status: UR (the access runs past the memory) or BAD (invalid command, misaligned address, atomic with len != 0)"},
+    {"name": "PROTO", "port": "ev_proto", "desc": "a request or data beat without a credit (dropped), an od_last not matching the beat count, or a response credit past 15"}
+  ],
+  "notes": [
+    "req_*, od_*, rd_* and wr_* are the UPLI request, originator data, read response and write response channels to the originator; they pass through unchanged. The registers report the completer's error events.",
+    "The core parameters MW (16), RQ (4) and DQ (8) keep their defaults."
+  ]
+}

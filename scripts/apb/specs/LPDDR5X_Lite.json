@@ -1,0 +1,79 @@
+{
+  "title": "LPDDR5X_Lite: LPDDR5X-style line controller: 8 banks, per-bank refresh in rotation and on request, two FSP register sets (CL / CWL per set, FSPW), WCK through the write path, DDR4_Lite timing",
+  "code": "0x6D24",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "40ms",
+  "pins": [
+    "fsp"
+  ],
+  "regs": [
+    {
+      "name": "CMD",
+      "kind": "stream_in",
+      "data": [
+        "hcmd",
+        "haddr",
+        "hwdata"
+      ],
+      "valid": "hvalid",
+      "ready": "hready",
+      "desc": "Host command beat; writing CMD2 sends it: a command, or one of the 8 data beats that follow a WRITE",
+      "fdesc": {
+        "hcmd": "command (see the notes); ignored on a data beat",
+        "haddr": "host address (see the notes); ignored on a data beat",
+        "hwdata": "MRW value (bits 7:0), or the data beat of a WRITE (beat 0 = line bits 15:0)"
+      }
+    },
+    {
+      "name": "RDATA",
+      "kind": "ro",
+      "desc": "MRR result",
+      "fields": [
+        {
+          "port": "hrdata",
+          "desc": "{8'h0, MR value} after an MRR (also carries read beats while a READ drains)"
+        }
+      ]
+    },
+    {
+      "name": "RLINE",
+      "kind": "ro",
+      "desc": "Line of the last READ (RLINE0 = bits 31:0)",
+      "fields": [
+        {
+          "port": "rdline",
+          "desc": "the 128-bit line of the last READ, held until the next READ completes"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Core state",
+      "fields": [
+        {
+          "port": "fsp",
+          "desc": "active frequency set point (FSPW); same as the fsp pin"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DONE",
+      "port": "hdone",
+      "desc": "a command finished (READ: RLINE holds the line; MRR: RDATA holds the value)"
+    },
+    {
+      "name": "ERR",
+      "port": "irq",
+      "desc": "a command was rejected (out-of-range address) or a refresh overran; the core holds this until reset, so the bit cannot be cleared before then"
+    }
+  ],
+  "notes": [
+    "haddr: [9:7] bank, [18:10] row, [6:4] line; [31:19] must be 0 for READ / WRITE. hcmd 0 NOP, 1 READ line, 2 WRITE line (then 8 data beats), 3 MRW / 4 MRR (active set, haddr[2:0], hwdata[7:0]), 5 REFRESH all banks, 6 REFRESH bank haddr[9:7], 7 FSPW (hwdata[0]).",
+    "The DRAM pins (ck_t, ck_c, cke, cs_n, act_n, ras_n, cas_n, we_n, ba, addr, dq, dqs, wck_t, wck_c) and the command trace pass through unchanged.",
+    "The core's own verification (pin-level checker, 100% coverage) is tb/cov/LPDDR5X_Lite_sva.sv with tb/LPDDR5X_Lite_tb.sv; this wrapper test drives the core only through the registers."
+  ]
+}

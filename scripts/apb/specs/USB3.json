@@ -1,0 +1,25 @@
+{
+  "title": "USB3 SuperSpeed device link and protocol layer: LFPS training to U0, warm reset, DPH / DPP / TP framing with CRC5 / CRC32, sequence numbers with retry, NRDY and LBAD, IN retransmission, and bulk OUT / IN over a 4-block buffer",
+  "code": "0x5553",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "40ms",
+  "pins": ["link_up"],
+  "regs": [
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Link state",
+      "fields": [
+        {"port": "link_up", "desc": "U0 reached (cleared by a warm reset); same as the link_up pin"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "ERR", "port": "irq", "desc": "bad DPP CRC32, bad DPH / TP CRC5, bad END, missing DPP, symbol decode error inside a packet, or an IN transfer given up after four attempts. Sticky in the core until PRESETN, so the bit is set again on every clock"}
+  ],
+  "notes": [
+    "rx_p / rx_n (one 8-bit symbol per PCLK, rx_n = ~rx_p), tx_p / tx_n and link_up pass through unchanged. The device trains on its own after reset.",
+    "The bulk buffer is reached over the link only; the registers report the link state and errors."
+  ]
+}

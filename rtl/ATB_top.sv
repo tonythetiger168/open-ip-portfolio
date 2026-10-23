@@ -30,7 +30,9 @@ module ATB_top #(
   logic [6:0]    cur_id;
   logic          id_change;
 
-  assign atready = (wr_ptr < DEPTH);
+  // a flush cycle drops any beat, so it must not be acknowledged (and must
+  // not raise irq for an atlast that never lands)
+  assign atready = (wr_ptr < DEPTH) && !id_change;
   assign afready = 1'b1;                     // always accept flush
   assign count   = wr_ptr;
   assign irq     = atvalid && atready && atlast;
