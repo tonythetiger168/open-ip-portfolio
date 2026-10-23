@@ -10,12 +10,9 @@
 //  - Register map: docs/ip/OCP.md
 // ============================================================================
 module OCP_apb #(
-  parameter int DW         = 32,
-  // data width
-  parameter int AW         = 32,
-  // address width
-  parameter int DEPTH      = 256,
-  // internal register-file depth (words)
+  parameter int DW = 32,
+  parameter int AW = 32,
+  parameter int DEPTH = 256,
   parameter int ACCEPT_DLY = 1
 ) (
   input  logic        PCLK,

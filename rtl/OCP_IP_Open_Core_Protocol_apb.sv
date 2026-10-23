@@ -11,7 +11,6 @@
 // ============================================================================
 module OCP_IP_Open_Core_Protocol_apb #(
   parameter int DW = 32,
-  // data width
   parameter int AW = 32
 ) (
   input  logic        PCLK,

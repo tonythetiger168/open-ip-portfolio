@@ -10,17 +10,12 @@
 //  - Register map: docs/ip/PCIe.md
 // ============================================================================
 module PCIe_apb #(
-  parameter int MAXLEN    = 32,
-  // bytes in a TLP
-  parameter int TXN       = 4,
-  // unacknowledged TLPs (power of 2)
-  parameter int RXN       = 4,
-  // TLPs in the receive buffer (power of 2)
+  parameter int MAXLEN = 32,
+  parameter int TXN = 4,
+  parameter int RXN = 4,
   parameter int REPLAY_TO = 600,
-  // replay timer, clocks
-  parameter int FC_GAP    = 32,
-  // InitFC repeat, clocks
-  parameter int UPD_GAP   = 1024
+  parameter int FC_GAP = 32,
+  parameter int UPD_GAP = 1024
 ) (
   input  logic        PCLK,
   input  logic        PRESETN,

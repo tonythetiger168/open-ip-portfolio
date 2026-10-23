@@ -10,10 +10,8 @@
 //  - Register map: docs/ip/Interlaken_v1_2.md
 // ============================================================================
 module Interlaken_v1_2_apb #(
-  parameter int          MF   = 64,
-  // metaframe length in words (>= 5)
-  parameter int          BMAX = 8,
-  // data words per burst
+  parameter int MF = 64,
+  parameter int BMAX = 8,
   parameter logic [57:0] SEED = 58'h2F0_1234_5678_9ABC
 ) (
   input  logic        PCLK,

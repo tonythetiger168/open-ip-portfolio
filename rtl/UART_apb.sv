@@ -11,7 +11,7 @@
 // ============================================================================
 module UART_apb #(
   parameter int CLK_FREQ = 50_000_000,
-  parameter int BAUD     = 115_200
+  parameter int BAUD = 115_200
 ) (
   input  logic        PCLK,
   input  logic        PRESETN,

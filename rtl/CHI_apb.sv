@@ -11,10 +11,8 @@
 // ============================================================================
 module CHI_apb #(
   parameter int LINES = 16,
-  // memory, 64-byte lines (power of 2, at most 1024)
-  parameter int RQ    = 4,
-  // request slots (power of 2, at least 2)
-  parameter int NDC   = 2
+  parameter int RQ = 4,
+  parameter int NDC = 2
 ) (
   input  logic        PCLK,
   input  logic        PRESETN,

@@ -10,10 +10,8 @@
 //  - Register map: docs/ip/NVMe.md
 // ============================================================================
 module NVMe_apb #(
-  parameter int QD    = 8,
-  // entries per queue (power of 2, 4 .. 16)
-  parameter int NBLK  = 8,
-  // namespace size, blocks (power of 2, at least 2)
+  parameter int QD = 8,
+  parameter int NBLK = 8,
   parameter int BLKDW = 4
 ) (
   input  logic        PCLK,

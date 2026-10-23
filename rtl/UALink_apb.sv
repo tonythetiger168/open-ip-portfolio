@@ -11,9 +11,7 @@
 // ============================================================================
 module UALink_apb #(
   parameter int MW = 16,
-  // memory words of 64 bits, power of 2
   parameter int RQ = 4,
-  // request slots (credits), power of 2
   parameter int DQ = 8
 ) (
   input  logic        PCLK,

@@ -11,12 +11,9 @@
 // ============================================================================
 module UEC_apb #(
   parameter int MAXP = 16,
-  // payload bytes in a packet (power of 2, at most 128)
-  parameter int W    = 4,
-  // retransmit window, packets (power of 2, 2..8)
-  parameter int RXB  = 2,
-  // receive buffers (power of 2)
-  parameter int RTO  = 256
+  parameter int W = 4,
+  parameter int RXB = 2,
+  parameter int RTO = 256
 ) (
   input  logic        PCLK,
   input  logic        PRESETN,

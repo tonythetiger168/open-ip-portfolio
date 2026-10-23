@@ -10,19 +10,13 @@
 //  - Register map: docs/ip/ONFI.md
 // ============================================================================
 module ONFI_apb #(
-  parameter int TP    = 2,
-  // WE# / RE# low and high time, clocks
-  parameter int TWB   = 6,
-  // tWB, clocks
-  parameter int TWHR  = 8,
-  // tWHR, clocks
-  parameter int TADL  = 10,
-  // tADL, clocks
-  parameter int TRR   = 3,
-  // tRR, clocks
+  parameter int TP = 2,
+  parameter int TWB = 6,
+  parameter int TWHR = 8,
+  parameter int TADL = 10,
+  parameter int TRR = 3,
   parameter int TBUSY = 2048,
-  // R/B# low timeout, clocks (power of 2, above the waits)
-  parameter int LW    = 12
+  parameter int LW = 12
 ) (
   input  logic        PCLK,
   input  logic        PRESETN,

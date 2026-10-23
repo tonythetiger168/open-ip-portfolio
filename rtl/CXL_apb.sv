@@ -11,8 +11,7 @@
 // ============================================================================
 module CXL_apb #(
   parameter int LINES = 16,
-  // device memory, cache lines (power of 2, at most 256)
-  parameter int RQD   = 4
+  parameter int RQD = 4
 ) (
   input  logic        PCLK,
   input  logic        PRESETN,
