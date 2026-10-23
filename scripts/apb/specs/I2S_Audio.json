@@ -1,0 +1,74 @@
+{
+  "title": "I2S audio transceiver: TX and RX at once, master (bclk / wclk generated) or slave, I2S / left-justified / right-justified, 16 / 24 / 32-bit samples in 32-bit slots",
+  "code": "0x4941",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "100ms",
+  "regs": [
+    {
+      "name": "CFG",
+      "kind": "rw",
+      "desc": "Configuration; a change re-synchronises the frame counters",
+      "fields": [
+        {
+          "port": "cfg_master",
+          "reset": "1",
+          "desc": "1: master (bclk_out = PCLK / 4, wclk_out = bclk / 64), 0: slave (bclk_in / wclk_in, synchronous to PCLK)"
+        },
+        {
+          "port": "cfg_fmt",
+          "reset": "0",
+          "desc": "0 I2S, 1 left-justified, 2 right-justified"
+        },
+        {
+          "port": "cfg_depth",
+          "reset": "2",
+          "desc": "0 16-bit, 1 24-bit, 2 / 3 32-bit"
+        }
+      ]
+    },
+    {
+      "name": "TX",
+      "kind": "stream_in",
+      "data": [
+        "tx_l",
+        "tx_r"
+      ],
+      "valid": "tx_valid",
+      "ready": "tx_ready",
+      "desc": "Stereo sample pair, LSB-aligned; taken at the start of the next frame (a frame without a pair sends zeros)",
+      "fdesc": {
+        "tx_l": "left sample",
+        "tx_r": "right sample"
+      }
+    },
+    {
+      "name": "RX",
+      "kind": "stream_out",
+      "data": [
+        "rx_l",
+        "rx_r"
+      ],
+      "valid": "rx_valid",
+      "desc": "Received stereo pair (LSB-aligned, one per frame); reading the right word frees it",
+      "fdesc": {
+        "rx_l": "left sample",
+        "rx_r": "right sample"
+      }
+    }
+  ],
+  "irqs": [
+    {
+      "name": "FSYNC_ERR",
+      "port": "irq",
+      "desc": "slave mode: the bclk / wclk phase broke (e.g. a dropped bclk pulse); the core re-synchronises on the next wclk edge"
+    }
+  ],
+  "notes": [
+    "bclk_out / wclk_out (master clocks), bclk_in / wclk_in (slave clocks), sd_out and sd_in pass through unchanged. A frame is 64 bclk = 256 PCLK.",
+    "A pair arrives every frame, zeros included when nothing was sent, so RX must be read once per frame; a pair arriving with RX full is dropped (RX_OVF)."
+  ],
+  "irq_at_reset": [
+    "RX_AVAIL"
+  ]
+}
