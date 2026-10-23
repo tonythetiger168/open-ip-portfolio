@@ -1,0 +1,16 @@
+# GDDR5: NCH=1. Constant bits and elaboration-time branches.
+LINE cond_else:GDDR5_top \| wire \[CHW-1:0\] a_ch = \(NCH == 1\) # NCH=1 elaboration constant: the channel field is tied to 0
+LINE cond_else:GDDR5_top \| wire \[CHW-1:0\] c_ch = \(NCH == 1\) # NCH=1 elaboration constant: the channel field is tied to 0
+LINE case:GDDR5_top \| default: dstate <= D_IDLE; # unused 3-bit encoding of the 7-state enum
+LINE else:GDDR5_top \| if \(act_ok\) begin # unreachable: D_ACT is entered only after the PRE path waited tRAS then tRP (39 clocks) >= tRC (39) since the bank's last ACT, so act_ok always holds there (tRC itself is checked by a_trc)
+TOGGLE GDDR5_top\.addr\[1[4-6]\]: # always 0: rows are 14 bits, columns 8 bits
+TOGGLE GDDR5_top\.trace_cmd\[2\]: # constant 0: trace codes are 1 ACT, 2 RD, 3 WR
+TOGGLE GDDR5_top\.dqs\[[01]\]: # tied Hi-Z: the model has no strobe
+TOGGLE GDDR5_top\.timer\[(7|8)\]: # constant 0: largest load is tRFC = 100 < 128
+TOGGLE GDDR5_top\.ref_cnt\[(12|13)\]: # constant 0: largest load is tREFI = 3900 < 4096
+TOGGLE GDDR5_top\.rp_t\[\d+\]\[(4|5|6|7|8)\]: # constant 0: largest load is tRP = 13 < 16
+TOGGLE GDDR5_top\.ras_t\[\d+\]\[(5|6|7|8)\]: # constant 0: largest load is tRAS = 26 < 32
+TOGGLE GDDR5_top\.rc_t\[\d+\]\[(6|7|8)\]: # constant 0: largest load is tRC = 39 < 64
+TOGGLE GDDR5_top\.wtr_t\[\d+\]\[(3|4|5|6|7|8)\]: # constant 0: largest load is tWTR = 7 < 8
+TOGGLE GDDR5_top\.(a_ch|c_ch)\[0\]: # NCH=1: channel field tied to 0
+TOGGLE GDDR5_top\.(a_bank|c_bank2|act_bank|cur_bank|pre_tgt)\[3\]: # NCH=1: the channel bit of the bank index is tied to 0
