@@ -35,6 +35,13 @@ Spec ("regs" entries, ports are core ports):
       full is dropped and sets <NAME>_OVF. With "ready" (a core input), the
       core is held off instead: ready = register empty or being popped, and
       there is no <NAME>_OVF.
+  {"name", "kind": "bus", "wen", "waddr", "wdata", "ren", "raddr", "rdata",
+   "words": [{"name", "w": index, "r": index, "desc"}]}   the core's own
+      register port: each word is one core register, written at core index
+      "w" (wen pulses with waddr / wdata for one clock) and / or read at core
+      index "r" (ren pulses and raddr selects for the access; PRDATA is
+      rdata). Either side may be absent. A core register takes whole words:
+      a write with PSTRB != 4'hF is dropped with PSLVERR.
   "irqs": [{"name", "port", "desc"}]   1-bit core outputs latched into IRQ_STATUS
   "tie": {port: "value"}               core inputs tied off
   "irq_at_reset": [irq names]          irqs a continuously running core may set
@@ -56,7 +63,7 @@ def core_ports(path, top):
     comp.addSyntaxTree(t)
     inst = next(i for i in comp.getRoot().topInstances if i.name == top)
     width = {p.name: p.type.bitWidth for p in inst.body.portList}
-    dirn = {p.name: ("input" if "In" in str(p.direction) else
+    dirn = {p.name: ("inout" if "InOut" in str(p.direction) else "input" if "In" in str(p.direction) else
                      "output" if "Out" in str(p.direction) else "inout")
             for p in inst.body.portList}
     mod = next(m for m in t.root.members if str(m.header.name).strip() == top)
@@ -107,6 +114,8 @@ class Word:
 
     @property
     def wb(self):
+        if getattr(self, "bus_w", None):
+            return self.bus_w
         return max((f.lo + f.w for f in self.fields), default=0)
 
     def reset(self):
@@ -206,6 +215,25 @@ def layout(spec, width, dirn):
                 if not r.get("ready"):
                     irqb.append((f'{r["name"]}_OVF', f"beat dropped, {r['name']} was full", None))
                 flagb.append((f'{r["name"]}_AVAIL', f"{r['name']} holds an unread beat"))
+        elif k == "bus":
+            for side, ports in (("w", ("wen", "waddr", "wdata")), ("r", ("ren", "raddr"))):
+                for q in ports:
+                    if r.get(q):
+                        assert dirn[r[q]] == "input", (r["name"], q)
+                        mapped.add(r[q])
+            if r.get("rdata"):
+                assert dirn[r["rdata"]] == "output", r
+                mapped.add(r["rdata"])
+            for bw in r["words"]:
+                wd = Word(bw["name"], "bus", r["name"], bw.get("desc", ""))
+                wd.bus_widx, wd.bus_ridx = bw.get("w"), bw.get("r")
+                assert wd.bus_widx is not None or wd.bus_ridx is not None, bw
+                assert wd.bus_widx is None or r.get("wen"), bw
+                assert wd.bus_ridx is None or r.get("rdata"), bw
+                wd.bus_w = max(width[r["wdata"]] if wd.bus_widx is not None else 0,
+                               width[r["rdata"]] if wd.bus_ridx is not None else 0)
+                assert wd.bus_w <= 32, bw
+                words.append(wd)
         else:
             raise SystemExit(f"unknown kind {k}")
     for p in spec.get("tie", {}):
@@ -226,6 +254,10 @@ def vbits(w):
 
 def hexs(v, w=32):
     return f"{w}'h{v:0{(w+3)//4}X}"
+
+
+def buses(spec):
+    return [r for r in spec["regs"] if r["kind"] == "bus"]
 
 
 def streams(spec):
@@ -287,8 +319,18 @@ def gen_rtl(P, spec, core):
     a(f"  localparam logic [31:0] ID_VALUE = 32'h{code:04X}{maj:02X}{mnr:02X};")
     a("")
     a("  // ---------------- core ----------------")
+    # a core register index is a constant per word: it goes straight to the
+    # core port (a named net would carry untoggleable constant bits)
+    baddr = {}
+    for r in buses(spec):
+        for k, side in (("waddr", "bus_widx"), ("raddr", "bus_ridx")):
+            if r.get(k):
+                ws = [w for w in words if w.reg == r["name"] and w.kind == "bus" and getattr(w, side) is not None]
+                aw = width[r[k]]
+                e = " | ".join(f"(hit[{words.index(w)}] ? {aw}'d{getattr(w, side)} : {aw}'d0)" for w in ws)
+                baddr[r[k]] = f"(wr ? ({e}) : {aw}'d0)" if k == "waddr" else f"(rd ? ({e}) : {aw}'d0)"
     for p in order:
-        if p in mapped and p not in spec.get("tie", {}):
+        if p in mapped and p not in spec.get("tie", {}) and p not in baddr:
             a(f"  logic {vbits(width[p]):<8} c_{p};")
     pn = param_names(params)
     conn = [f".{clk}(PCLK)", f".{rst}(PRESETN)"]
@@ -297,6 +339,8 @@ def gen_rtl(P, spec, core):
             continue
         if p in spec.get("tie", {}):
             conn.append(f".{p}({spec['tie'][p]})")
+        elif p in baddr:
+            conn.append(f".{p}({baddr[p]})")
         elif p in mapped:
             conn.append(f".{p}(c_{p})")
         else:
@@ -317,7 +361,12 @@ def gen_rtl(P, spec, core):
     a(f"    if (PADDR[1:0] == 2'b00 && PADDR[{AW-1}:2] < {AW-2}'d{NW}) hit[PADDR[{AW-1}:2]] = 1'b1;")
     a("  end")
     a("  assign PREADY  = acc;")
-    a("  assign PSLVERR = acc & ~|hit;")
+    bwr = [w for w in words if w.kind == "bus" and w.bus_widx is not None]
+    if bwr:
+        hits = " | ".join(f"hit[{words.index(w)}]" for w in bwr)
+        a(f"  assign PSLVERR = acc & (~|hit | (PWRITE & (PSTRB != 4'hF) & ({hits})));   // core registers take whole words")
+    else:
+        a("  assign PSLVERR = acc & ~|hit;")
     a("")
     a("  // ---------------- registers ----------------")
     a(f"  logic [{NI-1}:0] irq_status, irq_enable, irq_set;")
@@ -403,6 +452,19 @@ def gen_rtl(P, spec, core):
             sl = f"{src}{w.name}[{f.lo + f.w - 1}:{f.lo}]" if w.wb > 1 else f"{src}{w.name}"
             dst = f"c_{f.port}[{f.plo + f.w - 1}:{f.plo}]" if width[f.port] > 1 and (w.kind == "sin" or width[f.port] > 32) else f"c_{f.port}"
             a(f"  assign {dst} = {sl};")
+    for r in buses(spec):
+        bw = [w for w in words if w.reg == r["name"] and w.kind == "bus"]
+        if r.get("wen"):
+            ws = [w for w in bw if w.bus_widx is not None]
+            hits = " | ".join(f"hit[{words.index(w)}]" for w in ws)
+            a(f"  // {r['name']}: the core's register port (indices on the instance)")
+            a(f"  assign c_{r['wen']} = wr & (PSTRB == 4'hF) & ({hits});")
+            a(f"  assign c_{r['wdata']} = PWDATA[{width[r['wdata']] - 1}:0];" if width[r["wdata"]] > 1 else f"  assign c_{r['wdata']} = PWDATA[0];")
+        if r.get("ren") or r.get("raddr"):
+            rs = [w for w in bw if w.bus_ridx is not None]
+            hits = " | ".join(f"hit[{words.index(w)}]" for w in rs)
+            if r.get("ren"):
+                a(f"  assign c_{r['ren']} = rd & ({hits});")
     for r in streams(spec):
         if r["kind"] == "stream_in":
             n = r["name"]
@@ -459,6 +521,10 @@ def gen_rtl(P, spec, core):
             v = f"32'(r_{w.name})"
         elif w.kind == "cmd":
             continue
+        elif w.kind == "bus":
+            if w.bus_ridx is None:
+                continue
+            v = f"32'(c_{next(r for r in buses(spec) if r['name'] == w.reg)['rdata']})"
         elif w.kind in ("sin", "sout"):
             v = f"32'(h_{w.name})"
         else:   # ro
