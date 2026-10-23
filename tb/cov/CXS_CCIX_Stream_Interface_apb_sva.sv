@@ -86,7 +86,7 @@ module CXS_CCIX_Stream_Interface_apb_sva (
 
   function automatic logic [31:0] m_read(input logic [9:0] i);
     case (i)
-      0: return 32'h43580200;
+      0: return 32'h43530200;
       1: return m_w[1];
       2: return m_w[2];
       3: return 32'({m_state_RX, m_state_TX});

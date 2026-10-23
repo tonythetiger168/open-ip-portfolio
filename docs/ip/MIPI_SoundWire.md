@@ -117,7 +117,7 @@ Pass-through pins: `sw_clk_o`, `sw_clk_oe`, `sw_clk_i`, `sw_dat_o`, `sw_dat_oe`,
 
 | Offset | Name | Access | Reset | Description |
 |---|---|---|---|---|
-| 0x000 | ID | RO | 0x53570200 | IP identification: code, major and minor version |
+| 0x000 | ID | RO | 0x534E0200 | IP identification: code, major and minor version |
 | 0x004 | IRQ_STATUS | W1C | 0x00000000 | Sticky interrupt bits, write 1 to clear |
 | 0x008 | IRQ_ENABLE | RW | 0x00000000 | Interrupt enables; irq = \|(IRQ_STATUS & IRQ_ENABLE) |
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
@@ -133,7 +133,7 @@ Pass-through pins: `sw_clk_o`, `sw_clk_oe`, `sw_clk_i`, `sw_dat_o`, `sw_dat_oe`,
 
 | Register | Bits | Field | Description |
 |---|---|---|---|
-| ID | 31:16 | CODE | 0x5357 |
+| ID | 31:16 | CODE | 0x534E |
 | ID | 15:8 | MAJOR | 2 |
 | ID | 7:0 | MINOR | 0 |
 | CFG | 0 | `cfg_manager` | 1 = manager (drives CLOCK and the control word) |

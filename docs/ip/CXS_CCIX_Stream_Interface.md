@@ -113,7 +113,7 @@ Pass-through pins: `cxs_tx_valid`, `cxs_tx_data`, `cxs_tx_cntl`, `cxs_tx_crdgnt`
 
 | Offset | Name | Access | Reset | Description |
 |---|---|---|---|---|
-| 0x000 | ID | RO | 0x43580200 | IP identification: code, major and minor version |
+| 0x000 | ID | RO | 0x43530200 | IP identification: code, major and minor version |
 | 0x004 | IRQ_STATUS | W1C | 0x00000000 | Sticky interrupt bits, write 1 to clear |
 | 0x008 | IRQ_ENABLE | RW | 0x00000000 | Interrupt enables; irq = \|(IRQ_STATUS & IRQ_ENABLE) |
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
@@ -129,7 +129,7 @@ Pass-through pins: `cxs_tx_valid`, `cxs_tx_data`, `cxs_tx_cntl`, `cxs_tx_crdgnt`
 
 | Register | Bits | Field | Description |
 |---|---|---|---|
-| ID | 31:16 | CODE | 0x4358 |
+| ID | 31:16 | CODE | 0x4353 |
 | ID | 15:8 | MAJOR | 2 |
 | ID | 7:0 | MINOR | 0 |
 | CTRL | 0 | `tx_en` | activate the transmit side (cleared: deactivate at the next packet boundary) |
