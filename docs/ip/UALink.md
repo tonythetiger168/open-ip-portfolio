@@ -99,7 +99,7 @@ Pass-through pins: `req_valid`, `req_cmd`, `req_tag`, `req_addr`, `req_len`, `re
 
 | Offset | Name | Access | Reset | Description |
 |---|---|---|---|---|
-| 0x000 | ID | RO | 0x55410200 | IP identification: code, major and minor version |
+| 0x000 | ID | RO | 0x554C0200 | IP identification: code, major and minor version |
 | 0x004 | IRQ_STATUS | W1C | 0x00000000 | Sticky interrupt bits, write 1 to clear |
 | 0x008 | IRQ_ENABLE | RW | 0x00000000 | Interrupt enables; irq = \|(IRQ_STATUS & IRQ_ENABLE) |
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
@@ -109,7 +109,7 @@ Pass-through pins: `req_valid`, `req_cmd`, `req_tag`, `req_addr`, `req_len`, `re
 
 | Register | Bits | Field | Description |
 |---|---|---|---|
-| ID | 31:16 | CODE | 0x5541 |
+| ID | 31:16 | CODE | 0x554C |
 | ID | 15:8 | MAJOR | 2 |
 | ID | 7:0 | MINOR | 0 |
 

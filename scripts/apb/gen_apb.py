@@ -485,6 +485,11 @@ def main():
 
 def gen_one(P):
     spec = json.load(open(os.path.join(SPEC_DIR, P + ".json")))
+    # ID codes are unique across the portfolio
+    for f in os.listdir(SPEC_DIR):
+        if f.endswith(".json") and f != P + ".json":
+            other = json.load(open(os.path.join(SPEC_DIR, f)))["code"]
+            assert int(other, 16) != int(spec["code"], 16), f"{P}: ID code {spec['code']} already used by {f[:-5]}"
     core = core_ports(os.path.join(ROOT, "rtl", P + "_top.sv"), P + "_top")
     rtl, words, irqb, flagb, pt = gen_rtl(P, spec, core)
     import gen_apb_tb

@@ -1,6 +1,6 @@
 {
   "title": "AMBA CXS stream port: packets of 32-bit words in 4-word flits with START / END control, credit flow control, ACTIVEREQ / ACTIVEACK link activation and deactivation",
-  "code": "0x4358",
+  "code": "0x4353",
   "version": "2.0",
   "tb_clk_ns": 10,
   "tb_timeout": "40ms",

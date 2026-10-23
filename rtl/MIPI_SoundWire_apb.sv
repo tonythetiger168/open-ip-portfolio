@@ -34,7 +34,7 @@ module MIPI_SoundWire_apb (
   output logic [7:0] reg_wdata,
   input logic [7:0] reg_rdata
 );
-  localparam logic [31:0] ID_VALUE = 32'h53570200;
+  localparam logic [31:0] ID_VALUE = 32'h534E0200;
 
   // ---------------- core ----------------
   logic          c_cfg_manager;

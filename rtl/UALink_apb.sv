@@ -50,7 +50,7 @@ module UALink_apb #(
   output logic [1:0] wr_status,
   input logic wr_crd
 );
-  localparam logic [31:0] ID_VALUE = 32'h55410200;
+  localparam logic [31:0] ID_VALUE = 32'h554C0200;
 
   // ---------------- core ----------------
   logic          c_ev_err;

@@ -1,6 +1,6 @@
 {
   "title": "SoundWire-style two-wire audio bus interface (manager or peripheral) with control commands and one data port each way",
-  "code": "0x5357",
+  "code": "0x534E",
   "version": "2.0",
   "tb_clk_ns": 10,
   "tb_timeout": "100ms",

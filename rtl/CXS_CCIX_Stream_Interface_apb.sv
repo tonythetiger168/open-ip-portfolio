@@ -41,7 +41,7 @@ module CXS_CCIX_Stream_Interface_apb #(
   output logic cxs_rx_activeack,
   output logic cxs_rx_deacthint
 );
-  localparam logic [31:0] ID_VALUE = 32'h43580200;
+  localparam logic [31:0] ID_VALUE = 32'h43530200;
 
   // ---------------- core ----------------
   logic          c_tx_en;

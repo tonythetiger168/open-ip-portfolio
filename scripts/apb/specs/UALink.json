@@ -1,6 +1,6 @@
 {
   "title": "UALink completer on the UPLI: READ, WRITE, FETCH_ADD, SWAP and CAS to a small memory over the request, originator data, read response and write response channels, each credited",
-  "code": "0x5541",
+  "code": "0x554C",
   "version": "2.0",
   "tb_clk_ns": 10,
   "tb_timeout": "20ms",

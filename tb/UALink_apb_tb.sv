@@ -38,7 +38,7 @@ module UALink_apb_tb;
   UALink_apb dut (.*);
   always #5 PCLK = ~PCLK;
 
-  localparam logic [31:0] ID_VALUE = 32'h55410200;
+  localparam logic [31:0] ID_VALUE = 32'h554C0200;
   localparam logic [11:0] A_ID = 12'h000;
   localparam logic [11:0] A_IRQ_STATUS = 12'h004;
   localparam logic [11:0] A_IRQ_ENABLE = 12'h008;
