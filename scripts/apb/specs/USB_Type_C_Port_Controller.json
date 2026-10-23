@@ -1,0 +1,74 @@
+{
+  "title": "USB Type-C port controller (DRP): CC1 / CC2 attach detection with a 100-clock debounce and orientation, 10-clock detach, source / sink role, VBUS enable, CC fault detection, and an 8 x 8-bit register file",
+  "code": "0x5443",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "CORE",
+      "kind": "bus",
+      "wen": "reg_wr",
+      "waddr": "reg_addr",
+      "wdata": "reg_wdata",
+      "ren": "reg_rd",
+      "raddr": "reg_addr",
+      "rdata": "reg_rdata",
+      "words": [
+        {
+          "name": "CC_STATUS",
+          "r": 0,
+          "desc": "{attached, orientation, fsm[1:0], cc2[1:0], cc1[1:0]} (fsm: 0 unattached, 1 attach wait, 2 attached)"
+        },
+        {
+          "name": "ROLE_CTRL",
+          "w": 1,
+          "r": 1,
+          "desc": "bit 0: 1 = source / DFP (reset), 0 = sink / UFP; vbus_en needs the source role"
+        },
+        {
+          "name": "FAULT_STAT",
+          "w": 2,
+          "r": 2,
+          "desc": "bit 0: abnormal CC level seen (sticky, write 1 to clear; a fault in the same clock wins)"
+        },
+        {
+          "name": "INT_STAT",
+          "w": 3,
+          "r": 3,
+          "desc": "bit 0 attach, bit 1 detach, bit 2 fault (sticky, write 1 to clear; a new event in the same clock wins)"
+        },
+        {
+          "name": "DEBOUNCE",
+          "r": 4,
+          "desc": "attach debounce in clocks (100)"
+        },
+        {
+          "name": "ORIENT",
+          "r": 5,
+          "desc": "bit 0: orientation (1 = CC2 is the wired CC)"
+        },
+        {
+          "name": "VBUS_STAT",
+          "r": 6,
+          "desc": "bit 0: vbus_en"
+        },
+        {
+          "name": "DEVICE_ID",
+          "r": 7,
+          "desc": "device ID 0xC7"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "EVENT",
+      "port": "irq",
+      "desc": "an abnormal CC level is present or an INT_STAT bit is set; held while either lasts, so the bit is set again on every clock until INT_STAT is cleared and the fault is gone"
+    }
+  ],
+  "notes": [
+    "cc1 / cc2 (2-bit CC line levels: 0 open, 1 Rd, 2 Ra, 3 abnormal), attached, orientation and vbus_en pass through unchanged.",
+    "The core's 8-bit register file is mapped one register per word (bits 7:0); a write with PSTRB != 4'hF is dropped with PSLVERR."
+  ]
+}
