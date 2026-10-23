@@ -57,6 +57,9 @@ module LPDDR4_tb;
     for (int k = 0; k < 30; k++) begin a = rnd_addr(); rd(a); end
     // a mailbox write while a refresh is due waits for it
     near_refresh(1); mrw(1); mrw(0);
+    // refreshes while idle with every bank closed
+    for (int b = 0; b < NBU; b++) pre(mk(b, 0, 0));
+    for (int k = 0; k < 3; k++) begin near_refresh(1); idle(300); end
     // ACT the bank the next REF targets just before it falls due: the
     // refresh PRE must then wait out that bank's tRAS
     for (int k = 0; k < 3; k++) begin
