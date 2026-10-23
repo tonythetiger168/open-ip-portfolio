@@ -56,6 +56,7 @@ module LPDDR5X_Lite_top #(
   input  logic [31:0] haddr,
   input  logic [15:0] hwdata,
   output logic [15:0] hrdata,
+  output logic [127:0] rdline,       // line of the last READ, held until the next one
   output logic        hdone,
   output logic        irq,
   output logic        fsp,          // active frequency set point
@@ -401,6 +402,7 @@ module LPDDR5X_Lite_top #(
 
   // rbuf is filled by the engine at the end of a read burst; the engine is
   // the single driver of rbuf / rbuf_valid and clears it on rbuf_take
+  assign rdline = {rbuf[7], rbuf[6], rbuf[5], rbuf[4], rbuf[3], rbuf[2], rbuf[1], rbuf[0]};
 
   // ========================================================================
   // Command engine
