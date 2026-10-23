@@ -86,7 +86,7 @@ module DDR5_top #(
 
   assign ck_t = clk;  assign ck_c = ~clk;  assign cke = rst_n;
   assign dqs  = 2'bzz;
-  assign hready = (dstate == D_IDLE);
+  assign hready = (dstate == D_IDLE) && (ref_cnt != 0);   // a due refresh goes first
   assign hdone  = (dstate == D_CAS) && (timer == 0) && rd_pending;
   assign trace_valid = (dstate == D_ACT && act_ok && act_grp_ok) ||
                        ((dstate == D_RD || dstate == D_WR) && rcd_ok);
@@ -126,7 +126,7 @@ module DDR5_top #(
       case (dstate)
         D_IDLE: begin
           ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;
-          if (hvalid) begin
+          if (hvalid && ref_cnt != 0) begin
             cur_addr <= haddr; wr_data <= hwdata; cur_bank <= a_bank;
             rd_pending <= (hcmd == 3'd2); ref_walk <= 1'b0; auto_act <= 1'b0;
             auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= bank_open[a_bank];

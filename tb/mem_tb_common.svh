@@ -141,9 +141,14 @@
     near_refresh(1); idle(REFI / 50 + 400);       // refresh while idle
     rd(a); rd(mk(0, 14'h6, 8'h21));
     ip_extra();
-    // ---- reset with a write in flight: the cell is unknown afterwards
+    // ---- a stream of no-op host commands must not hold off a refresh
+    near_refresh(20);
+    for (int i = 0; i < 800; i++) cmd(3'd0, $urandom, 0);
+    // ---- reset with a read in flight (and a write just before it, which
+    // may or may not have reached the array)
     a = mk(0, 14'h7, 8'h77);
     cmd(3'd3, a, 16'hBEEF); sbv[cellof(a) % NCELL] = 1'b0;
+    cmd(3'd2, mk(NBU - 1, 14'h8, 8'h78), 0);
     idle(3); rst_n = 0; idle(3); rst_n = 1; idle(3);
     wr(a, 16'hFEED); rd(a);
     random_traffic(100);
