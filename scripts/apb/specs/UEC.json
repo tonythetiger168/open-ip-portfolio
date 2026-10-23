@@ -1,0 +1,33 @@
+{
+  "title": "Ultra Ethernet Transport-style packet delivery sublayer, one PDC in reliable unordered delivery: PSNs, a retransmit window, cumulative and selective ACKs, NACKs for no receive buffer, a retransmit timer",
+  "code": "0x5545",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "40ms",
+  "regs": [
+    {"name": "CTRL", "kind": "rw", "desc": "PDC control",
+     "fields": [{"port": "enable", "reset": "0", "desc": "the PDC is open; clearing it drops every packet, frame and buffer and loads the start PSNs"}]},
+    {"name": "PSN", "kind": "rw", "desc": "Start PSNs (taken while CTRL.enable is 0)",
+     "fields": [{"port": "start_psn_tx", "reset": "0", "desc": "the first PSN this end sends"},
+                {"port": "start_psn_rx", "reset": "0", "desc": "the first PSN this end expects"}]},
+    {"name": "TX", "kind": "stream_in", "data": ["tx_data", "tx_last"], "valid": "tx_valid", "ready": "tx_ready",
+     "desc": "Packet byte to send; one write per byte, LAST on the final byte (a packet is cut after MAXP = 16 bytes). Bytes are taken while the retransmit window (W = 4 packets) has room",
+     "fdesc": {"tx_data": "byte", "tx_last": "last byte of the packet"}},
+    {"name": "RX", "kind": "stream_out", "data": ["rx_data", "rx_last"], "valid": "rx_valid", "ready": "rx_ready",
+     "desc": "Received packet byte (packets in arrival order); reading it pops it. While RX is not read the core's RXB = 2 receive buffers fill and further packets are NACKed",
+     "fdesc": {"rx_data": "byte", "rx_last": "last byte of the packet"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Sender state",
+     "fields": [{"port": "outstanding", "desc": "packets written and not yet acknowledged (0..4)"}]}
+  ],
+  "irqs": [
+    {"name": "RTO", "port": "ev_rto", "desc": "the retransmit timer expired: every unacknowledged packet is sent again"},
+    {"name": "NACK", "port": "ev_nack", "desc": "a NACK arrived: that packet is sent again"},
+    {"name": "DUP", "port": "ev_dup", "desc": "a packet received before arrived again (dropped, ACKed)"},
+    {"name": "NOBUF", "port": "ev_nobuf", "desc": "a new packet found no receive buffer: dropped and NACKed"},
+    {"name": "ERR_PROTO", "port": "ev_proto", "desc": "a bad frame (type, length) or an ACK / NACK / PSN no peer could send: dropped"}
+  ],
+  "notes": [
+    "net_tx_* and net_rx_* are the network (MAC client) frames; they pass through unchanged.",
+    "The core parameters MAXP (16), W (4), RXB (2) and RTO (256 clocks) keep their defaults."
+  ]
+}
