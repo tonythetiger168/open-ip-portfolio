@@ -1,0 +1,51 @@
+{
+  "title": "1-Wire target: reset / presence, write slots assembling a byte (LSB first), then read slots returning a byte",
+  "code": "0x3157",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "TX",
+      "kind": "rw",
+      "desc": "Byte returned on the read slots after each byte received",
+      "fields": [
+        {
+          "port": "tx_byte",
+          "reset": "0",
+          "desc": "taken when a byte's last write slot is sampled, then sent LSB first on the next 8 read slots"
+        }
+      ]
+    },
+    {
+      "name": "RX",
+      "kind": "stream_out",
+      "data": [
+        "rx_byte"
+      ],
+      "valid": "rx_valid",
+      "desc": "Bytes written by the controller; reading RX frees it"
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Target state",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "between a reset pulse and the bus going idle (not cleared by the transfer ending: only the core's reset returns it to idle)"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "BYTE",
+      "port": "irq",
+      "desc": "a byte was received (the same clock RX captures it)"
+    }
+  ],
+  "notes": [
+    "dq (open drain: the target only pulls it low) is the 1-Wire pin; it passes through unchanged. Timing is in units of US = 10 PCLK clocks per microsecond (the core parameter): a reset is more than 480 us low, the presence pulse follows 15 us after release for 120 us, write slots are sampled 30 us after their falling edge, a 0 read slot is held low for 40 us.",
+    "After a byte is received the target sends TX on the next 8 read slots, then waits for the next byte. A reset pulse at any point restarts with a presence pulse. ROM commands (Read ROM, Match ROM, Search ROM) are not implemented: every byte is data."
+  ]
+}
