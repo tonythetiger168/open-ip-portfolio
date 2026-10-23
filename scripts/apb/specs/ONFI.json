@@ -1,0 +1,30 @@
+{
+  "title": "ONFI NAND flash host controller, one target on the asynchronous (SDR) interface: Reset, Read ID, Read Status, Read Page, Program Page, Erase Block, Get / Set Features, R/B# wait with timeout",
+  "code": "0x4F4E",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "40ms",
+  "regs": [
+    {"name": "CMD", "kind": "stream_in", "data": ["cmd_row", "cmd_op", "cmd_col", "cmd_len"], "valid": "cmd_valid", "ready": "cmd_ready",
+     "desc": "Command; writing CMD1 sends it (the core takes it when the previous command is over)",
+     "fdesc": {"cmd_row": "row address (three cycles, low byte first)", "cmd_op": "0 Reset, 1 Read ID, 2 Read Status, 3 Read Page, 4 Program Page, 5 Erase Block, 6 Get Features, 7 Set Features",
+               "cmd_col": "column address (two cycles); bits 7:0 are the Read ID and feature address", "cmd_len": "bytes to read or program (Read ID, Read Page, Program Page)"}},
+    {"name": "WR", "kind": "stream_in", "data": ["wr_data"], "valid": "wr_valid", "ready": "wr_ready",
+     "desc": "Byte to program (Program Page) or feature parameter (Set Features, 4 bytes); the core takes it as the data-in cycle starts",
+     "fdesc": {"wr_data": "byte"}},
+    {"name": "RD", "kind": "stream_out", "data": ["rd_data"], "valid": "rd_valid", "ready": "rd_ready",
+     "desc": "Byte read (Read ID, Read Page, Get Features); reading it pops it. The core holds off the next data-out cycle while RD is full",
+     "fdesc": {"rd_data": "byte"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Target status",
+     "fields": [{"port": "status", "desc": "the last status byte read (Read Status, and after Program and Erase): bit 6 RDY, bit 0 FAIL"}]}
+  ],
+  "irqs": [
+    {"name": "DONE", "port": "done", "desc": "a command is over"},
+    {"name": "FAIL", "port": "ev_fail", "desc": "a Program or Erase reported FAIL"},
+    {"name": "TIMEOUT", "port": "ev_timeout", "desc": "R/B# stayed low for TBUSY = 2048 clocks: the command was abandoned"}
+  ],
+  "notes": [
+    "ce_n, cle, ale, we_n, re_n, dq_o, dq_oe, dq_i and rb_n are the NAND pins; they pass through unchanged.",
+    "The core parameters TP (2), TWB (6), TWHR (8), TADL (10), TRR (3), TBUSY (2048) and LW (12) keep their defaults."
+  ]
+}
