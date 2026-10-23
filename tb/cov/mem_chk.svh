@@ -7,7 +7,10 @@
 //     (lane = the write word on the dq lanes of a's channel, read from q_dq)
 //   q_pc / q_pa / q_dq: pin command code (P_*), pin address and dq,
 //     captured at the falling edge like the host outputs below
-//   optional `MEM_CHK_PRE_OK(b) / `MEM_CHK_EXTRA hooks (see below)
+//   optional hooks: `MEM_CHK_EXTRA (statements run every clock after the
+//     shared model), `MEM_CHK_AP_OK / `MEM_CHK_AP_MUST (expressions: the
+//     RD / WR in flight may / must close its bank with a PRE after the burst,
+//     for closed-page policies)
 // The model runs on the rising edge on values held stable around it: host
 // inputs (driven at the falling edge by the TB) are read directly, DUT
 // outputs through copies taken at the falling edge, so the model never races
@@ -28,8 +31,11 @@
 `ifndef MEM_CHK_EXTRA
 `define MEM_CHK_EXTRA
 `endif
-`ifndef MEM_CHK_PRE_OK
-`define MEM_CHK_PRE_OK(b) 1'b1
+`ifndef MEM_CHK_AP_OK
+`define MEM_CHK_AP_OK 1'b0
+`endif
+`ifndef MEM_CHK_AP_MUST
+`define MEM_CHK_AP_MUST 1'b0
 `endif
 
   logic        q_hready, q_hdone, q_tv;
@@ -47,7 +53,7 @@
   logic [13:0] row_m [0:NB-1];
   logic [15:0] arr [0:NCELLS-1];
   initial for (int i = 0; i < NCELLS; i++) arr[i] = '0;   // the DUT zeroes its array once
-  logic        op_v, s_act, s_rw, s_pre, s_done, op_hit, op_open;
+  logic        op_v, s_act, s_rw, s_pre, s_done, s_apre, op_hit, op_open;
   logic [2:0]  op_c;
   logic [31:0] op_a;
   logic [15:0] op_d;
@@ -66,12 +72,12 @@
   // functional events
   logic e_rd_hit, e_rd_closed, e_rd_conf, e_wr_hit, e_wr_closed, e_wr_conf, e_act_closed,
         e_act_conf, e_act_same, e_pre_open, e_pre_closed, e_ref_idle, e_ref_act, e_ref_rd,
-        e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea;
+        e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea, e_apre;
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       n = 0; t_ref = 0; t_refend = 0; t_rdpin = 0; busy = 0;
-      op_v = 0; s_act = 0; s_rw = 0; s_pre = 0; s_done = 0; op_hit = 0; op_open = 0;
+      op_v = 0; s_act = 0; s_rw = 0; s_pre = 0; s_done = 0; s_apre = 0; op_hit = 0; op_open = 0;
       p_tv = 0; p_done = 0; m_chk = 0;
       for (int b = 0; b < NB; b++) begin
         open_m[b] = 0; row_m[b] = 0; t_act[b] = -1000000; t_pre[b] = -1000000;
@@ -81,7 +87,7 @@
        v_ref_late, v_ref_early, v_bad_pin} = '0;
       {e_rd_hit, e_rd_closed, e_rd_conf, e_wr_hit, e_wr_closed, e_wr_conf, e_act_closed,
        e_act_conf, e_act_same, e_pre_open, e_pre_closed, e_ref_idle, e_ref_act, e_ref_rd,
-       e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea} = '0;
+       e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea, e_apre} = '0;
     end else begin : step
       logic is_cmd, done_now;
       int b;
@@ -90,7 +96,7 @@
        v_ref_late, v_ref_early, v_bad_pin} = '0;
       {e_rd_hit, e_rd_closed, e_rd_conf, e_wr_hit, e_wr_closed, e_wr_conf, e_act_closed,
        e_act_conf, e_act_same, e_pre_open, e_pre_closed, e_ref_idle, e_ref_act, e_ref_rd,
-       e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea} = '0;
+       e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea, e_apre} = '0;
       // ---- read data registered by the previous hdone
       if (m_chk) v_rdata = q_hrdata !== m_exp;
       m_chk = 0;
@@ -128,11 +134,11 @@
           end
         end
         P_PRE: begin
-          if (!op_v || op_c == 3'd2 && s_rw || op_c == 3'd3 && s_rw) v_stray = 1;
+          if (!op_v || s_apre || s_rw && !(`MEM_CHK_AP_OK)) v_stray = 1;
           else begin
             if (open_m[b] && n - t_act[b] < TRAS) v_tras = 1;
-            if (!`MEM_CHK_PRE_OK(b)) v_stray = 1;
             open_m[b] = 0; t_pre[b] = n; s_pre = 1;
+            if (s_rw) begin s_apre = 1; e_apre = 1; end
           end
         end
         P_PREA: begin
@@ -170,8 +176,8 @@
       if (op_v && q_hready) begin
         case (op_c)
           3'd1: if (!s_act && !op_hit) v_incomplete = 1;
-          3'd2: if (!s_done) v_incomplete = 1;
-          3'd3: if (!s_rw) v_incomplete = 1;
+          3'd2: if (!s_done || (`MEM_CHK_AP_MUST) && !s_apre) v_incomplete = 1;
+          3'd3: if (!s_rw || (`MEM_CHK_AP_MUST) && !s_apre) v_incomplete = 1;
           default: if (!s_pre && op_open) v_incomplete = 1;
         endcase
         op_v = 0; done_now = 1;
@@ -183,7 +189,7 @@
       if (hvalid && q_hready) begin
         if (hcmd >= 3'd1 && hcmd <= 3'd4) begin
           op_v = 1; op_c = hcmd; op_a = haddr; op_d = hwdata; op_b = bank_of(haddr);
-          s_act = 0; s_rw = 0; s_pre = 0; s_done = 0;
+          s_act = 0; s_rw = 0; s_pre = 0; s_done = 0; s_apre = 0;
           op_open = open_m[op_b];
           op_hit = open_m[op_b] && row_m[op_b] == row_of(haddr);
           e_b2b = done_now;
