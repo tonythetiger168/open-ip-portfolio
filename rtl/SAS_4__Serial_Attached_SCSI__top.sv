@@ -32,7 +32,10 @@
 //    8'h83 = read response (payload[0] = reg value).  One read response
 //    can wait for the transmitter; a newer request replaces it.  A built-in initiator
 //    sequencer runs write + read-verify transactions with xorshift32 data
-//    against a looped-back (reflecting) link partner.
+//    against a looped-back (reflecting) link partner. It takes only the
+//    write of its own register and the read response from it; anything
+//    else (a late frame of a timed-out transaction, another node's) is
+//    ignored.
 //  - irq: 1-clk pulse on CRC error, protocol violation, sequencer timeout,
 //    read-verify mismatch or loss of sync.
 //  NOTE: clk is used as the line bit clock (1 bit/clk).  rx_n is the
@@ -539,6 +542,12 @@ module SAS_4__Serial_Attached_SCSI__top (
   logic [11:0] sq_tmo;
   logic [5:0]  gap_cnt;               // inter-transaction gap (clks)
   logic        tmo_err_pulse, mm_err_pulse;
+  // only the events of the current transaction count: a late write or
+  // response of an earlier (timed-out) one, or another node's, is ignored,
+  // so the sequencer cannot stay one transaction out of step (the frame
+  // fields still hold the frame that raised the event)
+  wire         wr_ok  = wr_evt && r_dst[3:0] == sq_addr;
+  wire         rsp_ok = rsp_evt && r_src == {4'd0, sq_addr};
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -571,7 +580,7 @@ module SAS_4__Serial_Attached_SCSI__top (
           if (app_ack) sq_state <= SQ_WR_WAIT;
         end
         SQ_WR_WAIT: begin                     // wait for the looped-back write
-          if (wr_evt) sq_state <= SQ_RD;
+          if (wr_ok) sq_state <= SQ_RD;
           else if (sq_tmo == SQ_TMO) begin
             tmo_err_pulse <= 1'b1;
             sq_state      <= SQ_RD;
@@ -582,8 +591,8 @@ module SAS_4__Serial_Attached_SCSI__top (
           if (app_ack) sq_state <= SQ_RD_WAIT;
         end
         SQ_RD_WAIT: begin                     // verify the read response
-          if (rsp_evt || sq_tmo == SQ_TMO) begin
-            if (!rsp_evt)                tmo_err_pulse <= 1'b1;
+          if (rsp_ok || sq_tmo == SQ_TMO) begin
+            if (!rsp_ok)                 tmo_err_pulse <= 1'b1;
             else if (rsp_val != sq_wdata) mm_err_pulse <= 1'b1;
             sq_wdata <= xorshift32(sq_wdata);
             sq_addr  <= sq_addr + 4'd1;
