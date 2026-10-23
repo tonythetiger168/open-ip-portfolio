@@ -11,7 +11,8 @@
 //   q_dq, q_dqs, q_hready, q_hdone, q_hrdata, q_irq, q_tv, q_tc, q_ta
 //   (taken at the falling edge) and pin_bank (entry the pins address);
 //   q_dq_oe, q_dqs_oe: the DUT's dq / dqs output enables (tristate values
-//   are not visible in a 2-state simulator, so the enables are checked)
+//   are not visible in a 2-state simulator, so the enables are checked);
+//   port rdline (the line of the last READ)
 // The model runs on the rising edge on the values held through the clock.
 // LITE_PBREF (HBM-style): the auto refresh is per entry -- each tREFI the
 // next entry in rotation falls due and is served by PRE (if open) + REF
@@ -124,11 +125,13 @@
   int     bst_idx, bst_b, bst_bl;
   logic   p_dqs;
   logic [15:0] hr_hist [8];
+  logic [127:0] q_rdline, rl_m;
+  always @(negedge clk) q_rdline <= rdline;
 
   logic v_stray, v_act_open, v_closed, v_rw_twice, v_trcd, v_trp, v_trc, v_tras, v_trrd,
         v_twr, v_twtr, v_trfc, v_ref_open, v_ref_undue, v_ref_late, v_paddr, v_wdata,
         v_rdata_dq, v_dqs, v_rdata, v_hdone, v_mrr, v_hready, v_stuck, v_irq, v_trace,
-        v_bad_pin, v_oe, exp_oe;
+        v_bad_pin, v_oe, exp_oe, v_rdline;
   logic e_rd_hit, e_rd_closed, e_rd_conf, e_wr_hit, e_wr_closed, e_wr_conf, e_href,
         e_href_prea, e_aref_prea, e_aref_closed, e_ref_mid_op, e_mrw, e_mrr, e_mr0_dll,
         e_rd_cl_mr, e_wr_cwl_mr, e_oor_rd, e_oor_wr, e_bad_cmd, e_nop, e_fill_gap,
@@ -152,12 +155,12 @@
       mr_m[0] = 8'(CL0 - 5); mr_m[1] = 8'(CWL0 - 5);
       refi_m = T_REFI; pend_m = 0; irq_m = 0;
       op_v = 0; filling = 0; fill = 0; busy = 0; imm_at = -1; imm_mrr = 0;
-      bst_v = 0; p_dqs = 0;
+      bst_v = 0; p_dqs = 0; rl_m = '0;
       `LITE_RESET
       {v_stray, v_act_open, v_closed, v_rw_twice, v_trcd, v_trp, v_trc, v_tras, v_trrd,
        v_twr, v_twtr, v_trfc, v_ref_open, v_ref_undue, v_ref_late, v_paddr, v_wdata,
        v_rdata_dq, v_dqs, v_rdata, v_hdone, v_mrr, v_hready, v_stuck, v_irq, v_trace,
-       v_bad_pin, v_oe, exp_oe} = '0;
+       v_bad_pin, v_oe, exp_oe, v_rdline} = '0;
       {e_rd_hit, e_rd_closed, e_rd_conf, e_wr_hit, e_wr_closed, e_wr_conf, e_href,
        e_href_prea, e_aref_prea, e_aref_closed, e_ref_mid_op, e_mrw, e_mrr, e_mr0_dll,
        e_rd_cl_mr, e_wr_cwl_mr, e_oor_rd, e_oor_wr, e_bad_cmd, e_nop, e_fill_gap,
@@ -169,7 +172,7 @@
       {v_stray, v_act_open, v_closed, v_rw_twice, v_trcd, v_trp, v_trc, v_tras, v_trrd,
        v_twr, v_twtr, v_trfc, v_ref_open, v_ref_undue, v_ref_late, v_paddr, v_wdata,
        v_rdata_dq, v_dqs, v_rdata, v_hdone, v_mrr, v_hready, v_stuck, v_irq, v_trace,
-       v_bad_pin, v_oe, exp_oe} = '0;
+       v_bad_pin, v_oe, exp_oe, v_rdline} = '0;
       {e_rd_hit, e_rd_closed, e_rd_conf, e_wr_hit, e_wr_closed, e_wr_conf, e_href,
        e_href_prea, e_aref_prea, e_aref_closed, e_ref_mid_op, e_mrw, e_mrr, e_mr0_dll,
        e_rd_cl_mr, e_wr_cwl_mr, e_oor_rd, e_oor_wr, e_bad_cmd, e_nop, e_fill_gap,
@@ -190,12 +193,15 @@
         p_dqs = q_dqs[0];
         if (k == bst_bl - 1) begin
           bst_v = 0; s_data = 1;
+          if (bst_rd) rl_m = bst_line;
           if (!bst_rd) begin
             arr[bst_idx] = bst_line;
             t_wend[bst_b] = n; t_wend_any = n;
           end
         end
       end
+      // ---- rdline: the line of the last READ, from the end of its burst
+      if (q_rdline !== rl_m) v_rdline = 1;
       // ---- pin command
       pc = pin_cmd(q_cs_n, q_act_n, q_ras_n, q_cas_n, q_we_n, q_addr[10]);
       b = pin_bank;
@@ -462,6 +468,7 @@
   `SVA_INV(a_trace_with_cmd, !v_trace)
   `SVA_INV(a_no_bad_pin_cmd, !v_bad_pin)
   `SVA_INV(a_dq_driven_only_in_burst, !v_oe)
+  `SVA_INV(a_rdline_holds_last_read, !v_rdline)
 
   `FC(read_hit, e_rd_hit)
   `FC(read_closed_bank, e_rd_closed)

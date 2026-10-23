@@ -17,6 +17,7 @@ module GDDR7_Lite_sva (
   input logic [3:0]  trace_cmd,
   input logic [31:0] haddr, trace_addr,
   input logic [15:0] hwdata, hrdata,
+  input logic [127:0] rdline,
   input logic [1:0]  ba,
   input logic [13:0] addr,
   input logic [31:0] dq,

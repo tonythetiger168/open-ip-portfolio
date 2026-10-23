@@ -12,6 +12,7 @@ module DDR4_Lite_tb;
   logic [2:0] hcmd;
   logic [31:0] haddr;
   logic [15:0] hwdata, hrdata;
+  logic [127:0] rdline;
   logic ck_t, ck_c, cke, cs_n, act_n, ras_n, cas_n, we_n;
   logic [1:0] ba;
   logic [13:0] addr;
