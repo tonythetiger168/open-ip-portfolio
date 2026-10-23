@@ -3,7 +3,7 @@
 S      := HBM3E_Lite
 DEPS   :=
 SIM    ?= iverilog
-VFLAGS := -g2012 -Wall
+VFLAGS := -g2012 -Wall -I tb
 SYN    ?= yosys
 
 all: sim syn
