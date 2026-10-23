@@ -500,9 +500,9 @@ def gen_rtl(P, spec, core):
         a(f"  wire [{len(fl)-1}:0] flags = {{{', '.join(reversed(fl))}}};")
     a("")
     a("  // ---------------- read mux ----------------")
-    a("  logic [31:0] rdata;")
+    a("  logic [31:0] apb_rdata;")
     a("  always_comb begin")
-    a("    rdata = '0;")
+    a("    apb_rdata = '0;")
     a(f"    case (PADDR[{AW-1}:2])")
     for i, w in enumerate(words):
         if w.kind == "id":
@@ -532,11 +532,11 @@ def gen_rtl(P, spec, core):
             for f in reversed(w.fields):
                 parts.append(f"c_{f.port}[{f.plo + f.w - 1}:{f.plo}]" if width[f.port] > 32 else f"c_{f.port}")
             v = f"32'({{{', '.join(parts)}}})"   # fields are packed from bit 0
-        a(f"      {AW-2}'d{i}: rdata = {v};")
-    a("      default: rdata = '0;")
+        a(f"      {AW-2}'d{i}: apb_rdata = {v};")
+    a("      default: apb_rdata = '0;")
     a("    endcase")
     a("  end")
-    a("  assign PRDATA = (rd && |hit) ? rdata : '0;")
+    a("  assign PRDATA = (rd && |hit) ? apb_rdata : '0;")
     a("endmodule")
     return "\n".join(L) + "\n", words, irqb, flagb, pt
 
