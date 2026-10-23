@@ -1,0 +1,14 @@
+{
+  "title": "MIPI SPMI slave (USID 5): register 0 write, register and extended (short and long address) write / read over a 32 x 8 register file, write ACK, reset / sleep / shutdown / wakeup, parity checks",
+  "code": "0x5370",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [],
+  "irqs": [
+    {"name": "PROTO", "port": "irq", "desc": "a sequence was aborted: command, address or data parity error, or an unsupported command. Held in the core until the next SSC, so the bit is set again on every clock until then"}
+  ],
+  "notes": [
+    "sclk (in) and sdata (bidirectional, needs a weak keeper to 0) are the SPMI bus; they pass through unchanged. PCLK oversamples the bus: SCLK phases must last at least four PCLK clocks.",
+    "The register file is reached over the SPMI bus only; the registers report its protocol errors."
+  ]
+}
