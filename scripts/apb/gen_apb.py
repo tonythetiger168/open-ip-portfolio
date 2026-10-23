@@ -285,7 +285,9 @@ def gen_rtl(P, spec, core):
     order, width, dirn, decl, params, header = core
     words, irqb, flagb, mapped = layout(spec, width, dirn)
     clk, rst = spec.get("clock", "clk"), spec.get("reset", "rst_n")
-    pt = [p for p in order if p not in mapped and p not in (clk, rst)]
+    also = spec.get("pins", [])
+    assert all(p in mapped and dirn[p] == "output" for p in also), also
+    pt = [p for p in order if (p not in mapped or p in also) and p not in (clk, rst)]
     code, ver = int(spec["code"], 0), spec["version"]
     maj, mnr = (int(x) for x in ver.split("."))
     NW, NI = len(words), len(irqb)
@@ -368,6 +370,8 @@ def gen_rtl(P, spec, core):
     a(f"  {P}_top{pp} u_core (")
     a(",\n".join("    " + c for c in conn))
     a("  );")
+    for p in also:
+        a(f"  assign {p} = c_{p};  // also readable in the registers")
     a("")
     a("  // ---------------- registers ----------------")
     a(f"  logic [{NI-1}:0] irq_status, irq_enable, irq_set;")
