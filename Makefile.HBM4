@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # HBM4 Open IP -- sim & synthesis entry points
 S      := HBM4
-DEPS   := rtl/MEMCORE_top.sv rtl/MEMCH_top.sv
+DEPS   :=
 SIM    ?= iverilog
-VFLAGS := -g2012 -Wall
+VFLAGS := -g2012 -Wall -I tb
 SYN    ?= yosys
 
 all: sim syn
