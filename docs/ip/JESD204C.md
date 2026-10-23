@@ -4,10 +4,8 @@ Protocol IP `JESD204C`, version 2.0. Apache-2.0.
 
 ## Overview
 
-JESD204C_top v2.0: JESD204C-style 64b/66b link layer, one lane
+JESD204C_top v2.0: JESD204C-style 64b/66b link layer, one lane (scrambling, sync header stream with CRC-12 and command channel, multiblock and extended multiblock alignment)
 
-(scrambling, sync header stream with CRC-12 and command channel,
-multiblock and extended multiblock alignment)
 - Line: one bit per clk. A block is a 2-bit sync header (first bit the
 inverse of the second; the second is the sync header stream bit, so
 00 and 11 are invalid) and 64 payload bits, payload bit 0 first.

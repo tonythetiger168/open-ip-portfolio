@@ -4,9 +4,8 @@ Protocol IP `HSI`, version 2.0. Apache-2.0.
 
 ## Overview
 
-HSI_top v2.0: MIPI HSI (High-Speed Synchronous Interface) link endpoint,
+HSI_top v2.0: MIPI HSI (High-Speed Synchronous Interface) link endpoint, frame mode, one transmitter and one receiver
 
-frame mode, one transmitter and one receiver
 - Signalling: DATA / FLAG (data-strobe): every bit changes exactly one
 of the two lines; DATA carries the bit, FLAG toggles when the bit
 equals the previous one. A bit lasts cfg_div + 1 clocks (cfg_div >= 3

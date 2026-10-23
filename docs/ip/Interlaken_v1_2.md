@@ -4,9 +4,8 @@ Protocol IP `Interlaken_v1_2`, version 2.0. Apache-2.0.
 
 ## Overview
 
-Interlaken_v1_2_top v2.0: Interlaken-style lane, one lane (64b/67b
+Interlaken_v1_2_top v2.0: Interlaken-style lane, one lane (64b/67b framing, scrambling, metaframe, bursts with CRC-24, in-band flow control)
 
-framing, scrambling, metaframe, bursts with CRC-24, in-band flow control)
 - Line: one bit per clk. A word is 67 bits sent bit 66 first: bit 66 the
 inversion flag, bits 65:64 the framing (01 data, 10 control; 00 and 11
 are invalid), bits 63:0 the payload (inverted when bit 66 is set).

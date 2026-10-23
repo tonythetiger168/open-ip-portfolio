@@ -4,9 +4,8 @@ Protocol IP `FlexRay`, version 2.0. Apache-2.0.
 
 ## Overview
 
-FlexRay_top v2.0: FlexRay 3.0.1 communication controller, single channel,
+FlexRay_top v2.0: FlexRay 3.0.1 communication controller, single channel, static segment
 
-static segment
 - Coding (spec ch. 3): TSS (cfg_tss LOW bits), FSS (HIGH), every byte as
 BSS (HIGH, LOW) + 8 bits MSB first, FES (LOW, HIGH). txd/tx_en drive
 the transceiver (tx_en = 1 while sending); idle bus reads HIGH.

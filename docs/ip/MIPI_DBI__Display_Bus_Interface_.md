@@ -4,9 +4,8 @@ Protocol IP `MIPI_DBI__Display_Bus_Interface_`, version 2.0. Apache-2.0.
 
 ## Overview
 
-MIPI_DBI__Display_Bus_Interface__top v2.0: MIPI DBI-2 host controller
+MIPI_DBI__Display_Bus_Interface__top v2.0: MIPI DBI-2 host controller (Type A, Type B and Type C options 1 / 3)
 
-(Type A, Type B and Type C options 1 / 3)
 - The host issues one transfer per op: a command or data (op_dc = 0 /
 1), a write or a read (op_rd), 8 or 16 bits. CSX goes low with the
 first op and high after an op with op_last, for at least one phase.

@@ -4,9 +4,8 @@ Protocol IP `Ethernet`, version 2.0. Apache-2.0.
 
 ## Overview
 
-Ethernet_top v2.0: IEEE 802.3 MAC (one port, GMII-style byte interface)
+Ethernet_top v2.0: IEEE 802.3 MAC (one port, GMII-style byte interface) with address filtering and PAUSE flow control
 
-with address filtering and PAUSE flow control
 - Line: one byte per byte time of cfg_div + 1 clocks (gtxd / gtx_en /
 gtx_er change once per byte time; grxd / grx_dv / grx_er are sampled
 once per byte time, so the far end must use the same byte time).
