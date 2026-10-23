@@ -11,6 +11,7 @@
 //     shared model), `MEM_CHK_AP_OK / `MEM_CHK_AP_MUST (expressions: the
 //     RD / WR in flight may / must close its bank with a PRE after the burst,
 //     for closed-page policies)
+//   `MEM_CHK_CKE_PD: cke may drop (power-down); the IP checks it itself
 //   `MEM_CHK_HIT_REOPENS: a RD / WR page hit may still PRE / ACT its bank
 //     (closed-page policies); otherwise a hit must go straight to the burst
 //   `MEM_CHK_RW_ANY_ROW: RD / WR address a column of whatever row the bank
@@ -292,7 +293,9 @@
   `SVA_INV(a_refresh_not_starved, !v_ref_late)
   `SVA_INV(a_refresh_not_early, !v_ref_early)
   `SVA_INV(a_legal_pin_code, !v_bad_pin)
+`ifndef MEM_CHK_CKE_PD
   `SVA_INV(a_cke_out_of_reset, cke)
+`endif
   `SVA_RST(a_reset_pins, !rst_n, !cke && !hdone && !trace_valid && q_pc == P_NOP)
 
   `FC(rd_page_hit, e_rd_hit)
