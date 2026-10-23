@@ -1,0 +1,18 @@
+{
+  "title": "AMBA AXI4 subordinate: a 256-word memory, INCR and FIXED bursts of up to 16 beats with byte strobes, independent read and write paths, SLVERR and DECERR responses",
+  "code": "0x4134",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [],
+  "irqs": [
+    {
+      "name": "ERR",
+      "port": "irq",
+      "desc": "a transfer got SLVERR or DECERR, or a write burst's WLAST came early or not at all; the core holds this until reset, so the bit cannot be cleared before then"
+    }
+  ],
+  "notes": [
+    "The AW, W, B, AR and R channel pins (awid ... rready) are the AXI4 subordinate pins; they pass through unchanged. The registers report the subordinate's error event.",
+    "One transaction at a time per direction. DECERR: an ID other than 0, a size above 4 bytes, the reserved burst type or a length above 16 beats. SLVERR: a burst starting outside bytes 0x000 to 0x3FF or misaligned, a WRAP burst, an INCR burst running past 0x3FF (from that beat on), a WLAST early or missing. Writes are dropped from the first error on."
+  ]
+}
