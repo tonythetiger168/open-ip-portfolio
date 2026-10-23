@@ -86,6 +86,8 @@ module SAS_4__Serial_Attached_SCSI__sva (
   logic [31:0]  rf [0:15];
   // events
   bit           e_wr, e_rsp, e_rq, e_crc, e_proto;
+  logic [3:0]   e_wr_a;                       // register of the last write event
+  logic [7:0]   e_rsp_a;                      // source of the last response event
   logic [31:0]  rsp_val, rq_data;
   logic [7:0]   rq_dst;
   logic [3:0]   rq_src;
@@ -171,7 +173,7 @@ module SAS_4__Serial_Attached_SCSI__sva (
               else if (f_ty == 8'h01) begin
                 if (f_len == 0 || f_dst > 15) begin
                   e_proto <= 1; v_wr0 = f_len == 0; v_wr_dst = f_dst > 15;
-                end else begin rf[f_dst[3:0]] <= f_d0; e_wr <= 1; v_wr_ok = 1; end
+                end else begin rf[f_dst[3:0]] <= f_d0; e_wr <= 1; e_wr_a <= f_dst[3:0]; v_wr_ok = 1; end
               end else if (f_ty == 8'h02) begin
                 if (f_dst > 15) begin e_proto <= 1; v_rd_dst = 1; end
                 else begin
@@ -180,7 +182,7 @@ module SAS_4__Serial_Attached_SCSI__sva (
                 end
               end else if (f_ty == 8'h83) begin
                 if (f_len == 0) begin e_proto <= 1; v_rsp0 = 1; end
-                else begin e_rsp <= 1; rsp_val <= f_d0; v_rsp_in = 1; end
+                else begin e_rsp <= 1; rsp_val <= f_d0; e_rsp_a <= f_src; v_rsp_in = 1; end
               end else begin e_proto <= 1; v_type = 1; end
             end
           endcase
@@ -193,6 +195,9 @@ module SAS_4__Serial_Attached_SCSI__sva (
   logic [31:0] qd;
   bit          ack, e_tmo, e_mm;
   bit          v_tmo_wr, v_tmo_rd, v_mm;
+  // the sequencer takes only its own register's write and response
+  wire         ew = e_wr && e_wr_a == qa;
+  wire         er = e_rsp && e_rsp_a == {4'd0, qa};
   always_ff @(posedge clk or negedge rst_n)
     if (!rst_n) begin
       q <= Q_INIT; qt <= 0; gap <= 0; qa <= 0; qd <= 32'h5A5A_0001; e_tmo <= 0; e_mm <= 0;
@@ -207,12 +212,12 @@ module SAS_4__Serial_Attached_SCSI__sva (
           if (locked && gap == 63) q <= Q_WR;
         end
         Q_WR, Q_RD: begin qt <= 0; if (ack) q <= q + 1; end
-        Q_WRW: if (e_wr || qt == 4095) begin
-                 q <= Q_RD; e_tmo <= !e_wr; v_tmo_wr = !e_wr;
+        Q_WRW: if (ew || qt == 4095) begin
+                 q <= Q_RD; e_tmo <= !ew; v_tmo_wr = !ew;
                end else qt <= qt + 1;
-        Q_RDW: if (e_rsp || qt == 4095) begin
-                 e_tmo <= !e_rsp; e_mm <= e_rsp && rsp_val != qd;
-                 v_tmo_rd = !e_rsp; v_mm = e_rsp && rsp_val != qd;
+        Q_RDW: if (er || qt == 4095) begin
+                 e_tmo <= !er; e_mm <= er && rsp_val != qd;
+                 v_tmo_rd = !er; v_mm = er && rsp_val != qd;
                  qd <= xsh(qd); qa <= qa + 1; gap <= 0; q <= Q_GAP;
                end else qt <= qt + 1;
         default: begin
@@ -325,7 +330,9 @@ module SAS_4__Serial_Attached_SCSI__sva (
   `FC(sequencer_read_timeout, v_tmo_rd)
   `FC(read_verify_mismatch, v_mm)
   `FC(sequencer_gap_ends_on_block_boundary, ready && q == Q_GAP && gap == 31 && tc == 129)
-  `FC(sequencer_address_wrap, q == Q_RDW && e_rsp && qa == 4'hF)
+  `FC(sequencer_address_wrap, q == Q_RDW && er && qa == 4'hF)
+  `FC(sequencer_ignores_other_write, ready && q == Q_WRW && e_wr && !ew)
+  `FC(sequencer_ignores_other_response, ready && q == Q_RDW && e_rsp && !er)
   `FC_RST(reset_with_link_up, link_up ##1 !rst_n)
 endmodule
 

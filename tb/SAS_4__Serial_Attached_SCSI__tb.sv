@@ -361,6 +361,10 @@ module SAS_4__Serial_Attached_SCSI__tb;
     if (rsp_to_peer < 48) fail($sformatf("peer read responses %0d", rsp_to_peer));
     frame(T_RDREQ, 8'h3, 8'h02, 4'd0, 0);     // back to back: the newer request
     frame(T_RDREQ, 8'h4, 8'h00, 4'd0, 0);     // may replace the waiting one
+    // a request frame (4 blocks) is shorter than a response (5): with six
+    // back to back the transmitter falls behind until two requests arrive
+    // within one response, and the newer replaces the waiting one
+    for (int i = 0; i < 6; i++) frame(T_RDREQ, 8'(5 + i), 8'h20 + 8'(i), 4'd0, 0);
     drain_q(); cycles(3000);
     wait_rsp(4);                             // sequencer recovers
 
