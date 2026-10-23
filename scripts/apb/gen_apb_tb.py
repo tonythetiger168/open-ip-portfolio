@@ -10,6 +10,21 @@ ACCESS = {"id": "RO", "irq_status": "W1C", "irq_enable": "RW", "flags": "RO",
           "sin": "RW", "sout": "RO (pop)"}
 
 
+def access(w):
+    if w.kind == "bus":
+        return {(True, True): "RW (core)", (True, False): "WO (core)", (False, True): "RO (core)"}[
+            (w.bus_widx is not None, w.bus_ridx is not None)]
+    return ACCESS[w.kind]
+
+
+def buses(spec):
+    return [r for r in spec["regs"] if r["kind"] == "bus"]
+
+
+def bus_of(spec, w):
+    return next(r for r in buses(spec) if r["name"] == w.reg)
+
+
 def vb(w):
     return "" if w == 1 else f"[{w-1}:0]"
 
@@ -67,7 +82,7 @@ def gen_tb(P, spec, core, words, irqb, flagb, pt):
     a("  wire  [31:0] PRDATA;")
     a("  wire         PREADY, PSLVERR, irq;")
     for p in pt:
-        kind = "logic" if dirn[p] == "input" else "wire "
+        kind = "logic" if dirn[p] == "input" else "tri  " if dirn[p] == "inout" else "wire "
         a(f"  {kind} {vb(width[p]):<8} {p};")
     tp = spec.get("tb_params", {})
     pp = (" #(" + ", ".join(f".{k}({v})" for k, v in tp.items()) + ")") if tp else ""
@@ -256,6 +271,12 @@ def gen_sva(P, spec, core, words, irqb, flagb, pt):
     for _, _, port in irqb:
         if port and port not in cports:
             cports.append(port)
+    for r in buses(spec):
+        for k in ("wen", "wdata", "ren", "rdata"):
+            if r.get(k) and r[k] not in cports:
+                cports.append(r[k])
+    bus_wr = [i for i, w in enumerate(words) if w.kind == "bus" and w.bus_widx is not None]
+    bus_rd = [i for i, w in enumerate(words) if w.kind == "bus" and w.bus_ridx is not None]
     L = []
     a = L.append
     a("// SPDX-License-Identifier: Apache-2.0")
@@ -369,6 +390,8 @@ def gen_sva(P, spec, core, words, irqb, flagb, pt):
             v = "32'({" + ", ".join(reversed(bits)) + "})" if bits else "0"
         elif w.kind == "cmd":
             v = "0"
+        elif w.kind == "bus":
+            v = f"32'(c_{bus_of(spec, w)['rdata']})" if w.bus_ridx is not None else "0"
         elif w.kind == "ro":
             v = "0"
             terms = []
@@ -387,7 +410,12 @@ def gen_sva(P, spec, core, words, irqb, flagb, pt):
     rst_terms = ["PRDATA == 0", "!irq"]
     a("  // ---------------- assertions ----------------")
     a("  `SVA_INV(a_pready_zero_wait, PREADY == (PSEL && PENABLE))")
-    a("  `SVA_IMP(a_pslverr_decode, PSEL && PENABLE, PSLVERR == !m_map)")
+    if bus_wr:
+        cond = " || ".join(f"m_idx == {i}" for i in bus_wr)
+        a(f"  wire        m_bus_partial = PWRITE && PSTRB != 4'hF && m_map && ({cond});   // dropped with PSLVERR")
+        a("  `SVA_IMP(a_pslverr_decode, PSEL && PENABLE, PSLVERR == (!m_map || m_bus_partial))")
+    else:
+        a("  `SVA_IMP(a_pslverr_decode, PSEL && PENABLE, PSLVERR == !m_map)")
     a("  `SVA_IMP(a_read_data, m_rd && m_map, PRDATA == m_read(m_idx))")
     a("  `SVA_IMP(a_unmapped_read_zero, m_rd && !m_map, PRDATA == 0)")
     a("  `SVA_IMP(a_prdata_zero_outside_read, !m_rd, PRDATA == 0)")
@@ -409,6 +437,28 @@ def gen_sva(P, spec, core, words, irqb, flagb, pt):
             tag = re.sub(r"\W", "_", f.name).strip("_")
             a(f"  `SVA_INV(a_core_{tag}, {lhs} == {exp})")
             rst_terms.append(f"{lhs} == {f.w}'h{rv:X}")
+    for r in buses(spec):
+        bw = [(i, w) for i, w in enumerate(words) if w.reg == r["name"] and w.kind == "bus"]
+        if r.get("wen"):
+            ws = [(i, w) for i, w in bw if w.bus_widx is not None]
+            cond = " || ".join(f"m_idx == {i}" for i, _ in ws)
+            a(f"  wire m_bus_wr_{r['name']} = m_wr && m_map && PSTRB == 4'hF && ({cond});")
+            sel = "".join(f"m_idx == {i} ? {w.bus_widx} : " for i, w in ws) + "0"
+            wd = width[r["wdata"]]
+            a(f"  `SVA_INV(a_core_{r['wen']}, c_{r['wen']} == m_bus_wr_{r['name']})")
+            a(f"  `SVA_IMP(a_core_{r['waddr']}_{r['wdata']}, m_bus_wr_{r['name']}, "
+              f"int'(u_core.{r['waddr']}) == ({sel}) && c_{r['wdata']} == PWDATA[{wd - 1}:0])")
+            rst_terms.append(f"!c_{r['wen']}")
+        if r.get("ren") or r.get("raddr"):
+            rs = [(i, w) for i, w in bw if w.bus_ridx is not None]
+            cond = " || ".join(f"m_idx == {i}" for i, _ in rs)
+            a(f"  wire m_bus_rd_{r['name']} = m_rd && m_map && ({cond});")
+            sel = "".join(f"m_idx == {i} ? {w.bus_ridx} : " for i, w in rs) + "0"
+            if r.get("ren"):
+                a(f"  `SVA_INV(a_core_{r['ren']}, c_{r['ren']} == m_bus_rd_{r['name']})")
+                rst_terms.append(f"!c_{r['ren']}")
+            if r.get("raddr"):
+                a(f"  `SVA_INV(a_core_{r['raddr']}, int'(u_core.{r['raddr']}) == (m_bus_rd_{r['name']} ? ({sel}) : 0))")
     for r in stream_regs(spec):
         if r["kind"] == "stream_in":
             a(f"  `SVA_INV(a_core_{r['valid']}, c_{r['valid']} == m_state_{r['name']})")
@@ -459,6 +509,8 @@ def gen_sva(P, spec, core, words, irqb, flagb, pt):
             a(f"  `FC({n}_pop, m_rd && m_map && m_idx == {last} && m_state_{n})")
             a(f"  `FC({n}_read_empty, m_rd && m_map && m_idx == {last} && !m_state_{n})")
             a(f"  `FC({n}_pop_and_capture, c_{r['valid']} && m_state_{n} && m_rd && m_map && m_idx == {last})")
+    if bus_wr:
+        a("  `FC(core_register_partial_write, m_wr && m_bus_partial)")
     a("  `FC_RST(reset_with_pending_irq, PRESETN && m_w[1] != 0 ##1 !PRESETN)")
     a("endmodule")
     a("")
@@ -516,6 +568,11 @@ def gen_doc(P, spec, core, words, irqb, flagb, pt):
             mapping.setdefault(port, []).append(f"IRQ_STATUS.{n}")
     for p, v in spec.get("tie", {}).items():
         mapping[p] = [f"tied to {v}"]
+    for r in buses(spec):
+        for k, d in (("wen", "write to a {} word"), ("waddr", "{} word index"), ("wdata", "{} write data"),
+                     ("ren", "read of a {} word"), ("raddr", "{} word index"), ("rdata", "{} read data")):
+            if r.get(k):
+                mapping[r[k]] = [d.format(r["name"])]
     mapping[clk] = ["PCLK"]
     mapping[rst] = ["PRESETN"]
     title = spec.get("title", P.replace("_", " ").strip())
@@ -591,7 +648,7 @@ def gen_doc(P, spec, core, words, irqb, flagb, pt):
         if w.kind in ("rw", "ro", "cmd"):
             desc = desc or ", ".join(f.port for f in w.fields)
         desc = desc.replace("|", "\\|")
-        a(f"| 0x{w.off:03X} | {w.name} | {ACCESS[w.kind]} | 0x{rv:08X} | {desc} |")
+        a(f"| 0x{w.off:03X} | {w.name} | {access(w)} | 0x{rv:08X} | {desc} |")
     a("")
     a("### Fields")
     a("")
@@ -604,6 +661,14 @@ def gen_doc(P, spec, core, words, irqb, flagb, pt):
         for f in w.fields:
             bits = f"{f.lo + f.w - 1}:{f.lo}" if f.w > 1 else f"{f.lo}"
             a(f"| {w.name} | {bits} | `{f.name}` | {f.desc} |")
+        if w.kind == "bus":
+            sides = []
+            if w.bus_widx is not None:
+                sides.append(f"written at core register {w.bus_widx}")
+            if w.bus_ridx is not None:
+                sides.append(f"read from core register {w.bus_ridx}")
+            bits = f"{w.wb - 1}:0" if w.wb > 1 else "0"
+            a(f"| {w.name} | {bits} | core register | {' and '.join(sides)} |")
     a("")
     a("### Interrupts (IRQ_STATUS, IRQ_ENABLE)")
     a("")
@@ -622,6 +687,17 @@ def gen_doc(P, spec, core, words, irqb, flagb, pt):
         a("|---|---|---|")
         for i, (n, d) in enumerate(flagb):
             a(f"| {i} | {n} | {d} |")
+    for r in buses(spec):
+        a("")
+        a("### Core register port")
+        a("")
+        a(f"The {r['name']} words reach the core's own register port. A write to one pulses "
+          + (f"`{r['wen']}` for one clock with `{r['waddr']}` (the core register) and `{r['wdata']}` "
+             "(PWDATA's low bits); it must cover the whole word (PSTRB = 4'hF): a partial write is "
+             "dropped with PSLVERR. " if r.get("wen") else "")
+          + (f"A read drives {'`' + r['raddr'] + '` (the core register)' if r.get('raddr') else ''}"
+             f"{' and pulses `' + r['ren'] + '`' if r.get('ren') else ''} during the access phase "
+             f"and returns `{r['rdata']}`." if r.get("rdata") else ""))
     sr = stream_regs(spec)
     if sr:
         a("")
