@@ -27,6 +27,19 @@ module FC_apb (
 );
   localparam logic [31:0] ID_VALUE = 32'h46430200;
 
+  // ---------------- APB decode ----------------
+  wire        acc     = PSEL & PENABLE;
+  wire        wr      = acc & PWRITE;
+  wire        rd      = acc & ~PWRITE;
+  wire [31:0] wmask   = {{8{PSTRB[3]}}, {8{PSTRB[2]}}, {8{PSTRB[1]}}, {8{PSTRB[0]}}};
+  logic [8:0] hit;
+  always_comb begin
+    hit = '0;
+    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd9) hit[PADDR[11:2]] = 1'b1;
+  end
+  assign PREADY  = acc;
+  assign PSLVERR = acc & ~|hit;
+
   // ---------------- core ----------------
   logic [3:0]    c_cfg_credit;
   logic          c_tx_valid;
@@ -70,19 +83,6 @@ module FC_apb (
     .err_code(c_err_code),
     .err_word(c_err_word)
   );
-
-  // ---------------- APB decode ----------------
-  wire        acc     = PSEL & PENABLE;
-  wire        wr      = acc & PWRITE;
-  wire        rd      = acc & ~PWRITE;
-  wire [31:0] wmask   = {{8{PSTRB[3]}}, {8{PSTRB[2]}}, {8{PSTRB[1]}}, {8{PSTRB[0]}}};
-  logic [8:0] hit;
-  always_comb begin
-    hit = '0;
-    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd9) hit[PADDR[11:2]] = 1'b1;
-  end
-  assign PREADY  = acc;
-  assign PSLVERR = acc & ~|hit;
 
   // ---------------- registers ----------------
   logic [8:0] irq_status, irq_enable, irq_set;

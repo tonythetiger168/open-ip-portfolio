@@ -30,6 +30,19 @@ module UART_apb #(
 );
   localparam logic [31:0] ID_VALUE = 32'h55410200;
 
+  // ---------------- APB decode ----------------
+  wire        acc     = PSEL & PENABLE;
+  wire        wr      = acc & PWRITE;
+  wire        rd      = acc & ~PWRITE;
+  wire [31:0] wmask   = {{8{PSTRB[3]}}, {8{PSTRB[2]}}, {8{PSTRB[1]}}, {8{PSTRB[0]}}};
+  logic [6:0] hit;
+  always_comb begin
+    hit = '0;
+    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd7) hit[PADDR[11:2]] = 1'b1;
+  end
+  assign PREADY  = acc;
+  assign PSLVERR = acc & ~|hit;
+
   // ---------------- core ----------------
   logic [7:0]    c_tx_data;
   logic          c_tx_valid;
@@ -49,19 +62,6 @@ module UART_apb #(
     .rx_valid(c_rx_valid),
     .irq(c_irq)
   );
-
-  // ---------------- APB decode ----------------
-  wire        acc     = PSEL & PENABLE;
-  wire        wr      = acc & PWRITE;
-  wire        rd      = acc & ~PWRITE;
-  wire [31:0] wmask   = {{8{PSTRB[3]}}, {8{PSTRB[2]}}, {8{PSTRB[1]}}, {8{PSTRB[0]}}};
-  logic [6:0] hit;
-  always_comb begin
-    hit = '0;
-    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd7) hit[PADDR[11:2]] = 1'b1;
-  end
-  assign PREADY  = acc;
-  assign PSLVERR = acc & ~|hit;
 
   // ---------------- registers ----------------
   logic [4:0] irq_status, irq_enable, irq_set;

@@ -26,6 +26,19 @@ module GPIO_apb (
 );
   localparam logic [31:0] ID_VALUE = 32'h47500200;
 
+  // ---------------- APB decode ----------------
+  wire        acc     = PSEL & PENABLE;
+  wire        wr      = acc & PWRITE;
+  wire        rd      = acc & ~PWRITE;
+  wire [31:0] wmask   = {{8{PSTRB[3]}}, {8{PSTRB[2]}}, {8{PSTRB[1]}}, {8{PSTRB[0]}}};
+  logic [7:0] hit;
+  always_comb begin
+    hit = '0;
+    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd8) hit[PADDR[11:2]] = 1'b1;
+  end
+  assign PREADY  = acc;
+  assign PSLVERR = acc & (~|hit | (PWRITE & (PSTRB != 4'hF) & (hit[6])));   // core registers take whole words
+
   // ---------------- core ----------------
   logic          c_wen;
   logic [7:0]    c_wdata;
@@ -46,19 +59,6 @@ module GPIO_apb (
     .gpio_oe(c_gpio_oe),
     .irq(c_irq)
   );
-
-  // ---------------- APB decode ----------------
-  wire        acc     = PSEL & PENABLE;
-  wire        wr      = acc & PWRITE;
-  wire        rd      = acc & ~PWRITE;
-  wire [31:0] wmask   = {{8{PSTRB[3]}}, {8{PSTRB[2]}}, {8{PSTRB[1]}}, {8{PSTRB[0]}}};
-  logic [7:0] hit;
-  always_comb begin
-    hit = '0;
-    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd8) hit[PADDR[11:2]] = 1'b1;
-  end
-  assign PREADY  = acc;
-  assign PSLVERR = acc & (~|hit | (PWRITE & (PSTRB != 4'hF) & (hit[6])));   // core registers take whole words
 
   // ---------------- registers ----------------
   logic [0:0] irq_status, irq_enable, irq_set;

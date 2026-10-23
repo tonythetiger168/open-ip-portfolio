@@ -1,0 +1,17 @@
+{
+  "title": "PWM generator: programmable period and duty, output and its complement",
+  "code": "0x5057",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {"name": "CORE", "kind": "bus", "wen": "wen", "waddr": "waddr", "wdata": "wdata",
+     "words": [{"name": "PERIOD", "w": 0, "desc": "Period in clocks (0 stops the output, held low)"},
+               {"name": "DUTY", "w": 1, "desc": "Clocks per period the output is high"}]}
+  ],
+  "irqs": [
+    {"name": "PERIOD_END", "port": "irq", "desc": "the last clock of a period"}
+  ],
+  "notes": [
+    "pwm_out and pwm_n_out are the outputs; they pass through unchanged. PERIOD and DUTY are write-only (the core has no readback): they read 0."
+  ]
+}
