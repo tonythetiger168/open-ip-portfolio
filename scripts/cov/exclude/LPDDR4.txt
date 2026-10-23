@@ -1,0 +1,15 @@
+# LPDDR4: NCH=2. Constant bits and elaboration-time branches.
+LINE cond_then:LPDDR4_top \| wire \[CHW-1:0\] a_ch = \(NCH == 1\) # NCH=2 elaboration constant: the channel comes from haddr[8]
+LINE cond_then:LPDDR4_top \| wire \[CHW-1:0\] c_ch = \(NCH == 1\) # NCH=2 elaboration constant: the channel comes from haddr[8]
+LINE case:LPDDR4_top \| default: dstate <= D_IDLE; # unused 3-bit encoding of the 7-state enum
+LINE else:LPDDR4_top \| if \(act_ok\) begin # unreachable: D_ACT is entered only after the PRE path waited tRAS then tRP plus two FSM transitions (44 clocks) >= tRC (38) since the bank's last ACT, so act_ok always holds there (tRC itself is checked by a_trc)
+TOGGLE LPDDR4_top\.addr\[1[4-6]\]: # always 0: rows are 14 bits, columns 8 bits
+TOGGLE LPDDR4_top\.trace_cmd\[2\]: # constant 0: trace codes are 1 ACT, 2 RD, 3 WR
+TOGGLE LPDDR4_top\.dqs\[[01]\]: # tied Hi-Z: the model has no strobe
+TOGGLE LPDDR4_top\.timer\[(8)\]: # constant 0: largest load is tRFC = 130 < 256
+TOGGLE LPDDR4_top\.ref_cnt\[(11|12|13)\]: # constant 0: largest load is tREFI = 1560 < 2048
+TOGGLE LPDDR4_top\.rp_t\[\d+\]\[(4|5|6|7|8)\]: # constant 0: largest load is tRP = 14 < 16
+TOGGLE LPDDR4_top\.ras_t\[\d+\]\[(5|6|7|8)\]: # constant 0: largest load is tRAS = 28 < 32
+TOGGLE LPDDR4_top\.rc_t\[\d+\]\[(6|7|8)\]: # constant 0: largest load is tRC = 38 < 64
+TOGGLE LPDDR4_top\.CL\[[12]\]: # constant 1: CL is 15 (01111) or 22 (10110)
+TOGGLE LPDDR4_top\.TRCD\[[1-3]\]: # constant 1: tRCD is 15 (1111) or 14 (1110)
