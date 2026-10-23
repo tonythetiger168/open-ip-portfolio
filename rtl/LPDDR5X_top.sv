@@ -4,8 +4,10 @@
 // Architecture thesis: DVFS-era mobile controller. Two frequency-set-point
 // latency files (FSP0: CL=22 / FSP1: CL=14); a write to the "FSP-OP"
 // mailbox column (0xF1) switches the active file for all subsequent
-// transactions (mid-flight bursts keep their latched latency). 8 banks,
-// per-bank refresh rotation. Distinct from LPDDR4 (single frequency word)
+// transactions (mid-flight bursts keep their latched latency). The
+// mailbox write is a controller register write: no DRAM traffic, array
+// and page state untouched. 8 banks, per-bank refresh rotation; commands
+// reach the pins as framed beats on the 7-bit CA bus. Distinct from LPDDR4 (single frequency word)
 // and LPDDR5 (ranks, no FSP). Self-contained; contract identical.
 // ============================================================================
 module LPDDR5X_top #(
@@ -31,12 +33,10 @@ module LPDDR5X_top #(
   output logic [2:0]  trace_cmd,
   output logic [31:0] trace_addr
 );
-  // LPDDR command/address bus as on main: the internal DDR-style command
-  // encodes onto CA, with CS_n asserted for any command
+  // internal DDR-style command bus; it reaches the pins as CA frames
   logic [16:0] addr;
   logic        ras_n, cas_n, we_n;
-  assign ca   = {1'b0, ras_n, cas_n, we_n, addr[2:0]};
-  assign cs_n = ras_n & cas_n & we_n;
+  logic [2:0]  ba;                    // bank of the command on the bus
   localparam int TRCD=14, TRP=14, TRC=46, TRAS=34, TRFC=140, TREFI=1560;
   localparam int CHW = (NCH <= 2) ? 1 : $clog2(NCH);   // channel select: haddr[8 +: CHW]
   localparam int NB = 8;
@@ -54,7 +54,7 @@ module LPDDR5X_top #(
 
   // FSP latency files: FSP0 = high-performance, FSP1 = low-power
   logic fsp;
-  wire [8:0] CL = fsp ? 9'd14 : 9'd22;
+  wire [4:0] CL = fsp ? 5'd14 : 5'd22;
 
   typedef enum logic [2:0] {D_IDLE, D_ACT, D_RCD, D_RD, D_CAS, D_WR, D_PRE} d_t;
   d_t dstate;
@@ -66,6 +66,7 @@ module LPDDR5X_top #(
   logic [15:0] wr_data;
   logic [2:0]  cur_bank, act_bank;
   logic        rd_pending, ref_walk, auto_rd, auto_wr;
+  logic        pre_need;             // the command's bank was open: PRE it
   logic        auto_act, pre_done, ref_req;
 
   wire [2:0] a_bank = {a_ch, haddr[10:9]};
@@ -86,7 +87,7 @@ module LPDDR5X_top #(
 
   assign ck_t = clk;  assign ck_c = ~clk;  assign cke = rst_n;
   assign dqs  = 2'bzz;
-  assign hready = (dstate == D_IDLE);
+  assign hready = (dstate == D_IDLE) && (ref_cnt != 0);   // a due refresh goes first
   assign hdone  = (dstate == D_CAS) && (timer == 0) && rd_pending;
   assign trace_valid = (dstate == D_ACT && act_ok) || (dstate == D_RD) || (dstate == D_WR);
   assign trace_cmd   = (dstate == D_ACT) ? 3'd1 : (dstate == D_RD) ? 3'd2 : 3'd3;
@@ -96,14 +97,36 @@ module LPDDR5X_top #(
     assign dq[16*g +: 16] = (dstate == D_WR && c_ch == g) ? wr_data : 16'hzzzz;
   end
 
+  // ---- CA bus. Each command goes out as a frame of 7-bit beats: beat 0
+  // (cs_n low) = {code, bank, 1 pad bits}, code 1 ACT, 2 RD, 3 WR, 4 PRE, 6 REF;
+  // then the row (ACT, 2 beats) or column (RD / WR, 2 beats) follows
+  // LSB first with cs_n high. PRE and REF are one beat (per-bank).
+  wire [2:0] ca_code = ({ras_n, cas_n, we_n} == 3'b011) ? 3'd1 :
+                       ({ras_n, cas_n, we_n} == 3'b101) ? 3'd2 :
+                       ({ras_n, cas_n, we_n} == 3'b100) ? 3'd3 :
+                       ({ras_n, cas_n, we_n} == 3'b010) ? 3'd4 :
+                       ({ras_n, cas_n, we_n} == 3'b001) ? 3'd6 : 3'd0;
+  logic [13:0] ca_sh;                  // payload still to send
+  logic [1:0]  ca_left;               // payload beats still to send
+  assign cs_n = (ca_code == 3'd0);
+  assign ca   = !cs_n ? {ca_code, ba, 1'b0} : (ca_left != 0) ? ca_sh[6:0] : '0;
+  always_ff @(posedge clk or negedge rst_n)
+    if (!rst_n) begin ca_sh <= '0; ca_left <= '0; end
+    else if (!cs_n) begin
+      ca_sh   <= (ca_code == 3'd1) ? addr[13:0] : {6'b0, addr[7:0]};
+      ca_left <= (ca_code == 3'd1) ? 2'd2 : (ca_code == 3'd2 || ca_code == 3'd3) ? 2'd2 : '0;
+    end else if (ca_left != 0) begin
+      ca_sh <= ca_sh >> 7; ca_left <= ca_left - 1'b1;
+    end
+
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       dstate <= D_IDLE; timer <= '0; ref_cnt <= TREFI[13:0];
       auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0;
       cur_addr <= '0; wr_data <= '0; rd_pending <= 1'b0;
-      ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0;
+      ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= 1'b0;
       cur_bank <= '0; act_bank <= '0; ref_bank <= '0; fsp <= 1'b0;
-      ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1; addr <= '0; hrdata <= '0;
+      ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1; addr <= '0; ba <= '0; hrdata <= '0;
       for (int i = 0; i < NB; i++) begin
         open_row[i] <= '0; bank_open[i] <= 1'b0;
         rp_t[i] <= '0; ras_t[i] <= '0; rc_t[i] <= '0;
@@ -121,14 +144,17 @@ module LPDDR5X_top #(
       case (dstate)
         D_IDLE: begin
           ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;
-          if (hvalid) begin
+          if (hvalid && ref_cnt != 0) begin
             cur_addr <= haddr; wr_data <= hwdata; cur_bank <= a_bank;
             rd_pending <= (hcmd == 3'd2); ref_walk <= 1'b0; auto_act <= 1'b0;
-            auto_rd <= 1'b0; auto_wr <= 1'b0;
-            case (hcmd)
+            auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= bank_open[a_bank];
+            if (hcmd == 3'd3 && haddr[7:0] == 8'hF1)
+              fsp <= hwdata[0];                  // FSP-OP mailbox: no DRAM traffic
+            else case (hcmd)
               3'd1: begin
                 act_bank <= a_bank;
-                if (bank_open[a_bank] && (open_row[a_bank] != haddr[31:18])) begin
+                if (a_hit) ;                     // page already open: nothing to do
+                else if (bank_open[a_bank] && (open_row[a_bank] != haddr[31:18])) begin
                   rp_t[a_bank] <= TRP[8:0];      // conflict: PRE, then ACT the new row
                   open_row[a_bank] <= haddr[31:18]; auto_act <= 1'b1;
                   dstate <= D_PRE;
@@ -149,21 +175,17 @@ module LPDDR5X_top #(
                 end else dstate <= (hcmd == 3'd2) ? D_RD : D_WR;
               end
               3'd4: begin
-                bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0];
+                if (bank_open[a_bank]) begin bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0]; end
                 dstate <= D_PRE;
               end
               default: ;
             endcase
-            // FSP-OP mailbox: WR to column 0xF1 selects the latency file
-            if (hcmd == 3'd3 && haddr[7:0] == 8'hF1) begin
-              fsp <= hwdata[0];
-              dstate <= D_IDLE;
-            end
           end else if (ref_cnt == 0) begin
             ref_walk <= 1'b1; ref_cnt <= TREFI[13:0];
             if (bank_open[ref_bank]) begin
               bank_open[ref_bank] <= 1'b0; rp_t[ref_bank] <= TRP[8:0];
             end
+            pre_need <= bank_open[ref_bank];  // PRE the bank only if it is open
             ref_bank <= ref_bank + 1'b1;
             dstate <= D_PRE;
           end
@@ -177,20 +199,21 @@ module LPDDR5X_top #(
             if (bank_open[ref_bank]) begin
               bank_open[ref_bank] <= 1'b0; rp_t[ref_bank] <= TRP[8:0];
             end
+            pre_need <= bank_open[ref_bank];  // PRE the bank only if it is open
             ref_bank <= ref_bank + 1'b1;
             dstate <= D_PRE;
           end else if (!pre_done) begin
             // PRE/PREA waits for tRAS, and tRP counts from the real issue
-            if (!ref_walk && rp_z[cur_bank]) pre_done <= 1'b1;   // bank already closed
+            if (!pre_need) pre_done <= 1'b1;   // bank already closed
             else if (pre_ok) begin
-              ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0; addr[10] <= 1'b0;
+              ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0; addr[10] <= 1'b0; ba <= pre_tgt;
               rp_t[pre_tgt] <= TRP[8:0];
               pre_done <= 1'b1;
             end
           end else begin
             if (ref_walk) begin                 // REF once tRP is met
               if (rp_ok) begin
-                ras_n <= 1'b0; cas_n <= 1'b0; we_n <= 1'b1;
+                ras_n <= 1'b0; cas_n <= 1'b0; we_n <= 1'b1; ba <= ref_tgt;
                 timer <= TRFC[8:0]; dstate <= D_RCD;
               end
             end
@@ -204,7 +227,7 @@ module LPDDR5X_top #(
         end
         D_ACT: begin
           if (act_ok) begin                 // tRP and tRC met for this bank
-            ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b1;
+            ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b1; ba <= act_bank;
             addr <= {3'b0, open_row[act_bank]};
             ras_t[act_bank] <= TRAS[8:0]; rc_t[act_bank] <= TRC[8:0];
             timer <= TRCD[8:0];
@@ -222,15 +245,15 @@ module LPDDR5X_top #(
           end
         end
         D_RD: begin
-          cas_n <= 1'b0; we_n <= 1'b1;
+          cas_n <= 1'b0; we_n <= 1'b1; ba <= cur_bank;
           addr <= {9'b0, cur_addr[7:0]};
-          dstate <= D_CAS; timer <= CL;
+          dstate <= D_CAS; timer <= 9'(CL);
         end
         D_WR: begin
-          cas_n <= 1'b0; we_n <= 1'b0;
+          cas_n <= 1'b0; we_n <= 1'b0; ba <= cur_bank;
           addr <= {9'b0, cur_addr[7:0]};
-          if (cur_addr[7:0] != 8'hF1) mem[{c_ch, cur_addr[7:0]}] <= wr_data;
-          dstate <= D_CAS; timer <= CL;
+          mem[{c_ch, cur_addr[7:0]}] <= wr_data;
+          dstate <= D_CAS; timer <= 9'(CL);
         end
         D_CAS: begin
           cas_n <= 1'b1; we_n <= 1'b1;
