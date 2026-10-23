@@ -1,0 +1,49 @@
+{
+  "title": "HBM2 memory controller: pseudo-channel controller (64 page entries {channel haddr[10:8], pc haddr[13:11]}, row = haddr[31:18], storage = 256 columns per channel; RD / WR use the pc's open row); per-entry refresh over all 64",
+  "code": "0x6D0A",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "20ms",
+  "regs": [
+    {
+      "name": "CMD",
+      "kind": "stream_in",
+      "data": [
+        "hcmd",
+        "haddr",
+        "hwdata"
+      ],
+      "valid": "hvalid",
+      "ready": "hready",
+      "desc": "Host command; writing CMD2 sends it (the core takes it when it is idle and no refresh is due)",
+      "fdesc": {
+        "hcmd": "1 ACT, 2 RD, 3 WR, 4 PRE; other codes are no-ops",
+        "haddr": "host address (bank, row and column fields below)",
+        "hwdata": "word to write (WR)"
+      }
+    },
+    {
+      "name": "RDATA",
+      "kind": "ro",
+      "desc": "Read data",
+      "fields": [
+        {
+          "port": "hrdata",
+          "desc": "word of the last RD, valid once RD_DONE is set"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "RD_DONE",
+      "port": "hdone",
+      "desc": "a RD finished; RDATA holds its word"
+    }
+  ],
+  "notes": [
+    "ck_t, ck_c, cke, addr, ras_n, cas_n, we_n, dq and dqs are the DRAM pins and trace_valid, trace_cmd and trace_addr the command trace (one clock before each command on the pins); they pass through unchanged.",
+    "Address map and behaviour of the core: pseudo-channel controller (64 page entries {channel haddr[10:8], pc haddr[13:11]}, row = haddr[31:18], storage = 256 columns per channel; RD / WR use the pc's open row); per-entry refresh over all 64.",
+    "The core's own verification (pin-level checker, 100% coverage) is tb/cov/HBM2_sva.sv with tb/HBM2_tb.sv; this wrapper test drives the core only through the registers."
+  ]
+}
