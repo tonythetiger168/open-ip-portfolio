@@ -1,0 +1,18 @@
+{
+  "title": "AMBA 3 AHB-Lite subordinate: a 256-word memory with a wait-state region and a two-cycle ERROR region",
+  "code": "0x4148",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [],
+  "irqs": [
+    {
+      "name": "ERR",
+      "port": "irq",
+      "desc": "a transfer to the reserved region (HADDR[11] set) got the two-cycle ERROR response"
+    }
+  ],
+  "notes": [
+    "hsel, htrans, haddr, hwrite, hsize, hwdata, hrdata, hready, hreadyout and hresp are the AHB-Lite subordinate pins; they pass through unchanged. The registers report the subordinate's error events.",
+    "Address map seen on AHB (HADDR[11:10]): 00 memory, zero wait states; 01 the same memory with one wait state; 1x reserved, ERROR. HADDR[9:2] selects the word; other bits are ignored."
+  ]
+}
