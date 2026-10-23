@@ -237,28 +237,28 @@ module CXL_apb #(
   wire [3:0] flags = {avail_DRS, avail_NDR, full_RWD, full_REQ};
 
   // ---------------- read mux ----------------
-  logic [31:0] rdata;
+  logic [31:0] apb_rdata;
   always_comb begin
-    rdata = '0;
+    apb_rdata = '0;
     case (PADDR[11:2])
-      10'd0: rdata = ID_VALUE;
-      10'd1: rdata = 32'(irq_status);
-      10'd2: rdata = 32'(irq_enable);
-      10'd3: rdata = 32'(flags);
-      10'd4: rdata = scratch;
-      10'd5: rdata = 32'(r_CTRL);
-      10'd6: rdata = 32'(h_REQ0);
-      10'd7: rdata = 32'(h_REQ1);
-      10'd8: rdata = 32'(h_RWD0);
-      10'd9: rdata = 32'(h_RWD1);
-      10'd10: rdata = 32'(h_RWD2);
-      10'd11: rdata = 32'(h_RWD3);
-      10'd12: rdata = 32'(h_NDR);
-      10'd13: rdata = 32'(h_DRS0);
-      10'd14: rdata = 32'(h_DRS1);
-      10'd15: rdata = 32'(h_DRS2);
-      default: rdata = '0;
+      10'd0: apb_rdata = ID_VALUE;
+      10'd1: apb_rdata = 32'(irq_status);
+      10'd2: apb_rdata = 32'(irq_enable);
+      10'd3: apb_rdata = 32'(flags);
+      10'd4: apb_rdata = scratch;
+      10'd5: apb_rdata = 32'(r_CTRL);
+      10'd6: apb_rdata = 32'(h_REQ0);
+      10'd7: apb_rdata = 32'(h_REQ1);
+      10'd8: apb_rdata = 32'(h_RWD0);
+      10'd9: apb_rdata = 32'(h_RWD1);
+      10'd10: apb_rdata = 32'(h_RWD2);
+      10'd11: apb_rdata = 32'(h_RWD3);
+      10'd12: apb_rdata = 32'(h_NDR);
+      10'd13: apb_rdata = 32'(h_DRS0);
+      10'd14: apb_rdata = 32'(h_DRS1);
+      10'd15: apb_rdata = 32'(h_DRS2);
+      default: apb_rdata = '0;
     endcase
   end
-  assign PRDATA = (rd && |hit) ? rdata : '0;
+  assign PRDATA = (rd && |hit) ? apb_rdata : '0;
 endmodule

@@ -173,22 +173,22 @@ module ONFI_apb #(
   wire [2:0] flags = {avail_RD, full_WR, full_CMD};
 
   // ---------------- read mux ----------------
-  logic [31:0] rdata;
+  logic [31:0] apb_rdata;
   always_comb begin
-    rdata = '0;
+    apb_rdata = '0;
     case (PADDR[11:2])
-      10'd0: rdata = ID_VALUE;
-      10'd1: rdata = 32'(irq_status);
-      10'd2: rdata = 32'(irq_enable);
-      10'd3: rdata = 32'(flags);
-      10'd4: rdata = scratch;
-      10'd5: rdata = 32'(h_CMD0);
-      10'd6: rdata = 32'(h_CMD1);
-      10'd7: rdata = 32'(h_WR);
-      10'd8: rdata = 32'(h_RD);
-      10'd9: rdata = 32'({c_status});
-      default: rdata = '0;
+      10'd0: apb_rdata = ID_VALUE;
+      10'd1: apb_rdata = 32'(irq_status);
+      10'd2: apb_rdata = 32'(irq_enable);
+      10'd3: apb_rdata = 32'(flags);
+      10'd4: apb_rdata = scratch;
+      10'd5: apb_rdata = 32'(h_CMD0);
+      10'd6: apb_rdata = 32'(h_CMD1);
+      10'd7: apb_rdata = 32'(h_WR);
+      10'd8: apb_rdata = 32'(h_RD);
+      10'd9: apb_rdata = 32'({c_status});
+      default: apb_rdata = '0;
     endcase
   end
-  assign PRDATA = (rd && |hit) ? rdata : '0;
+  assign PRDATA = (rd && |hit) ? apb_rdata : '0;
 endmodule
