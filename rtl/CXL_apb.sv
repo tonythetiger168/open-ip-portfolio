@@ -29,6 +29,19 @@ module CXL_apb #(
 );
   localparam logic [31:0] ID_VALUE = 32'h43580200;
 
+  // ---------------- APB decode ----------------
+  wire        acc     = PSEL & PENABLE;
+  wire        wr      = acc & PWRITE;
+  wire        rd      = acc & ~PWRITE;
+  wire [31:0] wmask   = {{8{PSTRB[3]}}, {8{PSTRB[2]}}, {8{PSTRB[1]}}, {8{PSTRB[0]}}};
+  logic [15:0] hit;
+  always_comb begin
+    hit = '0;
+    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd16) hit[PADDR[11:2]] = 1'b1;
+  end
+  assign PREADY  = acc;
+  assign PSLVERR = acc & ~|hit;
+
   // ---------------- core ----------------
   logic [15:0]   c_hdm_base;
   logic          c_req_valid;
@@ -110,19 +123,6 @@ module CXL_apb #(
     .ev_proto(c_ev_proto),
     .ev_poison(c_ev_poison)
   );
-
-  // ---------------- APB decode ----------------
-  wire        acc     = PSEL & PENABLE;
-  wire        wr      = acc & PWRITE;
-  wire        rd      = acc & ~PWRITE;
-  wire [31:0] wmask   = {{8{PSTRB[3]}}, {8{PSTRB[2]}}, {8{PSTRB[1]}}, {8{PSTRB[0]}}};
-  logic [15:0] hit;
-  always_comb begin
-    hit = '0;
-    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd16) hit[PADDR[11:2]] = 1'b1;
-  end
-  assign PREADY  = acc;
-  assign PSLVERR = acc & ~|hit;
 
   // ---------------- registers ----------------
   logic [9:0] irq_status, irq_enable, irq_set;

@@ -31,6 +31,19 @@ module Ethernet_apb (
 );
   localparam logic [31:0] ID_VALUE = 32'h45540200;
 
+  // ---------------- APB decode ----------------
+  wire        acc     = PSEL & PENABLE;
+  wire        wr      = acc & PWRITE;
+  wire        rd      = acc & ~PWRITE;
+  wire [31:0] wmask   = {{8{PSTRB[3]}}, {8{PSTRB[2]}}, {8{PSTRB[1]}}, {8{PSTRB[0]}}};
+  logic [10:0] hit;
+  always_comb begin
+    hit = '0;
+    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd11) hit[PADDR[11:2]] = 1'b1;
+  end
+  assign PREADY  = acc;
+  assign PSLVERR = acc & ~|hit;
+
   // ---------------- core ----------------
   logic [4:0]    c_cfg_div;
   logic [47:0]   c_cfg_mac;
@@ -74,19 +87,6 @@ module Ethernet_apb (
     .rx_stat(c_rx_stat),
     .rx_frag(c_rx_frag)
   );
-
-  // ---------------- APB decode ----------------
-  wire        acc     = PSEL & PENABLE;
-  wire        wr      = acc & PWRITE;
-  wire        rd      = acc & ~PWRITE;
-  wire [31:0] wmask   = {{8{PSTRB[3]}}, {8{PSTRB[2]}}, {8{PSTRB[1]}}, {8{PSTRB[0]}}};
-  logic [10:0] hit;
-  always_comb begin
-    hit = '0;
-    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd11) hit[PADDR[11:2]] = 1'b1;
-  end
-  assign PREADY  = acc;
-  assign PSLVERR = acc & ~|hit;
 
   // ---------------- registers ----------------
   logic [6:0] irq_status, irq_enable, irq_set;

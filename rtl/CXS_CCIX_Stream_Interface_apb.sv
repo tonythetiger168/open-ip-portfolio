@@ -43,6 +43,19 @@ module CXS_CCIX_Stream_Interface_apb #(
 );
   localparam logic [31:0] ID_VALUE = 32'h43530200;
 
+  // ---------------- APB decode ----------------
+  wire        acc     = PSEL & PENABLE;
+  wire        wr      = acc & PWRITE;
+  wire        rd      = acc & ~PWRITE;
+  wire [31:0] wmask   = {{8{PSTRB[3]}}, {8{PSTRB[2]}}, {8{PSTRB[1]}}, {8{PSTRB[0]}}};
+  logic [10:0] hit;
+  always_comb begin
+    hit = '0;
+    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd11) hit[PADDR[11:2]] = 1'b1;
+  end
+  assign PREADY  = acc;
+  assign PSLVERR = acc & ~|hit;
+
   // ---------------- core ----------------
   logic          c_tx_en;
   logic          c_rx_en;
@@ -98,19 +111,6 @@ module CXS_CCIX_Stream_Interface_apb #(
     .ev_crd(c_ev_crd),
     .ev_cntl(c_ev_cntl)
   );
-
-  // ---------------- APB decode ----------------
-  wire        acc     = PSEL & PENABLE;
-  wire        wr      = acc & PWRITE;
-  wire        rd      = acc & ~PWRITE;
-  wire [31:0] wmask   = {{8{PSTRB[3]}}, {8{PSTRB[2]}}, {8{PSTRB[1]}}, {8{PSTRB[0]}}};
-  logic [10:0] hit;
-  always_comb begin
-    hit = '0;
-    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd11) hit[PADDR[11:2]] = 1'b1;
-  end
-  assign PREADY  = acc;
-  assign PSLVERR = acc & ~|hit;
 
   // ---------------- registers ----------------
   logic [4:0] irq_status, irq_enable, irq_set;
