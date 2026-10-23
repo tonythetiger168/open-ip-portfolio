@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // ============================================================================
 // DDR4_Lite_top -- educational DDR4-style controller with a real
-// micro-architecture (this is what the MEMCH family shells point at).
+// micro-architecture (the base of the *_Lite memory controllers).
 //
 // What makes this a *real* DDR controller model (vs the 144-line single-bank
 // MEMCORE educational slice):
