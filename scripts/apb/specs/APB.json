@@ -1,0 +1,18 @@
+{
+  "title": "AMBA APB completer: a 256-word memory with a wait-state region and a PSLVERR region",
+  "code": "0x4150",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [],
+  "irqs": [
+    {
+      "name": "ERR",
+      "port": "irq",
+      "desc": "a transfer to the reserved region (paddr[11] set) completed with PSLVERR"
+    }
+  ],
+  "notes": [
+    "psel, penable, paddr, pwrite, pwdata, prdata, pready and pslverr are the completer pins of the IP's own APB port (the subject of the IP, separate from the register port); they pass through unchanged. The registers report the completer's error events.",
+    "Address map seen on the IP's port (paddr[11:10]): 00 memory, no wait state; 01 the same memory with one wait state; 1x reserved, PSLVERR (writes ignored, reads 0). paddr[9:2] selects the word; other bits are ignored."
+  ]
+}
