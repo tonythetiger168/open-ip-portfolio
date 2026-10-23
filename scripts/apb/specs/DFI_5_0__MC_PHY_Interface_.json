@@ -1,0 +1,21 @@
+{
+  "title": "DFI 5.0 PHY-side model: DDR command decode with bank state, write path (tphy_wrlat) and read path (trddata_en, tphy_rdlat) timing checks, byte masks, init and low-power handshakes, over an 8-bank DRAM array",
+  "code": "0x4435",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "pins": ["dfi_init_complete", "dfi_lp_ctrl_ack"],
+  "regs": [
+    {"name": "STATUS", "kind": "ro", "desc": "Handshake state",
+     "fields": [
+       {"port": "dfi_init_complete", "desc": "initialisation done (held while dfi_init_start stays high); same as the pin"},
+       {"port": "dfi_lp_ctrl_ack", "desc": "low-power request acknowledged; same as the pin"}
+     ]}
+  ],
+  "irqs": [
+    {"name": "ERR", "port": "irq", "desc": "a command before init, in low power or with cke low; ACT to an open bank; RD / WR to a closed bank; REF / MRS with a bank open; a missing or unexpected dfi_wrdata_en / dfi_rddata_en beat. Sticky in the core until PRESETN, so the bit is set again on every clock"}
+  ],
+  "notes": [
+    "Every DFI signal passes through unchanged; dfi_clk is PCLK (1:1 ratio). The MC drives commands and data beats on the pins; the registers report the handshake state and protocol errors.",
+    "Timing: T_PHY_WRLAT 4, T_RDDATA_EN 3, T_PHY_RDLAT 5, init 32 cycles."
+  ]
+}
