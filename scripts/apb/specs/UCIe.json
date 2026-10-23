@@ -1,0 +1,25 @@
+{
+  "title": "UCIe Die-to-Die Adapter Retry: flits with CRC-16 and sequence numbers, Ack / Nak from the far side, a replay buffer resent on a Nak or a replay timeout",
+  "code": "0x5543",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "20ms",
+  "regs": [
+    {"name": "TX", "kind": "stream_in", "data": ["tx_data"], "valid": "tx_valid", "ready": "tx_ready",
+     "desc": "Payload to send; writing TX1 sends it (the Adapter takes it when the replay buffer has room and no replay is running)",
+     "fdesc": {"tx_data": "payload"}},
+    {"name": "RX", "kind": "stream_out", "data": ["rx_data"], "valid": "rx_valid",
+     "desc": "Payload received; reading RX1 pops it. A payload arriving while RX is full is lost (RX_OVF)",
+     "fdesc": {"rx_data": "payload"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Retry state",
+     "fields": [{"port": "tx_pend", "desc": "flits sent and not yet acknowledged"}]}
+  ],
+  "irqs": [
+    {"name": "CRC", "port": "ev_crc", "desc": "a flit with a bad CRC was received and dropped"},
+    {"name": "REPLAY", "port": "ev_replay", "desc": "a replay started: a Nak from the far side, or the replay timeout"}
+  ],
+  "notes": [
+    "lt_valid / lt_flit and lr_valid / lr_flit are the flit interfaces to the link; they pass through unchanged.",
+    "The core parameters RB (8) and TO (32) keep their defaults."
+  ]
+}
