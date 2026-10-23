@@ -1,0 +1,35 @@
+{
+  "title": "AVSBus voltage-control slave at address 0x55: START, address, command, 16-bit data, CRC4 and ACK over sclk / sdat, SET and GET of a 12-bit DAC code ramped at 10 codes per clock",
+  "code": "0x4156",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "pins": ["vdac", "busy"],
+  "regs": [
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Voltage state, as driven on the pins",
+      "fields": [
+        {
+          "port": "vdac",
+          "desc": "current DAC code (1 code = 1 mV), moving 10 codes per clock toward the last target SET"
+        },
+        {
+          "port": "busy",
+          "desc": "high while vdac has not reached the target"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "ERROR",
+      "port": "irq",
+      "desc": "a frame to our address was NACKed for a bad CRC or a bad command (unknown command, or a SET code above 0xFFF)"
+    }
+  ],
+  "notes": [
+    "sclk and sdat (open drain: the slave only pulls it low, for the ACK and the GET readback) are the bus pins; they pass through unchanged. Both are sampled on PCLK, so each sclk phase must last at least three PCLK clocks. vdac and busy drive the regulator and are also readable in STATUS.",
+    "The voltage is set and read only over AVSBus (SET 0x01, GET 0x02); the APB side observes it. A frame with no sclk rise for TIMEOUT (1024) clocks is dropped. A frame to another address is not acknowledged and raises no interrupt."
+  ]
+}
