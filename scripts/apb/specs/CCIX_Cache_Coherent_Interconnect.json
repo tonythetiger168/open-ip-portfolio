@@ -1,0 +1,29 @@
+{
+  "title": "CCIX link layer over PCIe: protocol messages (Request, Snoop, Response) packed into PCIe vendor-defined message TLPs, Request and Snoop credits, credit return by piggyback or Misc message",
+  "code": "0x4343",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "40ms",
+  "regs": [
+    {"name": "ID_CFG", "kind": "rw", "desc": "PCIe IDs",
+     "fields": [{"port": "rid", "reset": "0", "desc": "this end's PCIe ID: the Requester ID of TLPs sent, the target ID TLPs received must carry"},
+                {"port": "tgt_rid", "reset": "0", "desc": "the peer's PCIe ID: the target ID of TLPs sent"}]},
+    {"name": "TX", "kind": "stream_in", "data": ["tx_data"], "valid": "tx_valid", "ready": "tx_ready",
+     "desc": "Message word to send: a header {MsgType, MsgLen, credit fields (replaced), 16 protocol bits}, then MsgLen - 1 body words. A Request or Snoop header is taken once a credit is held",
+     "fdesc": {"tx_data": "message word"}},
+    {"name": "RX", "kind": "stream_out", "data": ["rx_data", "rx_last"], "valid": "rx_valid", "ready": "rx_ready",
+     "desc": "Received message word; reading it pops it. A Request or Snoop's credit goes back to the peer once its last word is read",
+     "fdesc": {"rx_data": "message word", "rx_last": "last word of the message"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Credits held for sending",
+     "fields": [{"port": "tx_crd_req", "desc": "Request credits"}, {"port": "tx_crd_snp", "desc": "Snoop credits"}]}
+  ],
+  "irqs": [
+    {"name": "ERR", "port": "ev_err", "desc": "a malformed TLP or message was dropped, a bad header was written to TX, or a credit grant would pass 31"},
+    {"name": "NOCRD", "port": "ev_nocrd", "desc": "a Request or Snoop came without a credit and was skipped"},
+    {"name": "OVF", "port": "ev_ovf", "desc": "a Response found no room in the receive buffer and was skipped"}
+  ],
+  "notes": [
+    "tlp_tx_* and tlp_rx_* are the TLP streams to and from the PCIe transaction layer; they pass through unchanged.",
+    "The core parameters MAXP (16), NREQ (2), NSNP (2), RXD (64) and CRT (16) keep their defaults."
+  ]
+}
