@@ -188,6 +188,7 @@ module LPDDR4_top #(
             if (bank_open[ref_bank]) begin
               bank_open[ref_bank] <= 1'b0; rp_t[ref_bank] <= TRP[8:0];
             end
+            pre_need <= bank_open[ref_bank];  // PRE the bank only if it is open
             ref_bank <= ref_bank + 1'b1;
             dstate <= D_PRE;
           end
@@ -202,11 +203,12 @@ module LPDDR4_top #(
             if (bank_open[ref_bank]) begin
               bank_open[ref_bank] <= 1'b0; rp_t[ref_bank] <= TRP[8:0];
             end
+            pre_need <= bank_open[ref_bank];  // PRE the bank only if it is open
             ref_bank <= ref_bank + 1'b1;
             dstate <= D_PRE;
           end else if (!pre_done) begin
             // PRE/PREA waits for tRAS, and tRP counts from the real issue
-            if (!ref_walk && !pre_need) pre_done <= 1'b1;   // bank already closed
+            if (!pre_need) pre_done <= 1'b1;   // bank already closed
             else if (pre_ok) begin
               ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0; addr[10] <= 1'b0; ba <= pre_tgt;
               rp_t[pre_tgt] <= TRP[8:0];

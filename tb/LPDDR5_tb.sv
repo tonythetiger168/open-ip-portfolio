@@ -40,6 +40,9 @@ module LPDDR5_tb;
       wr(mk(8 + k, 14'h0C0, 8'(k + 9)), 16'(16'h2200 + k));
       rd(mk(k, 14'h0C0, 8'(k + 9))); rd(mk(8 + k, 14'h0C0, 8'(k + 9)));
     end
+    // refreshes while idle with every bank closed
+    for (int b = 0; b < NBU; b++) pre(mk(b, 0, 0));
+    for (int k = 0; k < 3; k++) begin near_refresh(1); idle(300); end
     // ACT the bank the next REF targets just before it falls due: the
     // refresh PRE must then wait out that bank's tRAS
     for (int k = 0; k < 3; k++) begin
