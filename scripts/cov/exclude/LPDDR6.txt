@@ -1,0 +1,12 @@
+# LPDDR6: NCH=2. Constant bits and elaboration-time branches.
+LINE cond_then:LPDDR6_top \| wire \[CHW-1:0\] a_ch = \(NCH == 1\) # NCH=2 elaboration constant: the channel comes from haddr[8]
+LINE cond_then:LPDDR6_top \| wire \[CHW-1:0\] c_ch = \(NCH == 1\) # NCH=2 elaboration constant: the channel comes from haddr[8]
+LINE case:LPDDR6_top \| default: dstate <= D_IDLE; # unused 3-bit encoding of the 7-state enum
+TOGGLE LPDDR6_top\.addr\[1[4-6]\]: # always 0: rows are 14 bits, columns 8 bits
+TOGGLE LPDDR6_top\.trace_cmd\[2\]: # constant 0: trace codes are 1 ACT, 2 RD, 3 WR
+TOGGLE LPDDR6_top\.dqs\[[01]\]: # tied Hi-Z: the model has no strobe
+TOGGLE LPDDR6_top\.timer\[(8)\]: # constant 0: largest load is tRFC = 150 < 256
+TOGGLE LPDDR6_top\.ref_cnt\[(11|12|13)\]: # constant 0: largest load is tREFI = 1560 < 2048
+TOGGLE LPDDR6_top\.rp_t\[\d+\]\[(4|5|6|7|8)\]: # constant 0: largest load is tRP = 14 < 16
+TOGGLE LPDDR6_top\.ras_t\[\d+\]\[(6|7|8)\]: # constant 0: largest load is tRAS = 36 < 64
+TOGGLE LPDDR6_top\.rc_t\[\d+\]\[(6|7|8)\]: # constant 0: largest load is tRC = 48 < 64
