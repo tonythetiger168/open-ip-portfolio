@@ -1,0 +1,18 @@
+{
+  "title": "OCP-IP 3.0 slave: a 256-word memory behind MCmd / SCmdAccept / SResp, WR, RD and posted WRNP with byte enables and thread IDs",
+  "code": "0x4F43",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [],
+  "irqs": [
+    {
+      "name": "ERR",
+      "port": "irq",
+      "desc": "a request was answered ERR (an address outside 0x000 to 0x3FC or misaligned, or an unsupported MCmd), or a posted write went to such an address"
+    }
+  ],
+  "notes": [
+    "mcmd, maddr, mdata, mbyteen, mthreadid, scmdaccept, sdata, sresp and sthreadid are the OCP slave pins; they pass through unchanged. The registers report the slave's error events.",
+    "A command is accepted the clock after it is presented (ACCEPT_DLY 1, the default). WR and RD are answered DVA (or ERR) two clocks after acceptance with the thread ID echoed; SData carries the word as it was when the request was accepted. WRNP is not answered. MCmd values other than WR, RD and WRNP are answered ERR and do nothing."
+  ]
+}
