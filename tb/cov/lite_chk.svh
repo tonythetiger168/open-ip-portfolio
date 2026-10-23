@@ -45,6 +45,14 @@
 `ifndef LITE_MRW
 `define LITE_MRW(i, d) ((i) == 3'd0 ? {1'b0, d[6:0]} : d[7:0])
 `endif
+// host commands 6 / 7: illegal unless LITE_HCMD67 supplies case items for
+// them (and LITE_NO_BAD_CMD drops the illegal-command cover); LITE_RESET
+// adds IP model state to the reset; LITE_PBREF with LITE_HOST_PBREF: host
+// command 6 refreshes bank haddr's entry (op_k 6, served by a per-entry REF
+// to that entry and complete tRFC_PB later)
+`ifndef LITE_RESET
+`define LITE_RESET
+`endif
 `ifndef LITE_EXTRA
 `define LITE_EXTRA
 `endif
@@ -124,7 +132,7 @@
   logic e_rd_hit, e_rd_closed, e_rd_conf, e_wr_hit, e_wr_closed, e_wr_conf, e_href,
         e_href_prea, e_aref_prea, e_aref_closed, e_ref_mid_op, e_mrw, e_mrr, e_mr0_dll,
         e_rd_cl_mr, e_wr_cwl_mr, e_oor_rd, e_oor_wr, e_bad_cmd, e_nop, e_fill_gap,
-        e_ign_busy, e_b2b, e_trc_tight, e_twtr_tight, e_twr_tight;
+        e_ign_busy, e_b2b, e_trc_tight, e_twtr_tight, e_twr_tight, e_href_pb;
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -145,6 +153,7 @@
       refi_m = T_REFI; pend_m = 0; irq_m = 0;
       op_v = 0; filling = 0; fill = 0; busy = 0; imm_at = -1; imm_mrr = 0;
       bst_v = 0; p_dqs = 0;
+      `LITE_RESET
       {v_stray, v_act_open, v_closed, v_rw_twice, v_trcd, v_trp, v_trc, v_tras, v_trrd,
        v_twr, v_twtr, v_trfc, v_ref_open, v_ref_undue, v_ref_late, v_paddr, v_wdata,
        v_rdata_dq, v_dqs, v_rdata, v_hdone, v_mrr, v_hready, v_stuck, v_irq, v_trace,
@@ -152,7 +161,7 @@
       {e_rd_hit, e_rd_closed, e_rd_conf, e_wr_hit, e_wr_closed, e_wr_conf, e_href,
        e_href_prea, e_aref_prea, e_aref_closed, e_ref_mid_op, e_mrw, e_mrr, e_mr0_dll,
        e_rd_cl_mr, e_wr_cwl_mr, e_oor_rd, e_oor_wr, e_bad_cmd, e_nop, e_fill_gap,
-       e_ign_busy, e_b2b, e_trc_tight, e_twtr_tight, e_twr_tight} = '0;
+       e_ign_busy, e_b2b, e_trc_tight, e_twtr_tight, e_twr_tight, e_href_pb} = '0;
     end else begin : step
       logic [2:0] pc;
       logic       done_now, any_open;
@@ -164,7 +173,7 @@
       {e_rd_hit, e_rd_closed, e_rd_conf, e_wr_hit, e_wr_closed, e_wr_conf, e_href,
        e_href_prea, e_aref_prea, e_aref_closed, e_ref_mid_op, e_mrw, e_mrr, e_mr0_dll,
        e_rd_cl_mr, e_wr_cwl_mr, e_oor_rd, e_oor_wr, e_bad_cmd, e_nop, e_fill_gap,
-       e_ign_busy, e_b2b, e_trc_tight, e_twtr_tight, e_twr_tight} = '0;
+       e_ign_busy, e_b2b, e_trc_tight, e_twtr_tight, e_twr_tight, e_href_pb} = '0;
       n = n + 1;
       for (int i = 7; i > 0; i--) hr_hist[i] = hr_hist[i-1];
       hr_hist[0] = q_hrdata;
@@ -209,7 +218,7 @@
         C_PRE: begin
 `ifdef LITE_PBREF
           // a refresh PRE closes the open entry that is due
-          pb_pre = pend_pb[b] && open_m[b] &&
+          pb_pre = (pend_pb[b] || op_v && op_k == 3'd6 && b == op_b) && open_m[b] &&
                    !(op_v && !filling && (op_k == 3'd1 || op_k == 3'd2) && !s_pre && b == op_b &&
                      row_m[b] != row_of(op_a));
           pre_row = row_m[b];
@@ -259,8 +268,11 @@
         end
 `ifdef LITE_PBREF
         C_REF: if (!q_addr[10]) begin
-          // per-entry REF: the entry is due, closed, past tRP
-          if (!pend_pb[b]) v_ref_undue = 1;
+          // per-entry REF: the entry is due (or a host bank refresh to it
+          // is in flight), closed, past tRP
+          if (op_v && op_k == 3'd6 && b == op_b) begin
+            s_ref = 1; t_refpin = n; e_href_pb = 1;
+          end else if (!pend_pb[b]) v_ref_undue = 1;
           if (open_m[b]) v_ref_open = 1;
           if (n - t_pre[b] < T_RP) v_trp = 1;
           if (q_addr != `LITE_PRE_ADDR(b)) v_paddr = 1;
@@ -268,7 +280,7 @@
           // row-conflict PRE is followed by an ACT)
           e_aref_prea = n - t_pre[b] <= T_RP + 6;
           e_aref_closed = !e_aref_prea;
-          e_ref_mid_op = op_v && op_k != 3'd5;
+          e_ref_mid_op = op_v && (op_k == 3'd1 || op_k == 3'd2);
           pend_pb[b] = 0; t_refpb[b] = n;
         end else begin
           if (any_open) v_ref_open = 1;
@@ -353,6 +365,9 @@
                 if (hr_hist[7 - i] !== bst_line[16*i +: 16]) v_rdata = 1;
             end
             3'd2: if (!s_data) v_hdone = 1;
+`ifdef LITE_PBREF
+            3'd6: if (!s_ref || n - t_refpin < T_RFC_PB) v_hdone = 1;
+`endif
             default: if (!s_ref || n - t_refpin < T_RFC) v_hdone = 1;
           endcase
           op_v = 0; done_now = 1;
@@ -402,9 +417,17 @@
               s_act = 0; s_pre = 0; s_rw = 0; s_data = 0; s_ref = 0;
             end
             3'd0: begin imm_at = n + 1; imm_mrr = 0; e_nop = 1; end
+`ifdef LITE_HCMD67
+            `LITE_HCMD67
+`else
             default: begin imm_at = n + 1; imm_mrr = 0; e_bad_cmd = 1; end
+`endif
           endcase
+`ifdef LITE_HCMD67
+          if ((hcmd == 3'd1 || hcmd == 3'd2) && !in_range(haddr) && err_n < 0)
+`else
           if ((hcmd >= 3'd6 || (hcmd == 3'd1 || hcmd == 3'd2) && !in_range(haddr)) && err_n < 0)
+`endif
             err_n = n;
         end
       end
@@ -460,7 +483,9 @@
   `FC(write_with_programmed_cwl, e_wr_cwl_mr)
   `FC(out_of_range_read, e_oor_rd)
   `FC(out_of_range_write, e_oor_wr)
+`ifndef LITE_HCMD67
   `FC(illegal_command, e_bad_cmd)
+`endif
   `FC(nop_command, e_nop)
   `FC(write_beat_gap, e_fill_gap)
   `FC(command_while_busy_ignored, e_ign_busy)
