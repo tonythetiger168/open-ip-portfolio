@@ -10,10 +10,8 @@
 //  - Register map: docs/ip/ARM_Local_Translation_Interface.md
 // ============================================================================
 module ARM_Local_Translation_Interface_apb #(
-  parameter int NE  = 8,
-  // table entries
-  parameter int RQ  = 4,
-  // request slots (credits), power of 2
+  parameter int NE = 8,
+  parameter int RQ = 4,
   parameter int NCT = 8
 ) (
   input  logic        PCLK,

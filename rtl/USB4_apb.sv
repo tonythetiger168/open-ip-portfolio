@@ -10,12 +10,9 @@
 //  - Register map: docs/ip/USB4.md
 // ============================================================================
 module USB4_apb #(
-  parameter int MAXL    = 32,
-  // payload bytes in a data packet (multiple of 4, at most 64)
-  parameter int RXB     = 2,
-  // receive buffers per path (2 or 4)
-  parameter int DELTA   = 4,
-  // good headers in a row from PRESYNC to SYNC (2..7)
+  parameter int MAXL = 32,
+  parameter int RXB = 2,
+  parameter int DELTA = 4,
   parameter int REFRESH = 128
 ) (
   input  logic        PCLK,

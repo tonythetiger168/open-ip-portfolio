@@ -10,14 +10,10 @@
 //  - Register map: docs/ip/USB3_2.md
 // ============================================================================
 module USB3_2_apb #(
-  parameter int MAXD    = 32,
-  // payload bytes in a data packet
-  parameter int TXN     = 4,
-  // unacknowledged header packets (power of 2, at most 4)
-  parameter int RXN     = 4,
-  // receive header buffers (power of 2, at most 4)
+  parameter int MAXD = 32,
+  parameter int TXN = 4,
+  parameter int RXN = 4,
   parameter int PEND_TO = 400,
-  // PENDING_HP_TIMER, clocks
   parameter int CRED_TO = 2000
 ) (
   input  logic        PCLK,

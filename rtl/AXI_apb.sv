@@ -11,7 +11,6 @@
 // ============================================================================
 module AXI_apb #(
   parameter int DW = 32,
-  // data width
   parameter int AW = 32
 ) (
   input  logic        PCLK,

@@ -11,14 +11,10 @@
 // ============================================================================
 module CCIX_Cache_Coherent_Interconnect_apb #(
   parameter int MAXP = 16,
-  // TLP payload words (8..1023)
   parameter int NREQ = 2,
-  // Request credits granted (1..15)
   parameter int NSNP = 2,
-  // Snoop credits granted (1..15)
-  parameter int RXD  = 64,
-  // receive buffer words (power of 2, more than 8 * (NREQ + NSNP))
-  parameter int CRT  = 16
+  parameter int RXD = 64,
+  parameter int CRT = 16
 ) (
   input  logic        PCLK,
   input  logic        PRESETN,

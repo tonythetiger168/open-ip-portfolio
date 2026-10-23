@@ -10,10 +10,8 @@
 //  - Register map: docs/ip/Avalon_MM.md
 // ============================================================================
 module Avalon_MM_apb #(
-  parameter int DW    = 32,
-  // data width
-  parameter int AW    = 32,
-  // address width
+  parameter int DW = 32,
+  parameter int AW = 32,
   parameter int DEPTH = 256
 ) (
   input  logic        PCLK,

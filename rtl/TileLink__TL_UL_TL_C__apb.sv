@@ -10,10 +10,8 @@
 //  - Register map: docs/ip/TileLink__TL_UL_TL_C_.md
 // ============================================================================
 module TileLink__TL_UL_TL_C__apb #(
-  parameter int DW    = 32,
-  // data width
-  parameter int AW    = 32,
-  // address width
+  parameter int DW = 32,
+  parameter int AW = 32,
   parameter int DEPTH = 64
 ) (
   input  logic        PCLK,

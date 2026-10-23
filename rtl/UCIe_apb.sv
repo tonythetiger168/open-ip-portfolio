@@ -11,7 +11,6 @@
 // ============================================================================
 module UCIe_apb #(
   parameter int RB = 8,
-  // replay buffer entries, power of 2, at most 8
   parameter int TO = 32
 ) (
   input  logic        PCLK,

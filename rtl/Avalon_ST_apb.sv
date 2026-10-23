@@ -10,7 +10,7 @@
 //  - Register map: docs/ip/Avalon_ST.md
 // ============================================================================
 module Avalon_ST_apb #(
-  parameter int DW    = 32,
+  parameter int DW = 32,
   parameter int DEPTH = 16
 ) (
   input  logic        PCLK,

@@ -10,7 +10,7 @@
 //  - Register map: docs/ip/AXI_Stream.md
 // ============================================================================
 module AXI_Stream_apb #(
-  parameter int DW    = 32,
+  parameter int DW = 32,
   parameter int DEPTH = 16
 ) (
   input  logic        PCLK,
