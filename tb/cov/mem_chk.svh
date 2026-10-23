@@ -11,6 +11,10 @@
 //     shared model), `MEM_CHK_AP_OK / `MEM_CHK_AP_MUST (expressions: the
 //     RD / WR in flight may / must close its bank with a PRE after the burst,
 //     for closed-page policies)
+//   posted-write hooks: `MEM_CHK_DRAINING (expression: the pin commands now
+//     serve a buffered write, `MEM_CHK_DRAIN_A / `MEM_CHK_DRAIN_D, not the
+//     host command), `MEM_CHK_DRAIN_POP, `MEM_CHK_ON_ACCEPT, `MEM_CHK_ON_DONE
+//     (statements), `MEM_CHK_WR_DONE (expression: a host WR is complete)
 // The model runs on the rising edge on values held stable around it: host
 // inputs (driven at the falling edge by the TB) are read directly, DUT
 // outputs through copies taken at the falling edge, so the model never races
@@ -36,6 +40,21 @@
 `endif
 `ifndef MEM_CHK_AP_MUST
 `define MEM_CHK_AP_MUST 1'b0
+`endif
+`ifndef MEM_CHK_DRAINING
+`define MEM_CHK_DRAINING 1'b0
+`define MEM_CHK_DRAIN_A 32'h0
+`define MEM_CHK_DRAIN_D 16'h0
+`define MEM_CHK_DRAIN_POP
+`endif
+`ifndef MEM_CHK_ON_ACCEPT
+`define MEM_CHK_ON_ACCEPT
+`endif
+`ifndef MEM_CHK_ON_DONE
+`define MEM_CHK_ON_DONE
+`endif
+`ifndef MEM_CHK_WR_DONE
+`define MEM_CHK_WR_DONE s_rw
 `endif
 
   logic        q_hready, q_hdone, q_tv;
@@ -89,7 +108,8 @@
        e_act_conf, e_act_same, e_pre_open, e_pre_closed, e_ref_idle, e_ref_act, e_ref_rd,
        e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea, e_apre} = '0;
     end else begin : step
-      logic is_cmd, done_now;
+      logic is_cmd, done_now, drn;
+      logic [31:0] ta;
       int b;
       {v_stray, v_closed, v_act_open, v_trcd, v_trp, v_trc, v_tras, v_trfc, v_ref_open,
        v_paddr, v_wdata, v_trace, v_hdone, v_lat, v_rdata, v_incomplete, v_stuck,
@@ -101,26 +121,39 @@
       if (m_chk) v_rdata = q_hrdata !== m_exp;
       m_chk = 0;
       // ---- pin command
-      b = op_b;
+      drn = op_v && (`MEM_CHK_DRAINING);
+      ta = drn ? `MEM_CHK_DRAIN_A : op_a;
+      b = bank_of(ta);
       is_cmd = q_pc != P_NOP;
       if (is_cmd && n < t_refend) v_trfc = 1;
       v_bad_pin = q_pc == P_BAD;
       // trace announces ACT / RD / WR one clock ahead, with the host address
       if ((q_pc == P_ACT || q_pc == P_RD || q_pc == P_WR) != p_tv) v_trace = 1;
       if (p_tv && (p_tc != ((q_pc == P_ACT) ? 3'd1 : (q_pc == P_RD) ? 3'd2 : 3'd3) ||
-                   !op_v || p_ta != op_a)) v_trace = 1;
+                   !op_v || p_ta != ta)) v_trace = 1;
       case (q_pc)
         P_ACT: begin
-          if (!op_v || op_c == 3'd4) v_stray = 1;
+          if (!op_v || op_c == 3'd4 && !drn) v_stray = 1;
           else begin
             if (open_m[b]) v_act_open = 1;
             if (n - t_pre[b] < TRP) v_trp = 1;
             if (n - t_act[b] < TRC) v_trc = 1;
-            if (!pin_row_ok(q_pa, row_of(op_a))) v_paddr = 1;
-            open_m[b] = 1; row_m[b] = row_of(op_a); t_act[b] = n; s_act = 1;
+            if (!pin_row_ok(q_pa, row_of(ta))) v_paddr = 1;
+            open_m[b] = 1; row_m[b] = row_of(ta); t_act[b] = n;
+            if (!drn) s_act = 1;
           end
         end
-        P_RD, P_WR: begin
+        P_RD, P_WR: if (drn) begin
+          if (q_pc != P_WR) v_stray = 1;
+          else begin
+            if (!open_m[b] || row_m[b] != row_of(ta)) v_closed = 1;
+            if (n - t_act[b] < TRCD) v_trcd = 1;
+            if (!pin_col_ok(q_pa, col_of(ta))) v_paddr = 1;
+            if (p_wl !== `MEM_CHK_DRAIN_D) v_wdata = 1;
+            arr[cellof(ta)] = `MEM_CHK_DRAIN_D;
+            `MEM_CHK_DRAIN_POP
+          end
+        end else begin
           if (!op_v || op_c != ((q_pc == P_RD) ? 3'd2 : 3'd3) || s_rw) v_stray = 1;
           else begin
             if (!open_m[b] || row_m[b] != row_of(op_a)) v_closed = 1;
@@ -134,11 +167,12 @@
           end
         end
         P_PRE: begin
-          if (!op_v || s_apre || s_rw && !(`MEM_CHK_AP_OK)) v_stray = 1;
+          if (!op_v || !drn && (s_apre || s_rw && !(`MEM_CHK_AP_OK))) v_stray = 1;
           else begin
             if (open_m[b] && n - t_act[b] < TRAS) v_tras = 1;
-            open_m[b] = 0; t_pre[b] = n; s_pre = 1;
-            if (s_rw) begin s_apre = 1; e_apre = 1; end
+            open_m[b] = 0; t_pre[b] = n;
+            if (!drn) s_pre = 1;
+            if (!drn && s_rw) begin s_apre = 1; e_apre = 1; end
           end
         end
         P_PREA: begin
@@ -177,9 +211,10 @@
         case (op_c)
           3'd1: if (!s_act && !op_hit) v_incomplete = 1;
           3'd2: if (!s_done || (`MEM_CHK_AP_MUST) && !s_apre) v_incomplete = 1;
-          3'd3: if (!s_rw || (`MEM_CHK_AP_MUST) && !s_apre) v_incomplete = 1;
+          3'd3: if (!(`MEM_CHK_WR_DONE) || (`MEM_CHK_AP_MUST) && !s_apre) v_incomplete = 1;
           default: if (!s_pre && op_open) v_incomplete = 1;
         endcase
+        `MEM_CHK_ON_DONE
         op_v = 0; done_now = 1;
       end
       busy = q_hready ? 0 : busy + 1;
@@ -194,6 +229,7 @@
           op_hit = open_m[op_b] && row_m[op_b] == row_of(haddr);
           e_b2b = done_now;
           e_col0 = col_of(haddr) == 8'h00; e_col255 = col_of(haddr) == 8'hFF;
+          `MEM_CHK_ON_ACCEPT
           case (hcmd)
             3'd1: begin e_act_same = op_hit; e_act_closed = !op_open; e_act_conf = op_open && !op_hit; end
             3'd2: begin e_rd_hit = op_hit; e_rd_closed = !op_open; e_rd_conf = op_open && !op_hit; end
