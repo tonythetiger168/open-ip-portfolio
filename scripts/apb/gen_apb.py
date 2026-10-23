@@ -40,10 +40,13 @@ Spec ("regs" entries, ports are core ports):
       register port: each word is one core register, written at core index
       "w" (wen pulses with waddr / wdata for one clock) and / or read at core
       index "r" (ren pulses and raddr selects for the access; PRDATA is
-      rdata). Either side may be absent. A core register takes whole words:
-      a write with PSTRB != 4'hF is dropped with PSLVERR.
+      rdata). Either side may be absent; waddr and raddr may name the same
+      port. A core register takes whole words: a write with PSTRB != 4'hF
+      is dropped with PSLVERR.
   "irqs": [{"name", "port", "desc"}]   1-bit core outputs latched into IRQ_STATUS
   "tie": {port: "value"}               core inputs tied off
+  "pins": [ports]                      mapped core outputs that also drive
+                                       wrapper pins (e.g. read in STATUS)
   "irq_at_reset": [irq names]          irqs a continuously running core may set
                                        as soon as reset ends (the TB allows them)
 Every other core port passes through to the wrapper unchanged. The core clock
@@ -349,7 +352,12 @@ def gen_rtl(P, spec, core):
                 ws = [w for w in words if w.reg == r["name"] and w.kind == "bus" and getattr(w, side) is not None]
                 aw = width[r[k]]
                 e = " | ".join(f"(hit[{words.index(w)}] ? {aw}'d{getattr(w, side)} : {aw}'d0)" for w in ws)
-                baddr[r[k]] = f"(wr ? ({e}) : {aw}'d0)" if k == "waddr" else f"(rd ? ({e}) : {aw}'d0)"
+                if k == "waddr":
+                    baddr[r[k]] = f"(wr ? ({e}) : {aw}'d0)"
+                elif r[k] == r.get("waddr"):     # one address port for both sides
+                    baddr[r[k]] = baddr[r[k]][:-len(f"{aw}'d0)")] + f"rd ? ({e}) : {aw}'d0)"
+                else:
+                    baddr[r[k]] = f"(rd ? ({e}) : {aw}'d0)"
     for p in order:
         if p in mapped and p not in spec.get("tie", {}) and p not in baddr:
             a(f"  logic {vbits(width[p]):<8} c_{p};")
