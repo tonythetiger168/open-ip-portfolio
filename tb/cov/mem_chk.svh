@@ -14,6 +14,11 @@
 //   `MEM_CHK_CKE_PD: cke may drop (power-down); the IP checks it itself
 //   `MEM_CHK_HIT_REOPENS: a RD / WR page hit may still PRE / ACT its bank
 //     (closed-page policies); otherwise a hit must go straight to the burst
+//   `MEM_CHK_REF_PB: per-entry refresh. Each REF refreshes one bank entry,
+//     ref_bank_of(k) for the k-th REF since reset (k mod REF_NB), which must
+//     be closed (and tRP past its PRE) while the others may stay open; a PRE
+//     with no host command, or after the host command's own work, is that
+//     refresh's PRE of the same entry
 //   `MEM_CHK_WMASK: bit mask of the write word a WR carries (narrow modes)
 //   `MEM_CHK_RW_ANY_ROW: RD / WR address a column of whatever row the bank
 //     has open (legacy contract), so only a closed bank is a miss
@@ -69,6 +74,11 @@
 `else
 `define MEM_CHK_RW_ROW_OK(b, r) (row_m[b] == (r))
 `endif
+`ifdef MEM_CHK_REF_PB
+`define MEM_CHK_PB 1'b1
+`else
+`define MEM_CHK_PB 1'b0
+`endif
 `ifndef MEM_CHK_WMASK
 `define MEM_CHK_WMASK 16'hFFFF
 `endif
@@ -102,6 +112,7 @@
   logic [15:0] p_wl;
   logic        m_chk;
   logic [15:0] m_exp;
+  int          rb_m;                 // per-entry refresh: REFs since reset
 
   // violations (checked one clock later by the assertions below)
   logic v_stray, v_closed, v_act_open, v_trcd, v_trp, v_trc, v_tras, v_trfc, v_ref_open,
@@ -110,13 +121,14 @@
   // functional events
   logic e_rd_hit, e_rd_closed, e_rd_conf, e_wr_hit, e_wr_closed, e_wr_conf, e_act_closed,
         e_act_conf, e_act_same, e_pre_open, e_pre_closed, e_ref_idle, e_ref_act, e_ref_rd,
-        e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea, e_apre;
+        e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea, e_apre,
+        e_refpb_others_open;
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       n = 0; t_ref = 0; t_refend = 0; t_rdpin = 0; busy = 0;
       op_v = 0; s_act = 0; s_rw = 0; s_pre = 0; s_done = 0; s_apre = 0; op_hit = 0; op_open = 0;
-      p_tv = 0; p_done = 0; m_chk = 0;
+      p_tv = 0; p_done = 0; m_chk = 0; rb_m = 0;
       for (int b = 0; b < NB; b++) begin
         open_m[b] = 0; row_m[b] = 0; t_act[b] = -1000000; t_pre[b] = -1000000;
       end
@@ -125,22 +137,32 @@
        v_ref_late, v_ref_early, v_bad_pin, v_reopen} = '0;
       {e_rd_hit, e_rd_closed, e_rd_conf, e_wr_hit, e_wr_closed, e_wr_conf, e_act_closed,
        e_act_conf, e_act_same, e_pre_open, e_pre_closed, e_ref_idle, e_ref_act, e_ref_rd,
-       e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea, e_apre} = '0;
+       e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea, e_apre,
+       e_refpb_others_open} = '0;
     end else begin : step
-      logic is_cmd, done_now, drn;
+      logic is_cmd, done_now, drn, wd, rpre;
       logic [31:0] ta;
-      int b;
+      int b, tb;
       {v_stray, v_closed, v_act_open, v_trcd, v_trp, v_trc, v_tras, v_trfc, v_ref_open,
        v_paddr, v_wdata, v_trace, v_hdone, v_lat, v_rdata, v_incomplete, v_stuck,
        v_ref_late, v_ref_early, v_bad_pin, v_reopen} = '0;
       {e_rd_hit, e_rd_closed, e_rd_conf, e_wr_hit, e_wr_closed, e_wr_conf, e_act_closed,
        e_act_conf, e_act_same, e_pre_open, e_pre_closed, e_ref_idle, e_ref_act, e_ref_rd,
-       e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea, e_apre} = '0;
+       e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea, e_apre,
+       e_refpb_others_open} = '0;
       // ---- read data registered by the previous hdone
       if (m_chk) v_rdata = q_hrdata !== m_exp;
       m_chk = 0;
       // ---- pin command
       drn = op_v && (`MEM_CHK_DRAINING);
+      // the host command has done its own pin work (what is left is refresh)
+      wd = !op_v || (op_c == 3'd2 ? s_done : op_c == 3'd3 ? (`MEM_CHK_WR_DONE) :
+                     op_c == 3'd1 ? (s_act || op_hit) : (s_pre || !op_open));
+      rpre = 0;
+      tb = 0;
+`ifdef MEM_CHK_REF_PB
+      tb = ref_bank_of(rb_m % REF_NB);
+`endif
       ta = drn ? `MEM_CHK_DRAIN_A : op_a;
       b = bank_of(ta);
       is_cmd = q_pc != P_NOP;
@@ -188,7 +210,10 @@
             end else t_rdpin = n;
           end
         end
-        P_PRE: begin
+        P_PRE: if (`MEM_CHK_PB && wd && !drn) begin   // per-entry refresh PRE
+          if (open_m[tb] && n - t_act[tb] < TRAS) v_tras = 1;
+          open_m[tb] = 0; t_pre[tb] = n; rpre = 1;
+        end else begin
           if (!op_v || !drn && (s_apre || s_rw && !(`MEM_CHK_AP_OK))) v_stray = 1;
           else begin
             if (open_m[b] && n - t_act[b] < TRAS) v_tras = 1;
@@ -205,6 +230,12 @@
           end
         end
         P_REF: begin
+          if (`MEM_CHK_PB) begin
+            if (open_m[tb]) v_ref_open = 1;
+            if (n - t_pre[tb] < TRP) v_trp = 1;
+            for (int i = 0; i < NB; i++) if (i != tb && open_m[i]) e_refpb_others_open = 1;
+            rb_m = rb_m + 1;
+          end else
           for (int i = 0; i < NB; i++) begin
             if (open_m[i]) v_ref_open = 1;
             if (n - t_pre[i] < TRP) v_trp = 1;
@@ -218,7 +249,7 @@
         default: ;
       endcase
       // a drain or a refresh may move the page under the host command
-      if (drn && is_cmd || q_pc == P_PREA) begin
+      if (drn && is_cmd || q_pc == P_PREA || rpre) begin
         op_hit = open_m[op_b] && row_m[op_b] == row_of(op_a);
 `ifdef MEM_CHK_RW_ANY_ROW
         if (op_c == 3'd2 || op_c == 3'd3) op_hit = open_m[op_b];
@@ -315,7 +346,11 @@
   `FC(act_row_already_open, e_act_same)
   `FC(pre_bank_open, e_pre_open)
   `FC(pre_bank_closed, e_pre_closed)
+`ifdef MEM_CHK_REF_PB
+  `FC(per_entry_refresh_with_other_pages_open, e_refpb_others_open)
+`else
   `FC(precharge_all, e_prea)
+`endif
   `FC(refresh_while_idle, e_ref_idle)
   `FC(refresh_due_during_act, e_ref_act)
   `FC(refresh_due_during_rd, e_ref_rd)
