@@ -17,7 +17,9 @@
 // next entry in rotation falls due and is served by PRE (if open) + REF
 // with addr[10] = 0 to that entry + tRFC_PB (localparam T_RFC_PB); the
 // all-bank REF (addr[10] = 1) is a host REFRESH only; trace code 5 with
-// the entry for a per-entry REF, 6 for an all-bank one.
+// the entry for a per-entry REF, 6 for an all-bank one; a PRE traces the
+// row it closes (a refresh PRE and a row-conflict PRE to a due entry look
+// alike on the pins).
 //
 // Checked: every pin command belongs to the host operation in flight or to
 // a refresh that is due (or host-requested); ACT only to a closed bank,
@@ -262,7 +264,9 @@
           if (open_m[b]) v_ref_open = 1;
           if (n - t_pre[b] < T_RP) v_trp = 1;
           if (q_addr != `LITE_PRE_ADDR(b)) v_paddr = 1;
-          e_aref_prea = n - t_pre[b] <= T_RP + 2;
+          // (a closed entry's last PRE that recent was the refresh PRE: a
+          // row-conflict PRE is followed by an ACT)
+          e_aref_prea = n - t_pre[b] <= T_RP + 6;
           e_aref_closed = !e_aref_prea;
           e_ref_mid_op = op_v && op_k != 3'd5;
           pend_pb[b] = 0; t_refpb[b] = n;
@@ -327,7 +331,7 @@
         if (q_tc !== ((pc == C_ACT) ? 3'd0 : (pc == C_RD) ? 3'd1 : (pc == C_WR) ? 3'd2 :
                       (pc == C_PRE) ? 3'd3 : q_addr[10] ? 3'd6 : 3'd5)) v_trace = 1;
         if (q_ta !== ((pc == C_REF) ? (q_addr[10] ? 32'h0 : 32'(b)) :
-                      (pc == C_PRE && pb_pre) ? {11'h0, 9'(pre_row), 12'h0} :
+                      (pc == C_PRE) ? {11'h0, 9'(pre_row), 12'h0} :
                       {11'h0, 9'(row_of(op_a)), 12'h0})) v_trace = 1;
 `else
         if (q_tc !== ((pc == C_ACT) ? 3'd0 : (pc == C_RD) ? 3'd1 : (pc == C_WR) ? 3'd2 :
