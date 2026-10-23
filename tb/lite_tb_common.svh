@@ -120,7 +120,9 @@
     // ---- rejected commands: out-of-range addresses, illegal codes; NOP
     imm(3'd0, $urandom);
     imm(3'd1, 32'h8000_0000 | mk(1, 1, 1)); imm(3'd2, `TB_OOR | mk(1, 1, 1));
+`ifndef TB_NO_BAD_CMD
     imm(3'd6, 0); imm(3'd7, 0);
+`endif
     // ---- commands presented while busy are not taken
     cmd(3'd1, mk(2, 1, 0), 0);
     hvalid <= 1'b1; hcmd <= 3'd4; haddr <= 0;
