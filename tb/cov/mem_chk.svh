@@ -11,6 +11,10 @@
 //     shared model), `MEM_CHK_AP_OK / `MEM_CHK_AP_MUST (expressions: the
 //     RD / WR in flight may / must close its bank with a PRE after the burst,
 //     for closed-page policies)
+//   `MEM_CHK_HIT_REOPENS: a RD / WR page hit may still PRE / ACT its bank
+//     (closed-page policies); otherwise a hit must go straight to the burst
+//   `MEM_CHK_RW_ANY_ROW: RD / WR address a column of whatever row the bank
+//     has open (legacy contract), so only a closed bank is a miss
 //   posted-write hooks: `MEM_CHK_DRAINING (expression: the pin commands now
 //     serve a buffered write, `MEM_CHK_DRAIN_A / `MEM_CHK_DRAIN_D, not the
 //     host command), `MEM_CHK_DRAIN_POP, `MEM_CHK_ON_ACCEPT, `MEM_CHK_ON_DONE
@@ -53,6 +57,16 @@
 `ifndef MEM_CHK_ON_DONE
 `define MEM_CHK_ON_DONE
 `endif
+`ifdef MEM_CHK_HIT_REOPENS
+`define MEM_CHK_HIT_KEEP 1'b0
+`else
+`define MEM_CHK_HIT_KEEP 1'b1
+`endif
+`ifdef MEM_CHK_RW_ANY_ROW
+`define MEM_CHK_RW_ROW_OK(b, r) 1'b1
+`else
+`define MEM_CHK_RW_ROW_OK(b, r) (row_m[b] == (r))
+`endif
 `ifndef MEM_CHK_WR_DONE
 `define MEM_CHK_WR_DONE s_rw
 `endif
@@ -87,7 +101,7 @@
   // violations (checked one clock later by the assertions below)
   logic v_stray, v_closed, v_act_open, v_trcd, v_trp, v_trc, v_tras, v_trfc, v_ref_open,
         v_paddr, v_wdata, v_trace, v_hdone, v_lat, v_rdata, v_incomplete, v_stuck,
-        v_ref_late, v_ref_early, v_bad_pin;
+        v_ref_late, v_ref_early, v_bad_pin, v_reopen;
   // functional events
   logic e_rd_hit, e_rd_closed, e_rd_conf, e_wr_hit, e_wr_closed, e_wr_conf, e_act_closed,
         e_act_conf, e_act_same, e_pre_open, e_pre_closed, e_ref_idle, e_ref_act, e_ref_rd,
@@ -103,7 +117,7 @@
       end
       {v_stray, v_closed, v_act_open, v_trcd, v_trp, v_trc, v_tras, v_trfc, v_ref_open,
        v_paddr, v_wdata, v_trace, v_hdone, v_lat, v_rdata, v_incomplete, v_stuck,
-       v_ref_late, v_ref_early, v_bad_pin} = '0;
+       v_ref_late, v_ref_early, v_bad_pin, v_reopen} = '0;
       {e_rd_hit, e_rd_closed, e_rd_conf, e_wr_hit, e_wr_closed, e_wr_conf, e_act_closed,
        e_act_conf, e_act_same, e_pre_open, e_pre_closed, e_ref_idle, e_ref_act, e_ref_rd,
        e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea, e_apre} = '0;
@@ -113,7 +127,7 @@
       int b;
       {v_stray, v_closed, v_act_open, v_trcd, v_trp, v_trc, v_tras, v_trfc, v_ref_open,
        v_paddr, v_wdata, v_trace, v_hdone, v_lat, v_rdata, v_incomplete, v_stuck,
-       v_ref_late, v_ref_early, v_bad_pin} = '0;
+       v_ref_late, v_ref_early, v_bad_pin, v_reopen} = '0;
       {e_rd_hit, e_rd_closed, e_rd_conf, e_wr_hit, e_wr_closed, e_wr_conf, e_act_closed,
        e_act_conf, e_act_same, e_pre_open, e_pre_closed, e_ref_idle, e_ref_act, e_ref_rd,
        e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea, e_apre} = '0;
@@ -126,6 +140,9 @@
       b = bank_of(ta);
       is_cmd = q_pc != P_NOP;
       if (is_cmd && n < t_refend) v_trfc = 1;
+      // a RD / WR page hit goes straight to its burst
+      if ((q_pc == P_ACT || q_pc == P_PRE) && op_v && !drn && op_hit && !s_rw &&
+          (op_c == 3'd2 || op_c == 3'd3) && `MEM_CHK_HIT_KEEP) v_reopen = 1;
       v_bad_pin = q_pc == P_BAD;
       // trace announces ACT / RD / WR one clock ahead, with the host address
       if ((q_pc == P_ACT || q_pc == P_RD || q_pc == P_WR) != p_tv) v_trace = 1;
@@ -156,7 +173,7 @@
         end else begin
           if (!op_v || op_c != ((q_pc == P_RD) ? 3'd2 : 3'd3) || s_rw) v_stray = 1;
           else begin
-            if (!open_m[b] || row_m[b] != row_of(op_a)) v_closed = 1;
+            if (!open_m[b] || !`MEM_CHK_RW_ROW_OK(b, row_of(op_a))) v_closed = 1;
             if (n - t_act[b] < TRCD) v_trcd = 1;
             if (!pin_col_ok(q_pa, col_of(op_a))) v_paddr = 1;
             s_rw = 1;
@@ -195,6 +212,13 @@
         end
         default: ;
       endcase
+      // a drain or a refresh may move the page under the host command
+      if (drn && is_cmd || q_pc == P_PREA) begin
+        op_hit = open_m[op_b] && row_m[op_b] == row_of(op_a);
+`ifdef MEM_CHK_RW_ANY_ROW
+        if (op_c == 3'd2 || op_c == 3'd3) op_hit = open_m[op_b];
+`endif
+      end
       if (n - t_ref > REF_MAX) v_ref_late = 1;
       // ---- hdone: once per RD, CL clocks after the RD command
       if (q_hdone) begin
@@ -227,6 +251,9 @@
           s_act = 0; s_rw = 0; s_pre = 0; s_done = 0; s_apre = 0;
           op_open = open_m[op_b];
           op_hit = open_m[op_b] && row_m[op_b] == row_of(haddr);
+`ifdef MEM_CHK_RW_ANY_ROW
+          if (hcmd == 3'd2 || hcmd == 3'd3) op_hit = open_m[op_b];
+`endif
           e_b2b = done_now;
           e_col0 = col_of(haddr) == 8'h00; e_col255 = col_of(haddr) == 8'hFF;
           `MEM_CHK_ON_ACCEPT
@@ -246,6 +273,7 @@
 
   `SVA_INV(a_cmd_belongs_to_host_op, !v_stray)
   `SVA_INV(a_rw_to_open_page, !v_closed)
+  `SVA_INV(a_page_hit_needs_no_pre_act, !v_reopen)
   `SVA_INV(a_act_to_closed_bank, !v_act_open)
   `SVA_INV(a_trcd, !v_trcd)
   `SVA_INV(a_trp, !v_trp)
@@ -269,10 +297,12 @@
 
   `FC(rd_page_hit, e_rd_hit)
   `FC(rd_bank_closed, e_rd_closed)
-  `FC(rd_row_conflict, e_rd_conf)
   `FC(wr_page_hit, e_wr_hit)
   `FC(wr_bank_closed, e_wr_closed)
+`ifndef MEM_CHK_RW_ANY_ROW
+  `FC(rd_row_conflict, e_rd_conf)
   `FC(wr_row_conflict, e_wr_conf)
+`endif
   `FC(act_bank_closed, e_act_closed)
   `FC(act_row_conflict, e_act_conf)
   `FC(act_row_already_open, e_act_same)

@@ -53,6 +53,7 @@ module DDR6_sva (
     q_pa <= addr; q_dq <= dq;
   end
 
+  `define MEM_CHK_HIT_REOPENS
   `define MEM_CHK_AP_OK 1'b1
   `define MEM_CHK_AP_MUST 1'b1
   `include "mem_chk.svh"
