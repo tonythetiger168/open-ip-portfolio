@@ -1,0 +1,69 @@
+{
+  "title": "Crypto & Security Engine: SHA-256 (FIPS 180-4) of a message of up to 64 bytes and HMAC-SHA-256 (RFC 2104) with a 64-byte key block, padding done in the core, one round per clock",
+  "code": "0x5348",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "MSG",
+      "kind": "rw",
+      "desc": "Message staging",
+      "fields": [
+        {"port": "msg", "reset": "0", "desc": "128 bits of the message block, loaded into slot CTRL.msg_widx by CMD.msg_we (slot 0: the first 16 message bytes, byte 0 in MSG3 bits [31:24])"}
+      ]
+    },
+    {
+      "name": "KEY",
+      "kind": "rw",
+      "desc": "HMAC key staging",
+      "fields": [
+        {"port": "key", "reset": "0", "desc": "128 bits of the key block, loaded into slot CTRL.key_widx by CMD.key_we (same byte order as MSG; a key shorter than 64 bytes is zero-padded by software)"}
+      ]
+    },
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Operation",
+      "fields": [
+        {"port": "msg_len", "reset": "0", "desc": "message length in bytes, 0..64; START with more is refused (PROTOCOL)"},
+        {"port": "mode", "reset": "0", "desc": "0: SHA-256, 1: HMAC-SHA-256"},
+        {"port": "msg_widx", "reset": "0", "desc": "message slot (0..3) written by CMD.msg_we"},
+        {"port": "key_widx", "reset": "0", "desc": "key slot (0..3) written by CMD.key_we"}
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (refused while busy: PROTOCOL)",
+      "fields": [
+        {"port": "msg_we", "desc": "write 1: load MSG into message slot CTRL.msg_widx"},
+        {"port": "key_we", "desc": "write 1: load KEY into key slot CTRL.key_widx"},
+        {"port": "start", "desc": "write 1: hash the message (CTRL.msg_len bytes) in CTRL.mode"}
+      ]
+    },
+    {
+      "name": "DIGEST",
+      "kind": "ro",
+      "desc": "Result",
+      "fields": [
+        {"port": "digest", "desc": "the digest of the last operation, valid from DONE (DIGEST7 bits [31:24] is the first digest byte)"}
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Engine state",
+      "fields": [
+        {"port": "busy", "desc": "an operation is running"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "DONE", "port": "done", "desc": "an operation finished; DIGEST holds the result"},
+    {"name": "PROTOCOL", "port": "irq", "desc": "a command while busy, or START with msg_len above 64 (refused)"}
+  ],
+  "notes": [
+    "Wide values are little-endian across words (MSG0, KEY0 and DIGEST0 hold bits [31:0]); the message, key and digest are big-endian byte strings, so the first byte of each is in the highest word.",
+    "A SHA-256 takes one or two compressions of 64 clocks (two when 56 or more bytes leave no room for the padding); HMAC takes four or five."
+  ]
+}
