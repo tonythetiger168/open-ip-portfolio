@@ -1,0 +1,14 @@
+{
+  "title": "MIPI UniPro-Mem: UniPro data link layer (ESC_DL / COF framing, CRC-16, NAC retransmission, TC1 over TC0 priority) carrying a memory-mapped transaction layer (writes / reads of a 64 x 32-bit memory with a read timeout) and PACP attribute get / set",
+  "code": "0x554D",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [],
+  "irqs": [
+    {"name": "ERR", "port": "irq", "desc": "received CRC error, out-of-bounds or invalid-length memory request, NAC retransmit budget exhausted, or a response dropped because its traffic-class slot was still occupied"}
+  ],
+  "notes": [
+    "rx_sym / rx_valid (symbols in), tx_sym / tx_valid / tx_ready (symbols out with back-pressure) pass through unchanged.",
+    "Memory and attributes are reached over the UniPro link only; the registers report its errors."
+  ]
+}
