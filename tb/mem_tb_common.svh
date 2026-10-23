@@ -70,7 +70,8 @@
   endfunction
 
   // wait until the refresh counter is k clocks from due, so that a command
-  // issued now is still in flight when the refresh falls due
+  // issued now is still in flight when the refresh falls due (k = REFI / 2
+  // parks mid-interval, so a setup command cannot meet a refresh)
   task automatic near_refresh(input int k);
     quiesce();
     while (`REFCNT != k) @(negedge clk);
@@ -132,11 +133,11 @@
     wr(a, 16'h1234);
     near_refresh(3); rd(a);                       // RD to a closed bank
     near_refresh(3); wr(a, 16'h4321);             // WR to a closed bank
-    act(a); near_refresh(3); rd(a);               // RD page hit
+    near_refresh(REFI / 2); act(a); near_refresh(3); rd(a);               // RD page hit
     near_refresh(3); act(mk(0, 14'h4, 0));        // ACT to a closed bank
-    act(a); near_refresh(3); act(mk(0, 14'h5, 0)); // ACT row conflict
-    act(a); near_refresh(3); pre(a);              // PRE of an open bank
-    act(a); near_refresh(3); wr(mk(0, 14'h6, 8'h21), 16'h5678); // WR row conflict
+    near_refresh(REFI / 2); act(a); near_refresh(3); act(mk(0, 14'h5, 0)); // ACT row conflict
+    near_refresh(REFI / 2); act(a); near_refresh(3); pre(a);              // PRE of an open bank
+    near_refresh(REFI / 2); act(a); near_refresh(3); wr(mk(0, 14'h6, 8'h21), 16'h5678); // WR row conflict
     near_refresh(1); idle(REFI / 50 + 400);       // refresh while idle
     rd(a); rd(mk(0, 14'h6, 8'h21));
     ip_extra();
