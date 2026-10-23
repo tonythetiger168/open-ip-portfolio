@@ -16,6 +16,11 @@ logic [15:0] m_sb [0:65535];
 initial for (int i = 0; i < 65536; i++) m_sb[i] = 16'h0;     // the array starts zeroed
 localparam logic [31:0] M_FULL = 32'h1 << FLAG_CMD_FULL;
 localparam logic [31:0] M_RDD  = 32'h1 << IRQ_RD_DONE;
+int m_nrd = 0, m_ndone = 0;            // READs the core took / finished (hdone)
+always @(posedge PCLK) begin
+  if (dut.u_core.hvalid && dut.u_core.hready && dut.u_core.hcmd == 3'd2) m_nrd <= m_nrd + 1;
+  if (dut.u_core.hdone) m_ndone <= m_ndone + 1;
+end
 
 task automatic m_send(input logic [2:0] c, input logic [31:0] a, input logic [15:0] d);
   poll(A_FLAGS, M_FULL, 0, 2000);
@@ -80,7 +85,11 @@ task automatic mem_func;
   wr(A_CMD2, 32'h0);                   // full: dropped
   no_idle = 0;
   poll(A_FLAGS, M_FULL, 0, 2000);
-  poll(A_IRQ_STATUS, M_RDD, M_RDD, 4000);
+  // every READ taken is done (one or two, as the core may take the first at
+  // once), so no RD_DONE is still to come when the random traffic below
+  // clears and waits for its own
+  for (int t = 0; t < 4000 && m_ndone != m_nrd; t++) @(negedge PCLK);
+  if (m_ndone != m_nrd) fail("held READ never finished");
   rd_exp(A_RDATA, 32'h1234);
   rd_exp(A_IRQ_STATUS, IRQ_ALL);
   if (irq !== 1'b0) fail("irq with every interrupt masked");
