@@ -1,0 +1,33 @@
+{
+  "title": "NVMe controller command engine: one I/O submission / completion queue pair, Write, Read and Flush on a small namespace, completions with phase tag and status, a host memory master",
+  "code": "0x4E56",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "20ms",
+  "regs": [
+    {"name": "CC", "kind": "rw", "desc": "Controller configuration",
+     "fields": [{"port": "cc_en", "reset": "0", "desc": "enable; clearing it aborts the command in progress and zeroes the queue pointers once the memory reads owed have returned"}]},
+    {"name": "QBASE", "kind": "rw", "desc": "Queue bases, dword addresses in host memory (change them only while CC.cc_en and CSTS.csts_rdy are 0)",
+     "fields": [{"port": "sq_base", "reset": "0", "desc": "submission queue (QD = 8 entries of 64 bytes)"},
+                {"port": "cq_base", "reset": "0", "desc": "completion queue (QD = 8 entries of 16 bytes)"}]},
+    {"name": "SQ_DB", "kind": "stream_in", "data": ["sq_db"], "valid": "sq_db_valid",
+     "desc": "Submission queue tail doorbell: writing it gives the new tail (0..7); a value of 8 or more, or a write while not ready, is ignored with ERR_DB",
+     "fdesc": {"sq_db": "new SQ tail"}},
+    {"name": "CQ_DB", "kind": "stream_in", "data": ["cq_db"], "valid": "cq_db_valid",
+     "desc": "Completion queue head doorbell: writing it gives the new head (0..7); a value of 8 or more, or a write while not ready, is ignored with ERR_DB",
+     "fdesc": {"cq_db": "new CQ head"}},
+    {"name": "CSTS", "kind": "ro", "desc": "Controller status",
+     "fields": [{"port": "csts_rdy", "desc": "ready: enabled and not aborting"},
+                {"port": "sq_head", "desc": "SQ head: the next entry the controller fetches"},
+                {"port": "cq_tail", "desc": "CQ tail: where the next completion goes"}]}
+  ],
+  "irqs": [
+    {"name": "CQE", "port": "ev_cqe", "desc": "a completion entry was posted"},
+    {"name": "ERR_CMD", "port": "ev_err", "desc": "a completion with an error status was posted"},
+    {"name": "ERR_DB", "port": "ev_db", "desc": "an invalid doorbell write was ignored"}
+  ],
+  "notes": [
+    "m_req_* and m_rsp_* are the host memory master (dword addresses); they pass through unchanged.",
+    "The core parameters QD (8 entries per queue), NBLK (8 blocks) and BLKDW (4 dwords per block) keep their defaults; the namespace is zero after reset."
+  ]
+}
