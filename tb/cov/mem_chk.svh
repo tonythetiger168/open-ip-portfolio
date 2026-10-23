@@ -14,6 +14,7 @@
 //   `MEM_CHK_CKE_PD: cke may drop (power-down); the IP checks it itself
 //   `MEM_CHK_HIT_REOPENS: a RD / WR page hit may still PRE / ACT its bank
 //     (closed-page policies); otherwise a hit must go straight to the burst
+//   `MEM_CHK_WMASK: bit mask of the write word a WR carries (narrow modes)
 //   `MEM_CHK_RW_ANY_ROW: RD / WR address a column of whatever row the bank
 //     has open (legacy contract), so only a closed bank is a miss
 //   posted-write hooks: `MEM_CHK_DRAINING (expression: the pin commands now
@@ -67,6 +68,9 @@
 `define MEM_CHK_RW_ROW_OK(b, r) 1'b1
 `else
 `define MEM_CHK_RW_ROW_OK(b, r) (row_m[b] == (r))
+`endif
+`ifndef MEM_CHK_WMASK
+`define MEM_CHK_WMASK 16'hFFFF
 `endif
 `ifndef MEM_CHK_WR_DONE
 `define MEM_CHK_WR_DONE s_rw
@@ -179,8 +183,8 @@
             if (!pin_col_ok(q_pa, col_of(op_a))) v_paddr = 1;
             s_rw = 1;
             if (q_pc == P_WR) begin
-              if (p_wl !== op_d) v_wdata = 1;
-              arr[cellof(op_a)] = op_d;
+              if ((p_wl & `MEM_CHK_WMASK) !== (op_d & `MEM_CHK_WMASK)) v_wdata = 1;
+              arr[cellof(op_a)] = (arr[cellof(op_a)] & ~`MEM_CHK_WMASK) | (op_d & `MEM_CHK_WMASK);
             end else t_rdpin = n;
           end
         end
