@@ -187,32 +187,32 @@ module Ethernet_AVB_TSN_apb (
   assign irq = |(irq_status & irq_enable);
 
   // ---------------- read mux ----------------
-  logic [31:0] rdata;
+  logic [31:0] apb_rdata;
   always_comb begin
-    rdata = '0;
+    apb_rdata = '0;
     case (PADDR[11:2])
-      10'd0: rdata = ID_VALUE;
-      10'd1: rdata = 32'(irq_status);
-      10'd2: rdata = 32'(irq_enable);
-      10'd4: rdata = scratch;
-      10'd5: rdata = 32'(r_CFG0);
-      10'd6: rdata = 32'(r_CFG1);
-      10'd7: rdata = 32'(r_GCL_BASE0);
-      10'd8: rdata = 32'(r_GCL_BASE1);
-      10'd9: rdata = 32'(r_CBS_IDLE0);
-      10'd10: rdata = 32'(r_CBS_IDLE1);
-      10'd11: rdata = 32'(h_GCL_WR);
-      10'd12: rdata = 32'(h_TIME_SET0);
-      10'd13: rdata = 32'(h_TIME_SET1);
-      10'd14: rdata = 32'(h_TIME_ADJ);
-      10'd15: rdata = 32'({c_time_ns[31:0]});
-      10'd16: rdata = 32'({c_time_ns[63:32]});
-      10'd17: rdata = 32'({c_tx_busy, c_gate_state, c_gcl_entry, c_gcl_running});
-      10'd18: rdata = 32'({c_cbs_credit[31:0]});
-      10'd19: rdata = 32'({c_cbs_credit[63:32]});
-      10'd20: rdata = 32'({c_cbs_credit[79:64]});
-      default: rdata = '0;
+      10'd0: apb_rdata = ID_VALUE;
+      10'd1: apb_rdata = 32'(irq_status);
+      10'd2: apb_rdata = 32'(irq_enable);
+      10'd4: apb_rdata = scratch;
+      10'd5: apb_rdata = 32'(r_CFG0);
+      10'd6: apb_rdata = 32'(r_CFG1);
+      10'd7: apb_rdata = 32'(r_GCL_BASE0);
+      10'd8: apb_rdata = 32'(r_GCL_BASE1);
+      10'd9: apb_rdata = 32'(r_CBS_IDLE0);
+      10'd10: apb_rdata = 32'(r_CBS_IDLE1);
+      10'd11: apb_rdata = 32'(h_GCL_WR);
+      10'd12: apb_rdata = 32'(h_TIME_SET0);
+      10'd13: apb_rdata = 32'(h_TIME_SET1);
+      10'd14: apb_rdata = 32'(h_TIME_ADJ);
+      10'd15: apb_rdata = 32'({c_time_ns[31:0]});
+      10'd16: apb_rdata = 32'({c_time_ns[63:32]});
+      10'd17: apb_rdata = 32'({c_tx_busy, c_gate_state, c_gcl_entry, c_gcl_running});
+      10'd18: apb_rdata = 32'({c_cbs_credit[31:0]});
+      10'd19: apb_rdata = 32'({c_cbs_credit[63:32]});
+      10'd20: apb_rdata = 32'({c_cbs_credit[79:64]});
+      default: apb_rdata = '0;
     endcase
   end
-  assign PRDATA = (rd && |hit) ? rdata : '0;
+  assign PRDATA = (rd && |hit) ? apb_rdata : '0;
 endmodule

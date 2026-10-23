@@ -126,22 +126,22 @@ module UCIe_apb #(
   wire [1:0] flags = {avail_RX, full_TX};
 
   // ---------------- read mux ----------------
-  logic [31:0] rdata;
+  logic [31:0] apb_rdata;
   always_comb begin
-    rdata = '0;
+    apb_rdata = '0;
     case (PADDR[11:2])
-      10'd0: rdata = ID_VALUE;
-      10'd1: rdata = 32'(irq_status);
-      10'd2: rdata = 32'(irq_enable);
-      10'd3: rdata = 32'(flags);
-      10'd4: rdata = scratch;
-      10'd5: rdata = 32'(h_TX0);
-      10'd6: rdata = 32'(h_TX1);
-      10'd7: rdata = 32'(h_RX0);
-      10'd8: rdata = 32'(h_RX1);
-      10'd9: rdata = 32'({c_tx_pend});
-      default: rdata = '0;
+      10'd0: apb_rdata = ID_VALUE;
+      10'd1: apb_rdata = 32'(irq_status);
+      10'd2: apb_rdata = 32'(irq_enable);
+      10'd3: apb_rdata = 32'(flags);
+      10'd4: apb_rdata = scratch;
+      10'd5: apb_rdata = 32'(h_TX0);
+      10'd6: apb_rdata = 32'(h_TX1);
+      10'd7: apb_rdata = 32'(h_RX0);
+      10'd8: apb_rdata = 32'(h_RX1);
+      10'd9: apb_rdata = 32'({c_tx_pend});
+      default: apb_rdata = '0;
     endcase
   end
-  assign PRDATA = (rd && |hit) ? rdata : '0;
+  assign PRDATA = (rd && |hit) ? apb_rdata : '0;
 endmodule

@@ -95,4 +95,4 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
 | core `rtl/QSPI_top.sv` | pass | 46/46 | 156/156 | n/a | 6/6 | 27/27 |
-| wrapper `rtl/QSPI_apb.sv` | not run | | | | | |
+| wrapper `rtl/QSPI_apb.sv` | pass | 21/21 | 448/448 | n/a | 11/11 | 32/32 |

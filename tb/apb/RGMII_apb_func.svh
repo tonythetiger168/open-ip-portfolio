@@ -13,20 +13,24 @@ logic [7:0] tx_exp [$];
 // tx_ctl and the high nibble follow the rising edge, the low nibble the
 // falling edge: look just after each edge
 bit tx_hi_ok = 0;
+logic [7:0] tx_e;                                        // the byte expected
 always @(posedge tx_clk) begin
   #1;
   tx_hi_ok = 0;
   if (PRESETN && tx_ctl) begin
     if (tx_exp.size() == 0) fail($sformatf("txd %h with nothing sent", txd));
-    else if (txd !== tx_exp[0][7:4]) fail($sformatf("txd high nibble %h, expected %h", txd, tx_exp[0][7:4]));
-    else tx_hi_ok = 1;
+    else begin
+      tx_e = tx_exp[0];
+      if (txd !== tx_e[7:4]) fail($sformatf("txd high nibble %h, expected %h", txd, tx_e[7:4]));
+      else tx_hi_ok = 1;
+    end
   end
 end
 always @(negedge tx_clk) begin
   #1;
   if (PRESETN && tx_hi_ok) begin
     if (!tx_ctl) fail("tx_ctl dropped mid-byte");
-    if (txd !== tx_exp[0][3:0]) fail($sformatf("txd low nibble %h, expected %h", txd, tx_exp[0][3:0]));
+    if (txd !== tx_e[3:0]) fail($sformatf("txd low nibble %h, expected %h", txd, tx_e[3:0]));
     void'(tx_exp.pop_front());
   end
   tx_hi_ok = 0;
