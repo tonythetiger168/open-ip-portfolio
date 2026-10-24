@@ -138,8 +138,24 @@ module Crypto___Security_Engine_sva (
     coverpoint msg_len { bins zero = {0}; bins one_block[] = {1, 55}; bins two_block[] = {56, 63, 64};
                          bins mid = {[2:53]}; bins tail = {[57:62]}; }
     coverpoint mode;
+    cp_mode: coverpoint mode { bins sha = {0}; bins hmac = {1}; }
+    cp_lcls: coverpoint msg_len { bins zero = {0}; bins one_block = {[1:55]}; bins two_block = {[56:64]}; }
+    x_mode_len: cross cp_mode, cp_lcls;
   endgroup
   cg_len u_cg = new();
+  // message / key loads: every word slot with each data class
+  function automatic int dcls(input logic [127:0] v);
+    dcls = v == 0 ? 0 : &v ? 1 : (v == {4{32'h5555_5555}} || v == {4{32'hAAAA_AAAA}}) ? 2 : 3;
+  endfunction
+  covergroup cg_load @(posedge clk);
+    cp_midx: coverpoint msg_widx iff (rst_n && msg_we && !bz) { bins w[] = {[0:3]}; }
+    cp_mdat: coverpoint dcls(msg) iff (rst_n && msg_we && !bz) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    x_msg: cross cp_midx, cp_mdat;
+    cp_kidx: coverpoint key_widx iff (rst_n && key_we && !bz) { bins w[] = {[0:3]}; }
+    cp_kdat: coverpoint dcls(key) iff (rst_n && key_we && !bz) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    x_key: cross cp_kidx, cp_kdat;
+  endgroup
+  cg_load u_cg_load = new();
 endmodule
 
 bind Crypto___Security_Engine_top Crypto___Security_Engine_sva u_sva (.*);
