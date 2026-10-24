@@ -177,5 +177,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/GDDR7_top.sv` | pass | 105/105 (+4 excl.) | 1292/1292 (+202 excl.) | 24/24 | 26/26 | 40/40 |
+| core `rtl/GDDR7_top.sv` | pass | 105/105 (+4 excl.) | 1292/1292 (+202 excl.) | 24/24 | 26/26 | 83/83 |
 | wrapper `rtl/GDDR7_apb.sv` | pass | 33/33 | 842/842 (+12 excl.) | n/a | 11/11 | 42/42 |

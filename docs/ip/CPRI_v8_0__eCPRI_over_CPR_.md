@@ -181,5 +181,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv` | pass | 244/244 | 634/634 | 7/7 | 6/6 | 27/27 |
+| core `rtl/CPRI_v8_0__eCPRI_over_CPR__top.sv` | pass | 244/244 | 634/634 | 7/7 | 6/6 | 299/299 |
 | wrapper `rtl/CPRI_v8_0__eCPRI_over_CPR__apb.sv` | pass | 33/33 | 592/592 | n/a | 11/11 | 52/52 |

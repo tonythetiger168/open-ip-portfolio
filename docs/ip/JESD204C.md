@@ -225,5 +225,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/JESD204C_top.sv` | pass | 74/74 | 1298/1298 | 18/18 | 9/9 | 21/21 |
+| core `rtl/JESD204C_top.sv` | pass | 74/74 | 1298/1298 | 18/18 | 9/9 | 41/41 |
 | wrapper `rtl/JESD204C_apb.sv` | pass | 46/46 | 1094/1094 | n/a | 12/12 | 90/90 |

@@ -154,5 +154,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/TileLink__TL_UL_TL_C__top.sv` | pass | 22/22 | 386/386 (+4 excl.) | 4/4 | 7/7 | 23/23 |
+| core `rtl/TileLink__TL_UL_TL_C__top.sv` | pass | 22/22 | 386/386 (+4 excl.) | 4/4 | 7/7 | 68/68 |
 | wrapper `rtl/TileLink__TL_UL_TL_C__apb.sv` | pass | 19/19 | 664/664 (+4 excl.) | n/a | 7/7 | 23/23 |

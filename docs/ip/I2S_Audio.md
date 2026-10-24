@@ -200,5 +200,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/I2S_Audio_top.sv` | pass | 68/68 | 710/710 | n/a | 6/6 | 23/23 |
+| core `rtl/I2S_Audio_top.sv` | pass | 68/68 | 710/710 | n/a | 6/6 | 93/93 |
 | wrapper `rtl/I2S_Audio_apb.sv` | pass | 37/37 | 984/984 | n/a | 13/13 | 57/57 |

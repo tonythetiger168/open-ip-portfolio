@@ -165,5 +165,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/UART_top.sv` | pass | 59/59 | 130/130 | 17/17 | 8/8 | 140/140 |
+| core `rtl/UART_top.sv` | pass | 59/59 | 130/130 | 17/17 | 8/8 | 526/526 |
 | wrapper `rtl/UART_apb.sv` | pass | 30/30 | 502/502 | n/a | 9/9 | 51/51 |

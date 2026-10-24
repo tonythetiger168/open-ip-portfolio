@@ -265,5 +265,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/Interlaken_v1_2_top.sv` | pass | 120/120 | 2926/2926 | 14/14 | 9/9 | 38/38 |
+| core `rtl/Interlaken_v1_2_top.sv` | pass | 120/120 | 2926/2926 | 14/14 | 9/9 | 75/75 |
 | wrapper `rtl/Interlaken_v1_2_apb.sv` | pass | 43/43 | 1216/1216 | n/a | 15/15 | 85/85 |

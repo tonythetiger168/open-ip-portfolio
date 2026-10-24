@@ -191,5 +191,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/CHI_top.sv` | pass | 53/53 | 1492/1492 | n/a | 5/5 | 31/31 |
+| core `rtl/CHI_top.sv` | pass | 53/53 | 1492/1492 | n/a | 5/5 | 93/93 |
 | wrapper `rtl/CHI_apb.sv` | pass | 19/19 | 1166/1166 | n/a | 7/7 | 27/27 |

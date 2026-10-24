@@ -146,5 +146,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/Wishbone_top.sv` | pass | 27/27 (+1 excl.) | 440/440 (+2 excl.) | 6/6 | 9/9 | 29/29 |
+| core `rtl/Wishbone_top.sv` | pass | 27/27 (+1 excl.) | 440/440 (+2 excl.) | 6/6 | 9/9 | 69/69 |
 | wrapper `rtl/Wishbone_apb.sv` | pass | 19/19 | 612/612 (+2 excl.) | n/a | 7/7 | 23/23 |

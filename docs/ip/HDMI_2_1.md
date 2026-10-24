@@ -163,5 +163,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/HDMI_2_1_top.sv` | pass | 75/75 | 466/466 | n/a | 8/8 | 16/16 |
+| core `rtl/HDMI_2_1_top.sv` | pass | 75/75 | 466/466 | n/a | 8/8 | 39/39 |
 | wrapper `rtl/HDMI_2_1_apb.sv` | pass | 20/20 | 416/416 | n/a | 7/7 | 25/25 |

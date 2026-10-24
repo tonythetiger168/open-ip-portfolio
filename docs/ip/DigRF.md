@@ -265,5 +265,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/DigRF_top.sv` | pass | 172/172 | 748/748 | 15/15 | 19/19 | 36/36 |
+| core `rtl/DigRF_top.sv` | pass | 172/172 | 748/748 | 15/15 | 19/19 | 93/93 |
 | wrapper `rtl/DigRF_apb.sv` | pass | 44/44 | 842/842 | n/a | 16/16 | 95/95 |

@@ -250,5 +250,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/ARM_Local_Translation_Interface_top.sv` | pass | 51/51 | 2122/2122 | 6/6 | 5/5 | 22/22 |
+| core `rtl/ARM_Local_Translation_Interface_top.sv` | pass | 51/51 | 2122/2122 | 6/6 | 5/5 | 93/93 |
 | wrapper `rtl/ARM_Local_Translation_Interface_apb.sv` | pass | 36/36 | 960/960 | n/a | 20/20 | 53/53 |

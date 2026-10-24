@@ -128,5 +128,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/UniPro_Mem_top.sv` | pass | 142/142 | 2116/2116 | 14/14 | 5/5 | 24/24 |
+| core `rtl/UniPro_Mem_top.sv` | pass | 142/142 | 2116/2116 | 14/14 | 5/5 | 106/106 |
 | wrapper `rtl/UniPro_Mem_apb.sv` | pass | 19/19 | 430/430 | n/a | 7/7 | 23/23 |

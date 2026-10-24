@@ -177,5 +177,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/LPDDR_top.sv` | pass | 93/93 (+2 excl.) | 612/612 (+34 excl.) | 30/30 | 28/28 | 26/26 |
+| core `rtl/LPDDR_top.sv` | pass | 93/93 (+2 excl.) | 612/612 (+34 excl.) | 30/30 | 28/28 | 69/69 |
 | wrapper `rtl/LPDDR_apb.sv` | pass | 33/33 | 810/810 (+12 excl.) | n/a | 11/11 | 42/42 |

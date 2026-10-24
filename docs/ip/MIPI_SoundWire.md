@@ -259,5 +259,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/MIPI_SoundWire_top.sv` | pass | 102/102 | 1024/1024 | 8/8 | 16/16 | 30/30 |
+| core `rtl/MIPI_SoundWire_top.sv` | pass | 102/102 | 1024/1024 | 8/8 | 16/16 | 53/53 |
 | wrapper `rtl/MIPI_SoundWire_apb.sv` | pass | 44/44 | 1114/1114 | n/a | 21/21 | 91/91 |

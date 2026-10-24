@@ -263,5 +263,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/FlexRay_top.sv` | pass | 147/147 | 2312/2312 | 40/40 | 8/8 | 47/47 |
+| core `rtl/FlexRay_top.sv` | pass | 147/147 | 2312/2312 | 40/40 | 8/8 | 64/64 |
 | wrapper `rtl/FlexRay_apb.sv` | pass | 50/50 | 1890/1890 | n/a | 24/24 | 95/95 |

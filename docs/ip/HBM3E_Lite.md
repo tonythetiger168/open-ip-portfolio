@@ -211,5 +211,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/HBM3E_Lite_top.sv` | pass | 182/182 (+3 excl.) | 3894/3894 (+42 excl.) | 51/51 | 32/32 | 27/27 |
+| core `rtl/HBM3E_Lite_top.sv` | pass | 182/182 (+3 excl.) | 3894/3894 (+42 excl.) | 51/51 | 32/32 | 183/183 |
 | wrapper `rtl/HBM3E_Lite_apb.sv` | pass | 38/38 | 1100/1100 (+40 excl.) | n/a | 11/11 | 56/56 |

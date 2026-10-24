@@ -177,5 +177,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/DDR5_top.sv` | pass | 108/108 (+3 excl.) | 1346/1346 (+212 excl.) | 24/24 | 25/25 | 25/25 |
+| core `rtl/DDR5_top.sv` | pass | 108/108 (+3 excl.) | 1346/1346 (+212 excl.) | 24/24 | 25/25 | 68/68 |
 | wrapper `rtl/DDR5_apb.sv` | pass | 33/33 | 842/842 (+12 excl.) | n/a | 11/11 | 42/42 |

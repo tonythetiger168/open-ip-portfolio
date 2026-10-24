@@ -213,5 +213,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/Ethernet_top.sv` | pass | 75/75 | 726/726 | 33/33 | 8/8 | 22/22 |
+| core `rtl/Ethernet_top.sv` | pass | 75/75 | 726/726 | 33/33 | 8/8 | 52/52 |
 | wrapper `rtl/Ethernet_apb.sv` | pass | 40/40 | 808/808 | n/a | 15/15 | 67/67 |

@@ -153,5 +153,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/OCP_top.sv` | pass | 31/31 | 308/308 | 11/11 | 11/11 | 32/32 |
+| core `rtl/OCP_top.sv` | pass | 31/31 | 308/308 | 11/11 | 11/11 | 77/77 |
 | wrapper `rtl/OCP_apb.sv` | pass | 19/19 | 612/612 | n/a | 7/7 | 23/23 |

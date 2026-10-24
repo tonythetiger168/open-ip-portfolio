@@ -133,5 +133,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/JTAG_top.sv` | pass | 86/86 | 150/150 | 48/48 | 6/6 | 10/10 |
+| core `rtl/JTAG_top.sv` | pass | 86/86 | 150/150 | 48/48 | 6/6 | 83/83 |
 | wrapper `rtl/JTAG_apb.sv` | pass | 19/19 | 402/402 | n/a | 7/7 | 23/23 |

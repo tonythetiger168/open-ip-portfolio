@@ -234,5 +234,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/ARM_Serial_Wire_Debug_top.sv` | pass | 95/95 | 552/552 | 23/23 | 6/6 | 42/42 |
+| core `rtl/ARM_Serial_Wire_Debug_top.sv` | pass | 95/95 | 552/552 | 23/23 | 6/6 | 97/97 |
 | wrapper `rtl/ARM_Serial_Wire_Debug_apb.sv` | pass | 35/35 | 802/802 | n/a | 12/12 | 65/65 |

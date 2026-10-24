@@ -181,5 +181,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/DisplayPort2_top.sv` | pass | 219/219 | 500/500 | 81/81 | 11/11 | 27/27 |
+| core `rtl/DisplayPort2_top.sv` | pass | 219/219 | 500/500 | 81/81 | 11/11 | 304/304 |
 | wrapper `rtl/DisplayPort2_apb.sv` | pass | 22/22 | 558/558 | n/a | 7/7 | 33/33 |

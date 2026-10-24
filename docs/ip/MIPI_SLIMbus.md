@@ -229,5 +229,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/MIPI_SLIMbus_top.sv` | pass | 74/74 | 748/748 | 8/8 | 16/16 | 32/32 |
+| core `rtl/MIPI_SLIMbus_top.sv` | pass | 74/74 | 748/748 | 8/8 | 16/16 | 83/83 |
 | wrapper `rtl/MIPI_SLIMbus_apb.sv` | pass | 40/40 | 996/996 | n/a | 18/18 | 72/72 |

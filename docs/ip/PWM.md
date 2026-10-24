@@ -146,5 +146,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/PWM_top.sv` | pass | 11/11 | 276/276 (+20 excl.) | n/a | 5/5 | 14/14 |
-| wrapper `rtl/PWM_apb.sv` | FAIL | 19/19 | 466/466 | n/a | 9/9 | 28/28 |
+| core `rtl/PWM_top.sv` | pass | 11/11 | 276/276 (+20 excl.) | n/a | 5/5 | 29/29 |
+| wrapper `rtl/PWM_apb.sv` | pass | 19/19 | 466/466 | n/a | 9/9 | 28/28 |

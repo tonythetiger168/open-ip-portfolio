@@ -159,5 +159,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/SAS_top.sv` | pass | 142/142 | 1050/1050 | 50/50 | 6/6 | 21/21 |
+| core `rtl/SAS_top.sv` | pass | 142/142 | 1050/1050 | 50/50 | 6/6 | 64/64 |
 | wrapper `rtl/SAS_apb.sv` | pass | 19/19 | 402/402 | n/a | 7/7 | 23/23 |
