@@ -216,15 +216,15 @@ module OCP_tb;
       ocp_wait_resp(rsp, dd, lat);
       if (rsp !== exp_resp) begin
         errors++;
-        $display("ERROR: OCP WR @%h resp=%b exp=%b", a, rsp, exp_resp);
+        $display("ERROR: OCP WRNP @%h resp=%b exp=%b", a, rsp, exp_resp);
       end
       if (lat !== 2) begin
         errors++;
-        $display("ERROR: OCP WR @%h DVA latency=%0d exp=2", a, lat);
+        $display("ERROR: OCP WRNP @%h DVA latency=%0d exp=2", a, lat);
       end
       if (sthreadid !== tid) begin
         errors++;
-        $display("ERROR: OCP WR @%h SThreadID=%b exp=%b", a, sthreadid, tid);
+        $display("ERROR: OCP WRNP @%h SThreadID=%b exp=%b", a, sthreadid, tid);
       end
     end
   endtask
@@ -255,10 +255,11 @@ module OCP_tb;
   endtask
 
   // posted write: expect accept but no response within 5 cycles
-  task automatic ocp_write_posted(input logic [AW-1:0] a, input logic [DW-1:0] d);
+  task automatic ocp_write_posted(input logic [AW-1:0] a, input logic [DW-1:0] d,
+                                  input logic [3:0] be = 4'hF, input logic [1:0] tid = 2'b00);
     int n;
     begin
-      ocp_cmd(MCMD_WR, a, d, 4'hF, 2'b00);
+      ocp_cmd(MCMD_WR, a, d, be, tid);
       n = 0;
       repeat (5) begin
         @(posedge clk);
@@ -485,6 +486,26 @@ module OCP_tb;
                n_wr, n_rd, n_np, n_err);
     end
 `endif
+
+    // posted writes with every thread ID and single byte lanes, data
+    // classes written (both write kinds) and read back
+    begin : cmd_classes
+      logic [DW-1:0] dv [4];
+      logic [DW-1:0] cur;
+      dv[0] = '0; dv[1] = '1; dv[2] = 32'h5555_5555; dv[3] = 32'h7E81_42BD;
+      for (int i = 0; i < 4; i++) begin
+        ocp_write_posted(32'h300 + 4*i, dv[i], 4'hF, 2'(i));
+        ocp_read(32'h300 + 4*i, dv[i], 2'(i), 2'b01);
+        ocp_write(32'h310 + 4*i, dv[i], 4'hF, 2'(3 - i), 2'b01);
+        ocp_read(32'h310 + 4*i, dv[i], 2'(3 - i), 2'b01);
+      end
+      cur = dv[3];
+      for (int b = 0; b < 4; b++) begin
+        ocp_write_posted(32'h30C, 32'hA5A5_A5A5, 4'b0001 << b, 2'(b));
+        cur[8*b +: 8] = 8'hA5;
+        ocp_read(32'h30C, cur, 2'(b), 2'b01);
+      end
+    end
 
     if (errors == 0) $display("TEST PASSED: OCP");
     else             $display("TEST FAILED: %0d errors", errors);
