@@ -169,6 +169,46 @@ module AXI4_Lite_tb;
     end
   endtask
 
+  // write with W presented before AW, and B accepted after exactly bw
+  // cycles of bvalid (bw = 0: bready already high when bvalid rises)
+  task automatic axi_write_wfirst(input logic [31:0] addr, input logic [31:0] data,
+                                  input logic [3:0] strb, input logic [1:0] exp, input int bw);
+    begin
+      @(negedge clk);
+      wvalid <= 1'b1; wdata <= data; wstrb <= strb;
+      bready <= (bw == 0);
+      repeat (2) @(negedge clk);           // W waits for AW
+      awaddr <= addr; awvalid <= 1'b1;
+      while (!awready) @(negedge clk);
+      @(posedge clk); @(negedge clk);
+      awvalid <= 1'b0;
+      while (!wready) @(negedge clk);
+      @(posedge clk); @(negedge clk);
+      wvalid <= 1'b0;
+      if ((addr < 1024) && (addr[1:0] == 0))
+        for (int b = 0; b < 4; b++)
+          if (strb[b]) model[addr[9:2]][8*b +: 8] = data[8*b +: 8];
+      while (!bvalid) @(negedge clk);
+      if (bresp !== exp) begin errors++; $display("ERROR: wfirst bresp=%b exp=%b", bresp, exp); end
+      if (bw > 0) begin repeat (bw) @(negedge clk); bready <= 1'b1; end
+      @(posedge clk); @(negedge clk);
+      bready <= 1'b0;
+    end
+  endtask
+  // read with rready already high when rvalid rises
+  task automatic axi_read_eager(input logic [31:0] addr);
+    begin
+      rready <= 1'b1;
+      axi_ar(addr);
+      while (!rvalid) @(negedge clk);
+      if (rresp !== OKAY || rdata !== model[addr[9:2]]) begin
+        errors++; $display("ERROR: eager read @%h got=%h exp=%h", addr, rdata, model[addr[9:2]]);
+      end
+      @(posedge clk); @(negedge clk);
+      rready <= 1'b0;
+    end
+  endtask
+
   task automatic check_irq(input logic exp, input string tag);
     begin
       if (irq !== exp) begin
@@ -324,6 +364,17 @@ module AXI4_Lite_tb;
     end
     axi_write(32'h300, 32'h0300_0300, 4'hF, OKAY, 1'b0, 1'b1);
     axi_read (32'h300, OKAY, 1'b0, 1'b1);
+
+    // W before AW, B accepted after 0 / 2 / 3 cycles, eager R, alternating
+    // and other data classes, and a strobe-less write to a misaligned address
+    axi_write_wfirst(32'h340, 32'hAAAA_AAAA, 4'hF, OKAY, 0);
+    axi_read_eager(32'h340);
+    axi_write_wfirst(32'h344, 32'h5555_5555, 4'hF, OKAY, 2);
+    axi_read_eager(32'h344);
+    axi_write_wfirst(32'h348, 32'h1357_9BDF, 4'hF, OKAY, 3);
+    axi_read_eager(32'h348);
+    axi_write_wfirst(32'h34A, 32'hFFFF_FFFF, 4'h0, SLVERR, 0);
+    axi_read_eager(32'h348);
 
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ------
