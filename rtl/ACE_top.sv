@@ -3,7 +3,7 @@
 // ACE (AXI Coherency Extension) -- synthesizable ACE cached-master/slave model
 // Scope: AXI4 main channels (AW/W/B/AR/R, INCR burst) + ACE snoop channels
 //        (AC/CR/CD) with an internal 64-line cache model (valid/dirty/tag/data).
-//        Dirty-hit snoops return data on CD; MakeUnique/CleanInvalid invalidate.
+//        Dirty-hit snoops return data on CD; MakeInvalid/CleanInvalid invalidate.
 // IP design implementation v1.0 -- Apache-2.0
 // ============================================================================
 module ACE_top #(
@@ -72,10 +72,12 @@ module ACE_top #(
   localparam logic [1:0] AXI_SLVERR = 2'b10;
   localparam logic [1:0] BURST_INCR = 2'b01;
   // ACSNOOP encodings (documented subset)
-  localparam logic [3:0] SNP_READSHARED   = 4'b0000;
-  localparam logic [3:0] SNP_READCLEAN    = 4'b0001;
-  localparam logic [3:0] SNP_MAKEUNIQUE   = 4'b0111;
-  localparam logic [3:0] SNP_CLEANINVALID = 4'b1000;
+  // ACSNOOP encodings (AMBA ACE): ReadShared 0001, ReadClean 0010,
+  // CleanInvalid 1001, MakeInvalid 1101; anything else gets an empty response
+  localparam logic [3:0] SNP_READSHARED   = 4'b0001;
+  localparam logic [3:0] SNP_READCLEAN    = 4'b0010;
+  localparam logic [3:0] SNP_MAKEINVALID  = 4'b1101;
+  localparam logic [3:0] SNP_CLEANINVALID = 4'b1001;
 
   // ------------------------- cache model ------------------------------------
   // 64 direct-mapped lines, one DW word per line.
@@ -213,7 +215,7 @@ module ACE_top #(
               snp_unique_q <= line_dirty[acaddr[7:2]];
               line_dirty[acaddr[7:2]] <= 1'b0;   // dirty responsibility passed on
             end
-            SNP_MAKEUNIQUE: begin
+            SNP_MAKEINVALID: begin
               line_valid[acaddr[7:2]] <= 1'b0;   // invalidate, no data transfer
               line_dirty[acaddr[7:2]] <= 1'b0;
             end
