@@ -67,6 +67,40 @@ module TileLink__TL_UL_TL_C__sva #(parameter int DW = 32, AW = 32) (
   endgroup
   cg_a u_cg_a = new;
 
+  // PutPartial byte lanes, data classes of PutFull data and of
+  // AccessAckData, a_source class x legal opcode, consecutive legal
+  // requests (opcode pairs) and error / OK alternation
+  function automatic logic [1:0] dcls(input logic [DW-1:0] v);
+    dcls = (v == '0) ? 2'd0 : (v == '1) ? 2'd1 :
+           (v == {(DW/2){2'b01}} || v == {(DW/2){2'b10}}) ? 2'd2 : 2'd3;
+  endfunction
+  logic       m_prev_v, m_prev_ok;
+  logic [2:0] m_prev_op;
+  always_ff @(posedge clk or negedge rst_n)
+    if (!rst_n) begin m_prev_v <= 0; m_prev_ok <= 0; m_prev_op <= 0; end
+    else if (a_hs) begin m_prev_v <= 1; m_prev_ok <= legal; m_prev_op <= a_opcode; end
+  covergroup cg_data @(posedge clk);
+    option.per_instance = 1;
+    cp_lane: coverpoint a_mask iff (rst_n && a_hs && legal && is_pp)
+      { bins b0 = {4'b0001}; bins b1 = {4'b0010}; bins b2 = {4'b0100}; bins b3 = {4'b1000};
+        bins lo_half = {4'b0011}; bins hi_half = {4'b1100}; bins full = {4'b1111}; }
+    cp_wdata: coverpoint dcls(a_data) iff (rst_n && a_hs && legal && is_pf)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint dcls(d_data) iff (rst_n && d_hs && m_get && !m_err)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_src: coverpoint a_source iff (rst_n && a_hs && legal)
+      { bins zero = {0}; bins max = {8'hFF}; bins other = {[1:8'hFE]}; }
+    cp_op: coverpoint a_opcode iff (rst_n && a_hs && legal)
+      { bins putfull = {0}; bins putpartial = {1}; bins get = {4}; }
+    x_src_op: cross cp_src, cp_op;
+    cp_prev: coverpoint m_prev_op iff (rst_n && a_hs && legal && m_prev_v && m_prev_ok)
+      { bins putfull = {0}; bins putpartial = {1}; bins get = {4}; }
+    x_pair: cross cp_prev, cp_op;
+    cp_okerr: coverpoint {m_prev_ok, legal} iff (rst_n && a_hs && m_prev_v)
+      { bins err_then_ok = {2'b01}; bins ok_then_err = {2'b10}; bins err_then_err = {2'b00}; }
+  endgroup
+  cg_data u_cg_data = new;
+
   `FC(d_backpressure, d_valid && !d_ready)
   `FC(back_to_back_accept, a_hs && d_hs)
   `FC(a_waits_on_d, a_valid && !a_ready)
