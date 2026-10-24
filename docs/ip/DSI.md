@@ -233,5 +233,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/DSI_top.sv` | pass | 145/145 (+1 excl.) | 1218/1218 | 41/41 | 11/11 | 24/24 |
+| core `rtl/DSI_top.sv` | pass | 145/145 (+1 excl.) | 1218/1218 | 41/41 | 11/11 | 42/42 |
 | wrapper `rtl/DSI_apb.sv` | pass | 29/29 | 784/784 | n/a | 15/15 | 103/103 |

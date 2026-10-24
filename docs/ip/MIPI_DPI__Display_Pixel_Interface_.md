@@ -171,5 +171,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/MIPI_DPI__Display_Pixel_Interface__top.sv` | pass | 30/30 | 1070/1070 | n/a | 6/6 | 10/10 |
+| core `rtl/MIPI_DPI__Display_Pixel_Interface__top.sv` | pass | 30/30 | 1070/1070 | n/a | 6/6 | 80/80 |
 | wrapper `rtl/MIPI_DPI__Display_Pixel_Interface__apb.sv` | pass | 31/31 | 618/618 | n/a | 10/10 | 48/48 |

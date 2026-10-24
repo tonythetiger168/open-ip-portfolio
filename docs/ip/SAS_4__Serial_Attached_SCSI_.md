@@ -167,5 +167,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/SAS_4__Serial_Attached_SCSI__top.sv` | pass | 154/154 | 1618/1618 | 57/57 | 6/6 | 34/34 |
+| core `rtl/SAS_4__Serial_Attached_SCSI__top.sv` | pass | 154/154 | 1618/1618 | 57/57 | 6/6 | 95/95 |
 | wrapper `rtl/SAS_4__Serial_Attached_SCSI__apb.sv` | pass | 20/20 | 406/406 | n/a | 7/7 | 25/25 |

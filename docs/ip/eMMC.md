@@ -149,5 +149,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/eMMC_top.sv` | pass | 120/120 | 1622/1622 | 17/17 | 6/6 | 25/25 |
+| core `rtl/eMMC_top.sv` | pass | 120/120 | 1622/1622 | 17/17 | 6/6 | 64/64 |
 | wrapper `rtl/eMMC_apb.sv` | pass | 19/19 | 412/412 | n/a | 7/7 | 23/23 |

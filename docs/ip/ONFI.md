@@ -234,5 +234,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/ONFI_top.sv` | pass | 119/119 | 458/458 | 17/17 | 5/5 | 25/25 |
+| core `rtl/ONFI_top.sv` | pass | 119/119 | 458/458 | 17/17 | 5/5 | 61/61 |
 | wrapper `rtl/ONFI_apb.sv` | pass | 40/40 | 818/818 | n/a | 15/15 | 72/72 |

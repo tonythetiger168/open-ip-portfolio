@@ -237,5 +237,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/HDCP_2_3_Content_Protection_top.sv` | pass | 178/178 (+1 excl.) | 3430/3430 | 25/25 | 10/10 | 16/16 |
+| core `rtl/HDCP_2_3_Content_Protection_top.sv` | pass | 178/178 (+1 excl.) | 3430/3430 | 25/25 | 10/10 | 71/71 |
 | wrapper `rtl/HDCP_2_3_Content_Protection_apb.sv` | pass | 54/54 | 1688/1688 | n/a | 17/17 | 80/80 |

@@ -230,5 +230,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/CCIX_Cache_Coherent_Interconnect_top.sv` | pass | 115/115 | 606/606 | 29/29 | 5/5 | 46/46 |
+| core `rtl/CCIX_Cache_Coherent_Interconnect_top.sv` | pass | 115/115 | 606/606 | 29/29 | 5/5 | 127/127 |
 | wrapper `rtl/CCIX_Cache_Coherent_Interconnect_apb.sv` | pass | 35/35 | 998/998 | n/a | 12/12 | 61/61 |

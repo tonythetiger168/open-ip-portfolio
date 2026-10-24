@@ -210,5 +210,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/MIPI_DBI__Display_Bus_Interface__top.sv` | pass | 68/68 | 264/264 | 18/18 | 15/15 | 27/27 |
+| core `rtl/MIPI_DBI__Display_Bus_Interface__top.sv` | pass | 68/68 | 264/264 | 18/18 | 15/15 | 55/55 |
 | wrapper `rtl/MIPI_DBI__Display_Bus_Interface__apb.sv` | pass | 34/34 | 706/706 | n/a | 17/17 | 51/51 |

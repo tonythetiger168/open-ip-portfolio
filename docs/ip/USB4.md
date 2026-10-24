@@ -247,5 +247,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/USB4_top.sv` | pass | 98/98 | 820/820 | 13/13 | 7/7 | 45/45 |
+| core `rtl/USB4_top.sv` | pass | 98/98 | 820/820 | 13/13 | 7/7 | 83/83 |
 | wrapper `rtl/USB4_apb.sv` | pass | 40/40 | 784/784 | n/a | 18/18 | 75/75 |

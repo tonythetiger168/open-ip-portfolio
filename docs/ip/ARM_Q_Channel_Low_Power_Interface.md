@@ -142,5 +142,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/ARM_Q_Channel_Low_Power_Interface_top.sv` | pass | 27/27 (+1 excl.) | 34/34 | 14/14 | 9/9 | 9/9 |
+| core `rtl/ARM_Q_Channel_Low_Power_Interface_top.sv` | pass | 27/27 (+1 excl.) | 34/34 | 14/14 | 9/9 | 43/43 |
 | wrapper `rtl/ARM_Q_Channel_Low_Power_Interface_apb.sv` | pass | 22/22 | 420/420 | n/a | 8/8 | 32/32 |

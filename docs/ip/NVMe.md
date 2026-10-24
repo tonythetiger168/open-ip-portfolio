@@ -218,5 +218,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/NVMe_top.sv` | pass | 68/68 | 602/602 | 17/17 | 5/5 | 45/45 |
+| core `rtl/NVMe_top.sv` | pass | 68/68 | 602/602 | 17/17 | 5/5 | 119/119 |
 | wrapper `rtl/NVMe_apb.sv` | pass | 32/32 | 868/868 | n/a | 14/14 | 43/43 |

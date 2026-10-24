@@ -128,5 +128,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/SATA_top.sv` | pass | 228/228 | 1474/1474 | 75/75 | 5/5 | 33/33 |
+| core `rtl/SATA_top.sv` | pass | 228/228 | 1474/1474 | 75/75 | 5/5 | 64/64 |
 | wrapper `rtl/SATA_apb.sv` | pass | 19/19 | 402/402 | n/a | 7/7 | 23/23 |

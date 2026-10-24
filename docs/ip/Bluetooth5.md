@@ -205,5 +205,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/Bluetooth5_top.sv` | pass | 140/140 | 1316/1316 | 24/24 | 7/7 | 24/24 |
+| core `rtl/Bluetooth5_top.sv` | pass | 140/140 | 1316/1316 | 24/24 | 7/7 | 80/80 |
 | wrapper `rtl/Bluetooth5_apb.sv` | pass | 20/20 | 456/456 | n/a | 9/9 | 62/62 |

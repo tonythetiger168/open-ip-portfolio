@@ -174,5 +174,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/Toggle_Mode_NAND_top.sv` | pass | 98/98 | 246/246 | 31/31 | 7/7 | 22/22 |
+| core `rtl/Toggle_Mode_NAND_top.sv` | pass | 98/98 | 246/246 | 31/31 | 7/7 | 75/75 |
 | wrapper `rtl/Toggle_Mode_NAND_apb.sv` | pass | 20/20 | 426/426 | n/a | 7/7 | 25/25 |

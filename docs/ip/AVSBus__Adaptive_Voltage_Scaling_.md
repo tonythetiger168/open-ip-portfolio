@@ -136,5 +136,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/AVSBus__Adaptive_Voltage_Scaling__top.sv` | pass | 51/51 (+1 excl.) | 352/352 | 12/12 | 5/5 | 11/11 |
+| core `rtl/AVSBus__Adaptive_Voltage_Scaling__top.sv` | pass | 51/51 (+1 excl.) | 352/352 | 12/12 | 5/5 | 35/35 |
 | wrapper `rtl/AVSBus__Adaptive_Voltage_Scaling__apb.sv` | pass | 20/20 | 450/450 | n/a | 7/7 | 25/25 |

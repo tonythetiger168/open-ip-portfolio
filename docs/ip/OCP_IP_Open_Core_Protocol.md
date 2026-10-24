@@ -183,5 +183,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/OCP_IP_Open_Core_Protocol_top.sv` | pass | 49/49 (+1 excl.) | 1098/1098 (+12 excl.) | 15/15 | 13/13 | 29/29 |
+| core `rtl/OCP_IP_Open_Core_Protocol_top.sv` | pass | 49/49 (+1 excl.) | 1098/1098 (+12 excl.) | 15/15 | 13/13 | 75/75 |
 | wrapper `rtl/OCP_IP_Open_Core_Protocol_apb.sv` | pass | 37/37 | 1086/1086 (+12 excl.) | n/a | 13/13 | 57/57 |

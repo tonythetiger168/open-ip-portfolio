@@ -181,5 +181,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/AXI4_top.sv` | pass | 59/59 (+1 excl.) | 690/690 | 10/10 | 16/16 | 64/64 |
+| core `rtl/AXI4_top.sv` | pass | 59/59 (+1 excl.) | 690/690 | 10/10 | 16/16 | 123/123 |
 | wrapper `rtl/AXI4_apb.sv` | pass | 19/19 | 772/772 | n/a | 7/7 | 23/23 |

@@ -176,5 +176,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/Crypto___Security_Engine_top.sv` | pass | 112/112 (+1 excl.) | 2982/2982 | 11/11 | 8/8 | 23/23 |
+| core `rtl/Crypto___Security_Engine_top.sv` | pass | 112/112 (+1 excl.) | 2982/2982 | 11/11 | 8/8 | 82/82 |
 | wrapper `rtl/Crypto___Security_Engine_apb.sv` | pass | 57/57 | 2036/2036 | n/a | 22/22 | 68/68 |

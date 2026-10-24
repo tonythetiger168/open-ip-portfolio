@@ -242,5 +242,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/PCIe_top.sv` | pass | 133/133 | 1146/1146 | 22/22 | 7/7 | 41/41 |
+| core `rtl/PCIe_top.sv` | pass | 133/133 | 1146/1146 | 22/22 | 7/7 | 80/80 |
 | wrapper `rtl/PCIe_apb.sv` | pass | 34/34 | 628/628 | n/a | 12/12 | 91/91 |
