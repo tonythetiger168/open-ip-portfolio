@@ -58,6 +58,44 @@ module MIPI_DPI__Display_Pixel_Interface__sva (
   `SVA_INV(a_readback_model, reg_rdata == m_rd)
   `SVA_IMP(a_de_inside_frame, de, !hsync && !vsync)
 
+  // horizontal x vertical region of every running pixel clock, the mode
+  // written with enable (shutdown / 18-bit colour), pixel class x colour
+  // mode in the active area, every register written and read, the first
+  // zero timing field of a rejected enable
+  function automatic logic [1:0] hreg(input int xx);
+    hreg = (xx < t[0]) ? 2'd0 : (xx < t[0] + t[1]) ? 2'd1 : (xx < t[0] + t[1] + t[2]) ? 2'd2 : 2'd3;
+  endfunction
+  function automatic logic [1:0] vreg(input int yy);
+    vreg = (yy < t[4]) ? 2'd0 : (yy < t[4] + t[5]) ? 2'd1 : (yy < t[4] + t[5] + t[6]) ? 2'd2 : 2'd3;
+  endfunction
+  function automatic logic [1:0] pcls(input logic [23:0] v);
+    pcls = (v == 24'h0) ? 2'd0 : (v == 24'hFFFFFF) ? 2'd1 : 2'd2;
+  endfunction
+  function automatic int first_zero;
+    first_zero = 8;
+    for (int i = 7; i >= 0; i--) if (t[i] == 0) first_zero = i;
+  endfunction
+  wire running = m_ctrl[0] && !m_ctrl[1];
+  covergroup cg_video @(posedge clk);
+    option.per_instance = 1;
+    cp_h: coverpoint hreg(x) iff (rst_n && running && x < ht)
+      { bins fp = {0}; bins sync = {1}; bins bp = {2}; bins active = {3}; }
+    cp_v: coverpoint vreg(y) iff (rst_n && running && x < ht)
+      { bins fp = {0}; bins sync = {1}; bins bp = {2}; bins active = {3}; }
+    x_region: cross cp_h, cp_v;
+    cp_mode: coverpoint reg_wdata[2:1] iff (rst_n && reg_wr && reg_addr == 8 && reg_wdata[0] && ok)
+      { bins run24 = {0}; bins shutdown = {1}; bins run18 = {2}; bins shutdown18 = {3}; }
+    cp_pix: coverpoint pcls(pixel) iff (rst_n && running && act)
+      { bins zero = {0}; bins ones = {1}; bins other = {2}; }
+    cp_cmode: coverpoint m_ctrl[2] iff (rst_n && running && act) { bins rgb888 = {0}; bins rgb666 = {1}; }
+    x_pix: cross cp_pix, cp_cmode;
+    cp_wreg: coverpoint reg_addr iff (rst_n && reg_wr) { bins r[] = {[0:8]}; bins ro = {[9:15]}; }
+    cp_rreg: coverpoint reg_addr iff (rst_n && !reg_wr) { bins r[] = {[0:11]}; bins unused = {[12:15]}; }
+    cp_zero: coverpoint first_zero() iff (rst_n && reg_wr && reg_addr == 8 && reg_wdata[0] && !ok)
+      { bins f[] = {[0:7]}; }
+  endgroup
+  cg_video u_cg_video = new;
+
   `FC(enable_rejected_zero_field, reg_wr && reg_addr == 8 && reg_wdata[0] && !ok && ht <= 65536 && vt <= 65536)
   `FC(enable_rejected_overflow, reg_wr && reg_addr == 8 && reg_wdata[0] && (ht > 65536 || vt > 65536))
   `FC(total_exactly_65536, m_ctrl[0] && (ht == 65536 || vt == 65536))
