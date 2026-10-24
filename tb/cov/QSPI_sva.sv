@@ -51,6 +51,65 @@ module QSPI_sva (
   endgroup
   cg_qspi u_cg_qspi = new;
 
+  // completed bytes per transfer kind with the data classes that kind moves
+  // (std: both directions; quad read: TX only; quad write: RX only), and
+  // where a frame was aborted
+  function automatic logic [1:0] dcls(input logic [7:0] v);
+    dcls = (v == 8'h00) ? 2'd0 : (v == 8'hFF) ? 2'd1 :
+           (v == 8'h55 || v == 8'hAA) ? 2'd2 : 2'd3;
+  endfunction
+  logic [7:0] m_tx_byte;
+  logic [1:0] m_kind, m_abort_kind;     // 0 std, 1 quad read, 2 quad write
+  logic [2:0] m_abort_pos;
+  logic       m_abort, m_csn_d;
+  wire  [1:0] kind_now = std ? 2'd0 : m_dir ? 2'd2 : 2'd1;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      m_tx_byte <= 0; m_kind <= 0; m_abort <= 0; m_abort_kind <= 0; m_abort_pos <= 0; m_csn_d <= 1;
+    end else begin
+      if (rise && m_bit == 0 && !m_q) begin m_tx_byte <= m_tx; m_kind <= kind_now; end
+      m_csn_d <= csn;
+      m_abort <= csn && !m_csn_d && (m_bit != 0 || m_q);
+      m_abort_kind <= kind_now;
+      m_abort_pos <= std ? m_bit : 3'd0;
+    end
+  end
+  covergroup cg_qspi_xfer @(posedge clk);
+    option.per_instance = 1;
+    cp_byte: coverpoint {m_kind, dcls(m_rx), dcls(m_tx_byte)} iff (rst_n && m_done) {
+      bins std_rx_zero_tx_zero = {6'b00_00_00};
+      bins std_rx_zero_tx_ones = {6'b00_00_01};
+      bins std_rx_zero_tx_alt = {6'b00_00_10};
+      bins std_rx_zero_tx_other = {6'b00_00_11};
+      bins std_rx_ones_tx_zero = {6'b00_01_00};
+      bins std_rx_ones_tx_ones = {6'b00_01_01};
+      bins std_rx_ones_tx_alt = {6'b00_01_10};
+      bins std_rx_ones_tx_other = {6'b00_01_11};
+      bins std_rx_alt_tx_zero = {6'b00_10_00};
+      bins std_rx_alt_tx_ones = {6'b00_10_01};
+      bins std_rx_alt_tx_alt = {6'b00_10_10};
+      bins std_rx_alt_tx_other = {6'b00_10_11};
+      bins std_rx_other_tx_zero = {6'b00_11_00};
+      bins std_rx_other_tx_ones = {6'b00_11_01};
+      bins std_rx_other_tx_alt = {6'b00_11_10};
+      bins std_rx_other_tx_other = {6'b00_11_11};
+      bins qread_tx_zero = {[6'b01_00_00:6'b01_11_00]} with (item[1:0] == 2'd0);
+      bins qread_tx_ones = {[6'b01_00_01:6'b01_11_01]} with (item[1:0] == 2'd1);
+      bins qread_tx_alt = {[6'b01_00_10:6'b01_11_10]} with (item[1:0] == 2'd2);
+      bins qread_tx_other = {[6'b01_00_11:6'b01_11_11]} with (item[1:0] == 2'd3);
+      bins qwrite_rx_zero = {[6'b10_00_00:6'b10_00_11]};
+      bins qwrite_rx_ones = {[6'b10_01_00:6'b10_01_11]};
+      bins qwrite_rx_alt = {[6'b10_10_00:6'b10_10_11]};
+      bins qwrite_rx_other = {[6'b10_11_00:6'b10_11_11]};
+    }
+    cp_abort: coverpoint {m_abort_kind, m_abort_pos} iff (rst_n && m_abort) {
+      bins std_at[] = {[5'b00_001:5'b00_111]};
+      bins quad_read_half = {5'b01_000};
+      bins quad_write_half = {5'b10_000};
+    }
+  endgroup
+  cg_qspi_xfer u_cg_qspi_xfer = new;
+
   `FC(multi_byte_quad_read, m_done && !std && !m_dir ##[1:20] rise)
   `FC(abort_mid_byte, $rose(csn) && (m_bit != 0 || m_q))
   `FC(mode_switch_while_idle, wen && waddr == 2 && csn)
