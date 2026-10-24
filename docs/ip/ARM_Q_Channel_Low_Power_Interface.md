@@ -2,10 +2,19 @@
 
 Protocol IP `ARM_Q_Channel_Low_Power_Interface`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `ARM_Q_Channel_Low_Power_Interface_top` (`rtl/ARM_Q_Channel_Low_Power_Interface_top.sv`) |
+| Register interface | APB4 slave `ARM_Q_Channel_Low_Power_Interface_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x51430200 (code 0x5143, version 2.0) |
+| Registers | 7 words, 0x000 to 0x018 |
+| Interrupts | 2 sources into one level-high `irq` |
+| Protocol pins | 4 pass-through |
+
 ## Overview
 
 ARM Q-Channel Low Power Interface -- device-side controller Full qreqn/qacceptn/qdeny/qactive handshake FSM (Q_RUN, Q_REQUEST, Q_STOPPED, Q_EXIT, Q_DENIED), qactive driven by internal activity detection (dev_event counter), deny path, illegal-sequence detection -> irq
-
 
 qreqn is the controller's request pin; it passes through unchanged and is sampled on PCLK. qacceptn, qdeny and qactive drive the Q-Channel pins and are also readable in STATUS.
 A request (qreqn low) is decided in the clock after it is seen: accepted (qacceptn low) when the device is idle, denied (qdeny high) when qactive is high. Only software activity events (EVENT) make the device active.
@@ -27,6 +36,39 @@ make -f Makefile.ARM_Q_Channel_Low_Power_Interface apb                # wrapper 
 bash scripts/cov/run_cov.sh ARM_Q_Channel_Low_Power_Interface          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh ARM_Q_Channel_Low_Power_Interface_apb      # wrapper coverage
 ```
+
+## Parameters
+
+`ARM_Q_Channel_Low_Power_Interface_apb` has the core's parameters and passes them to `ARM_Q_Channel_Low_Power_Interface_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `DW` | int | `32` |
+| `AW` | int | `32` |
+| `ACT_CYCLES` | int | `16` |
+
+## Wrapper pins
+
+Pins of `ARM_Q_Channel_Low_Power_Interface_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `qreqn` | input | 1 | protocol pin, core port `qreqn` |
+| `qacceptn` | output | 1 | protocol pin, core port `qacceptn` (also read in a register) |
+| `qdeny` | output | 1 | protocol pin, core port `qdeny` (also read in a register) |
+| `qactive` | output | 1 | protocol pin, core port `qactive` (also read in a register) |
 
 ## Core ports
 
@@ -57,19 +99,24 @@ Pass-through pins: `qreqn`, `qacceptn`, `qdeny`, `qactive`.
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
 | 0x014 | EVENT | WO (pulse) | 0x00000000 | Device activity |
-| 0x018 | STATUS | RO | 0x00000000 | Q-Channel outputs, as driven on the pins |
+| 0x018 | STATUS | RO | core | Q-Channel outputs, as driven on the pins |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x01C up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x5143 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| EVENT | 0 | `dev_event` | write 1: an activity event; qactive stays high for ACT_CYCLES (16) clocks after the last one, and a request while it is high is denied |
-| STATUS | 0 | `qacceptn` | low: the device accepted the request and is stopped (STOPPED and EXIT) |
-| STATUS | 1 | `qdeny` | high: the request was denied (DENIED, until qreqn rises) |
-| STATUS | 2 | `qactive` | high: activity within the last ACT_CYCLES clocks |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x5143 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 1:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 1:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| EVENT | 0 | `dev_event` | WO (pulse) | 0x0 | write 1: an activity event; qactive stays high for ACT_CYCLES (16) clocks after the last one, and a request while it is high is denied |
+| STATUS | 0 | `qacceptn` | RO | core | low: the device accepted the request and is stopped (STOPPED and EXIT) |
+| STATUS | 1 | `qdeny` | RO | core | high: the request was denied (DENIED, until qreqn rises) |
+| STATUS | 2 | `qactive` | RO | core | high: activity within the last ACT_CYCLES clocks |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -79,6 +126,15 @@ A bit is set while its source is active, stays set until written with 1, and a s
 |---|---|---|
 | 0 | ILLEGAL | the controller broke the handshake: qreqn rose before the device answered a request, or fell during the exit |
 | 1 | DENIED | a request was denied; set on every clock qdeny is high, so a clear only holds once qreqn has risen |
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x51430200.
+2. Write 0x3 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x3 enables all).
+4. To issue a command, write 1 to `dev_event` (EVENT bit 0) at 0x014; the core sees a one-clock pulse, and the register reads 0.
+5. Read STATUS (0x018) for the core's live `qacceptn`, `qdeny`, `qactive`; it needs no clearing.
+6. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

@@ -2,6 +2,17 @@
 
 Protocol IP `Interlaken_v1_2`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `Interlaken_v1_2_top` (`rtl/Interlaken_v1_2_top.sv`) |
+| Register interface | APB4 slave `Interlaken_v1_2_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x494C0200 (code 0x494C, version 2.0) |
+| Registers | 14 words, 0x000 to 0x034 |
+| Interrupts | 10 sources into one level-high `irq` |
+| Data streams | TX (to the core), RX (from the core) |
+| Protocol pins | 2 pass-through |
+
 ## Overview
 
 Interlaken_v1_2_top v2.0: Interlaken-style lane, one lane (64b/67b framing, scrambling, metaframe, bursts with CRC-24, in-band flow control)
@@ -85,6 +96,37 @@ bash scripts/cov/run_cov.sh Interlaken_v1_2          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh Interlaken_v1_2_apb      # wrapper coverage
 ```
 
+## Parameters
+
+`Interlaken_v1_2_apb` has the core's parameters and passes them to `Interlaken_v1_2_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `MF` | int | `64` |
+| `BMAX` | int | `8` |
+| `SEED` | logic [57:0] | `58'h2F0_1234_5678_9ABC` |
+
+## Wrapper pins
+
+Pins of `Interlaken_v1_2_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `tx_p` | output | 1 | protocol pin, core port `tx_p` |
+| `rx_p` | input | 1 | protocol pin, core port `rx_p` |
+
 ## Core ports
 
 | Port | Dir | Width | In the APB wrapper |
@@ -141,34 +183,40 @@ Pass-through pins: `tx_p`, `rx_p`.
 | 0x024 | RX0 | RO (pop) | 0x00000000 | Received word (RX0 = bits 31:0, RX1 = bits 63:32, RX2 = flags; reading RX2 frees it); each data word arrives once the next protocol word shows whether it ends the packet |
 | 0x028 | RX1 | RO (pop) | 0x00000000 | Received word (RX0 = bits 31:0, RX1 = bits 63:32, RX2 = flags; reading RX2 frees it); each data word arrives once the next protocol word shows whether it ends the packet |
 | 0x02C | RX2 | RO (pop) | 0x00000000 | Received word (RX0 = bits 31:0, RX1 = bits 63:32, RX2 = flags; reading RX2 frees it); each data word arrives once the next protocol word shows whether it ends the packet |
-| 0x030 | RX_FC | RO | 0x00000000 | Flow control received |
-| 0x034 | STATUS | RO | 0x00000000 | Receive alignment and peer status |
+| 0x030 | RX_FC | RO | core | Flow control received |
+| 0x034 | STATUS | RO | core | Receive alignment and peer status |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x038 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x494C |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| FC | 15:0 | `tx_fc` | flow control bits |
-| TX0 | 31:0 | `tx_data[31:0]` | payload |
-| TX1 | 31:0 | `tx_data[63:32]` | payload |
-| TX2 | 0 | `tx_sop` | first word of a packet |
-| TX2 | 1 | `tx_eop` | last word of a packet |
-| TX2 | 4:2 | `tx_bytes` | with EOP: valid bytes of the word (0 = 8) |
-| TX2 | 12:5 | `tx_chan` | channel (taken at the burst start) |
-| RX0 | 31:0 | `rx_data[31:0]` | payload |
-| RX1 | 31:0 | `rx_data[63:32]` | payload |
-| RX2 | 0 | `rx_sop` | first word of a packet |
-| RX2 | 1 | `rx_eop` | last word of a packet |
-| RX2 | 4:2 | `rx_bytes` | with EOP: valid bytes (0 = 8) |
-| RX2 | 12:5 | `rx_chan` | channel of its burst |
-| RX2 | 13 | `rx_err` | its burst failed the CRC-24 (or the lane lost sync) |
-| RX_FC | 15:0 | `rx_fc` | from the last control word that passed its CRC-24 |
-| STATUS | 0 | `word_lock` | word (framing bit) lock |
-| STATUS | 1 | `sync_lock` | metaframe lock (words are delivered) |
-| STATUS | 3:2 | `peer_status` | {lane, link} status from the peer's last good diagnostic word |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x494C | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 9:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 9:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| FLAGS | 1:0 | one bit per stream flag | RO | 0x0 | see FLAGS |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| FC | 15:0 | `tx_fc` | RW | 0x0 | flow control bits |
+| TX0 | 31:0 | `tx_data[31:0]` | RW | 0x0 | payload |
+| TX1 | 31:0 | `tx_data[63:32]` | RW | 0x0 | payload |
+| TX2 | 0 | `tx_sop` | RW | 0x0 | first word of a packet |
+| TX2 | 1 | `tx_eop` | RW | 0x0 | last word of a packet |
+| TX2 | 4:2 | `tx_bytes` | RW | 0x0 | with EOP: valid bytes of the word (0 = 8) |
+| TX2 | 12:5 | `tx_chan` | RW | 0x0 | channel (taken at the burst start) |
+| RX0 | 31:0 | `rx_data[31:0]` | RO (pop) | 0x0 | payload |
+| RX1 | 31:0 | `rx_data[63:32]` | RO (pop) | 0x0 | payload |
+| RX2 | 0 | `rx_sop` | RO (pop) | 0x0 | first word of a packet |
+| RX2 | 1 | `rx_eop` | RO (pop) | 0x0 | last word of a packet |
+| RX2 | 4:2 | `rx_bytes` | RO (pop) | 0x0 | with EOP: valid bytes (0 = 8) |
+| RX2 | 12:5 | `rx_chan` | RO (pop) | 0x0 | channel of its burst |
+| RX2 | 13 | `rx_err` | RO (pop) | 0x0 | its burst failed the CRC-24 (or the lane lost sync) |
+| RX_FC | 15:0 | `rx_fc` | RO | core | from the last control word that passed its CRC-24 |
+| STATUS | 0 | `word_lock` | RO | core | word (framing bit) lock |
+| STATUS | 1 | `sync_lock` | RO | core | metaframe lock (words are delivered) |
+| STATUS | 3:2 | `peer_status` | RO | core | {lane, link} status from the peer's last good diagnostic word |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -198,6 +246,18 @@ A bit is set while its source is active, stays set until written with 1, and a s
 
 * **TX** feeds `tx_data`, `tx_sop`, `tx_eop`, `tx_bytes`, `tx_chan`/`tx_valid`. Writing TX2 commits the beat: FLAGS.TX_FULL is set and `tx_valid` stays high until the core's `tx_ready`; then TX_DONE is set. A write while full is dropped and sets TX_OVF.
 * **RX** captures `rx_data`, `rx_sop`, `rx_eop`, `rx_bytes`, `rx_chan`, `rx_err` when `rx_valid` is high and the register is empty (or is being read in the same clock), and sets FLAGS/IRQ RX_AVAIL. Reading RX2 pops it. A beat that arrives while the register is full is dropped and sets RX_OVF.
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x494C0200.
+2. Write 0x3FF to IRQ_STATUS (0x004) to clear any stale bits.
+3. Configure the core: write FC (0x014). Reset values are in the register map; PSTRB selects the bytes written.
+4. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x3FF enables all).
+5. To send on TX: wait until FLAGS.TX_FULL (bit 0) is 0, or for IRQ TX_DONE, then write TX0 (0x018) then TX1 (0x01C) then TX2 (0x020). The last write commits the beat. TX_OVF means a write came while the register was full and was dropped.
+6. To receive on RX: wait for IRQ RX_AVAIL or FLAGS.RX_AVAIL (bit 1), then read RX0 (0x024) then RX1 (0x028) then RX2 (0x02C). Reading the last word frees the register for the next beat; write 1 to IRQ_STATUS.RX_AVAIL (bit 8) to clear it. Read each beat before the next arrives, or it is dropped and RX_OVF is set.
+7. Read RX_FC (0x030) for the core's live `rx_fc`; it needs no clearing.
+8. Read STATUS (0x034) for the core's live `word_lock`, `sync_lock`, `peer_status`; it needs no clearing.
+9. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

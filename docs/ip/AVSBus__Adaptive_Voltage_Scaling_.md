@@ -2,10 +2,19 @@
 
 Protocol IP `AVSBus__Adaptive_Voltage_Scaling_`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `AVSBus__Adaptive_Voltage_Scaling__top` (`rtl/AVSBus__Adaptive_Voltage_Scaling__top.sv`) |
+| Register interface | APB4 slave `AVSBus__Adaptive_Voltage_Scaling__apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x41560200 (code 0x4156, version 2.0) |
+| Registers | 6 words, 0x000 to 0x014 |
+| Interrupts | 1 sources into one level-high `irq` |
+| Protocol pins | 4 pass-through |
+
 ## Overview
 
 AVSBus (Adaptive Voltage Scaling, PMBus-style) -- synthesizable slave Scope: serial sclk/sdat (open-drain) frame interface: START + addr[6:0] + cmd[7:0] + data[15:0] + CRC4 + ACK/NACK slot, GET reads back {4'h0, vdac} + CRC4; set/get voltage commands with an internal 12-bit DAC code register and a voltage ramp FSM (10 mV/clk, 1 code = 1 mV). NACK on illegal address / bad CRC / unknown command / a SET code that does not fit the 12-bit DAC (data[15:12] != 0). A frame abandoned by the master (no sclk rise for TIMEOUT clk cycles) is dropped, so the next START is decoded from bit 0.
-
 
 sclk and sdat (open drain: the slave only pulls it low, for the ACK and the GET readback) are the bus pins; they pass through unchanged. Both are sampled on PCLK, so each sclk phase must last at least three PCLK clocks. vdac and busy drive the regulator and are also readable in STATUS.
 The voltage is set and read only over AVSBus (SET 0x01, GET 0x02); the APB side observes it. A frame with no sclk rise for TIMEOUT (1024) clocks is dropped. A frame to another address is not acknowledged and raises no interrupt.
@@ -27,6 +36,39 @@ make -f Makefile.AVSBus__Adaptive_Voltage_Scaling_ apb                # wrapper 
 bash scripts/cov/run_cov.sh AVSBus__Adaptive_Voltage_Scaling_          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh AVSBus__Adaptive_Voltage_Scaling__apb      # wrapper coverage
 ```
+
+## Parameters
+
+`AVSBus__Adaptive_Voltage_Scaling__apb` has the core's parameters and passes them to `AVSBus__Adaptive_Voltage_Scaling__top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `DW` | int | `32` |
+| `AW` | int | `32` |
+| `TIMEOUT` | int | `1024` |
+
+## Wrapper pins
+
+Pins of `AVSBus__Adaptive_Voltage_Scaling__apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `sclk` | input | 1 | protocol pin, core port `sclk` |
+| `sdat` | inout | 1 | protocol pin, core port `sdat` |
+| `vdac` | output | 12 | protocol pin, core port `vdac` (also read in a register) |
+| `busy` | output | 1 | protocol pin, core port `busy` (also read in a register) |
 
 ## Core ports
 
@@ -55,17 +97,22 @@ Pass-through pins: `sclk`, `sdat`, `vdac`, `busy`.
 | 0x008 | IRQ_ENABLE | RW | 0x00000000 | Interrupt enables; irq = \|(IRQ_STATUS & IRQ_ENABLE) |
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
-| 0x014 | STATUS | RO | 0x00000000 | Voltage state, as driven on the pins |
+| 0x014 | STATUS | RO | core | Voltage state, as driven on the pins |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x018 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x4156 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| STATUS | 11:0 | `vdac` | current DAC code (1 code = 1 mV), moving 10 codes per clock toward the last target SET |
-| STATUS | 12 | `busy` | high while vdac has not reached the target |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x4156 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| STATUS | 11:0 | `vdac` | RO | core | current DAC code (1 code = 1 mV), moving 10 codes per clock toward the last target SET |
+| STATUS | 12 | `busy` | RO | core | high while vdac has not reached the target |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -74,6 +121,14 @@ A bit is set while its source is active, stays set until written with 1, and a s
 | Bit | Name | Set when |
 |---|---|---|
 | 0 | ERROR | a frame to our address was NACKed for a bad CRC or a bad command (unknown command, or a SET code above 0xFFF) |
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x41560200.
+2. Write 0x1 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x1 enables all).
+4. Read STATUS (0x014) for the core's live `vdac`, `busy`; it needs no clearing.
+5. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

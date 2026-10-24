@@ -2,10 +2,17 @@
 
 Protocol IP `TileLink__TL_UL_TL_C_`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `TileLink__TL_UL_TL_C__top` (`rtl/TileLink__TL_UL_TL_C__top.sv`) |
+| Register interface | APB4 slave `TileLink__TL_UL_TL_C__apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x544C0200 (code 0x544C, version 2.0) |
+| Registers | 5 words, 0x000 to 0x010 |
+| Interrupts | 1 sources into one level-high `irq` |
+| Protocol pins | 16 pass-through |
+
 ## Overview
-
-
-
 
 The A channel (a_valid ... a_data) and D channel (d_valid ... d_error) pins are the TL-UL agent pins; they pass through unchanged. The registers report the agent's error event.
 One response is held at a time; a new request is accepted in the clock the held response is taken. TL-C (B, C and E channels) is not implemented. d_opcode bits 2:1 are always 0 (waived).
@@ -27,6 +34,51 @@ make -f Makefile.TileLink__TL_UL_TL_C_ apb                # wrapper test + synth
 bash scripts/cov/run_cov.sh TileLink__TL_UL_TL_C_          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh TileLink__TL_UL_TL_C__apb      # wrapper coverage
 ```
+
+## Parameters
+
+`TileLink__TL_UL_TL_C__apb` has the core's parameters and passes them to `TileLink__TL_UL_TL_C__top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `DW` | int | `32` |
+| `AW` | int | `32` |
+| `DEPTH` | int | `64` |
+
+## Wrapper pins
+
+Pins of `TileLink__TL_UL_TL_C__apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `a_valid` | input | 1 | protocol pin, core port `a_valid` |
+| `a_ready` | output | 1 | protocol pin, core port `a_ready` |
+| `a_opcode` | input | 3 | protocol pin, core port `a_opcode` |
+| `a_param` | input | 3 | protocol pin, core port `a_param` |
+| `a_size` | input | 3 | protocol pin, core port `a_size` |
+| `a_source` | input | 8 | protocol pin, core port `a_source` |
+| `a_address` | input | 32 | protocol pin, core port `a_address` |
+| `a_mask` | input | 4 | protocol pin, core port `a_mask` |
+| `a_data` | input | 32 | protocol pin, core port `a_data` |
+| `d_valid` | output | 1 | protocol pin, core port `d_valid` |
+| `d_ready` | input | 1 | protocol pin, core port `d_ready` |
+| `d_opcode` | output | 3 | protocol pin, core port `d_opcode` |
+| `d_size` | output | 3 | protocol pin, core port `d_size` |
+| `d_source` | output | 8 | protocol pin, core port `d_source` |
+| `d_data` | output | 32 | protocol pin, core port `d_data` |
+| `d_error` | output | 1 | protocol pin, core port `d_error` |
 
 ## Core ports
 
@@ -68,13 +120,18 @@ Pass-through pins: `a_valid`, `a_ready`, `a_opcode`, `a_param`, `a_size`, `a_sou
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
 
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x014 up to 0xFFC are unmapped (PSLVERR).
+
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x544C |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x544C | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -83,6 +140,13 @@ A bit is set while its source is active, stays set until written with 1, and a s
 | Bit | Name | Set when |
 |---|---|---|
 | 0 | ERR | a request was answered with d_error: an opcode other than PutFullData / PutPartialData / Get, a size other than 4 bytes, a misaligned or out-of-range address (0x100 and up), a mask not matching the opcode, or a non-zero param; the core holds this until reset, so the bit cannot be cleared before then |
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x544C0200.
+2. Write 0x1 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x1 enables all).
+4. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 
