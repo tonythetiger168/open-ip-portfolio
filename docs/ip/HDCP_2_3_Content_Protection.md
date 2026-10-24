@@ -2,6 +2,18 @@
 
 Protocol IP `HDCP_2_3_Content_Protection`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `HDCP_2_3_Content_Protection_top` (`rtl/HDCP_2_3_Content_Protection_top.sv`) |
+| Register interface | APB4 slave `HDCP_2_3_Content_Protection_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x48430200 (code 0x4843, version 2.0) |
+| Registers | 23 words, 0x000 to 0x058 |
+| Interrupts | 4 sources into one level-high `irq` |
+| Data streams | TXM (from the core), RXM (to the core) |
+| Core register port | REGS (8 words) |
+| Protocol pins | 6 pass-through |
+
 ## Overview
 
 HDCP 2.3 Content Protection Open IP -- HDCP 2.3 transmitter (educational slice) Full authentication FSM: AKE_Init -> rtx/rxcaps exchange -> master key km -> session key derivation -> pairing -> locality check (20 clk challenge) -> session key exchange -> repeater-ready (if peer REPEATER bit) -> authenticated streaming cipher on the pixel interface. Crypto is now REAL AES-128 (FIPS-197): the encrypt datapath below (SubBytes/ShiftRows/MixColumns/AddRoundKey + key expansion) is copied from the FIPS-197-vector-verified CSE_top.sv core. It is packaged here as a single-clock combinational function (aes128_enc) -- an educational-slice choice; a production core would iterate 1 round/clk like CSE. Real-AES usage in this slice:
@@ -57,6 +69,39 @@ bash scripts/cov/run_cov.sh HDCP_2_3_Content_Protection          # core coverage
 bash scripts/cov/run_cov.sh HDCP_2_3_Content_Protection_apb      # wrapper coverage
 ```
 
+## Parameters
+
+`HDCP_2_3_Content_Protection_apb` has the core's parameters and passes them to `HDCP_2_3_Content_Protection_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `MSG_TIMEOUT` | int | `255` |
+
+## Wrapper pins
+
+Pins of `HDCP_2_3_Content_Protection_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address, or partial write to a core register word |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `pix_valid` | input | 1 | protocol pin, core port `pix_valid` |
+| `pix_ready` | output | 1 | protocol pin, core port `pix_ready` |
+| `pix_data` | input | 32 | protocol pin, core port `pix_data` |
+| `enc_valid` | output | 1 | protocol pin, core port `enc_valid` |
+| `enc_ready` | input | 1 | protocol pin, core port `enc_ready` |
+| `enc_data` | output | 32 | protocol pin, core port `enc_data` |
+
 ## Core ports
 
 | Port | Dir | Width | In the APB wrapper |
@@ -98,14 +143,14 @@ Pass-through pins: `pix_valid`, `pix_ready`, `pix_data`, `enc_valid`, `enc_ready
 | 0x008 | IRQ_ENABLE | RW | 0x00000000 | Interrupt enables; irq = \|(IRQ_STATUS & IRQ_ENABLE) |
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
-| 0x014 | CTRL | RW (core) | 0x00000000 | write: bit 0 start a session (from IDLE or AUTH; ignored while authenticating), bit 2 clear the error flags (an error in the same clock wins); reads 0 |
-| 0x018 | HSTATUS | RW (core) | 0x00000000 | [0] busy, [1] authenticated, [2] encryption active, [3] last session failed, [4] the peer is a repeater, [5] keystream exhausted (read only) |
-| 0x01C | VER | RW (core) | 0x00000000 | 0x23 (read only) |
-| 0x020 | ERR | RW (core) | 0x00000000 | error flags: [0] locality timeout, [1] pairing ack mismatch, [2] locality mismatch, [3] unexpected message type, [4] message timeout, [5] keystream exhausted (read only; cleared by CTRL bit 2 or a new session) |
-| 0x024 | KMIDX | RW (core) | 0x00000000 | [3:0] byte index for KMDAT and KSDAT |
-| 0x028 | KMDAT | RW (core) | 0x00000000 | master key km byte KMIDX (km[8*KMIDX +: 8]) |
-| 0x02C | STATE | RW (core) | 0x00000000 | [3:0] authentication state: 0 IDLE, 1 AKE_INIT, 2 AKE_CERT, 3 PAIR_TX, 4 PAIR_RX, 5 LC_TX, 6 LC_WAIT, 7 SKE_TX, 8 RPT_WAIT, 9 AUTH (read only) |
-| 0x030 | KSDAT | RW (core) | 0x00000000 | session key ks byte KMIDX (read only) |
+| 0x014 | CTRL | RW (core) | core | write: bit 0 start a session (from IDLE or AUTH; ignored while authenticating), bit 2 clear the error flags (an error in the same clock wins); reads 0 |
+| 0x018 | HSTATUS | RW (core) | core | [0] busy, [1] authenticated, [2] encryption active, [3] last session failed, [4] the peer is a repeater, [5] keystream exhausted (read only) |
+| 0x01C | VER | RW (core) | core | 0x23 (read only) |
+| 0x020 | ERR | RW (core) | core | error flags: [0] locality timeout, [1] pairing ack mismatch, [2] locality mismatch, [3] unexpected message type, [4] message timeout, [5] keystream exhausted (read only; cleared by CTRL bit 2 or a new session) |
+| 0x024 | KMIDX | RW (core) | core | [3:0] byte index for KMDAT and KSDAT |
+| 0x028 | KMDAT | RW (core) | core | master key km byte KMIDX (km[8*KMIDX +: 8]) |
+| 0x02C | STATE | RW (core) | core | [3:0] authentication state: 0 IDLE, 1 AKE_INIT, 2 AKE_CERT, 3 PAIR_TX, 4 PAIR_RX, 5 LC_TX, 6 LC_WAIT, 7 SKE_TX, 8 RPT_WAIT, 9 AUTH (read only) |
+| 0x030 | KSDAT | RW (core) | core | session key ks byte KMIDX (read only) |
 | 0x034 | TXM0 | RO (pop) | 0x00000000 | Message to the receiver; reading the type word frees it and lets the core go on |
 | 0x038 | TXM1 | RO (pop) | 0x00000000 | Message to the receiver; reading the type word frees it and lets the core go on |
 | 0x03C | TXM2 | RO (pop) | 0x00000000 | Message to the receiver; reading the type word frees it and lets the core go on |
@@ -117,31 +162,37 @@ Pass-through pins: `pix_valid`, `pix_ready`, `pix_data`, `enc_valid`, `enc_ready
 | 0x054 | RXM3 | RW | 0x00000000 | Message from the receiver; writing the type word sends it, and it is taken when the core waits for a message |
 | 0x058 | RXM4 | RW | 0x00000000 | Message from the receiver; writing the type word sends it, and it is taken when the core waits for a message |
 
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x05C up to 0xFFC are unmapped (PSLVERR).
+
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x4843 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| CTRL | 7:0 | core register | written at core register 0 and read from core register 0 |
-| HSTATUS | 7:0 | core register | written at core register 1 and read from core register 1 |
-| VER | 7:0 | core register | written at core register 2 and read from core register 2 |
-| ERR | 7:0 | core register | written at core register 3 and read from core register 3 |
-| KMIDX | 7:0 | core register | written at core register 4 and read from core register 4 |
-| KMDAT | 7:0 | core register | written at core register 5 and read from core register 5 |
-| STATE | 7:0 | core register | written at core register 6 and read from core register 6 |
-| KSDAT | 7:0 | core register | written at core register 7 and read from core register 7 |
-| TXM0 | 31:0 | `txm_data[31:0]` | message body |
-| TXM1 | 31:0 | `txm_data[63:32]` | message body |
-| TXM2 | 31:0 | `txm_data[95:64]` | message body |
-| TXM3 | 31:0 | `txm_data[127:96]` | message body |
-| TXM4 | 3:0 | `txm_type` | message type: 2 AKE_Init, 4 AKE_No_Stored_km (E_km), 9 LC_Init, 11 SKE_Send_Eks |
-| RXM0 | 31:0 | `rxm_data[31:0]` | message body |
-| RXM1 | 31:0 | `rxm_data[63:32]` | message body |
-| RXM2 | 31:0 | `rxm_data[95:64]` | message body |
-| RXM3 | 31:0 | `rxm_data[127:96]` | message body |
-| RXM4 | 3:0 | `rxm_type` | message type: 3 AKE_Send_Cert, 7 pairing ack, 10 LC_Send_L_prime, 12 repeater ack |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x4843 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 3:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 3:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| FLAGS | 1:0 | one bit per stream flag | RO | 0x0 | see FLAGS |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| CTRL | 7:0 | core register | RW (core) | core | written at core register 0 and read from core register 0 |
+| HSTATUS | 7:0 | core register | RW (core) | core | written at core register 1 and read from core register 1 |
+| VER | 7:0 | core register | RW (core) | core | written at core register 2 and read from core register 2 |
+| ERR | 7:0 | core register | RW (core) | core | written at core register 3 and read from core register 3 |
+| KMIDX | 7:0 | core register | RW (core) | core | written at core register 4 and read from core register 4 |
+| KMDAT | 7:0 | core register | RW (core) | core | written at core register 5 and read from core register 5 |
+| STATE | 7:0 | core register | RW (core) | core | written at core register 6 and read from core register 6 |
+| KSDAT | 7:0 | core register | RW (core) | core | written at core register 7 and read from core register 7 |
+| TXM0 | 31:0 | `txm_data[31:0]` | RO (pop) | 0x0 | message body |
+| TXM1 | 31:0 | `txm_data[63:32]` | RO (pop) | 0x0 | message body |
+| TXM2 | 31:0 | `txm_data[95:64]` | RO (pop) | 0x0 | message body |
+| TXM3 | 31:0 | `txm_data[127:96]` | RO (pop) | 0x0 | message body |
+| TXM4 | 3:0 | `txm_type` | RO (pop) | 0x0 | message type: 2 AKE_Init, 4 AKE_No_Stored_km (E_km), 9 LC_Init, 11 SKE_Send_Eks |
+| RXM0 | 31:0 | `rxm_data[31:0]` | RW | 0x0 | message body |
+| RXM1 | 31:0 | `rxm_data[63:32]` | RW | 0x0 | message body |
+| RXM2 | 31:0 | `rxm_data[95:64]` | RW | 0x0 | message body |
+| RXM3 | 31:0 | `rxm_data[127:96]` | RW | 0x0 | message body |
+| RXM4 | 3:0 | `rxm_type` | RW | 0x0 | message type: 3 AKE_Send_Cert, 7 pairing ack, 10 LC_Send_L_prime, 12 repeater ack |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -169,6 +220,16 @@ The REGS words reach the core's own register port. A write to one pulses `reg_we
 
 * **TXM** takes `txm_data`, `txm_type` from the core with `txm_valid` / `txm_ready`: `txm_ready` is high while the register is empty (or is being read in the same clock), and a captured beat sets FLAGS/IRQ TXM_AVAIL. Reading TXM4 pops it. Nothing is dropped: the core holds its data until the register is free.
 * **RXM** feeds `rxm_data`, `rxm_type`/`rxm_valid`. Writing RXM4 commits the beat: FLAGS.RXM_FULL is set and `rxm_valid` stays high until the core's `rxm_ready`; then RXM_DONE is set. A write while full is dropped and sets RXM_OVF.
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x48430200.
+2. Write 0xF to IRQ_STATUS (0x004) to clear any stale bits.
+3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0xF enables all).
+4. Access the core's registers through the REGS words (0x014 onward), one word per core register; write whole words (PSTRB = 0xF), a partial write is dropped with PSLVERR.
+5. To receive on TXM: wait for IRQ TXM_AVAIL or FLAGS.TXM_AVAIL (bit 0), then read TXM0 (0x034) then TXM1 (0x038) then TXM2 (0x03C) then TXM3 (0x040) then TXM4 (0x044). Reading the last word frees the register for the next beat; write 1 to IRQ_STATUS.TXM_AVAIL (bit 1) to clear it.
+6. To send on RXM: wait until FLAGS.RXM_FULL (bit 1) is 0, or for IRQ RXM_DONE, then write RXM0 (0x048) then RXM1 (0x04C) then RXM2 (0x050) then RXM3 (0x054) then RXM4 (0x058). The last write commits the beat. RXM_OVF means a write came while the register was full and was dropped.
+7. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

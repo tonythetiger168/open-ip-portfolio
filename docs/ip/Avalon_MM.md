@@ -2,10 +2,17 @@
 
 Protocol IP `Avalon_MM`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `Avalon_MM_top` (`rtl/Avalon_MM_top.sv`) |
+| Register interface | APB4 slave `Avalon_MM_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x414D0200 (code 0x414D, version 2.0) |
+| Registers | 5 words, 0x000 to 0x010 |
+| Interrupts | 1 sources into one level-high `irq` |
+| Protocol pins | 9 pass-through |
+
 ## Overview
-
-
-
 
 av_address, av_read, av_write, av_writedata, av_byteenable, av_burstcount, av_readdata, av_readdatavalid and av_waitrequest are the Avalon-MM agent pins; they pass through unchanged. The registers report the agent's error event.
 Bytes 0x000 to 0x1FF answer without wait states; 0x200 to 0x3FF cost one wait state per command or write beat and one idle cycle before each read beat. Beats above 0x3FF are dropped (writes) or return 0 (reads). A burstcount of 0 is one beat, above 16 is clamped to 16. waitrequest stays high while read data is returned.
@@ -27,6 +34,44 @@ make -f Makefile.Avalon_MM apb                # wrapper test + synthesis
 bash scripts/cov/run_cov.sh Avalon_MM          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh Avalon_MM_apb      # wrapper coverage
 ```
+
+## Parameters
+
+`Avalon_MM_apb` has the core's parameters and passes them to `Avalon_MM_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `DW` | int | `32` |
+| `AW` | int | `32` |
+| `DEPTH` | int | `256` |
+
+## Wrapper pins
+
+Pins of `Avalon_MM_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `av_address` | input | 32 | protocol pin, core port `av_address` |
+| `av_read` | input | 1 | protocol pin, core port `av_read` |
+| `av_write` | input | 1 | protocol pin, core port `av_write` |
+| `av_writedata` | input | 32 | protocol pin, core port `av_writedata` |
+| `av_byteenable` | input | 4 | protocol pin, core port `av_byteenable` |
+| `av_burstcount` | input | 8 | protocol pin, core port `av_burstcount` |
+| `av_readdata` | output | 32 | protocol pin, core port `av_readdata` |
+| `av_readdatavalid` | output | 1 | protocol pin, core port `av_readdatavalid` |
+| `av_waitrequest` | output | 1 | protocol pin, core port `av_waitrequest` |
 
 ## Core ports
 
@@ -61,13 +106,18 @@ Pass-through pins: `av_address`, `av_read`, `av_write`, `av_writedata`, `av_byte
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
 
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x014 up to 0xFFC are unmapped (PSLVERR).
+
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x414D |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x414D | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -76,6 +126,13 @@ A bit is set while its source is active, stays set until written with 1, and a s
 | Bit | Name | Set when |
 |---|---|---|
 | 0 | ERR | an access outside the memory, a burstcount above 16, or read and write asserted together; the core holds this until reset, so the bit cannot be cleared before then |
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x414D0200.
+2. Write 0x1 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x1 enables all).
+4. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

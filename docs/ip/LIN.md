@@ -2,6 +2,17 @@
 
 Protocol IP `LIN`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `LIN_top` (`rtl/LIN_top.sv`) |
+| Register interface | APB4 slave `LIN_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x4C490200 (code 0x4C49, version 2.0) |
+| Registers | 15 words, 0x000 to 0x038 |
+| Interrupts | 15 sources into one level-high `irq` |
+| Data streams | HDR (to the core), PID (from the core), RSP (to the core), RX (from the core) |
+| Protocol pins | 2 pass-through |
+
 ## Overview
 
 LIN_top v2.0: LIN 2.2A node (ISO 17987), commander and responder roles
@@ -57,6 +68,31 @@ make -f Makefile.LIN apb                # wrapper test + synthesis
 bash scripts/cov/run_cov.sh LIN          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh LIN_apb      # wrapper coverage
 ```
+
+## Parameters
+
+The core and the wrapper have no parameters.
+
+## Wrapper pins
+
+Pins of `LIN_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `rxd` | input | 1 | protocol pin, core port `rxd` |
+| `txd` | output | 1 | protocol pin, core port `txd` |
 
 ## Core ports
 
@@ -116,29 +152,35 @@ Pass-through pins: `rxd`, `txd`.
 | 0x02C | RX0 | RO (pop) | 0x00000000 | Subscribed response received with a good checksum; reading RX2 frees it |
 | 0x030 | RX1 | RO (pop) | 0x00000000 | Subscribed response received with a good checksum; reading RX2 frees it |
 | 0x034 | RX2 | RO (pop) | 0x00000000 | Subscribed response received with a good checksum; reading RX2 frees it |
-| 0x038 | STATUS | RO | 0x00000000 | Bit time in use |
+| 0x038 | STATUS | RO | core | Bit time in use |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x03C up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x4C49 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| CFG | 15:0 | `cfg_bit` | nominal bit time in clocks, at least 16 (2604: 19200 bit/s at 50 MHz) |
-| CFG | 16 | `cfg_autobaud` | 1 = measure the bit time of each frame on its sync byte (responder without a crystal) |
-| HDR | 5:0 | `hdr_id` | frame identifier 0..63 |
-| PID | 5:0 | `pid_id` | frame identifier |
-| RSP0 | 31:0 | `rsp_data[31:0]` | data to publish, byte 0 in bits 7:0 (sent first) |
-| RSP1 | 31:0 | `rsp_data[63:32]` | data to publish, byte 0 in bits 7:0 (sent first) |
-| RSP2 | 2:0 | `rsp_len` | data bytes - 1 |
-| RSP2 | 3 | `rsp_pub` | 1 = publish rsp_data, 0 = subscribe |
-| RSP2 | 4 | `rsp_enh` | 1 = enhanced checksum (IDs 60..63 always classic) |
-| RX0 | 31:0 | `rx_data[31:0]` | data bytes, byte 0 in bits 7:0, unused bytes 0 |
-| RX1 | 31:0 | `rx_data[63:32]` | data bytes, byte 0 in bits 7:0, unused bytes 0 |
-| RX2 | 5:0 | `rx_id` | frame identifier |
-| RX2 | 8:6 | `rx_len` | data bytes - 1 |
-| STATUS | 15:0 | `bit_time` | bit time of the current frame in clocks (measured with auto-baud) |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x4C49 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 14:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 14:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| FLAGS | 3:0 | one bit per stream flag | RO | 0x0 | see FLAGS |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| CFG | 15:0 | `cfg_bit` | RW | 0xA2C | nominal bit time in clocks, at least 16 (2604: 19200 bit/s at 50 MHz) |
+| CFG | 16 | `cfg_autobaud` | RW | 0x0 | 1 = measure the bit time of each frame on its sync byte (responder without a crystal) |
+| HDR | 5:0 | `hdr_id` | RW | 0x0 | frame identifier 0..63 |
+| PID | 5:0 | `pid_id` | RO (pop) | 0x0 | frame identifier |
+| RSP0 | 31:0 | `rsp_data[31:0]` | RW | 0x0 | data to publish, byte 0 in bits 7:0 (sent first) |
+| RSP1 | 31:0 | `rsp_data[63:32]` | RW | 0x0 | data to publish, byte 0 in bits 7:0 (sent first) |
+| RSP2 | 2:0 | `rsp_len` | RW | 0x0 | data bytes - 1 |
+| RSP2 | 3 | `rsp_pub` | RW | 0x0 | 1 = publish rsp_data, 0 = subscribe |
+| RSP2 | 4 | `rsp_enh` | RW | 0x0 | 1 = enhanced checksum (IDs 60..63 always classic) |
+| RX0 | 31:0 | `rx_data[31:0]` | RO (pop) | 0x0 | data bytes, byte 0 in bits 7:0, unused bytes 0 |
+| RX1 | 31:0 | `rx_data[63:32]` | RO (pop) | 0x0 | data bytes, byte 0 in bits 7:0, unused bytes 0 |
+| RX2 | 5:0 | `rx_id` | RO (pop) | 0x0 | frame identifier |
+| RX2 | 8:6 | `rx_len` | RO (pop) | 0x0 | data bytes - 1 |
+| STATUS | 15:0 | `bit_time` | RO | core | bit time of the current frame in clocks (measured with auto-baud) |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -177,6 +219,19 @@ A bit is set while its source is active, stays set until written with 1, and a s
 * **PID** captures `pid_id` when `pid_valid` is high and the register is empty (or is being read in the same clock), and sets FLAGS/IRQ PID_AVAIL. Reading PID pops it. A beat that arrives while the register is full is dropped and sets PID_OVF.
 * **RSP** feeds `rsp_data`, `rsp_len`, `rsp_pub`, `rsp_enh`/`rsp_valid`. Writing RSP2 commits the beat: FLAGS.RSP_FULL is set and `rsp_valid` stays high until the core's `rsp_ready`; then RSP_DONE is set. A write while full is dropped and sets RSP_OVF.
 * **RX** captures `rx_data`, `rx_id`, `rx_len` when `rx_valid` is high and the register is empty (or is being read in the same clock), and sets FLAGS/IRQ RX_AVAIL. Reading RX2 pops it. A beat that arrives while the register is full is dropped and sets RX_OVF.
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x4C490200.
+2. Write 0x7FFF to IRQ_STATUS (0x004) to clear any stale bits.
+3. Configure the core: write CFG (0x014). Reset values are in the register map; PSTRB selects the bytes written.
+4. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x7FFF enables all).
+5. To send on HDR: wait until FLAGS.HDR_FULL (bit 0) is 0, or for IRQ HDR_DONE, then write HDR (0x018). The last write commits the beat. HDR_OVF means a write came while the register was full and was dropped.
+6. To receive on PID: wait for IRQ PID_AVAIL or FLAGS.PID_AVAIL (bit 1), then read PID (0x01C). Reading the last word frees the register for the next beat; write 1 to IRQ_STATUS.PID_AVAIL (bit 9) to clear it. Read each beat before the next arrives, or it is dropped and PID_OVF is set.
+7. To send on RSP: wait until FLAGS.RSP_FULL (bit 2) is 0, or for IRQ RSP_DONE, then write RSP0 (0x020) then RSP1 (0x024) then RSP2 (0x028). The last write commits the beat. RSP_OVF means a write came while the register was full and was dropped.
+8. To receive on RX: wait for IRQ RX_AVAIL or FLAGS.RX_AVAIL (bit 3), then read RX0 (0x02C) then RX1 (0x030) then RX2 (0x034). Reading the last word frees the register for the next beat; write 1 to IRQ_STATUS.RX_AVAIL (bit 13) to clear it. Read each beat before the next arrives, or it is dropped and RX_OVF is set.
+9. Read STATUS (0x038) for the core's live `bit_time`; it needs no clearing.
+10. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

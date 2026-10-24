@@ -11,7 +11,9 @@ Writes
                           IP-specific task ip_func() from tb/apb/<P>_apb_func.svh
   tb/cov/<P>_apb_sva.sv   checker bound into the wrapper (register model, SVA, FC)
   syn/<P>_apb_yosys.ys    synthesis script of core + wrapper
-  docs/ip/<P>.md          IP page: overview, pins, register map, verification
+  docs/ip/<P>.md          IP page: summary, overview, parameters, pins, register
+                          map, fields, interrupts, programming sequence, coverage
+  docs/ip/README.md       index of the pages (with --all)
 
 Register map (32-bit words, PADDR[11:0], byte addresses):
   0x000 ID          RO   {code[15:0], major[7:0], minor[7:0]}
@@ -47,6 +49,8 @@ Spec ("regs" entries, ports are core ports):
   "tie": {port: "value"}               core inputs tied off
   "pins": [ports]                      mapped core outputs that also drive
                                        wrapper pins (e.g. read in STATUS)
+  "features": [lines], "notes": [lines], "sequence": [lines], "verification": [lines]
+                                       doc-only text for docs/ip/<P>.md
   "irq_at_reset": [irq names]          irqs a continuously running core may set
                                        as soon as reset ends (the TB allows them)
 Every other core port passes through to the wrapper unchanged. The core clock
@@ -556,10 +560,13 @@ def gen_rtl(P, spec, core):
 
 def main():
     args = sys.argv[1:]
-    if args == ["--all"]:
+    full = args == ["--all"]
+    if full:
         args = sorted(f[:-5] for f in os.listdir(SPEC_DIR) if f.endswith(".json"))
-    for P in args:
-        gen_one(P)
+    done = [gen_one(P) for P in args]
+    if full:
+        import gen_apb_tb
+        open(os.path.join(ROOT, "docs", "ip", "README.md"), "w").write(gen_apb_tb.gen_index(done))
 
 
 def gen_one(P):
@@ -593,6 +600,7 @@ def gen_one(P):
         os.makedirs(os.path.dirname(os.path.join(ROOT, f)), exist_ok=True)
         open(os.path.join(ROOT, f), "w").write(txt)
     print(f"{P}: {len(words)} words, {len(irqb)} irq bits, {len(pt)} pass-through pins")
+    return P, spec, len(words), len(irqb)
 
 
 if __name__ == "__main__":

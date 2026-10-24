@@ -2,6 +2,16 @@
 
 Protocol IP `SD`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `SD_top` (`rtl/SD_top.sv`) |
+| Register interface | APB4 slave `SD_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x53440200 (code 0x5344, version 2.0) |
+| Registers | 5 words, 0x000 to 0x010 |
+| Interrupts | 1 sources into one level-high `irq` |
+| Protocol pins | 3 pass-through |
+
 ## Overview
 
 SD protocol Open IP -- SD memory card host: CMD0/CMD8/ACMD41/CMD2/CMD3/CMD7 init sequence, CMD24/CMD17 single-block read/write in 4-bit DAT mode, CMD13 status poll, R1/R2/R3/R6/R7 response checking, CRC7/CRC16 Documented simplifications (educational slice of the SD physical layer):
@@ -55,6 +65,36 @@ bash scripts/cov/run_cov.sh SD          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh SD_apb      # wrapper coverage
 ```
 
+## Parameters
+
+`SD_apb` has the core's parameters and passes them to `SD_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `SD_CLK_DIV` | int | `4` |
+
+## Wrapper pins
+
+Pins of `SD_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `sd_clk` | output | 1 | protocol pin, core port `sd_clk` |
+| `cmd` | inout | 1 | protocol pin, core port `cmd` |
+| `dat` | inout | 4 | protocol pin, core port `dat` |
+
 ## Core ports
 
 | Port | Dir | Width | In the APB wrapper |
@@ -82,13 +122,18 @@ Pass-through pins: `sd_clk`, `cmd`, `dat`.
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
 
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x014 up to 0xFFC are unmapped (PSLVERR).
+
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x5344 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x5344 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -97,6 +142,13 @@ A bit is set while its source is active, stays set until written with 1, and a s
 | Bit | Name | Set when |
 |---|---|---|
 | 0 | ERR | a response, CRC status, read block or busy phase failed (framing, CRC7, index, card-status error bits, R7 contents, negative CRC status, CRC16, end bit, read compare, timeout); the host retries |
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x53440200.
+2. Write 0x1 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x1 enables all).
+4. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

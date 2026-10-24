@@ -547,6 +547,34 @@ def results(P):
     return out
 
 
+def committed_rows(P):
+    """Coverage rows of the current page, kept when work/cov has no score.json."""
+    f = os.path.join(ROOT, "docs", "ip", P + ".md")
+    rows = {}
+    if os.path.exists(f):
+        for ln in open(f).read().split("\n"):
+            for tag, pre in (("core", f"| core `rtl/{P}_top.sv` |"), ("apb", f"| wrapper `rtl/{P}_apb.sv` |")):
+                if ln.startswith(pre):
+                    rows[tag] = ln
+    return rows
+
+
+def param_defaults(params):
+    out = []
+    for p in params:
+        m = re.match(r"(?:parameter|localparam)?\s*(.*?)\b(\w+)\s*=\s*(.+)$", p)
+        if m:
+            out.append((m.group(2), (m.group(1).strip() or "untyped"), m.group(3).strip()))
+    return out
+
+
+def bitlist(names, bits):
+    v = 0
+    for n in names:
+        v |= 1 << bits.index(n)
+    return v
+
+
 def fmt_metric(m):
     if m["total"] == 0:
         return "n/a"
@@ -554,6 +582,58 @@ def fmt_metric(m):
     if m["excluded"]:
         s += f" (+{m['excluded']} excl.)"
     return s
+
+
+def prog_steps(P, spec, words, irqb, flagb, idv, msk):
+    names = [n for n, _, _ in irqb]
+    off = {w.name: w.off for w in words}
+    S = []
+    S.append(f"Release PRESETN. Read ID (0x000) and check it is 0x{idv:08X}.")
+    at = spec.get("irq_at_reset", [])
+    S.append(f"Write 0x{msk:X} to IRQ_STATUS (0x004) to clear any stale bits"
+             + (f" ({', '.join(at)} may be set as soon as reset ends)." if at else "."))
+    rw = [w for w in words if w.kind == "rw"]
+    if rw:
+        S.append("Configure the core: write " + ", ".join(f"{w.name} (0x{w.off:03X})" for w in rw)
+                 + ". Reset values are in the register map; PSTRB selects the bytes written.")
+    S.append("Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; "
+             f"0x{msk:X} enables all).")
+    for r in spec["regs"]:
+        k, n = r["kind"], r["name"]
+        ws = [w for w in words if w.reg == n and w.kind in ("sin", "sout")]
+        if k == "cmd":
+            cw = [w for w in words if w.reg == n and w.kind == "cmd"]
+            S.append(f"To issue a command, write 1 to " + ", ".join(
+                f"`{f.name}` ({w.name} bit {f.lo})" for w in cw for f in w.fields)
+                + f" at 0x{cw[0].off:03X}; the core sees a one-clock pulse, and the register reads 0.")
+        elif k == "ro":
+            rws = [w for w in words if w.reg == n and w.kind == "ro"]
+            S.append("Read " + ", ".join(f"{w.name} (0x{w.off:03X})" for w in rws) + " for the core's live "
+                     + ", ".join(f"`{f.name}`" for w in rws for f in w.fields) + "; it needs no clearing.")
+        elif k == "stream_in":
+            wl = " then ".join(f"{w.name} (0x{w.off:03X})" for w in ws)
+            if r.get("ready"):
+                S.append(f"To send on {n}: wait until FLAGS.{n}_FULL (bit {[f for f, _ in flagb].index(n + '_FULL')}) is 0, "
+                         f"or for IRQ {n}_DONE, then write {wl}. The last write commits the beat. "
+                         f"{n}_OVF means a write came while the register was full and was dropped.")
+            else:
+                S.append(f"To send on {n}: write {wl}. The last write pulses `{r['valid']}` for one clock; "
+                         "there is no back-pressure.")
+        elif k == "stream_out":
+            wl = " then ".join(f"{w.name} (0x{w.off:03X})" for w in ws)
+            S.append(f"To receive on {n}: wait for IRQ {n}_AVAIL or FLAGS.{n}_AVAIL "
+                     f"(bit {[f for f, _ in flagb].index(n + '_AVAIL')}), then read {wl}. "
+                     f"Reading the last word frees the register for the next beat; write 1 to "
+                     f"IRQ_STATUS.{n}_AVAIL (bit {names.index(n + '_AVAIL')}) to clear it."
+                     + ("" if r.get("ready") else f" Read each beat before the next arrives, or it is dropped and {n}_OVF is set."))
+        elif k == "bus":
+            S.append(f"Access the core's registers through the {n} words "
+                     f"(0x{min(w.off for w in words if w.reg == n and w.kind == 'bus'):03X} onward), "
+                     "one word per core register"
+                     + ("; write whole words (PSTRB = 0xF), a partial write is dropped with PSLVERR." if r.get("wen") else "."))
+    S.append("On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits "
+             "back to IRQ_STATUS to clear them. A source that is still active sets its bit again.")
+    return S
 
 
 def gen_doc(P, spec, core, words, irqb, flagb, pt):
@@ -587,6 +667,26 @@ def gen_doc(P, spec, core, words, irqb, flagb, pt):
     a("")
     a(f"Protocol IP `{P}`, version {spec['version']}. Apache-2.0.")
     a("")
+    code = int(spec["code"], 0)
+    maj, mnr = (int(x) for x in spec["version"].split("."))
+    idv = (code << 16) | (maj << 8) | mnr
+    sr = stream_regs(spec)
+    nreg = len(words)
+    a("| Item | Value |")
+    a("|---|---|")
+    a(f"| Core | `{P}_top` (`rtl/{P}_top.sv`) |")
+    a(f"| Register interface | APB4 slave `{P}_apb`, 32-bit data, {AW}-bit byte address, zero wait states |")
+    a(f"| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |")
+    a(f"| ID register | 0x{idv:08X} (code 0x{code:04X}, version {maj}.{mnr}) |")
+    a(f"| Registers | {nreg} words, 0x000 to 0x{4 * (nreg - 1):03X} |")
+    a(f"| Interrupts | {NI} sources into one level-high `irq` |")
+    if sr:
+        a("| Data streams | " + ", ".join(f"{r['name']} ({'to the core' if r['kind'] == 'stream_in' else 'from the core'})"
+                                        for r in sr) + " |")
+    if buses(spec):
+        a("| Core register port | " + ", ".join(f"{r['name']} ({len(r['words'])} words)" for r in buses(spec)) + " |")
+    a(f"| Protocol pins | {len(pt)} pass-through |" if pt else "| Protocol pins | none (register access only) |")
+    a("")
     a("## Overview")
     a("")
     body = [h for h in header if h and not h.startswith("SPDX") and not set(h) <= set("=-")
@@ -598,6 +698,12 @@ def gen_doc(P, spec, core, words, irqb, flagb, pt):
     a("")
     for h in body[j:]:
         a(h)
+    if spec.get("features"):
+        a("")
+        a("Features:")
+        a("")
+        for n in spec["features"]:
+            a(f"- {n}")
     if spec.get("notes"):
         a("")
         for n in spec["notes"]:
@@ -620,6 +726,43 @@ def gen_doc(P, spec, core, words, irqb, flagb, pt):
     a(f"bash scripts/cov/run_cov.sh {P}          # core coverage (Verilator)")
     a(f"bash scripts/cov/run_cov.sh {P}_apb      # wrapper coverage")
     a("```")
+    a("")
+    pd = param_defaults(params)
+    a("## Parameters")
+    a("")
+    if pd:
+        a(f"`{P}_apb` has the core's parameters and passes them to `{P}_top` unchanged.")
+        a("")
+        a("| Parameter | Type | Default |")
+        a("|---|---|---|")
+        for n, t, v in pd:
+            a(f"| `{n}` | {t} | `{v}` |")
+    else:
+        a("The core and the wrapper have no parameters.")
+    a("")
+    a("## Wrapper pins")
+    a("")
+    a(f"Pins of `{P}_apb`. Widths of the pass-through pins are at the default parameters.")
+    a("")
+    a("| Pin | Dir | Width | Description |")
+    a("|---|---|---|---|")
+    for n, d, wd, desc in (("PCLK", "input", 1, "APB clock; also the core clock"),
+                           ("PRESETN", "input", 1, "APB reset, active low; also the core reset"),
+                           ("PSEL", "input", 1, "slave select"),
+                           ("PENABLE", "input", 1, "access phase"),
+                           ("PWRITE", "input", 1, "1 = write, 0 = read"),
+                           ("PADDR", "input", AW, "byte address; bits [1:0] must be 0"),
+                           ("PWDATA", "input", 32, "write data"),
+                           ("PSTRB", "input", 4, "write byte strobes"),
+                           ("PRDATA", "output", 32, "read data"),
+                           ("PREADY", "output", 1, "always high in the access phase (no wait states)"),
+                           ("PSLVERR", "output", 1, "error: unmapped or misaligned address, or partial write to a core register word"
+                            if buses(spec) else "error: unmapped or misaligned address"),
+                           ("irq", "output", 1, "interrupt, level high: \\|(IRQ_STATUS & IRQ_ENABLE)")):
+        a(f"| `{n}` | {d} | {wd} | {desc} |")
+    for q in pt:
+        a(f"| `{q}` | {dirn[q]} | {width[q]} | protocol pin, core port `{q}`"
+          + (" (also read in a register)" if q in spec.get("pins", []) else "") + " |")
     a("")
     a("## Core ports")
     a("")
@@ -644,28 +787,40 @@ def gen_doc(P, spec, core, words, irqb, flagb, pt):
     a("")
     a("| Offset | Name | Access | Reset | Description |")
     a("|---|---|---|---|---|")
-    code = int(spec["code"], 0)
-    maj, mnr = (int(x) for x in spec["version"].split("."))
-    idv = (code << 16) | (maj << 8) | mnr
     for w in words:
         rv = idv if w.kind == "id" else (w.reset() if w.kind == "rw" else 0)
+        rs = "core" if w.kind in ("ro", "bus") else f"0x{rv:08X}"
         desc = w.desc or ""
         if w.kind in ("rw", "ro", "cmd"):
             desc = desc or ", ".join(f.port for f in w.fields)
         desc = desc.replace("|", "\\|")
-        a(f"| 0x{w.off:03X} | {w.name} | {access(w)} | 0x{rv:08X} | {desc} |")
+        a(f"| 0x{w.off:03X} | {w.name} | {access(w)} | {rs} | {desc} |")
+    a("")
+    a("Unlisted bits read 0 and ignore writes. Reset \"core\": the register reads the core's "
+      "outputs directly, so after reset it shows the core's own reset state. "
+      "WO (pulse) registers read 0. Offsets from 0x"
+      f"{4 * nreg:03X} up to 0x{(1 << AW) - 4:03X} are unmapped (PSLVERR).")
     a("")
     a("### Fields")
     a("")
-    a("| Register | Bits | Field | Description |")
-    a("|---|---|---|---|")
-    a("| ID | 31:16 | CODE | 0x%04X |" % code)
-    a("| ID | 15:8 | MAJOR | %d |" % maj)
-    a("| ID | 7:0 | MINOR | %d |" % mnr)
+    a("| Register | Bits | Field | Access | Reset | Description |")
+    a("|---|---|---|---|---|---|")
+    a("| ID | 31:16 | CODE | RO | 0x%04X | IP code |" % code)
+    a("| ID | 15:8 | MAJOR | RO | 0x%02X | major version |" % maj)
+    a("| ID | 7:0 | MINOR | RO | 0x%02X | minor version |" % mnr)
+    msk = (1 << NI) - 1
+    nb = f"{NI - 1}:0" if NI > 1 else "0"
+    a(f"| IRQ_STATUS | {nb} | one bit per interrupt | W1C | 0x0 | see Interrupts |")
+    a(f"| IRQ_ENABLE | {nb} | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |")
+    if flagb:
+        fb = f"{len(flagb) - 1}:0" if len(flagb) > 1 else "0"
+        a(f"| FLAGS | {fb} | one bit per stream flag | RO | 0x0 | see FLAGS |")
+    a("| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |")
     for w in words:
         for f in w.fields:
             bits = f"{f.lo + f.w - 1}:{f.lo}" if f.w > 1 else f"{f.lo}"
-            a(f"| {w.name} | {bits} | `{f.name}` | {f.desc} |")
+            frs = f"0x{f.reset & ((1 << f.w) - 1):X}" if w.kind == "rw" else ("core" if w.kind == "ro" else "0x0")
+            a(f"| {w.name} | {bits} | `{f.name}` | {access(w)} | {frs} | {f.desc} |")
         if w.kind == "bus":
             sides = []
             if w.bus_widx is not None:
@@ -673,7 +828,7 @@ def gen_doc(P, spec, core, words, irqb, flagb, pt):
             if w.bus_ridx is not None:
                 sides.append(f"read from core register {w.bus_ridx}")
             bits = f"{w.wb - 1}:0" if w.wb > 1 else "0"
-            a(f"| {w.name} | {bits} | core register | {' and '.join(sides)} |")
+            a(f"| {w.name} | {bits} | core register | {access(w)} | core | {' and '.join(sides)} |")
     a("")
     a("### Interrupts (IRQ_STATUS, IRQ_ENABLE)")
     a("")
@@ -703,7 +858,6 @@ def gen_doc(P, spec, core, words, irqb, flagb, pt):
           + (f"A read drives {'`' + r['raddr'] + '` (the core register)' if r.get('raddr') else ''}"
              f"{' and pulses `' + r['ren'] + '`' if r.get('ren') else ''} during the access phase "
              f"and returns `{r['rdata']}`." if r.get("rdata") else ""))
-    sr = stream_regs(spec)
     if sr:
         a("")
         a("### Streams")
@@ -729,6 +883,17 @@ def gen_doc(P, spec, core, words, irqb, flagb, pt):
                   f"FLAGS/IRQ {r['name']}_AVAIL. Reading {ws[-1].name} pops it. A beat that "
                   f"arrives while the register is full is dropped and sets {r['name']}_OVF.")
     a("")
+    a("## Programming sequence")
+    a("")
+    for i, t in enumerate(prog_steps(P, spec, words, irqb, flagb, idv, msk), 1):
+        a(f"{i}. {t}")
+    if spec.get("sequence"):
+        a("")
+        a("IP-specific use:")
+        a("")
+        for i, t in enumerate(spec["sequence"], 1):
+            a(f"{i}. {t}")
+    a("")
     a("## Verification")
     a("")
     a(f"Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see "
@@ -736,10 +901,14 @@ def gen_doc(P, spec, core, words, irqb, flagb, pt):
       "count only the named RTL file.")
     a("")
     res = results(P)
+    old = committed_rows(P)
     a("| Scope | Test | Line | Toggle | FSM | SVA | Functional |")
     a("|---|---|---|---|---|---|---|")
     for tag, label in (("core", f"core `rtl/{P}_top.sv`"), ("apb", f"wrapper `rtl/{P}_apb.sv`")):
         r = res.get(tag)
+        if not r and tag in old:
+            a(old[tag])
+            continue
         if not r:
             a(f"| {label} | not run | | | | | |")
             continue
@@ -752,4 +921,35 @@ def gen_doc(P, spec, core, words, irqb, flagb, pt):
         for v in spec["verification"]:
             a(v)
     a("")
+    out = "\n".join(L)
+    while "\n\n\n" in out:
+        out = out.replace("\n\n\n", "\n\n")
+    return out
+
+
+LEGACY = {
+    "MEMCH": "generic N-channel memory controller wrapper around the parametric memory core",
+    "MEMCORE": "parametric single-bank SDRAM controller (DDR4 / DDR5 / LPDDR4 / LPDDR5)",
+}
+
+
+def gen_index(specs):
+    L = ["# IP specifications", "",
+         "One page per IP, generated by `python3 scripts/apb/gen_apb.py --all` from "
+         "`scripts/apb/specs/<P>.json`, the core `rtl/<P>_top.sv` and the coverage results. "
+         "Each page has a summary, the overview and features, the parameters, the wrapper pins, "
+         "the core ports, the APB register map with field access types and reset values, the "
+         "interrupts, a programming sequence and the coverage table. "
+         "`bash scripts/doc/build_pdf.sh` turns the pages into PDFs.", "",
+         "| IP | Title | ID | Version | Registers | Interrupts |", "|---|---|---|---|---|---|"]
+    for P, spec, nw, ni in specs:
+        L.append(f"| [{P}]({P}.md) | {spec.get('title', P)} | 0x{int(spec['code'], 0):04X} | "
+                 f"{spec['version']} | {nw} | {ni} |")
+    L += ["", "## Legacy cores without a spec", "",
+          "These cores are in `rtl/` but no IP uses them any more: they have no testbench, "
+          "Makefile, APB wrapper or page.", "",
+          "| Core | Content |", "|---|---|"]
+    for k, v in LEGACY.items():
+        L.append(f"| `rtl/{k}_top.sv` | {v} |")
+    L.append("")
     return "\n".join(L)

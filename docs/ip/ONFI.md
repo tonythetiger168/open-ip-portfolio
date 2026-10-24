@@ -2,6 +2,17 @@
 
 Protocol IP `ONFI`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `ONFI_top` (`rtl/ONFI_top.sv`) |
+| Register interface | APB4 slave `ONFI_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x4F4E0200 (code 0x4F4E, version 2.0) |
+| Registers | 10 words, 0x000 to 0x024 |
+| Interrupts | 8 sources into one level-high `irq` |
+| Data streams | CMD (to the core), WR (to the core), RD (from the core) |
+| Protocol pins | 9 pass-through |
+
 ## Overview
 
 ONFI_top v2.0: ONFI NAND flash host controller for one target on the asynchronous (SDR) data interface
@@ -61,6 +72,48 @@ bash scripts/cov/run_cov.sh ONFI          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh ONFI_apb      # wrapper coverage
 ```
 
+## Parameters
+
+`ONFI_apb` has the core's parameters and passes them to `ONFI_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `TP` | int | `2` |
+| `TWB` | int | `6` |
+| `TWHR` | int | `8` |
+| `TADL` | int | `10` |
+| `TRR` | int | `3` |
+| `TBUSY` | int | `2048` |
+| `LW` | int | `12` |
+
+## Wrapper pins
+
+Pins of `ONFI_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `ce_n` | output | 1 | protocol pin, core port `ce_n` |
+| `cle` | output | 1 | protocol pin, core port `cle` |
+| `ale` | output | 1 | protocol pin, core port `ale` |
+| `we_n` | output | 1 | protocol pin, core port `we_n` |
+| `re_n` | output | 1 | protocol pin, core port `re_n` |
+| `dq_o` | output | 8 | protocol pin, core port `dq_o` |
+| `dq_oe` | output | 1 | protocol pin, core port `dq_oe` |
+| `dq_i` | input | 8 | protocol pin, core port `dq_i` |
+| `rb_n` | input | 1 | protocol pin, core port `rb_n` |
+
 ## Core ports
 
 | Port | Dir | Width | In the APB wrapper |
@@ -112,22 +165,28 @@ Pass-through pins: `ce_n`, `cle`, `ale`, `we_n`, `re_n`, `dq_o`, `dq_oe`, `dq_i`
 | 0x018 | CMD1 | RW | 0x00000000 | Command; writing CMD1 sends it (the core takes it when the previous command is over) |
 | 0x01C | WR | RW | 0x00000000 | Byte to program (Program Page) or feature parameter (Set Features, 4 bytes); the core takes it as the data-in cycle starts |
 | 0x020 | RD | RO (pop) | 0x00000000 | Byte read (Read ID, Read Page, Get Features); reading it pops it. The core holds off the next data-out cycle while RD is full |
-| 0x024 | STATUS | RO | 0x00000000 | Target status |
+| 0x024 | STATUS | RO | core | Target status |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x028 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x4F4E |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| CMD0 | 23:0 | `cmd_row` | row address (three cycles, low byte first) |
-| CMD0 | 26:24 | `cmd_op` | 0 Reset, 1 Read ID, 2 Read Status, 3 Read Page, 4 Program Page, 5 Erase Block, 6 Get Features, 7 Set Features |
-| CMD1 | 15:0 | `cmd_col` | column address (two cycles); bits 7:0 are the Read ID and feature address |
-| CMD1 | 27:16 | `cmd_len` | bytes to read or program (Read ID, Read Page, Program Page) |
-| WR | 7:0 | `wr_data` | byte |
-| RD | 7:0 | `rd_data` | byte |
-| STATUS | 7:0 | `status` | the last status byte read (Read Status, and after Program and Erase): bit 6 RDY, bit 0 FAIL |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x4F4E | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 7:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 7:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| FLAGS | 2:0 | one bit per stream flag | RO | 0x0 | see FLAGS |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| CMD0 | 23:0 | `cmd_row` | RW | 0x0 | row address (three cycles, low byte first) |
+| CMD0 | 26:24 | `cmd_op` | RW | 0x0 | 0 Reset, 1 Read ID, 2 Read Status, 3 Read Page, 4 Program Page, 5 Erase Block, 6 Get Features, 7 Set Features |
+| CMD1 | 15:0 | `cmd_col` | RW | 0x0 | column address (two cycles); bits 7:0 are the Read ID and feature address |
+| CMD1 | 27:16 | `cmd_len` | RW | 0x0 | bytes to read or program (Read ID, Read Page, Program Page) |
+| WR | 7:0 | `wr_data` | RW | 0x0 | byte |
+| RD | 7:0 | `rd_data` | RO (pop) | 0x0 | byte |
+| STATUS | 7:0 | `status` | RO | core | the last status byte read (Read Status, and after Program and Erase): bit 6 RDY, bit 0 FAIL |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -157,6 +216,17 @@ A bit is set while its source is active, stays set until written with 1, and a s
 * **CMD** feeds `cmd_row`, `cmd_op`, `cmd_col`, `cmd_len`/`cmd_valid`. Writing CMD1 commits the beat: FLAGS.CMD_FULL is set and `cmd_valid` stays high until the core's `cmd_ready`; then CMD_DONE is set. A write while full is dropped and sets CMD_OVF.
 * **WR** feeds `wr_data`/`wr_valid`. Writing WR commits the beat: FLAGS.WR_FULL is set and `wr_valid` stays high until the core's `wr_ready`; then WR_DONE is set. A write while full is dropped and sets WR_OVF.
 * **RD** takes `rd_data` from the core with `rd_valid` / `rd_ready`: `rd_ready` is high while the register is empty (or is being read in the same clock), and a captured beat sets FLAGS/IRQ RD_AVAIL. Reading RD pops it. Nothing is dropped: the core holds its data until the register is free.
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x4F4E0200.
+2. Write 0xFF to IRQ_STATUS (0x004) to clear any stale bits.
+3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0xFF enables all).
+4. To send on CMD: wait until FLAGS.CMD_FULL (bit 0) is 0, or for IRQ CMD_DONE, then write CMD0 (0x014) then CMD1 (0x018). The last write commits the beat. CMD_OVF means a write came while the register was full and was dropped.
+5. To send on WR: wait until FLAGS.WR_FULL (bit 1) is 0, or for IRQ WR_DONE, then write WR (0x01C). The last write commits the beat. WR_OVF means a write came while the register was full and was dropped.
+6. To receive on RD: wait for IRQ RD_AVAIL or FLAGS.RD_AVAIL (bit 2), then read RD (0x020). Reading the last word frees the register for the next beat; write 1 to IRQ_STATUS.RD_AVAIL (bit 7) to clear it.
+7. Read STATUS (0x024) for the core's live `status`; it needs no clearing.
+8. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

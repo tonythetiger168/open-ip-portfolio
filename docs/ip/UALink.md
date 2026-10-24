@@ -2,6 +2,16 @@
 
 Protocol IP `UALink`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `UALink_top` (`rtl/UALink_top.sv`) |
+| Register interface | APB4 slave `UALink_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x554C0200 (code 0x554C, version 2.0) |
+| Registers | 5 words, 0x000 to 0x010 |
+| Interrupts | 2 sources into one level-high `irq` |
+| Protocol pins | 21 pass-through |
+
 ## Overview
 
 UALink_top v2.0: a UALink completer on the UPLI (UALink Protocol Level Interface): reads, writes and atomics to a local memory over the four UPLI channels, each credited
@@ -59,6 +69,56 @@ bash scripts/cov/run_cov.sh UALink          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh UALink_apb      # wrapper coverage
 ```
 
+## Parameters
+
+`UALink_apb` has the core's parameters and passes them to `UALink_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `MW` | int | `16` |
+| `RQ` | int | `4` |
+| `DQ` | int | `8` |
+
+## Wrapper pins
+
+Pins of `UALink_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `req_valid` | input | 1 | protocol pin, core port `req_valid` |
+| `req_cmd` | input | 3 | protocol pin, core port `req_cmd` |
+| `req_tag` | input | 8 | protocol pin, core port `req_tag` |
+| `req_addr` | input | 16 | protocol pin, core port `req_addr` |
+| `req_len` | input | 3 | protocol pin, core port `req_len` |
+| `req_crd` | output | 1 | protocol pin, core port `req_crd` |
+| `od_valid` | input | 1 | protocol pin, core port `od_valid` |
+| `od_data` | input | 64 | protocol pin, core port `od_data` |
+| `od_be` | input | 8 | protocol pin, core port `od_be` |
+| `od_last` | input | 1 | protocol pin, core port `od_last` |
+| `od_crd` | output | 1 | protocol pin, core port `od_crd` |
+| `rd_valid` | output | 1 | protocol pin, core port `rd_valid` |
+| `rd_tag` | output | 8 | protocol pin, core port `rd_tag` |
+| `rd_data` | output | 64 | protocol pin, core port `rd_data` |
+| `rd_last` | output | 1 | protocol pin, core port `rd_last` |
+| `rd_status` | output | 2 | protocol pin, core port `rd_status` |
+| `rd_crd` | input | 1 | protocol pin, core port `rd_crd` |
+| `wr_valid` | output | 1 | protocol pin, core port `wr_valid` |
+| `wr_tag` | output | 8 | protocol pin, core port `wr_tag` |
+| `wr_status` | output | 2 | protocol pin, core port `wr_status` |
+| `wr_crd` | input | 1 | protocol pin, core port `wr_crd` |
+
 ## Core ports
 
 | Port | Dir | Width | In the APB wrapper |
@@ -105,13 +165,18 @@ Pass-through pins: `req_valid`, `req_cmd`, `req_tag`, `req_addr`, `req_len`, `re
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
 
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x014 up to 0xFFC are unmapped (PSLVERR).
+
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x554C |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x554C | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 1:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 1:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -121,6 +186,13 @@ A bit is set while its source is active, stays set until written with 1, and a s
 |---|---|---|
 | 0 | ERR | a response with a non-OK status: UR (the access runs past the memory) or BAD (invalid command, misaligned address, atomic with len != 0) |
 | 1 | PROTO | a request or data beat without a credit (dropped), an od_last not matching the beat count, or a response credit past 15 |
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x554C0200.
+2. Write 0x3 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x3 enables all).
+4. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

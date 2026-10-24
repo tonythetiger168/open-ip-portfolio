@@ -2,10 +2,19 @@
 
 Protocol IP `eUSB2`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `eUSB2_top` (`rtl/eUSB2_top.sv`) |
+| Register interface | APB4 slave `eUSB2_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x65550200 (code 0x6555, version 2.0) |
+| Registers | 6 words, 0x000 to 0x014 |
+| Interrupts | 1 sources into one level-high `irq` |
+| Protocol pins | 5 pass-through |
+
 ## Overview
 
 eUSB2 protocol IP -- eUSB2 device/repeater (simplified) * eD+/eD- single-ended 1.2V signalling, simplified to lvcmos logic levels (J = 10, K = 01, SE0 = 00, SE1 = 11 illegal), 1 bit cell/clk * USB2 packet-layer retimer: the received eUSB2 NRZI bit stream is re-registered and driven onto the standard dp/dm output port * Control messages (control packets, PID 8'hC3): register write/read of an 8x8 register file (reg0 = squelch threshold, reg1 = term config, reg2..7 scratch); read responses are transmitted as a USB2-style frame on dp/dm * Squelch detection: SE0 longer than the programmed threshold forces the retimed outputs silent and resets the packet parser * NRZI decode + bit unstuffing on receive; NRZI encode + bit stuffing on transmit; CRC8 (poly 0x07, init 0xFF) protects control packets * irq (sticky until rst_n): SE1 on the line, bit-stuff error, a truncated or over-long control packet, or a CRC8 mismatch
-
 
 edp / edm (eUSB2 line in, one bit cell per PCLK), dp / dm (retimed USB2 line out) and squelch pass through unchanged.
 The 8 x 8 register file (squelch threshold, termination, scratch) is reached through control packets on the line only.
@@ -27,6 +36,34 @@ make -f Makefile.eUSB2 apb                # wrapper test + synthesis
 bash scripts/cov/run_cov.sh eUSB2          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh eUSB2_apb      # wrapper coverage
 ```
+
+## Parameters
+
+The core and the wrapper have no parameters.
+
+## Wrapper pins
+
+Pins of `eUSB2_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `edp` | input | 1 | protocol pin, core port `edp` |
+| `edm` | input | 1 | protocol pin, core port `edm` |
+| `dp` | output | 1 | protocol pin, core port `dp` |
+| `dm` | output | 1 | protocol pin, core port `dm` |
+| `squelch` | output | 1 | protocol pin, core port `squelch` (also read in a register) |
 
 ## Core ports
 
@@ -56,16 +93,21 @@ Pass-through pins: `edp`, `edm`, `dp`, `dm`, `squelch`.
 | 0x008 | IRQ_ENABLE | RW | 0x00000000 | Interrupt enables; irq = \|(IRQ_STATUS & IRQ_ENABLE) |
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
-| 0x014 | STATUS | RO | 0x00000000 | Line state |
+| 0x014 | STATUS | RO | core | Line state |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x018 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x6555 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| STATUS | 0 | `squelch` | signal loss: SE0 longer than the squelch threshold (cleared by J); same as the squelch pin |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x6555 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| STATUS | 0 | `squelch` | RO | core | signal loss: SE0 longer than the squelch threshold (cleared by J); same as the squelch pin |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -74,6 +116,14 @@ A bit is set while its source is active, stays set until written with 1, and a s
 | Bit | Name | Set when |
 |---|---|---|
 | 0 | ERR | SE1 on the line, bit-stuff error, truncated or over-long control packet, or CRC8 mismatch. Sticky in the core until PRESETN, so the bit is set again on every clock |
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x65550200.
+2. Write 0x1 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x1 enables all).
+4. Read STATUS (0x014) for the core's live `squelch`; it needs no clearing.
+5. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

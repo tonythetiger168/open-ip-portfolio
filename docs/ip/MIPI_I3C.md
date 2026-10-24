@@ -2,6 +2,16 @@
 
 Protocol IP `MIPI_I3C`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `MIPI_I3C_top` (`rtl/MIPI_I3C_top.sv`) |
+| Register interface | APB4 slave `MIPI_I3C_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x4D330200 (code 0x4D33, version 2.0) |
+| Registers | 8 words, 0x000 to 0x01C |
+| Interrupts | 1 sources into one level-high `irq` |
+| Protocol pins | 2 pass-through |
+
 ## Overview
 
 MIPI I3C protocol IP -- I3C slave controller Implementation scope:
@@ -48,6 +58,38 @@ bash scripts/cov/run_cov.sh MIPI_I3C          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh MIPI_I3C_apb      # wrapper coverage
 ```
 
+## Parameters
+
+`MIPI_I3C_apb` has the core's parameters and passes them to `MIPI_I3C_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `STATIC_ADDR` | logic [6:0] | `7'h3C` |
+| `PID` | logic [47:0] | `48'h0123_4567_89AB` |
+| `BCR` | logic [7:0] | `8'h06` |
+| `DCR` | logic [7:0] | `8'h5A` |
+
+## Wrapper pins
+
+Pins of `MIPI_I3C_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `scl` | input | 1 | protocol pin, core port `scl` |
+| `sda` | inout | 1 | protocol pin, core port `sda` |
+
 ## Core ports
 
 | Port | Dir | Width | In the APB wrapper |
@@ -79,19 +121,24 @@ Pass-through pins: `scl`, `sda`.
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
 | 0x014 | CMD | WO (pulse) | 0x00000000 | Commands |
 | 0x018 | IBI | RW | 0x00000000 | In-band interrupt payload |
-| 0x01C | STATUS | RO | 0x00000000 | Dynamic address |
+| 0x01C | STATUS | RO | core | Dynamic address |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x020 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x4D33 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| CMD | 0 | `ibi_req` | write 1: request an in-band interrupt carrying IBI.ibi_data; held until a dynamic address is assigned and the bus is idle, kept after a NACK, dropped after a lost arbitration |
-| IBI | 7:0 | `ibi_data` | the IBI data byte (read when the IBI goes out) |
-| STATUS | 6:0 | `dyn_addr` | dynamic address assigned by ENTDAA |
-| STATUS | 7 | `dyn_addr_valid` | a dynamic address is assigned (cleared by RSTDAA) |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x4D33 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| CMD | 0 | `ibi_req` | WO (pulse) | 0x0 | write 1: request an in-band interrupt carrying IBI.ibi_data; held until a dynamic address is assigned and the bus is idle, kept after a NACK, dropped after a lost arbitration |
+| IBI | 7:0 | `ibi_data` | RW | 0x0 | the IBI data byte (read when the IBI goes out) |
+| STATUS | 6:0 | `dyn_addr` | RO | core | dynamic address assigned by ENTDAA |
+| STATUS | 7 | `dyn_addr_valid` | RO | core | a dynamic address is assigned (cleared by RSTDAA) |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -100,6 +147,16 @@ A bit is set while its source is active, stays set until written with 1, and a s
 | Bit | Name | Set when |
 |---|---|---|
 | 0 | PROTO | protocol error or IBI arbitration lost: register pointer out of range, unknown CCC, 7E/R outside ENTDAA, ENTDAA parity error, lost IBI. Held in the core until the next START, so the bit is set again on every clock until then |
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x4D330200.
+2. Write 0x1 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Configure the core: write IBI (0x018). Reset values are in the register map; PSTRB selects the bytes written.
+4. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x1 enables all).
+5. To issue a command, write 1 to `ibi_req` (CMD bit 0) at 0x014; the core sees a one-clock pulse, and the register reads 0.
+6. Read STATUS (0x01C) for the core's live `dyn_addr`, `dyn_addr_valid`; it needs no clearing.
+7. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

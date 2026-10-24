@@ -2,6 +2,17 @@
 
 Protocol IP `DigRF`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `DigRF_top` (`rtl/DigRF_top.sv`) |
+| Register interface | APB4 slave `DigRF_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x44460200 (code 0x4446, version 2.0) |
+| Registers | 11 words, 0x000 to 0x028 |
+| Interrupts | 12 sources into one level-high `irq` |
+| Data streams | CTL (to the core), RSP (from the core), INT_TX (to the core), INT_RX (from the core) |
+| Protocol pins | 18 pass-through |
+
 ## Overview
 
 DigRF_top v2.0: DigRF v4-style baseband / RF IC serial link endpoint (one TX lane, one RX lane, 8b/10b, framed logical channels)
@@ -65,6 +76,47 @@ make -f Makefile.DigRF apb                # wrapper test + synthesis
 bash scripts/cov/run_cov.sh DigRF          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh DigRF_apb      # wrapper coverage
 ```
+
+## Parameters
+
+The core and the wrapper have no parameters.
+
+## Wrapper pins
+
+Pins of `DigRF_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `tx_p` | output | 1 | protocol pin, core port `tx_p` |
+| `rx_p` | input | 1 | protocol pin, core port `rx_p` |
+| `reg_we` | output | 1 | protocol pin, core port `reg_we` |
+| `reg_re` | output | 1 | protocol pin, core port `reg_re` |
+| `reg_addr` | output | 8 | protocol pin, core port `reg_addr` |
+| `reg_wdata` | output | 8 | protocol pin, core port `reg_wdata` |
+| `reg_rdata` | input | 8 | protocol pin, core port `reg_rdata` |
+| `dtx_valid` | input | 1 | protocol pin, core port `dtx_valid` |
+| `dtx_ready` | output | 1 | protocol pin, core port `dtx_ready` |
+| `dtx_data` | input | 8 | protocol pin, core port `dtx_data` |
+| `dtx_size` | input | 3 | protocol pin, core port `dtx_size` |
+| `dtx_chan` | input | 2 | protocol pin, core port `dtx_chan` |
+| `drx_valid` | output | 1 | protocol pin, core port `drx_valid` |
+| `drx_data` | output | 8 | protocol pin, core port `drx_data` |
+| `drx_sof` | output | 1 | protocol pin, core port `drx_sof` |
+| `drx_eof` | output | 1 | protocol pin, core port `drx_eof` |
+| `drx_chan` | output | 2 | protocol pin, core port `drx_chan` |
+| `drx_abort` | output | 1 | protocol pin, core port `drx_abort` |
 
 ## Core ports
 
@@ -132,26 +184,32 @@ Pass-through pins: `tx_p`, `rx_p`, `reg_we`, `reg_re`, `reg_addr`, `reg_wdata`, 
 | 0x01C | RSP | RO (pop) | 0x00000000 | Read data from the peer; reading RSP frees it |
 | 0x020 | INT_TX | RW | 0x00000000 | Interrupt message to the peer; writing INT_TX commits it |
 | 0x024 | INT_RX | RO (pop) | 0x00000000 | Interrupt message from the peer; reading INT_RX frees it |
-| 0x028 | STATUS | RO | 0x00000000 | Lane state |
+| 0x028 | STATUS | RO | core | Lane state |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x02C up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x4446 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| CFG | 3:0 | `cfg_sync` | K28.5 sync symbols at the start of a burst (0 = 1) |
-| CFG | 11:4 | `cfg_hold` | K28.5 fillers in a row before the lane stops (K29.7) |
-| CFG | 19:12 | `cfg_timeout` | read timeout, x 16 PCLK |
-| CTL | 7:0 | `ctl_wdata` | write data |
-| CTL | 15:8 | `ctl_addr` | peer register address |
-| CTL | 16 | `ctl_rd` | 1 = read, 0 = write |
-| RSP | 7:0 | `rsp_data` | read data |
-| INT_TX | 4:0 | `int_vec` | interrupt vector |
-| INT_RX | 4:0 | `int_rx_vec` | interrupt vector |
-| STATUS | 0 | `tx_on` | a burst is being sent |
-| STATUS | 1 | `rx_locked` | the receiver is aligned to the incoming burst |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x4446 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 11:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 11:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| FLAGS | 3:0 | one bit per stream flag | RO | 0x0 | see FLAGS |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| CFG | 3:0 | `cfg_sync` | RW | 0x2 | K28.5 sync symbols at the start of a burst (0 = 1) |
+| CFG | 11:4 | `cfg_hold` | RW | 0x10 | K28.5 fillers in a row before the lane stops (K29.7) |
+| CFG | 19:12 | `cfg_timeout` | RW | 0x40 | read timeout, x 16 PCLK |
+| CTL | 7:0 | `ctl_wdata` | RW | 0x0 | write data |
+| CTL | 15:8 | `ctl_addr` | RW | 0x0 | peer register address |
+| CTL | 16 | `ctl_rd` | RW | 0x0 | 1 = read, 0 = write |
+| RSP | 7:0 | `rsp_data` | RO (pop) | 0x0 | read data |
+| INT_TX | 4:0 | `int_vec` | RW | 0x0 | interrupt vector |
+| INT_RX | 4:0 | `int_rx_vec` | RO (pop) | 0x0 | interrupt vector |
+| STATUS | 0 | `tx_on` | RO | core | a burst is being sent |
+| STATUS | 1 | `rx_locked` | RO | core | the receiver is aligned to the incoming burst |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -187,6 +245,19 @@ A bit is set while its source is active, stays set until written with 1, and a s
 * **RSP** captures `rsp_data` when `rsp_valid` is high and the register is empty (or is being read in the same clock), and sets FLAGS/IRQ RSP_AVAIL. Reading RSP pops it. A beat that arrives while the register is full is dropped and sets RSP_OVF.
 * **INT_TX** feeds `int_vec`/`int_valid`. Writing INT_TX commits the beat: FLAGS.INT_TX_FULL is set and `int_valid` stays high until the core's `int_ready`; then INT_TX_DONE is set. A write while full is dropped and sets INT_TX_OVF.
 * **INT_RX** captures `int_rx_vec` when `int_rx` is high and the register is empty (or is being read in the same clock), and sets FLAGS/IRQ INT_RX_AVAIL. Reading INT_RX pops it. A beat that arrives while the register is full is dropped and sets INT_RX_OVF.
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x44460200.
+2. Write 0xFFF to IRQ_STATUS (0x004) to clear any stale bits.
+3. Configure the core: write CFG (0x014). Reset values are in the register map; PSTRB selects the bytes written.
+4. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0xFFF enables all).
+5. To send on CTL: wait until FLAGS.CTL_FULL (bit 0) is 0, or for IRQ CTL_DONE, then write CTL (0x018). The last write commits the beat. CTL_OVF means a write came while the register was full and was dropped.
+6. To receive on RSP: wait for IRQ RSP_AVAIL or FLAGS.RSP_AVAIL (bit 1), then read RSP (0x01C). Reading the last word frees the register for the next beat; write 1 to IRQ_STATUS.RSP_AVAIL (bit 6) to clear it. Read each beat before the next arrives, or it is dropped and RSP_OVF is set.
+7. To send on INT_TX: wait until FLAGS.INT_TX_FULL (bit 2) is 0, or for IRQ INT_TX_DONE, then write INT_TX (0x020). The last write commits the beat. INT_TX_OVF means a write came while the register was full and was dropped.
+8. To receive on INT_RX: wait for IRQ INT_RX_AVAIL or FLAGS.INT_RX_AVAIL (bit 3), then read INT_RX (0x024). Reading the last word frees the register for the next beat; write 1 to IRQ_STATUS.INT_RX_AVAIL (bit 10) to clear it. Read each beat before the next arrives, or it is dropped and INT_RX_OVF is set.
+9. Read STATUS (0x028) for the core's live `tx_on`, `rx_locked`; it needs no clearing.
+10. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 
