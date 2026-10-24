@@ -88,7 +88,7 @@ module OCP_IP_Open_Core_Protocol_sva #(parameter int DW = 32, parameter int AW =
     end
   end
 
-  wire [2:0] exp_cmd = !issuing ? 3'd0 : !m_wr ? 3'd2 : m_np ? 3'd5 : 3'd1;
+  wire [2:0] exp_cmd = !issuing ? 3'd0 : !m_wr ? 3'd2 : m_np ? 3'd1 : 3'd5;
 
   `SVA_RST(a_reset_quiet, !rst_n, MCmd == 3'd0 && req_ready && !resp_valid && !irq)
   `SVA_INV(a_req_ready, req_ready == (ph == P_IDLE || ph == P_COLLECT))

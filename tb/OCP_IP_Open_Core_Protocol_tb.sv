@@ -163,9 +163,9 @@ module OCP_IP_Open_Core_Protocol_tb;
             s_dly <= 2'd2; sstate <= SLV_RDWAIT;
           end else begin                             // WR / WRNP : beat 0
             if (MAddr < 32'h100) smem[MAddr[7:2]] <= MData;
-            s_posted <= (MCmd == 3'd5);
+            s_posted <= (MCmd == 3'd1);           // WR: posted
             if (MBurstLength > 5'd1)      sstate <= SLV_WRB;
-            else if (MCmd == 3'd5)        sstate <= SLV_IDLE;   // posted : done
+            else if (MCmd == 3'd1)        sstate <= SLV_IDLE;   // posted : done
             else begin s_dly <= 2'd2; sstate <= SLV_WRWAIT; end
           end
         end
@@ -353,7 +353,7 @@ module OCP_IP_Open_Core_Protocol_tb;
     cpu_write(32'h0000_0020, 5'd4, 32'hA000_0000, 1'b0, 1'b0);
     cpu_read (32'h0000_0020, 5'd4, 32'hA000_0000, 1'b0);
 
-    // CHECK 4: posted write (WRNP) -- completion without SResp; verify by read
+    // CHECK 4: posted write (WR) -- completion without SResp; verify by read
     cpu_write(32'h0000_0030, 5'd1, 32'hCAFE_0001, 1'b1, 1'b0);
     cpu_read (32'h0000_0030, 5'd1, 32'hCAFE_0001, 1'b0);
 

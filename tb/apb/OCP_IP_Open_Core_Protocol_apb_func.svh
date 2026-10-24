@@ -46,7 +46,7 @@ always @(posedge PCLK) if (PRESETN && MCmd != 0 && SCmdAccept) begin
     wbeat++;
     if (wbeat == int'(MBurstLength)) begin
       wbeat = 0;
-      if (MCmd == 3'd1) begin jaddr.push_back(MAddr); jlen.push_back(1); jkind.push_back(1); end
+      if (MCmd == 3'd5) begin jaddr.push_back(MAddr); jlen.push_back(1); jkind.push_back(1); end
     end
   end
 end
@@ -81,7 +81,7 @@ task automatic txn(input bit rw, input bit posted, input logic [31:0] a, input l
   int n;
   logic [31:0] d;
   n = nlen(len);
-  if (acc) cexp.push_back({rw ? (posted ? 3'd5 : 3'd1) : 3'd2, 5'(n), a});
+  if (acc) cexp.push_back({rw ? (posted ? 3'd1 : 3'd5) : 3'd2, 5'(n), a});
   for (int k = 0; k < (rw ? n : 1); k++) begin
     d = $urandom;
     if (rw && acc) wexp.push_back(d);

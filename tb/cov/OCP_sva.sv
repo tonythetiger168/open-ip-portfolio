@@ -21,7 +21,7 @@ module OCP_sva #(parameter int DW = 32, AW = 32, ACCEPT_DLY = 1) (
   wire addr_bad = (maddr[AW-1:10] != '0) || (maddr[1:0] != 2'b00);
   wire supp     = mcmd inside {WR, RD, WRNP};
   wire bad      = addr_bad || !supp;
-  wire posted   = mcmd == WRNP;
+  wire posted   = mcmd == WR;
 
   // ---------------- independent reference model ----------------
   logic [DW-1:0] shadow [0:255];       // regfile is not reset

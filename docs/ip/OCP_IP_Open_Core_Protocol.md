@@ -139,7 +139,7 @@ Unlisted bits read 0 and ignore writes. Reset "core": the register reads the cor
 | REQ0 | 31:0 | `req_addr` | RW | 0x0 | byte address (MAddr) |
 | REQ1 | 31:0 | `req_wdata` | RW | 0x0 | write data: the first word with the descriptor, then one word per commit |
 | REQ2 | 0 | `req_rw` | RW | 0x0 | 1 = write, 0 = read |
-| REQ2 | 1 | `req_posted` | RW | 0x0 | 1 = posted write (WRNP, no response from the slave) |
+| REQ2 | 1 | `req_posted` | RW | 0x0 | 1 = posted write (MCmd WR, no response from the slave); 0 = non-posted write (MCmd WRNP) |
 | REQ2 | 6:2 | `req_len` | RW | 0x0 | burst length 1 to 8 (0 is 1; above 8 is clamped to 8 and sets ERR) |
 | RESP0 | 31:0 | `resp_rdata` | RO (pop) | 0x0 | read data (0 for writes) |
 | RESP1 | 0 | `resp_err` | RO (pop) | 0x0 | 1 = SResp FAIL / ERR, or no SCmdAccept for 64 clocks |
