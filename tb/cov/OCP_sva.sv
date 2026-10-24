@@ -76,6 +76,38 @@ module OCP_sva #(parameter int DW = 32, AW = 32, ACCEPT_DLY = 1) (
   endgroup
   cg_req u_cg_req = new;
 
+  // per supported command: thread ID and (writes) byte lanes; data classes
+  // of in-range writes and of DVA read data; posted write then read of it
+  function automatic logic [1:0] dcls(input logic [DW-1:0] v);
+    dcls = (v == '0) ? 2'd0 : (v == '1) ? 2'd1 :
+           (v == {(DW/2){2'b01}} || v == {(DW/2){2'b10}}) ? 2'd2 : 2'd3;
+  endfunction
+  logic       m_posted_ok;
+  logic [7:0] m_posted_idx;
+  always_ff @(posedge clk or negedge rst_n)
+    if (!rst_n) begin m_posted_ok <= 0; m_posted_idx <= 0; end
+    else if (acc) begin m_posted_ok <= posted && !addr_bad; m_posted_idx <= maddr[9:2]; end
+  covergroup cg_cmd @(posedge clk);
+    option.per_instance = 1;
+    cp_cmd: coverpoint mcmd iff (rst_n && acc && !addr_bad)
+      { bins wr = {WR}; bins rd = {RD}; bins wrnp = {WRNP}; }
+    cp_tid: coverpoint mthreadid iff (rst_n && acc && !addr_bad);
+    x_cmd_tid: cross cp_cmd, cp_tid;
+    cp_wcmd: coverpoint mcmd iff (rst_n && acc && !addr_bad && (mcmd == WR || mcmd == WRNP))
+      { bins wr = {WR}; bins wrnp = {WRNP}; }
+    cp_lane: coverpoint mbyteen iff (rst_n && acc && !addr_bad && (mcmd == WR || mcmd == WRNP))
+      { bins b0 = {4'b0001}; bins b1 = {4'b0010}; bins b2 = {4'b0100}; bins b3 = {4'b1000};
+        bins full = {4'b1111}; }
+    x_wcmd_lane: cross cp_wcmd, cp_lane;
+    cp_wdata: coverpoint dcls(mdata) iff (rst_n && acc && !addr_bad && (mcmd == WR || mcmd == WRNP) && mbyteen == 4'hF)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint dcls(sdata) iff (rst_n && m_pipe[1] && m_rd && m_rsp == DVA)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_cmd u_cg_cmd = new;
+  `FC(read_after_posted_write, acc && mcmd == RD && !addr_bad && m_posted_ok &&
+      maddr[9:2] == m_posted_idx)
+
   `FC(accept_right_after_resp, acc && $past(m_pipe[1]))
   `FC(cmd_after_posted, acc && $past(acc && posted))
   `FC(cmd_waits_while_busy, cmd && busy)
