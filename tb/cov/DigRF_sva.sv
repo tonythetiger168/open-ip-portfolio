@@ -130,6 +130,9 @@ module DigRF_sva (
   bit v_prio_rsp_int, v_prio_int_ctl, v_prio_ctl_dat, v_disp, v_viol, v_viol_frame;
   bit v_bad_lct, v_bad_size, v_dat_idle, v_foreign_k, v_k_in_frame, v_abort_k, v_abort_code, v_abort_eob;
   bit v_eob_rx;
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  bit c_fv;
+  int c_ch, c_sz;
 
   // a slot: the clock in which the transmitter picks its next symbol
   wire slot = t_on ? (t_cnt == 0 && !t_eob) : (p_rsp || p_int || p_ctl || dtx_valid);
@@ -156,7 +159,7 @@ module DigRF_sva (
       any = p_rsp || p_int || p_ctl || dtx_valid;
 
       // ---- transmitter
-      m_under = 0;
+      m_under = 0; c_fv = 0;
       load = 0; s = FIL;
       if (!t_on) begin
         if (any) begin
@@ -196,6 +199,7 @@ module DigRF_sva (
               int sz;
               sz = dtx_size > 5 ? 5 : int'(dtx_size);
               v_size[sz] = 1; v_lct[0] = 1;
+              c_fv = 1; c_ch = dtx_chan; c_sz = sz;
               t_q[0] = {4'd0, dtx_chan, 3'(sz)}; t_qn = 1; t_pay = 8 << sz; t_data = 1;
             end
           end else if (t_idle >= int'(cfg_hold)) begin
@@ -311,6 +315,29 @@ module DigRF_sva (
   `SVA_IMP(a_drx_data, m_dv, drx_data == m_dd && drx_sof == m_sof && drx_eof == m_eof && drx_chan == m_ch)
   `SVA_RST(a_rst, 1'b1, !tx_p && !tx_on && !rx_locked && ctl_ready && int_ready && !drx_valid && !reg_we
                         && !reg_re && !rsp_valid && !int_rx && !err_code && !err_frame)
+
+  function automatic int dcls(input logic [7:0] v);
+    return v == 8'h00 ? 0 : v == 8'hFF ? 1 : (v == 8'h55 || v == 8'hAA) ? 2 : 3;
+  endfunction
+  // data frames by channel and size, payload / register / response bytes,
+  // interrupt vectors, both ways
+  covergroup cg_digrf @(negedge clk);
+    option.per_instance = 1;
+    cp_tch: coverpoint c_ch iff (rst_n && c_fv) { bins c[] = {[0:3]}; }
+    cp_tsz: coverpoint c_sz iff (rst_n && c_fv) { bins s[] = {[0:5]}; }
+    x_tx: cross cp_tch, cp_tsz;
+    cp_tdata: coverpoint dcls(dtx_data) iff (rst_n && dtx_valid && dtx_ready)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rch: coverpoint drx_chan iff (rst_n && drx_valid && drx_sof) { bins c[] = {[0:3]}; }
+    cp_rdata: coverpoint dcls(drx_data) iff (rst_n && drx_valid)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_regw: coverpoint dcls(reg_wdata) iff (rst_n && reg_we)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rsp: coverpoint dcls(rsp_data) iff (rst_n && rsp_valid)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_int: coverpoint int_rx_vec iff (rst_n && int_rx) { bins zero = {0}; bins max = {31}; bins other = {[1:30]}; }
+  endgroup
+  cg_digrf u_cg_digrf = new;
 
   // ---------------- functional coverage ----------------
   `FC(frame_data, v_lct[0])
