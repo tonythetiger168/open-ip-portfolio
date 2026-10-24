@@ -585,7 +585,7 @@ def gen_one(P):
         mtxt = mtxt.replace("\nclean:", "\napb:\n"
             "\t$(SIM) $(VFLAGS) -I tb -o simv_apb rtl/$(S)_top.sv $(DEPS) rtl/$(S)_apb.sv tb/$(S)_apb_tb.sv\n"
             "\t./simv_apb\n"
-            "\tcd work && $(SYN) ../syn/$(S)_apb_yosys.ys\n\nclean:")
+            "\tmkdir -p work && cd work && $(SYN) ../syn/$(S)_apb_yosys.ys\n\nclean:")
         mtxt = mtxt.replace("rm -f simv ", "rm -f simv simv_apb ")
         mtxt = mtxt.replace(".PHONY: all sim syn clean", ".PHONY: all sim syn apb clean")
         files[f"Makefile.{P}"] = mtxt
