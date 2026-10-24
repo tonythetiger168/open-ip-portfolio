@@ -444,6 +444,11 @@ module LIN_tb;
     for (int i = 0; i < 64; i++) begin NB = 16 + $urandom % 65520; #(100); end
     NB = 64; TB = 640.0; bt_b = TB; quiet(4);
     frame(6'h2C, P(SUB, 0, 1, 1), P(PUB, 2, 1, 1, 64'h1234), "back to 64");
+    // data patterns both ways
+    frame(6'h10, P(PUB, 2, 7, 0, 64'h0), P(SUB, 2, 7, 0), "M->S zero");
+    frame(6'h11, P(PUB, 2, 7, 1, {16{4'hA}}), P(SUB, 2, 7, 1), "M->S alt");
+    frame(6'h12, P(SUB, 2, 7, 0), P(PUB, 2, 7, 0, {64{1'b1}}), "S->M ones");
+    frame(6'h13, P(SUB, 2, 7, 1), P(PUB, 2, 7, 1, {16{4'h5}}), "S->M alt");
 
     $display("M %s", cs(m_c));
     $display("S %s", cs(s_c));

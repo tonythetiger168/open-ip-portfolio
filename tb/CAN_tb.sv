@@ -715,6 +715,13 @@ module CAN_tb;
     idle(12);
     chk_on = 1;
     a_send(rnd_frame()); wait_ready(1, 0);
+    // identifier corners per format, payload patterns both ways, an
+    // extended remote frame with no data
+    a_send(mkf(29'h123, 0, 0, 8, 64'h0)); wait_ready(1, 0);
+    a_send(mkf(29'h124, 0, 0, 8, {16{4'hA}})); wait_ready(1, 0);
+    b_send(mkf(29'h7FF, 0, 0, 8, {64{1'b1}})); wait_ready(0, 1);
+    b_send(mkf(29'h1FFF_FFFF, 1, 0, 8, {16{4'h5}})); wait_ready(0, 1);
+    b_send(mkf(29'h0123_4567, 1, 1, 0, 64'h0)); wait_ready(0, 1);
 
     idle(3);
     $display("monitor: %0d valid frames, %0d broken; A tx %0d rx %0d, B tx %0d rx %0d",
