@@ -171,6 +171,36 @@ module SPI_tb;
     end
 `endif
 
+    // data-class sweep: every (MOSI byte, MISO byte) class pair in one
+    // frame (all-zero, all-one, alternating, other), then a CSn abort after
+    // each of 1..7 bits followed by a clean frame
+    begin : data_sweep
+      logic [7:0] rxv [4];
+      logic [7:0] txv [4];
+      logic [7:0] dout_s;
+      rxv[0] = 8'h00; rxv[1] = 8'hFF; rxv[2] = 8'h55; rxv[3] = 8'hC3;
+      txv[0] = 8'h00; txv[1] = 8'hFF; txv[2] = 8'hAA; txv[3] = 8'h3C;
+      for (int i = 0; i < 4; i++)
+        for (int j = 0; j < 4; j++) begin
+          wr(4'd0, txv[j]);
+          spi_xfer(rxv[i], dout_s);
+          if (dout_s !== txv[j]) begin errors++; $display("ERROR: SPI sweep MISO got=%h exp=%h", dout_s, txv[j]); end
+          rd(4'd0, got);
+          if (got !== rxv[i]) begin errors++; $display("ERROR: SPI sweep MOSI got=%h exp=%h", got, rxv[i]); end
+        end
+      for (int n = 1; n < 8; n++) begin
+        wr(4'd0, 8'h96);
+        csn = 1'b0;
+        for (int i = 0; i < n; i++) begin mosi = i[0]; #40 sclk = 1'b1; #40 sclk = 1'b0; end
+        csn = 1'b1;
+        #160;
+        spi_xfer(8'h69, dout_s);
+        if (dout_s !== 8'h96) begin errors++; $display("ERROR: SPI abort@%0d MISO got=%h", n, dout_s); end
+        rd(4'd0, got);
+        if (got !== 8'h69) begin errors++; $display("ERROR: SPI abort@%0d MOSI got=%h", n, got); end
+      end
+    end
+
     // two bytes under one CSn; tx_q reloaded during the first byte (the
     // new value shifts out from the next bit on)
     wr(4'd0, 8'hF0);
