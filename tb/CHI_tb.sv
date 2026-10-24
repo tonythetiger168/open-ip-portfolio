@@ -181,7 +181,7 @@ module CHI_tb;
     for (int i = 0; i < n; i++) begin : b_beat
       logic [15:0]  be;
       logic [127:0] d;
-      d = {$urandom, $urandom, $urandom, $urandom};
+      d = f_dp >= 0 ? {16{8'(f_dp)}} : {$urandom, $urandom, $urandom, $urandom};
       be = t_kind[txn] == 3 ? 16'hFFFF : $urandom % 4 == 0 ? 16'hFFFF : $urandom % 8 == 0 ? 16'h0000 : 16'($urandom);
       if (t_in[txn])
         for (int b = 0; b < 16; b++) if (be[b]) rm[t_ln[txn] * 64 + ids[i] * 16 + b] = d[8 * b +: 8];
@@ -204,6 +204,7 @@ module CHI_tb;
 
   // ---------------- requests ----------------
   int p_out = 10, gap = 4;
+  int f_dp = -1;                                // forced write data byte (directed)
   bit stop = 0;
   task automatic wait_clk(input int n);
     repeat (n) @(negedge clk);
@@ -442,6 +443,15 @@ module CHI_tb;
     rst_n = 1;
     traffic(60);
     drain("after reset");
+    // every line written in full and read back with each data pattern
+    for (int k = 0; k < 4; k++) begin
+      f_dp = k == 0 ? 8'h00 : k == 1 ? 8'hFF : k == 2 ? 8'h55 : 8'hAA;
+      for (int l = 0; l < LINES; l++) send_req(3, 6, 0, l);
+      drain("pattern writes");
+      for (int l = 0; l < LINES; l++) send_req(1, 6, 0, l);
+      drain("pattern reads");
+    end
+    f_dp = -1;
 
     if (errors == 0) $display("TEST PASSED: CHI (%0d transactions, %0d RSP, %0d DAT flits)", n_txn, n_rsp, n_dat);
     else $display("TEST FAILED: CHI (%0d errors)", errors);

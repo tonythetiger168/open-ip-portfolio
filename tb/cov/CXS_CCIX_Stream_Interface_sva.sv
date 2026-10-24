@@ -95,6 +95,10 @@ module CXS_CCIX_Stream_Interface_sva #(
   // coverage
   bit v_two_s, v_two_e, v_one_word_pkt, v_err_end, v_partial, v_cross, v_wait_mid, v_closed_s, v_closed_e;
   bit v_no_crd_tx, v_crd15, v_crd_ovf_tx, v_rtn, v_deact_hint, v_deact_en, v_act_wait;
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  bit c_wv, c_fv, c_kv;
+  int c_fn, c_fs, c_fe, c_fsp, c_fep, c_kn;
+  logic [31:0] c_wd, c_kd;
   bit v_bad [0:5], v_abort, v_rx_nocrd, v_rtn_extra, v_rx_full, v_hint, v_rx_deact_wait, v_skip_word;
 
   always @(posedge clk or negedge rst_n) begin
@@ -111,6 +115,7 @@ module CXS_CCIX_Stream_Interface_sva #(
       send = full && t_ln == RUN && t_cr > 0;
       nq0 = qn.size(); n0 = t_n; ip0 = t_ip;
       o_tv = 0; o_rtn = 0; o_gnt = 0; o_crd = 0; o_cntl = 0;
+      {c_wv, c_fv, c_kv} = '0;
       // ---- transmit
       if (cxs_tx_crdgnt) begin
         if (t_cr == 15) begin o_crd = 1; v_crd_ovf_tx = 1; end
@@ -125,6 +130,7 @@ module CXS_CCIX_Stream_Interface_sva #(
       if (t_ip && !tx_valid && t_n != 0 && t_n != 4) v_wait_mid = 1;
       if (tx_valid && txr) begin
         t_d[t_n] = tx_data; t_s[t_n] = !t_ip; t_e[t_n] = tx_last; t_r[t_n] = tx_last && tx_err;
+        c_wv = 1; c_wd = tx_data;
         if (!t_ip && tx_last) v_one_word_pkt = 1;
         if (tx_last && tx_err) v_err_end = 1;
         t_ip = !tx_last;
@@ -140,6 +146,7 @@ module CXS_CCIX_Stream_Interface_sva #(
         end
         t_cr--;
         o_tv = 1;
+        c_fv = 1; c_fn = t_n; c_fs = s; c_fe = e; c_fsp = s != 0 ? sp[0] : -1; c_fep = e != 0 ? ep[0] : -1;
         o_td = {t_d[3], t_d[2], t_d[1], t_d[0]};
         o_tc = {s == 2, s != 0, 2'(sp[0]), 2'(sp[1]), e == 2, e != 0, 2'(ep[0]), 2'(ep[1]), er};
         if (s == 2) v_two_s = 1;
@@ -185,6 +192,7 @@ module CXS_CCIX_Stream_Interface_sva #(
             if (k_v != 4'b1111 && k_v[0] && k_v[3]) v_skip_word = 1;
             qn.push_back(n);
             r_ip = k_ip;
+            c_kv = 1; c_kn = n; c_kd = cxs_rx_data[31:0];
           end
         end
       end
@@ -221,6 +229,24 @@ module CXS_CCIX_Stream_Interface_sva #(
                           !rx_valid && tx_credits == 0 && !ev_crd && !ev_cntl)
 
   // ---------------- functional coverage ----------------
+  function automatic int dcls(input logic [31:0] v);
+    return v == 32'd0 ? 0 : v == '1 ? 1 : (v == 32'h5555_5555 || v == 32'hAAAA_AAAA) ? 2 : 3;
+  endfunction
+  covergroup cg_cxs @(negedge clk);
+    option.per_instance = 1;
+    cp_twd: coverpoint dcls(c_wd) iff (rst_n && c_wv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_fn: coverpoint c_fn iff (rst_n && c_fv) { bins n[] = {[1:4]}; }
+    cp_fs: coverpoint c_fs iff (rst_n && c_fv) { bins none = {0}; bins one = {1}; bins two = {2}; }
+    cp_fe: coverpoint c_fe iff (rst_n && c_fv) { bins none = {0}; bins one = {1}; bins two = {2}; }
+    cp_fsp: coverpoint c_fsp iff (rst_n && c_fv && c_fs != 0) { bins p[] = {[0:3]}; }
+    cp_fep: coverpoint c_fep iff (rst_n && c_fv && c_fe != 0) { bins p[] = {[0:3]}; }
+    cp_kn: coverpoint c_kn iff (rst_n && c_kv) { bins n[] = {[1:4]}; }
+    cp_kd: coverpoint dcls(c_kd) iff (rst_n && c_kv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_cxs u_cg_cxs = new;
+
   `FC(tx_two_starts_in_a_flit, v_two_s)
   `FC(tx_two_ends_in_a_flit, v_two_e)
   `FC(tx_one_word_packet, v_one_word_pkt)

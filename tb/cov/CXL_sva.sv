@@ -84,6 +84,11 @@ module CXL_sva #(
   bit v_op [0:15], v_wop [0:15], v_cmp [0:2], v_rng_rd, v_rng_wr, v_rng_inv, v_poi_rd, v_po_set, v_po_clr, v_po_keep;
   bit v_be0, v_be_part, v_res_mf, v_res_snp, v_dl_n [0:3], v_dl_d [0:3], v_tie_q, v_tie_w, v_q_wait_n, v_q_wait_d;
   bit v_w_wait, v_bad_w_busy, v_drs_b2b, v_ndr_b2b, v_wrap, v_spec_out, v_meta_set [0:3], v_rddata_meta, v_ptl_po;
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  bit c_qv, c_wv, c_dv, c_wpo;
+  int c_qop, c_qln, c_wln, c_wop;
+  logic [1:0]  c_mv;
+  logic [63:0] c_wd, c_rd;
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -110,6 +115,7 @@ module CXL_sva #(
       sq = cq && !sw;
       dl = load(nq - int'(sq));
       {m_rng, m_opc, m_pro, m_poi} = '0;
+      {c_qv, c_wv, c_dv} = '0;
       if (cq && cw) begin if (sq) v_tie_q = 1; else v_tie_w = 1; end
       if (nq != 0 && k == 1 && !nfree) v_q_wait_n = 1;
       if (nq != 0 && k == 2 && !dfree) v_q_wait_d = 1;
@@ -136,6 +142,7 @@ module CXL_sva #(
           if (q_snp[0][2]) v_res_snp = 1; else v_res_mf = 1;
         end
         v_op[op] = 1;
+        if (need(op) != 0 && in) begin c_qv = 1; c_qop = need(op); c_qln = ln; c_mv = old; end
         if (need(op) != 0 && !in) begin
           m_rng = 1;
           if (need(op) == 2) v_rng_rd = 1; else v_rng_inv = 1;
@@ -148,6 +155,7 @@ module CXL_sva #(
           for (int b = 0; b < 8; b++)
             for (int j = 0; j < 8; j++) m_dl[b][8 * j +: 8] = in ? mb[ln * 64 + 8 * b + j] : 8'h00;
           if (in && mpo[ln]) begin m_poi = 1; v_poi_rd = 1; end
+          if (in && !mpo[ln]) begin c_dv = 1; c_rd = m_dl[0]; end
           if (in && op == 4'd1 && mf == 2'b00) begin mmeta[ln] = mv; v_meta_set[mv] = 1; end
           if (op == 4'd2 && mf == 2'b00) v_rddata_meta = 1;
         end else if (need(op) == 1) begin
@@ -180,6 +188,7 @@ module CXL_sva #(
           v_dl_n[dl] = 1;
           if (!in) begin m_rng = 1; v_rng_wr = 1; end
           else begin
+            c_wv = 1; c_wln = ln; c_wop = h_op; c_wpo = h_po; c_wd = w_d[0];
             for (int b = 0; b < 8; b++) begin
               if (h_op == 4'd2 && w_b[b] == 8'h00) v_be0 = 1;
               if (h_op == 4'd2 && w_b[b] != 8'h00 && w_b[b] != 8'hFF) v_be_part = 1;
@@ -227,6 +236,25 @@ module CXL_sva #(
                           {ev_range, ev_opcode, ev_proto, ev_poison} == 4'b0000)
 
   // ---------------- functional coverage ----------------
+  function automatic int dcls(input logic [63:0] v);
+    return v == 64'd0 ? 0 : v == '1 ? 1 : (v == {32{2'b01}} || v == {32{2'b10}}) ? 2 : 3;
+  endfunction
+  covergroup cg_cxl @(negedge clk);
+    option.per_instance = 1;
+    cp_qkind: coverpoint c_qop iff (rst_n && c_qv) { bins ndr = {1}; bins drs = {2}; }
+    cp_qline: coverpoint c_qln iff (rst_n && c_qv) { bins l[] = {[0:LINES-1]}; }
+    x_qline: cross cp_qkind, cp_qline;
+    cp_qmeta: coverpoint c_mv iff (rst_n && c_qv) { bins m[] = {[0:3]}; }
+    cp_wline: coverpoint c_wln iff (rst_n && c_wv) { bins l[] = {[0:LINES-1]}; }
+    cp_wkind: coverpoint {c_wop[1:0], c_wpo} iff (rst_n && c_wv)
+      { bins full = {3'b010}; bins full_poison = {3'b011}; bins partial = {3'b100}; bins partial_poison = {3'b101}; }
+    cp_wdata: coverpoint dcls(c_wd) iff (rst_n && c_wv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint dcls(c_rd) iff (rst_n && c_dv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_cxl u_cg_cxl = new;
+
   `FC(req_meminv, v_op[0])
   `FC(req_memrd, v_op[1])
   `FC(req_memrddata, v_op[2])
