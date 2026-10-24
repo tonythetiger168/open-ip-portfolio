@@ -55,6 +55,10 @@ module eCPRI_over_Ethernet_sva (
         v_evt_ty, v_evt_nf, v_evt_ps, v_evt4, v_bcast, v_otherda, v_et, v_runt, v_fcs, v_short,
         v_long, v_psz, v_rev, v_conc, v_mt, v_qlost, v_injovf, v_injwait, v_injpush_same,
         v_b2b, v_clr_same, v_rst_clr;
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  logic        c_mv;
+  int          c_mk, c_nw, c_ma, c_et, c_nf;
+  logic [31:0] c_dw;
 
   always @(posedge clk or negedge rst_n) begin
     logic        fend, pop_iq, qpop, mine, fcs, lenok, malf, known, ok, rpush, full, ipush, qpush;
@@ -97,6 +101,7 @@ module eCPRI_over_Ethernet_sva (
       if (pop_iq) irp = (irp + 1) % 32;
       // ---------------- received frame
       ok = 0; rpush = 0; mt = 0; ps = 0; ra = 0; put = 0;
+      c_mv = 0;
       for (int i = 0; i < 40; i++) p[i] = 0;
       if (fend) begin
         mine = n >= 14 && {fb[12], fb[13]} == 16'hAEFE &&
@@ -144,6 +149,11 @@ module eCPRI_over_Ethernet_sva (
           if (ok) begin okc++; rsa = {fb[6], fb[7], fb[8], fb[9], fb[10], fb[11]}; end
           else errc++;
         end
+      end
+      if (ok) begin
+        c_mv = 1; c_ma = ra / 4; c_et = p[1]; c_nf = p[3]; c_nw = ps / 4 - 1;
+        c_mk = mt == 0 ? 0 : mt == 4 ? (p[4] == 1 ? 1 : 2) : mt == 5 ? 3 : 4;
+        c_dw = mt == 0 ? {p[4], p[5], p[6], p[7]} : {p[5], p[6], p[7], p[8]};
       end
       if (ok) case (mt)
         8'd0: begin
@@ -239,6 +249,27 @@ module eCPRI_over_Ethernet_sva (
       o_dv = rx_dv;
     end
   end
+
+  function automatic int dcls(input logic [31:0] v);
+    return v == 32'd0 ? 0 : v == '1 ? 1 : (v == 32'h5555_5555 || v == 32'hAAAA_AAAA) ? 2 : 3;
+  endfunction
+  covergroup cg_ecpri @(negedge clk);
+    option.per_instance = 1;
+    cp_msg: coverpoint c_mk iff (rst_n && c_mv)
+      { bins iq = {0}; bins mem_wr = {1}; bins mem_rd = {2}; bins reset = {3}; bins event_ = {4}; }
+    cp_iqn: coverpoint c_nw iff (rst_n && c_mv && c_mk == 0) { bins n[] = {[0:8]}; }
+    cp_iqd: coverpoint dcls(c_dw) iff (rst_n && c_mv && c_mk == 0 && c_nw > 0)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_mrw: coverpoint c_mk iff (rst_n && c_mv && (c_mk == 1 || c_mk == 2)) { bins wr = {1}; bins rd = {2}; }
+    cp_madr: coverpoint c_ma iff (rst_n && c_mv && (c_mk == 1 || c_mk == 2))
+      { bins first = {0}; bins mid = {[1:62]}; bins last = {63}; }
+    x_mem: cross cp_mrw, cp_madr;
+    cp_md: coverpoint dcls(c_dw) iff (rst_n && c_mv && c_mk == 1)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_evt: coverpoint c_et iff (rst_n && c_mv && c_mk == 4) { bins t[] = {[0:5]}; }
+    cp_nf: coverpoint c_nf iff (rst_n && c_mv && c_mk == 4) { bins n[] = {[0:4]}; }
+  endgroup
+  cg_ecpri u_cg_ecpri = new;
 
   logic [31:0] m_rd;
   always_comb

@@ -108,6 +108,11 @@ module Interlaken_v1_2_sva #(
   bit v_sync_miss, v_lost_sync, v_scr_err, v_lost_scr, v_lost_word, v_c32_ok, v_c32_err, v_c24_err;
   bit v_data_out, v_eop_nodata, v_sop_in_pkt, v_cont_no_pkt, v_fw_in_prot, v_bad_frame_prot, v_lost_held;
   bit v_pkt_open_idle;
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  bit c_tv;
+  int c_tbc, c_teb;
+  bit c_teop;
+  logic [63:0] c_td;
 
   function automatic bit prot(input int w);
     return w > 2 && w != MF - 1;
@@ -126,6 +131,7 @@ module Interlaken_v1_2_sva #(
       m_rd = 0; m_by = 0; m_ch = 0; m_fc = 0; m_ps = 0;
     end else begin : b_step
       bit b;
+      c_tv = 0;
       // ---- transmitter
       if (t_k == 0) begin : b_word
         logic [63:0] p;
@@ -143,6 +149,7 @@ module Interlaken_v1_2_sva #(
           p = tx_data;
           t_c24 = c24_word(t_c24, p);
           t_bc++; t_eop = tx_eop; t_eb = tx_eop ? tx_bytes : 3'd0;
+          c_tv = 1; c_tbc = t_bc; c_teop = tx_eop; c_teb = tx_bytes; c_td = tx_data;
         end else begin
           p = {1'b1, tx_valid, tx_valid && tx_sop, t_eop, t_eb, 1'b0, tx_fc, tx_valid ? tx_chan : 8'd0, 32'd0};
           t_c24 = c24_word(t_c24, p);
@@ -302,6 +309,24 @@ module Interlaken_v1_2_sva #(
       r_q = rx_p;
     end
   end
+
+  function automatic int dcls(input logic [63:0] v);
+    return v == 64'd0 ? 0 : v == '1 ? 1 : (v == {32{2'b01}} || v == {32{2'b10}}) ? 2 : 3;
+  endfunction
+  covergroup cg_ilkn @(negedge clk);
+    option.per_instance = 1;
+    cp_tbc: coverpoint c_tbc iff (rst_n && c_tv) { bins n[] = {[1:BMAX]}; }
+    cp_teb: coverpoint c_teb iff (rst_n && c_tv && c_teop) { bins b[] = {[0:7]}; }
+    cp_tdata: coverpoint dcls(c_td) iff (rst_n && c_tv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rkind: coverpoint {rx_sop, rx_eop, rx_err} iff (rst_n && rx_valid)
+      { bins mid = {3'b000}; bins sop = {3'b100}; bins eop = {3'b010}; bins sop_eop = {3'b110};
+        bins eop_err = {3'b011}; }
+    cp_reb: coverpoint rx_bytes iff (rst_n && rx_valid && rx_eop && !rx_err) { bins b[] = {[0:7]}; }
+    cp_rdata: coverpoint dcls(rx_data) iff (rst_n && rx_valid)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_ilkn u_cg_ilkn = new;
 
   // ---------------- assertions ----------------
   `SVA_IMP(a_tx_bit, t_chk >= 0, tx_p == t_line[t_chk])
