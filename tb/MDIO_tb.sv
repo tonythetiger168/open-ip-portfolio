@@ -281,6 +281,30 @@ module MDIO_tb;
     end
 `endif
 
+    // every register written and read back (alternating-bit values in
+    // registers 5 and 6), and opcodes 00 / 11 addressed to another PHY
+    begin : reg_sweep
+      logic [15:0] v, d;
+      logic [1:0]  op;
+      for (int r = 0; r < 32; r++) begin
+        v = (r == 5) ? 16'h5555 : (r == 6) ? 16'hAAAA : 16'(r * 16'h0901 + 16'h0300);
+        mdio_write(5'h0C, 5'(r), v);
+        mdio_read(5'h0C, 5'(r), d);
+        if (d !== v) begin errors++; $display("ERROR: MDIO reg %0d got=%h exp=%h", r, d, v); end
+      end
+      for (int k = 0; k < 2; k++) begin
+        op = k ? 2'b11 : 2'b00;
+        preamble();
+        for (int i = 0; i < 32; i++)
+          mdc_bit((i == 0) ? 1'b0 : (i == 1) ? 1'b1 : (i == 2) ? op[1] : (i == 3) ? op[0] :
+                  (i < 9) ? 5'h03 >> (8 - i) : (i < 14) ? 1'b1 : (i == 14) ? 1'b1 :
+                  (i == 15) ? 1'b0 : 1'b0);
+        m_low = 0; #600;
+      end
+      mdio_read(5'h0C, 5'd9, d);
+      if (d !== 16'(9 * 16'h0901 + 16'h0300)) begin errors++; $display("ERROR: MDIO reg 9 changed by op %h", d); end
+    end
+
     if (errors == 0) $display("TEST PASSED: MDIO");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR
@@ -306,7 +330,7 @@ module MDIO_tb;
   end
 `else
   initial begin
-    #3_000_000; $display("TIMEOUT"); $finish;
+    #8_000_000; $display("TIMEOUT"); $finish;
   end
 `endif
 endmodule
