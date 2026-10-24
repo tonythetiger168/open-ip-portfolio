@@ -16,7 +16,7 @@ jobs:
       - name: Install open toolchain
         run: sudo apt-get update && sudo apt-get install -y iverilog yosys
 
-      - name: Full regression (117 protocols, sim + syn)
+      - name: Full regression (121 protocols, sim + syn + apb)
         run: bash scripts/ci_regression.sh
 
       - name: Upload failure logs
