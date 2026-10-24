@@ -35,6 +35,28 @@ module PWM_sva #(parameter int DW = 32) (
   endgroup
   cg_cfg u_cg_cfg = new;
 
+  // period class x duty class, sampled at the end of each period
+  // (period 1 has no duty strictly inside the period, and the max-partial
+  // duty of a period of 1 is 0, so those combinations do not exist)
+  function automatic logic [1:0] pcls(input logic [DW-1:0] p);
+    pcls = (p == 1) ? 2'd0 : (p < 16) ? 2'd1 : 2'd2;
+  endfunction
+  function automatic logic [2:0] dcls(input logic [DW-1:0] d, input logic [DW-1:0] p);
+    dcls = (d == 0) ? 3'd0 : (d == 1 && p > 2) ? 3'd1 : (d == p - 1 && p > 1) ? 3'd2 :
+           (d < p) ? 3'd3 : (d == p) ? 3'd4 : 3'd5;
+  endfunction
+  covergroup cg_combo @(posedge clk);
+    option.per_instance = 1;
+    cp_combo: coverpoint {pcls(m_per), dcls(m_duty, m_per)} iff (rst_n && irq) {
+      bins p1_zero = {5'b00_000}; bins p1_full = {5'b00_100}; bins p1_above = {5'b00_101};
+      bins ps_zero = {5'b01_000}; bins ps_one = {5'b01_001}; bins ps_max = {5'b01_010};
+      bins ps_mid = {5'b01_011}; bins ps_full = {5'b01_100}; bins ps_above = {5'b01_101};
+      bins pl_zero = {5'b10_000}; bins pl_one = {5'b10_001}; bins pl_max = {5'b10_010};
+      bins pl_mid = {5'b10_011}; bins pl_full = {5'b10_100}; bins pl_above = {5'b10_101};
+    }
+  endgroup
+  cg_combo u_cg_combo = new;
+
   `FC(period_shrunk_below_count, wen && waddr == 0 && wdata != 0 && m_cnt >= wdata)
   `FC(duty_changed_mid_period, wen && waddr == 1 && m_cnt != 0)
   `FC(disable_while_running, wen && waddr == 0 && wdata == 0 && m_per != 0)

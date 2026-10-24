@@ -92,6 +92,9 @@ module PWM_tb;
     check_duty(10, 7);
     check_duty(16, 1);
     check_duty(16, 15);
+    check_duty(1, 0);                     // period 1, never high
+    check_duty(10, 0);                    // short period, duty 0
+    check_duty(10, 1);                    // short period, one high clock
 
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ----
