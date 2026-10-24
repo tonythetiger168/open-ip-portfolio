@@ -628,6 +628,14 @@ module OCP_IP_Open_Core_Protocol_tb;
     end
 `endif
 
+    // data patterns written and read back
+    for (int k = 0; k < 4; k++) begin
+      logic [31:0] w;
+      w = k == 0 ? 32'h0 : k == 1 ? 32'hFFFF_FFFF : k == 2 ? 32'h5555_5555 : 32'hAAAA_AAAA;
+      cpu_write(32'h10, 5'd1, w, 1'b0, 1'b0);
+      cpu_read(32'h10, 5'd1, w, 1'b0);
+    end
+
     if (errors == 0) $display("TEST PASSED: OCP_IP_Open_Core_Protocol");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR
