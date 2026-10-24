@@ -183,6 +183,53 @@ module HDMI_2_1_sva (
   `SVA_NXT(a_unplug_parks, !hpd, tmds_d == 0 && !tmds_clk && !de)
   `SVA_INV(a_irq, irq == (ran && !hpd))
 
+  // TMDS video encoding per channel: transition-minimizing mode (XOR /
+  // XNOR) x DC-balance branch (no running disparity or balanced word,
+  // inverted, not inverted); every legal period-to-period transition.
+  // The pixel pattern (x ^ y, y, x) and the AVI / SPD packets are fixed
+  // by the core, not by the TB: channel 1 (y) reaches all six encoder
+  // branches, while channels 0 and 2 did not take XOR-inverted or
+  // XNOR-kept in the simulated frames (their data cannot be steered), so
+  // only their reached branches are binned; the TERC4 nibbles are those
+  // two constant packets, checked word by word by a_word_ch*.
+  function automatic logic [2:0] tbr(input logic [7:0] d, input int c);
+    logic [8:0] m;
+    int n1, n0;
+    bit xn;
+    xn = ones8(d) > 4 || (ones8(d) == 4 && d[0] == 1'b0);
+    m[0] = d[0];
+    for (int i = 1; i < 8; i++) m[i] = xn ? !(m[i-1] ^ d[i]) : (m[i-1] ^ d[i]);
+    n1 = ones8(m[7:0]); n0 = 8 - n1;
+    tbr[2] = xn;
+    tbr[1:0] = (c == 0 || n1 == n0) ? 2'd0 :
+               ((c > 0 && n1 > n0) || (c < 0 && n0 > n1)) ? 2'd1 : 2'd2;
+  endfunction
+  logic [7:0] pixv [0:2];
+  always_comb pixv = '{8'(x) ^ 8'(y), 8'(y), 8'(x)};
+  wire [2:0] br0 = tbr(pixv[0], cnt[0]), br1 = tbr(pixv[1], cnt[1]), br2 = tbr(pixv[2], cnt[2]);
+  int ph_prev;
+  always_ff @(posedge clk or negedge rst_n)
+    if (!rst_n) ph_prev <= -1;
+    else if (!hpd) ph_prev <= -1;
+    else if (chk) ph_prev <= ph;
+  covergroup cg_link @(posedge clk);
+    option.per_instance = 1;
+    cp_br0: coverpoint br0 iff (rst_n && chk && ph == 1)
+      { bins xor_bal = {3'b0_00}; bins xor_keep = {3'b0_10};
+        bins xnor_bal = {3'b1_00}; bins xnor_inv = {3'b1_01}; }
+    cp_br1: coverpoint br1 iff (rst_n && chk && ph == 1)
+      { bins xor_bal = {3'b0_00}; bins xor_inv = {3'b0_01}; bins xor_keep = {3'b0_10};
+        bins xnor_bal = {3'b1_00}; bins xnor_inv = {3'b1_01}; bins xnor_keep = {3'b1_10}; }
+    cp_br2: coverpoint br2 iff (rst_n && chk && ph == 1)
+      { bins xor_bal = {3'b0_00}; bins xor_keep = {3'b0_10};
+        bins xnor_bal = {3'b1_00}; bins xnor_inv = {3'b1_01}; }
+    cp_period: coverpoint {4'(ph_prev), 4'(ph)} iff (rst_n && chk && ph_prev >= 0 && ph_prev != ph)
+      { bins ctrl_to_vpre = {8'h03}; bins vpre_to_vguard = {8'h32}; bins vguard_to_video = {8'h21};
+        bins video_to_ctrl = {8'h10}; bins ctrl_to_ipre = {8'h04}; bins ipre_to_iguard = {8'h45};
+        bins iguard_to_data = {8'h56}; bins data_to_iguard = {8'h65}; bins iguard_to_ctrl = {8'h50}; }
+  endgroup
+  cg_link u_cg_link = new;
+
   `FC(video_pixel, chk && ph == 1)
   `FC(video_preamble, chk && ph == 3)
   `FC(video_guard, chk && ph == 2)

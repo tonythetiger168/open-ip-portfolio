@@ -50,6 +50,16 @@ module UCIe_tb;
   // ---------------- protocol layers ----------------
   int  p_tx = 70;
   bit  tx_on = 0, b_off = 0;
+  int  pat = -1;                                 // >= 0: payload class (0, all ones, 0x55.., 0xAA..)
+  function automatic logic [63:0] pl;
+    case (pat)
+      0: return 64'd0;
+      1: return '1;
+      2: return {32{2'b01}};
+      3: return {32{2'b10}};
+      default: return {$urandom, $urandom};
+    endcase
+  endfunction
   logic [63:0] sb_ab [$], sb_ba [$];             // sent, not yet delivered
   int  n_ab = 0, n_ba = 0, n_crc = 0, n_rep = 0;
   // a payload is taken on the rising edge where valid and ready are both high
@@ -58,9 +68,9 @@ module UCIe_tb;
     if (b_tv && b_tr) begin sb_ba.push_back(b_td); b_tv <= 0; end
   end
   always @(negedge clk) if (rst_n) begin
-    if (!a_tv && tx_on && $urandom % 100 < p_tx) begin a_tv = 1; a_td = {$urandom, $urandom}; end
+    if (!a_tv && tx_on && $urandom % 100 < p_tx) begin a_tv = 1; a_td = pl(); end
     else if (!a_tv) a_td = {$urandom, $urandom};
-    if (!b_tv && tx_on && !b_off && $urandom % 100 < p_tx) begin b_tv = 1; b_td = {$urandom, $urandom}; end
+    if (!b_tv && tx_on && !b_off && $urandom % 100 < p_tx) begin b_tv = 1; b_td = pl(); end
     else if (!b_tv) b_td = {$urandom, $urandom};
     if (b_rv) begin
       if (sb_ab.size() == 0) fail("B delivered a payload never sent");
@@ -148,6 +158,9 @@ module UCIe_tb;
     run(3000, "both");
     p_cor = 0; p_drop = 0; dly = 0; p_tx = 100;
     run(1000, "fast");
+    // payload classes both ways
+    for (int k = 0; k < 4; k++) begin pat = k; run(40, "payload class"); end
+    pat = -1;
     // reset with traffic in flight
     dly = 3; p_cor = 5; tx_on = 1;
     while (!(a_pend > 2 && b_pend > 2 && b_rv)) @(negedge clk);
