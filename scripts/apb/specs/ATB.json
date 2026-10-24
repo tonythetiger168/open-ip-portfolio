@@ -2,6 +2,13 @@
   "title": "AMBA ATB trace sink: a 16-beat capture buffer flushed when the trace ID changes, read back through the registers",
   "code": "0x4154",
   "version": "2.0",
+  "features": [
+    "CoreSight ATB slave: `atvalid` / `atready`, `DW`-bit (default 32) `atdata`, 7-bit `atid`, `atlast`.",
+    "Captures up to `DEPTH` (16) beats into a buffer, entries 0 to 15 in order; `atready` drops when it is full.",
+    "Flush: `afvalid` with an ATID other than the current one empties the buffer and makes that ID current; `afready` is always 1.",
+    "STATUS.count reports the stored beats (D0 to D15) and STATUS.last_id the ATID of the last beat with `atlast`.",
+    "Interrupt LAST on every accepted beat with `atlast`."
+  ],
   "tb_clk_ns": 10,
   "regs": [
     {

@@ -2,10 +2,19 @@
 
 Protocol IP `MDIO`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `MDIO_top` (`rtl/MDIO_top.sv`) |
+| Register interface | APB4 slave `MDIO_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x4D440200 (code 0x4D44, version 2.0) |
+| Registers | 5 words, 0x000 to 0x010 |
+| Interrupts | 1 sources into one level-high `irq` |
+| Protocol pins | 2 pass-through |
+
 ## Overview
 
 MDIO slave (IEEE 802.3 Clause 22 PHY management) ST(01) + OP(2) + PHYAD(5) + REGAD(5) + TA(2) + DATA(16), MSB first. Open-drain MDIO. A frame starts on ST (0 then 1) only after at least one idle/preamble 1 (preamble suppression down to one bit is accepted), so the tail of one frame can never be mistaken for the start of the next. Reads: the PHY drives the second turnaround bit low, then DATA[15:0].
-
 
 mdio (open drain: the target pulls it low for the turnaround and read data) and mdc are the management pins; they pass through unchanged. The PHY registers are reached only over MDIO; the APB registers report frame completion. MDC is sampled on PCLK, so each MDC phase must last at least three PCLK clocks.
 A frame starts at ST (0 then 1) after at least one idle 1 (preamble suppression is accepted). Writes to another PHY address are ignored and reads of another address are not answered.
@@ -27,6 +36,35 @@ make -f Makefile.MDIO apb                # wrapper test + synthesis
 bash scripts/cov/run_cov.sh MDIO          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh MDIO_apb      # wrapper coverage
 ```
+
+## Parameters
+
+`MDIO_apb` has the core's parameters and passes them to `MDIO_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `PHY_ADDR` | logic [4:0] | `5'h0C` |
+
+## Wrapper pins
+
+Pins of `MDIO_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `mdio` | inout | 1 | protocol pin, core port `mdio` |
+| `mdc` | input | 1 | protocol pin, core port `mdc` |
 
 ## Core ports
 
@@ -54,13 +92,18 @@ Pass-through pins: `mdio`, `mdc`.
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
 
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x014 up to 0xFFC are unmapped (PSLVERR).
+
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x4D44 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x4D44 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -69,6 +112,13 @@ A bit is set while its source is active, stays set until written with 1, and a s
 | Bit | Name | Set when |
 |---|---|---|
 | 0 | FRAME | a management frame (to any PHY address) has been fully received |
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x4D440200.
+2. Write 0x1 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x1 enables all).
+4. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

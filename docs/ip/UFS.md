@@ -2,10 +2,19 @@
 
 Protocol IP `UFS`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `UFS_top` (`rtl/UFS_top.sv`) |
+| Register interface | APB4 slave `UFS_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x55460200 (code 0x5546, version 2.0) |
+| Registers | 5 words, 0x000 to 0x010 |
+| Interrupts | 1 sources into one level-high `irq` |
+| Protocol pins | 5 pass-through |
+
 ## Overview
 
 UFS protocol Open IP -- UFS host: simplified UniPro frame link + UPIU command transactions (TEST UNIT READY / READ10 / WRITE10 on a serial lane) Open IP design implementation v2.5 Simplifications (per SPEC.md section 2.4): * refclk is kept for interface compatibility only; the lane symbol clock is derived from clk (1 bit per clk, MSB-first within each 32-bit dword). * Frame : SOF(32'h5546_5301) HDR PAYLOAD(len <= 8 dwords) CRC32 EOF(32'h5546_5302) HDR   : {type[7:0], task_tag[7:0], lun[7:0], len[7:0]} CRC32 : poly 32'h04C11DB7 (reflected shift form 32'hEDB8_8320), init all-ones, final XOR all-ones; computed over the on-the-wire bit stream of HDR+PAYLOAD and transmitted as one dword MSB-first. * COMMAND UPIU (type 8'h01): payload[0..3] = 16-byte CDB dword0 = {opcode[7:0], lba[23:0]}, dword1 = {xfer_dwords[7:0], 24'h0} WRITE10 data is carried inline in payload[4..7] (count = len-4 dwords) * RESPONSE UPIU (type 8'h81): payload[0] = {sense[15:0], status[15:0]} READ10 data follows in a DATA UPIU (type 8'h02) * LUN0 medium: internal 256 x 32-bit storage array. * One command at a time: a COMMAND UPIU that completes while the previous response (or its DATA UPIU) is still owed or on the wire is dropped with irq, so a transmitting frame is never overwritten. * LUN0 only: a command for another LUN gets CHECK CONDITION / ILLEGAL REQUEST. WRITE10 needs the CDB transfer length to equal the inline data dword count. * Frames of other UPIU types are ignored. * irq pulses one clk on: CRC mismatch, unknown opcode, len > 8, bad EOF, malformed CDB, bad LUN, out-of-range LBA/transfer length or a command while busy.
-
 
 tx_p / tx_n (serial out, 1 bit per PCLK), rx_p / rx_n (serial in; only rx_p is sampled) and refclk pass through unchanged. The core trains the link on its own after reset and answers the commands the link partner sends.
 The LUN0 medium is reached over the serial link only; the registers report its errors.
@@ -27,6 +36,38 @@ make -f Makefile.UFS apb                # wrapper test + synthesis
 bash scripts/cov/run_cov.sh UFS          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh UFS_apb      # wrapper coverage
 ```
+
+## Parameters
+
+`UFS_apb` has the core's parameters and passes them to `UFS_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `BIT_CLKS` | int | `1` |
+
+## Wrapper pins
+
+Pins of `UFS_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `tx_n` | output | 1 | protocol pin, core port `tx_n` |
+| `tx_p` | output | 1 | protocol pin, core port `tx_p` |
+| `rx_n` | input | 1 | protocol pin, core port `rx_n` |
+| `rx_p` | input | 1 | protocol pin, core port `rx_p` |
+| `refclk` | input | 1 | protocol pin, core port `refclk` |
 
 ## Core ports
 
@@ -57,13 +98,18 @@ Pass-through pins: `tx_n`, `tx_p`, `rx_n`, `rx_p`, `refclk`.
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
 
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x014 up to 0xFFC are unmapped (PSLVERR).
+
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x5546 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x5546 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -72,6 +118,13 @@ A bit is set while its source is active, stays set until written with 1, and a s
 | Bit | Name | Set when |
 |---|---|---|
 | 0 | ERR | CRC mismatch, bad EOF, length above 8, malformed CDB, bad LUN, unknown opcode, out-of-range LBA or transfer length, WRITE10 length mismatch, or a command while a response is still owed |
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x55460200.
+2. Write 0x1 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x1 enables all).
+4. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

@@ -2,10 +2,20 @@
 
 Protocol IP `CSE`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `CSE_top` (`rtl/CSE_top.sv`) |
+| Register interface | APB4 slave `CSE_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x43450200 (code 0x4345, version 2.0) |
+| Registers | 20 words, 0x000 to 0x04C |
+| Interrupts | 2 sources into one level-high `irq` |
+| Core register port | KEY (4 words) |
+| Protocol pins | none (register access only) |
+
 ## Overview
 
 CSE -- Crypto & Security Engine: real AES-128 (FIPS-197) ECB core. * Full SubBytes/ShiftRows/MixColumns/AddRoundKey + on-the-fly key expansion; iterative datapath, 1 round/clk, 10 rounds * Parallel command port: 128-bit key written as 4x32 words (key_we/key_widx/key), start/din[127:0]/enc_dec -> busy/done/dout * Command queue depth 1: a new start or key write while busy is a protocol violation -> irq pulse (command ignored)
-
 
 Wide values are little-endian across words: DIN0 and DOUT0 hold bits [31:0], DIN3 and DOUT3 bits [127:96]. The key is the other way round: KEY0 holds bits [127:96], as the core takes it.
 The key words are write only (the core keeps no read path to them) and take whole words: a KEY write with PSTRB != 4'hF gets PSLVERR and is dropped.
@@ -27,6 +37,29 @@ make -f Makefile.CSE apb                # wrapper test + synthesis
 bash scripts/cov/run_cov.sh CSE          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh CSE_apb      # wrapper coverage
 ```
+
+## Parameters
+
+The core and the wrapper have no parameters.
+
+## Wrapper pins
+
+Pins of `CSE_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address, or partial write to a core register word |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
 
 ## Core ports
 
@@ -58,44 +91,49 @@ bash scripts/cov/run_cov.sh CSE_apb      # wrapper coverage
 | 0x008 | IRQ_ENABLE | RW | 0x00000000 | Interrupt enables; irq = \|(IRQ_STATUS & IRQ_ENABLE) |
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
-| 0x014 | KEY0 | WO (core) | 0x00000000 | key bits [127:96] (write only; reset 0); a write while busy is refused (PROTOCOL) |
-| 0x018 | KEY1 | WO (core) | 0x00000000 | key bits [95:64] (write only; reset 0) |
-| 0x01C | KEY2 | WO (core) | 0x00000000 | key bits [63:32] (write only; reset 0) |
-| 0x020 | KEY3 | WO (core) | 0x00000000 | key bits [31:0] (write only; reset 0) |
+| 0x014 | KEY0 | WO (core) | core | key bits [127:96] (write only; reset 0); a write while busy is refused (PROTOCOL) |
+| 0x018 | KEY1 | WO (core) | core | key bits [95:64] (write only; reset 0) |
+| 0x01C | KEY2 | WO (core) | core | key bits [63:32] (write only; reset 0) |
+| 0x020 | KEY3 | WO (core) | core | key bits [31:0] (write only; reset 0) |
 | 0x024 | DIN0 | RW | 0x00000000 | Input block |
 | 0x028 | DIN1 | RW | 0x00000000 | Input block |
 | 0x02C | DIN2 | RW | 0x00000000 | Input block |
 | 0x030 | DIN3 | RW | 0x00000000 | Input block |
 | 0x034 | CTRL | RW | 0x00000001 | Operation |
 | 0x038 | CMD | WO (pulse) | 0x00000000 | Commands |
-| 0x03C | DOUT0 | RO | 0x00000000 | Result |
-| 0x040 | DOUT1 | RO | 0x00000000 | Result |
-| 0x044 | DOUT2 | RO | 0x00000000 | Result |
-| 0x048 | DOUT3 | RO | 0x00000000 | Result |
-| 0x04C | STATUS | RO | 0x00000000 | Engine state |
+| 0x03C | DOUT0 | RO | core | Result |
+| 0x040 | DOUT1 | RO | core | Result |
+| 0x044 | DOUT2 | RO | core | Result |
+| 0x048 | DOUT3 | RO | core | Result |
+| 0x04C | STATUS | RO | core | Engine state |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x050 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x4345 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| KEY0 | 31:0 | core register | written at core register 0 |
-| KEY1 | 31:0 | core register | written at core register 1 |
-| KEY2 | 31:0 | core register | written at core register 2 |
-| KEY3 | 31:0 | core register | written at core register 3 |
-| DIN0 | 31:0 | `din[31:0]` | the 128-bit block taken by START (plaintext to encrypt, ciphertext to decrypt) |
-| DIN1 | 31:0 | `din[63:32]` | the 128-bit block taken by START (plaintext to encrypt, ciphertext to decrypt) |
-| DIN2 | 31:0 | `din[95:64]` | the 128-bit block taken by START (plaintext to encrypt, ciphertext to decrypt) |
-| DIN3 | 31:0 | `din[127:96]` | the 128-bit block taken by START (plaintext to encrypt, ciphertext to decrypt) |
-| CTRL | 0 | `enc_dec` | 1: encrypt, 0: decrypt; taken by START |
-| CMD | 0 | `start` | write 1: run one block with the current key, DIN and CTRL (21 clocks); refused while busy (PROTOCOL) |
-| DOUT0 | 31:0 | `dout[31:0]` | the 128-bit result of the last operation, valid from DONE |
-| DOUT1 | 31:0 | `dout[63:32]` | the 128-bit result of the last operation, valid from DONE |
-| DOUT2 | 31:0 | `dout[95:64]` | the 128-bit result of the last operation, valid from DONE |
-| DOUT3 | 31:0 | `dout[127:96]` | the 128-bit result of the last operation, valid from DONE |
-| STATUS | 0 | `busy` | an operation is running (key expansion, then the rounds) |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x4345 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 1:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 1:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| KEY0 | 31:0 | core register | WO (core) | core | written at core register 0 |
+| KEY1 | 31:0 | core register | WO (core) | core | written at core register 1 |
+| KEY2 | 31:0 | core register | WO (core) | core | written at core register 2 |
+| KEY3 | 31:0 | core register | WO (core) | core | written at core register 3 |
+| DIN0 | 31:0 | `din[31:0]` | RW | 0x0 | the 128-bit block taken by START (plaintext to encrypt, ciphertext to decrypt) |
+| DIN1 | 31:0 | `din[63:32]` | RW | 0x0 | the 128-bit block taken by START (plaintext to encrypt, ciphertext to decrypt) |
+| DIN2 | 31:0 | `din[95:64]` | RW | 0x0 | the 128-bit block taken by START (plaintext to encrypt, ciphertext to decrypt) |
+| DIN3 | 31:0 | `din[127:96]` | RW | 0x0 | the 128-bit block taken by START (plaintext to encrypt, ciphertext to decrypt) |
+| CTRL | 0 | `enc_dec` | RW | 0x1 | 1: encrypt, 0: decrypt; taken by START |
+| CMD | 0 | `start` | WO (pulse) | 0x0 | write 1: run one block with the current key, DIN and CTRL (21 clocks); refused while busy (PROTOCOL) |
+| DOUT0 | 31:0 | `dout[31:0]` | RO | core | the 128-bit result of the last operation, valid from DONE |
+| DOUT1 | 31:0 | `dout[63:32]` | RO | core | the 128-bit result of the last operation, valid from DONE |
+| DOUT2 | 31:0 | `dout[95:64]` | RO | core | the 128-bit result of the last operation, valid from DONE |
+| DOUT3 | 31:0 | `dout[127:96]` | RO | core | the 128-bit result of the last operation, valid from DONE |
+| STATUS | 0 | `busy` | RO | core | an operation is running (key expansion, then the rounds) |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -109,6 +147,18 @@ A bit is set while its source is active, stays set until written with 1, and a s
 ### Core register port
 
 The KEY words reach the core's own register port. A write to one pulses `key_we` for one clock with `key_widx` (the core register) and `key` (PWDATA's low bits); it must cover the whole word (PSTRB = 4'hF): a partial write is dropped with PSLVERR. 
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x43450200.
+2. Write 0x3 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Configure the core: write DIN0 (0x024), DIN1 (0x028), DIN2 (0x02C), DIN3 (0x030), CTRL (0x034). Reset values are in the register map; PSTRB selects the bytes written.
+4. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x3 enables all).
+5. Access the core's registers through the KEY words (0x014 onward), one word per core register; write whole words (PSTRB = 0xF), a partial write is dropped with PSLVERR.
+6. To issue a command, write 1 to `start` (CMD bit 0) at 0x038; the core sees a one-clock pulse, and the register reads 0.
+7. Read DOUT0 (0x03C), DOUT1 (0x040), DOUT2 (0x044), DOUT3 (0x048) for the core's live `dout[31:0]`, `dout[63:32]`, `dout[95:64]`, `dout[127:96]`; it needs no clearing.
+8. Read STATUS (0x04C) for the core's live `busy`; it needs no clearing.
+9. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

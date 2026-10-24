@@ -2,6 +2,17 @@
 
 Protocol IP `NVMe`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `NVMe_top` (`rtl/NVMe_top.sv`) |
+| Register interface | APB4 slave `NVMe_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x4E560200 (code 0x4E56, version 2.0) |
+| Registers | 10 words, 0x000 to 0x024 |
+| Interrupts | 3 sources into one level-high `irq` |
+| Data streams | SQ_DB (to the core), CQ_DB (to the core) |
+| Protocol pins | 7 pass-through |
+
 ## Overview
 
 NVMe_top v2.0: NVMe controller command engine for one I/O submission / completion queue pair and one small namespace, with a host memory master
@@ -70,6 +81,42 @@ bash scripts/cov/run_cov.sh NVMe          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh NVMe_apb      # wrapper coverage
 ```
 
+## Parameters
+
+`NVMe_apb` has the core's parameters and passes them to `NVMe_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `QD` | int | `8` |
+| `NBLK` | int | `8` |
+| `BLKDW` | int | `4` |
+
+## Wrapper pins
+
+Pins of `NVMe_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `m_req_valid` | output | 1 | protocol pin, core port `m_req_valid` |
+| `m_req_ready` | input | 1 | protocol pin, core port `m_req_ready` |
+| `m_req_we` | output | 1 | protocol pin, core port `m_req_we` |
+| `m_req_addr` | output | 16 | protocol pin, core port `m_req_addr` |
+| `m_req_wdata` | output | 32 | protocol pin, core port `m_req_wdata` |
+| `m_rsp_valid` | input | 1 | protocol pin, core port `m_rsp_valid` |
+| `m_rsp_data` | input | 32 | protocol pin, core port `m_rsp_data` |
+
 ## Core ports
 
 | Port | Dir | Width | In the APB wrapper |
@@ -116,23 +163,28 @@ Pass-through pins: `m_req_valid`, `m_req_ready`, `m_req_we`, `m_req_addr`, `m_re
 | 0x018 | QBASE | RW | 0x00000000 | Queue bases, dword addresses in host memory (change them only while CC.cc_en and CSTS.csts_rdy are 0) |
 | 0x01C | SQ_DB | RW | 0x00000000 | Submission queue tail doorbell: writing it gives the new tail (0..7); a value of 8 or more, or a write while not ready, is ignored with ERR_DB |
 | 0x020 | CQ_DB | RW | 0x00000000 | Completion queue head doorbell: writing it gives the new head (0..7); a value of 8 or more, or a write while not ready, is ignored with ERR_DB |
-| 0x024 | CSTS | RO | 0x00000000 | Controller status |
+| 0x024 | CSTS | RO | core | Controller status |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x028 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x4E56 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| CC | 0 | `cc_en` | enable; clearing it aborts the command in progress and zeroes the queue pointers once the memory reads owed have returned |
-| QBASE | 15:0 | `sq_base` | submission queue (QD = 8 entries of 64 bytes) |
-| QBASE | 31:16 | `cq_base` | completion queue (QD = 8 entries of 16 bytes) |
-| SQ_DB | 15:0 | `sq_db` | new SQ tail |
-| CQ_DB | 15:0 | `cq_db` | new CQ head |
-| CSTS | 0 | `csts_rdy` | ready: enabled and not aborting |
-| CSTS | 3:1 | `sq_head` | SQ head: the next entry the controller fetches |
-| CSTS | 6:4 | `cq_tail` | CQ tail: where the next completion goes |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x4E56 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 2:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 2:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| CC | 0 | `cc_en` | RW | 0x0 | enable; clearing it aborts the command in progress and zeroes the queue pointers once the memory reads owed have returned |
+| QBASE | 15:0 | `sq_base` | RW | 0x0 | submission queue (QD = 8 entries of 64 bytes) |
+| QBASE | 31:16 | `cq_base` | RW | 0x0 | completion queue (QD = 8 entries of 16 bytes) |
+| SQ_DB | 15:0 | `sq_db` | RW | 0x0 | new SQ tail |
+| CQ_DB | 15:0 | `cq_db` | RW | 0x0 | new CQ head |
+| CSTS | 0 | `csts_rdy` | RO | core | ready: enabled and not aborting |
+| CSTS | 3:1 | `sq_head` | RO | core | SQ head: the next entry the controller fetches |
+| CSTS | 6:4 | `cq_tail` | RO | core | CQ tail: where the next completion goes |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -148,6 +200,17 @@ A bit is set while its source is active, stays set until written with 1, and a s
 
 * **SQ_DB** feeds `sq_db`; writing SQ_DB pulses `sq_db_valid` for one clock.
 * **CQ_DB** feeds `cq_db`; writing CQ_DB pulses `cq_db_valid` for one clock.
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x4E560200.
+2. Write 0x7 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Configure the core: write CC (0x014), QBASE (0x018). Reset values are in the register map; PSTRB selects the bytes written.
+4. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x7 enables all).
+5. To send on SQ_DB: write SQ_DB (0x01C). The last write pulses `sq_db_valid` for one clock; there is no back-pressure.
+6. To send on CQ_DB: write CQ_DB (0x020). The last write pulses `cq_db_valid` for one clock; there is no back-pressure.
+7. Read CSTS (0x024) for the core's live `csts_rdy`, `sq_head`, `cq_tail`; it needs no clearing.
+8. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

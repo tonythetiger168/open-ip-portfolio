@@ -2,6 +2,16 @@
 
 Protocol IP `HDMI_2_1`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `HDMI_2_1_top` (`rtl/HDMI_2_1_top.sv`) |
+| Register interface | APB4 slave `HDMI_2_1_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x484D0200 (code 0x484D, version 2.0) |
+| Registers | 6 words, 0x000 to 0x014 |
+| Interrupts | 1 sources into one level-high `irq` |
+| Protocol pins | 6 pass-through |
+
 ## Overview
 
 HDMI_2_1 protocol Open IP -- HDMI source (TMDS mode) educational slice: full TMDS 8b/10b encode algorithm (transition minimisation with XOR/XNOR selection + disparity tracking + DC-balance bits 8/9), 3 data channels + TMDS clock channel (serial 1 bit/clk simplification), control period with 8-pixel video/data-island preambles and CTL0-3 codes (4 fixed 10-bit codes), video period RGB888 active pixels on 3 channels, data island period with TERC4 4b/10b encoding and packet structure (24-bit header + 4 subpackets x 56 bit, BCH ECC simplified to XOR parity - see comments), AVI InfoFrame (type 0x82) sent once per frame, built-in 640x480@60 timing generator (hact=640 hfp=16 hsw=96 hbp=48 / vact=480 vfp=10 vsw=2 vbp=33). Documented simplifications (educational slice of the HDMI physical layer):
@@ -55,6 +65,35 @@ bash scripts/cov/run_cov.sh HDMI_2_1          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh HDMI_2_1_apb      # wrapper coverage
 ```
 
+## Parameters
+
+The core and the wrapper have no parameters.
+
+## Wrapper pins
+
+Pins of `HDMI_2_1_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `hpd` | input | 1 | protocol pin, core port `hpd` |
+| `tmds_clk` | output | 1 | protocol pin, core port `tmds_clk` |
+| `tmds_d` | output | 3 | protocol pin, core port `tmds_d` |
+| `hsync` | output | 1 | protocol pin, core port `hsync` (also read in a register) |
+| `vsync` | output | 1 | protocol pin, core port `vsync` (also read in a register) |
+| `de` | output | 1 | protocol pin, core port `de` (also read in a register) |
+
 ## Core ports
 
 | Port | Dir | Width | In the APB wrapper |
@@ -84,18 +123,23 @@ Pass-through pins: `hpd`, `tmds_clk`, `tmds_d`, `hsync`, `vsync`, `de`.
 | 0x008 | IRQ_ENABLE | RW | 0x00000000 | Interrupt enables; irq = \|(IRQ_STATUS & IRQ_ENABLE) |
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
-| 0x014 | STATUS | RO | 0x00000000 | Video timing (the same levels as the hsync / vsync / de pins) |
+| 0x014 | STATUS | RO | core | Video timing (the same levels as the hsync / vsync / de pins) |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x018 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x484D |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| STATUS | 0 | `hsync` | horizontal sync, active low (VIC 1) |
-| STATUS | 1 | `vsync` | vertical sync, active low (VIC 1) |
-| STATUS | 2 | `de` | active video pixel |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x484D | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| STATUS | 0 | `hsync` | RO | core | horizontal sync, active low (VIC 1) |
+| STATUS | 1 | `vsync` | RO | core | vertical sync, active low (VIC 1) |
+| STATUS | 2 | `de` | RO | core | active video pixel |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -104,6 +148,14 @@ A bit is set while its source is active, stays set until written with 1, and a s
 | Bit | Name | Set when |
 |---|---|---|
 | 0 | HPD_LOST | hpd went low after the link had run; level in the core, so the bit is set again on every clock until hpd returns |
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x484D0200.
+2. Write 0x1 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x1 enables all).
+4. Read STATUS (0x014) for the core's live `hsync`, `vsync`, `de`; it needs no clearing.
+5. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

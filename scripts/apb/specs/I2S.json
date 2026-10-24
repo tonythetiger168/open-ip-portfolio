@@ -2,6 +2,13 @@
   "title": "I2S slave transmitter and receiver: 16-bit samples, left and right channels, Philips timing (MSB one BCLK after LRCK)",
   "code": "0x4932",
   "version": "2.0",
+  "features": [
+    "I2S (Philips) slave: BCLK and LRCK come from the master; LRCK = 0 is the left channel.",
+    "`DW`-bit (default 16) samples, MSB first, one BCLK after each LRCK transition; slots longer than `DW` bits are padded (TX sends 0, RX ignores the extra bits).",
+    "Separate sample registers TX_LEFT, TX_RIGHT, RX_LEFT and RX_RIGHT; SDOUT shifts on BCLK falling edges and SDIN is sampled on rising edges.",
+    "BCLK, LRCK and SDIN are synchronised to the system clock.",
+    "Interrupt FRAME on every LRCK transition (frame sync, twice per stereo frame)."
+  ],
   "tb_clk_ns": 10,
   "regs": [
     {"name": "CORE", "kind": "bus", "wen": "wen", "waddr": "waddr", "wdata": "wdata", "ren": "ren", "raddr": "raddr", "rdata": "rdata",

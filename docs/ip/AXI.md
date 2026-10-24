@@ -2,10 +2,19 @@
 
 Protocol IP `AXI`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `AXI_top` (`rtl/AXI_top.sv`) |
+| Register interface | APB4 slave `AXI_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x41330200 (code 0x4133, version 2.0) |
+| Registers | 5 words, 0x000 to 0x010 |
+| Interrupts | 1 sources into one level-high `irq` |
+| Protocol pins | 30 pass-through |
+
 ## Overview
 
 AXI (AXI3-style) protocol -- real AXI3 slave IP: 5 channel handshakes, INCR/FIXED bursts (len 1..16, len field [3:0]), write data channel carries WID (write interleaving NOT supported: WID must match the accepted AWID, beats are processed strictly in order), byte strobes, true valid/ready backpressure, SLVERR on out-of-range / misaligned / WRAP / WID mismatch, DECERR on unsupported size/burst encoding. 256x32 register file target. Simplifications: single outstanding transaction per direction, no write interleaving, awsize <= log2(DW/8), WRAP treated as error.
-
 
 The AW, W, B, AR and R channel pins (awid ... rready, with wid) are the AXI3 subordinate pins; they pass through unchanged. The registers report the subordinate's error event.
 One transaction at a time per direction, any ID, no write interleaving. DECERR: a size above 4 bytes or the reserved burst type. SLVERR: a burst starting outside bytes 0x000 to 0x3FF or misaligned, a WRAP burst, an INCR burst running past 0x3FF (from that beat on), a WID other than the AWID, a WLAST early or missing. Writes are dropped from the first error on.
@@ -27,6 +36,64 @@ make -f Makefile.AXI apb                # wrapper test + synthesis
 bash scripts/cov/run_cov.sh AXI          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh AXI_apb      # wrapper coverage
 ```
+
+## Parameters
+
+`AXI_apb` has the core's parameters and passes them to `AXI_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `DW` | int | `32` |
+| `AW` | int | `32` |
+
+## Wrapper pins
+
+Pins of `AXI_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `awid` | input | 4 | protocol pin, core port `awid` |
+| `awaddr` | input | 32 | protocol pin, core port `awaddr` |
+| `awlen` | input | 4 | protocol pin, core port `awlen` |
+| `awsize` | input | 3 | protocol pin, core port `awsize` |
+| `awburst` | input | 2 | protocol pin, core port `awburst` |
+| `awvalid` | input | 1 | protocol pin, core port `awvalid` |
+| `awready` | output | 1 | protocol pin, core port `awready` |
+| `wid` | input | 4 | protocol pin, core port `wid` |
+| `wdata` | input | 32 | protocol pin, core port `wdata` |
+| `wstrb` | input | 4 | protocol pin, core port `wstrb` |
+| `wlast` | input | 1 | protocol pin, core port `wlast` |
+| `wvalid` | input | 1 | protocol pin, core port `wvalid` |
+| `wready` | output | 1 | protocol pin, core port `wready` |
+| `bid` | output | 4 | protocol pin, core port `bid` |
+| `bresp` | output | 2 | protocol pin, core port `bresp` |
+| `bvalid` | output | 1 | protocol pin, core port `bvalid` |
+| `bready` | input | 1 | protocol pin, core port `bready` |
+| `arid` | input | 4 | protocol pin, core port `arid` |
+| `araddr` | input | 32 | protocol pin, core port `araddr` |
+| `arlen` | input | 4 | protocol pin, core port `arlen` |
+| `arsize` | input | 3 | protocol pin, core port `arsize` |
+| `arburst` | input | 2 | protocol pin, core port `arburst` |
+| `arvalid` | input | 1 | protocol pin, core port `arvalid` |
+| `arready` | output | 1 | protocol pin, core port `arready` |
+| `rid` | output | 4 | protocol pin, core port `rid` |
+| `rdata` | output | 32 | protocol pin, core port `rdata` |
+| `rresp` | output | 2 | protocol pin, core port `rresp` |
+| `rlast` | output | 1 | protocol pin, core port `rlast` |
+| `rvalid` | output | 1 | protocol pin, core port `rvalid` |
+| `rready` | input | 1 | protocol pin, core port `rready` |
 
 ## Core ports
 
@@ -82,13 +149,18 @@ Pass-through pins: `awid`, `awaddr`, `awlen`, `awsize`, `awburst`, `awvalid`, `a
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
 
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x014 up to 0xFFC are unmapped (PSLVERR).
+
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x4133 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x4133 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -97,6 +169,13 @@ A bit is set while its source is active, stays set until written with 1, and a s
 | Bit | Name | Set when |
 |---|---|---|
 | 0 | ERR | a transfer got SLVERR or DECERR, or a write burst's WLAST came early or not at all, or a WID did not match the AWID; the core holds this until reset, so the bit cannot be cleared before then |
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x41330200.
+2. Write 0x1 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x1 enables all).
+4. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

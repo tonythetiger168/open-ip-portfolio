@@ -2,6 +2,17 @@
 
 Protocol IP `Bluetooth5`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `Bluetooth5_top` (`rtl/Bluetooth5_top.sv`) |
+| Register interface | APB4 slave `Bluetooth5_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x42540200 (code 0x4254, version 2.0) |
+| Registers | 24 words, 0x000 to 0x05C |
+| Interrupts | 1 sources into one level-high `irq` |
+| Core register port | CFG (18 words) |
+| Protocol pins | 3 pass-through |
+
 ## Overview
 
 Bluetooth 5 (BLE) link layer peripheral -- synthesizable baseband model Implementation scope (simplified, NOT the full BLE LL specification):
@@ -56,6 +67,36 @@ bash scripts/cov/run_cov.sh Bluetooth5          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh Bluetooth5_apb      # wrapper coverage
 ```
 
+## Parameters
+
+`Bluetooth5_apb` has the core's parameters and passes them to `Bluetooth5_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `ADV_INTV` | int | `1200` |
+
+## Wrapper pins
+
+Pins of `Bluetooth5_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address, or partial write to a core register word |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `rxd` | input | 1 | protocol pin, core port `rxd` |
+| `txd` | output | 1 | protocol pin, core port `txd` |
+| `tx_act` | output | 1 | protocol pin, core port `tx_act` (also read in a register) |
+
 ## Core ports
 
 | Port | Dir | Width | In the APB wrapper |
@@ -85,52 +126,57 @@ Pass-through pins: `rxd`, `txd`, `tx_act`.
 | 0x008 | IRQ_ENABLE | RW | 0x00000000 | Interrupt enables; irq = \|(IRQ_STATUS & IRQ_ENABLE) |
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
-| 0x014 | PAY0 | WO (core) | 0x00000000 | ADV_IND payload byte 0 (write only; reset 0xB0) |
-| 0x018 | PAY1 | WO (core) | 0x00000000 | ADV_IND payload byte 1 (write only; reset 0xB1) |
-| 0x01C | PAY2 | WO (core) | 0x00000000 | ADV_IND payload byte 2 (write only; reset 0xB2) |
-| 0x020 | PAY3 | WO (core) | 0x00000000 | ADV_IND payload byte 3 (write only; reset 0xB3) |
-| 0x024 | PAY4 | WO (core) | 0x00000000 | ADV_IND payload byte 4 (write only; reset 0xB4) |
-| 0x028 | PAY5 | WO (core) | 0x00000000 | ADV_IND payload byte 5 (write only; reset 0xB5) |
-| 0x02C | PAY6 | WO (core) | 0x00000000 | ADV_IND payload byte 6 (write only; reset 0xB6) |
-| 0x030 | PAY7 | WO (core) | 0x00000000 | ADV_IND payload byte 7 (write only; reset 0xB7) |
-| 0x034 | PAY8 | WO (core) | 0x00000000 | ADV_IND payload byte 8 (write only; reset 0xB8) |
-| 0x038 | PAY9 | WO (core) | 0x00000000 | ADV_IND payload byte 9 (write only; reset 0xB9) |
-| 0x03C | PAY10 | WO (core) | 0x00000000 | ADV_IND payload byte 10 (write only; reset 0xBA) |
-| 0x040 | PAY11 | WO (core) | 0x00000000 | ADV_IND payload byte 11 (write only; reset 0xBB) |
-| 0x044 | PAY12 | WO (core) | 0x00000000 | ADV_IND payload byte 12 (write only; reset 0xBC) |
-| 0x048 | PAY13 | WO (core) | 0x00000000 | ADV_IND payload byte 13 (write only; reset 0xBD) |
-| 0x04C | PAY14 | WO (core) | 0x00000000 | ADV_IND payload byte 14 (write only; reset 0xBE) |
-| 0x050 | PAY15 | WO (core) | 0x00000000 | ADV_IND payload byte 15 (write only; reset 0xBF) |
-| 0x054 | ADV_CTRL | WO (core) | 0x00000000 | bit 0 adv_en: send ADV_IND every ADV_INTV clocks while advertising (write only; reset 1) |
-| 0x058 | SCAN_CTRL | WO (core) | 0x00000000 | bit 0 scan_en: answer SCAN_REQ with SCAN_RSP (write only; reset 1) |
-| 0x05C | STATUS | RO | 0x00000000 | Baseband state, as driven on the pin |
+| 0x014 | PAY0 | WO (core) | core | ADV_IND payload byte 0 (write only; reset 0xB0) |
+| 0x018 | PAY1 | WO (core) | core | ADV_IND payload byte 1 (write only; reset 0xB1) |
+| 0x01C | PAY2 | WO (core) | core | ADV_IND payload byte 2 (write only; reset 0xB2) |
+| 0x020 | PAY3 | WO (core) | core | ADV_IND payload byte 3 (write only; reset 0xB3) |
+| 0x024 | PAY4 | WO (core) | core | ADV_IND payload byte 4 (write only; reset 0xB4) |
+| 0x028 | PAY5 | WO (core) | core | ADV_IND payload byte 5 (write only; reset 0xB5) |
+| 0x02C | PAY6 | WO (core) | core | ADV_IND payload byte 6 (write only; reset 0xB6) |
+| 0x030 | PAY7 | WO (core) | core | ADV_IND payload byte 7 (write only; reset 0xB7) |
+| 0x034 | PAY8 | WO (core) | core | ADV_IND payload byte 8 (write only; reset 0xB8) |
+| 0x038 | PAY9 | WO (core) | core | ADV_IND payload byte 9 (write only; reset 0xB9) |
+| 0x03C | PAY10 | WO (core) | core | ADV_IND payload byte 10 (write only; reset 0xBA) |
+| 0x040 | PAY11 | WO (core) | core | ADV_IND payload byte 11 (write only; reset 0xBB) |
+| 0x044 | PAY12 | WO (core) | core | ADV_IND payload byte 12 (write only; reset 0xBC) |
+| 0x048 | PAY13 | WO (core) | core | ADV_IND payload byte 13 (write only; reset 0xBD) |
+| 0x04C | PAY14 | WO (core) | core | ADV_IND payload byte 14 (write only; reset 0xBE) |
+| 0x050 | PAY15 | WO (core) | core | ADV_IND payload byte 15 (write only; reset 0xBF) |
+| 0x054 | ADV_CTRL | WO (core) | core | bit 0 adv_en: send ADV_IND every ADV_INTV clocks while advertising (write only; reset 1) |
+| 0x058 | SCAN_CTRL | WO (core) | core | bit 0 scan_en: answer SCAN_REQ with SCAN_RSP (write only; reset 1) |
+| 0x05C | STATUS | RO | core | Baseband state, as driven on the pin |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x060 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x4254 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| PAY0 | 7:0 | core register | written at core register 0 |
-| PAY1 | 7:0 | core register | written at core register 1 |
-| PAY2 | 7:0 | core register | written at core register 2 |
-| PAY3 | 7:0 | core register | written at core register 3 |
-| PAY4 | 7:0 | core register | written at core register 4 |
-| PAY5 | 7:0 | core register | written at core register 5 |
-| PAY6 | 7:0 | core register | written at core register 6 |
-| PAY7 | 7:0 | core register | written at core register 7 |
-| PAY8 | 7:0 | core register | written at core register 8 |
-| PAY9 | 7:0 | core register | written at core register 9 |
-| PAY10 | 7:0 | core register | written at core register 10 |
-| PAY11 | 7:0 | core register | written at core register 11 |
-| PAY12 | 7:0 | core register | written at core register 12 |
-| PAY13 | 7:0 | core register | written at core register 13 |
-| PAY14 | 7:0 | core register | written at core register 14 |
-| PAY15 | 7:0 | core register | written at core register 15 |
-| ADV_CTRL | 7:0 | core register | written at core register 16 |
-| SCAN_CTRL | 7:0 | core register | written at core register 17 |
-| STATUS | 0 | `tx_act` | high while a packet is being sent on txd |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x4254 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| PAY0 | 7:0 | core register | WO (core) | core | written at core register 0 |
+| PAY1 | 7:0 | core register | WO (core) | core | written at core register 1 |
+| PAY2 | 7:0 | core register | WO (core) | core | written at core register 2 |
+| PAY3 | 7:0 | core register | WO (core) | core | written at core register 3 |
+| PAY4 | 7:0 | core register | WO (core) | core | written at core register 4 |
+| PAY5 | 7:0 | core register | WO (core) | core | written at core register 5 |
+| PAY6 | 7:0 | core register | WO (core) | core | written at core register 6 |
+| PAY7 | 7:0 | core register | WO (core) | core | written at core register 7 |
+| PAY8 | 7:0 | core register | WO (core) | core | written at core register 8 |
+| PAY9 | 7:0 | core register | WO (core) | core | written at core register 9 |
+| PAY10 | 7:0 | core register | WO (core) | core | written at core register 10 |
+| PAY11 | 7:0 | core register | WO (core) | core | written at core register 11 |
+| PAY12 | 7:0 | core register | WO (core) | core | written at core register 12 |
+| PAY13 | 7:0 | core register | WO (core) | core | written at core register 13 |
+| PAY14 | 7:0 | core register | WO (core) | core | written at core register 14 |
+| PAY15 | 7:0 | core register | WO (core) | core | written at core register 15 |
+| ADV_CTRL | 7:0 | core register | WO (core) | core | written at core register 16 |
+| SCAN_CTRL | 7:0 | core register | WO (core) | core | written at core register 17 |
+| STATUS | 0 | `tx_act` | RO | core | high while a packet is being sent on txd |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -143,6 +189,15 @@ A bit is set while its source is active, stays set until written with 1, and a s
 ### Core register port
 
 The CFG words reach the core's own register port. A write to one pulses `cfg_we` for one clock with `cfg_addr` (the core register) and `cfg_wdata` (PWDATA's low bits); it must cover the whole word (PSTRB = 4'hF): a partial write is dropped with PSLVERR. 
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x42540200.
+2. Write 0x1 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x1 enables all).
+4. Access the core's registers through the CFG words (0x014 onward), one word per core register; write whole words (PSTRB = 0xF), a partial write is dropped with PSLVERR.
+5. Read STATUS (0x05C) for the core's live `tx_act`; it needs no clearing.
+6. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

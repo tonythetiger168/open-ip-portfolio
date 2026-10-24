@@ -2,6 +2,17 @@
 
 Protocol IP `MIPI_DBI__Display_Bus_Interface_`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `MIPI_DBI__Display_Bus_Interface__top` (`rtl/MIPI_DBI__Display_Bus_Interface__top.sv`) |
+| Register interface | APB4 slave `MIPI_DBI__Display_Bus_Interface__apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x44420200 (code 0x4442, version 2.0) |
+| Registers | 9 words, 0x000 to 0x020 |
+| Interrupts | 4 sources into one level-high `irq` |
+| Data streams | OP (to the core), RD (from the core) |
+| Protocol pins | 11 pass-through |
+
 ## Overview
 
 MIPI_DBI__Display_Bus_Interface__top v2.0: MIPI DBI-2 host controller (Type A, Type B and Type C options 1 / 3)
@@ -47,6 +58,40 @@ make -f Makefile.MIPI_DBI__Display_Bus_Interface_ apb                # wrapper t
 bash scripts/cov/run_cov.sh MIPI_DBI__Display_Bus_Interface_          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh MIPI_DBI__Display_Bus_Interface__apb      # wrapper coverage
 ```
+
+## Parameters
+
+The core and the wrapper have no parameters.
+
+## Wrapper pins
+
+Pins of `MIPI_DBI__Display_Bus_Interface__apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `csx` | output | 1 | protocol pin, core port `csx` |
+| `dcx` | output | 1 | protocol pin, core port `dcx` |
+| `wrx` | output | 1 | protocol pin, core port `wrx` |
+| `rdx` | output | 1 | protocol pin, core port `rdx` |
+| `d_o` | output | 16 | protocol pin, core port `d_o` |
+| `d_oe` | output | 1 | protocol pin, core port `d_oe` |
+| `d_i` | input | 16 | protocol pin, core port `d_i` |
+| `scl` | output | 1 | protocol pin, core port `scl` |
+| `sda_o` | output | 1 | protocol pin, core port `sda_o` |
+| `sda_oe` | output | 1 | protocol pin, core port `sda_oe` |
+| `sda_i` | input | 1 | protocol pin, core port `sda_i` |
 
 ## Core ports
 
@@ -98,26 +143,32 @@ Pass-through pins: `csx`, `dcx`, `wrx`, `rdx`, `d_o`, `d_oe`, `d_i`, `scl`, `sda
 | 0x014 | CFG | RW | 0x00000A11 | Interface configuration (change only while STATUS.busy is 0) |
 | 0x018 | OP | RW | 0x00000000 | One bus transfer; writing OP commits it |
 | 0x01C | RD | RO (pop) | 0x00000000 | Read data; reading RD frees it |
-| 0x020 | STATUS | RO | 0x00000000 | Controller state |
+| 0x020 | STATUS | RO | core | Controller state |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x024 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x4442 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| CFG | 1:0 | `cfg_type` | 0 Type A (6800), 1 Type B (8080), 2 Type C option 1 (3-line, 9-bit), 3 Type C option 3 (4-line, D/CX pin) |
-| CFG | 2 | `cfg_w16` | Type A / B 16-bit data bus |
-| CFG | 6:3 | `cfg_tw` | write phase length - 1 (PCLK) |
-| CFG | 10:7 | `cfg_tr` | read phase length - 1 (PCLK) |
-| CFG | 12:11 | `cfg_dummy` | Type C dummy clocks before the first read after a write |
-| OP | 15:0 | `op_data` | write data (8-bit transfers use [7:0]) |
-| OP | 16 | `op_dc` | 0 command, 1 data / parameter (D/CX) |
-| OP | 17 | `op_rd` | 1 read, 0 write |
-| OP | 18 | `op_last` | release CSX after this transfer |
-| RD | 15:0 | `rd_data` | read data (8-bit transfers in [7:0]) |
-| STATUS | 0 | `busy` | a transfer is running or CSX is low |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x4442 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 3:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 3:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| FLAGS | 1:0 | one bit per stream flag | RO | 0x0 | see FLAGS |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| CFG | 1:0 | `cfg_type` | RW | 0x1 | 0 Type A (6800), 1 Type B (8080), 2 Type C option 1 (3-line, 9-bit), 3 Type C option 3 (4-line, D/CX pin) |
+| CFG | 2 | `cfg_w16` | RW | 0x0 | Type A / B 16-bit data bus |
+| CFG | 6:3 | `cfg_tw` | RW | 0x2 | write phase length - 1 (PCLK) |
+| CFG | 10:7 | `cfg_tr` | RW | 0x4 | read phase length - 1 (PCLK) |
+| CFG | 12:11 | `cfg_dummy` | RW | 0x1 | Type C dummy clocks before the first read after a write |
+| OP | 15:0 | `op_data` | RW | 0x0 | write data (8-bit transfers use [7:0]) |
+| OP | 16 | `op_dc` | RW | 0x0 | 0 command, 1 data / parameter (D/CX) |
+| OP | 17 | `op_rd` | RW | 0x0 | 1 read, 0 write |
+| OP | 18 | `op_last` | RW | 0x0 | release CSX after this transfer |
+| RD | 15:0 | `rd_data` | RO (pop) | 0x0 | read data (8-bit transfers in [7:0]) |
+| STATUS | 0 | `busy` | RO | core | a transfer is running or CSX is low |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -141,6 +192,17 @@ A bit is set while its source is active, stays set until written with 1, and a s
 
 * **OP** feeds `op_data`, `op_dc`, `op_rd`, `op_last`/`op_valid`. Writing OP commits the beat: FLAGS.OP_FULL is set and `op_valid` stays high until the core's `op_ready`; then OP_DONE is set. A write while full is dropped and sets OP_OVF.
 * **RD** captures `rd_data` when `rd_valid` is high and the register is empty (or is being read in the same clock), and sets FLAGS/IRQ RD_AVAIL. Reading RD pops it. A beat that arrives while the register is full is dropped and sets RD_OVF.
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x44420200.
+2. Write 0xF to IRQ_STATUS (0x004) to clear any stale bits.
+3. Configure the core: write CFG (0x014). Reset values are in the register map; PSTRB selects the bytes written.
+4. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0xF enables all).
+5. To send on OP: wait until FLAGS.OP_FULL (bit 0) is 0, or for IRQ OP_DONE, then write OP (0x018). The last write commits the beat. OP_OVF means a write came while the register was full and was dropped.
+6. To receive on RD: wait for IRQ RD_AVAIL or FLAGS.RD_AVAIL (bit 1), then read RD (0x01C). Reading the last word frees the register for the next beat; write 1 to IRQ_STATUS.RD_AVAIL (bit 2) to clear it. Read each beat before the next arrives, or it is dropped and RD_OVF is set.
+7. Read STATUS (0x020) for the core's live `busy`; it needs no clearing.
+8. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

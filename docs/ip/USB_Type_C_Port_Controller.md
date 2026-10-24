@@ -2,10 +2,20 @@
 
 Protocol IP `USB_Type_C_Port_Controller`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `USB_Type_C_Port_Controller_top` (`rtl/USB_Type_C_Port_Controller_top.sv`) |
+| Register interface | APB4 slave `USB_Type_C_Port_Controller_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x54430200 (code 0x5443, version 2.0) |
+| Registers | 13 words, 0x000 to 0x030 |
+| Interrupts | 1 sources into one level-high `irq` |
+| Core register port | CORE (8 words) |
+| Protocol pins | 5 pass-through |
+
 ## Overview
 
 USB Type-C Port Controller (TCPC) -- DRP port controller Implementation scope: * cc1/cc2 3-level analog-line inputs, encoded as 2-bit enum: CC_OPEN = 2'b00 (nothing connected / line open) CC_RD   = 2'b01 (sink pull-down Rd present) CC_RA   = 2'b10 (powered-cable / audio accessory Ra present) 2'b11   = abnormal level (fault injection, raises irq) * Attach-detect FSM: UNATTACHED -> ATTACHWAIT (100 clk debounce) -> ATTACHED; orientation resolved from which CC pin saw Rd (cc1 -> orientation=0, cc2 -> orientation=1). Ra-only or Rd on both pins is not a sink attach and is ignored. The debounce restarts if Rd moves to the other pin or an abnormal level appears. * Detach detect: active CC pin back to OPEN for 10 consecutive clks. * vbus_en: asserted in ATTACHED when configured role is source (DFP); stays low for sink role. * 8 x 8-bit register port (I2C-style register file over a simplified parallel command interface: reg_addr/reg_wdata/reg_rdata/reg_rd/reg_wr): 0 CC_STATUS  RO  {attached, orientation, fsm[1:0], cc2[1:0], cc1[1:0]} 1 ROLE_CTRL  RW  bit0: 1 = source/DFP (default), 0 = sink/UFP 2 FAULT_STAT RW1C bit0: abnormal CC level seen (sticky) 3 INT_STAT   RW1C bit0 attach, bit1 detach, bit2 fault (sticky) 4 DEBOUNCE   RO  attach debounce value (8'd100) 5 ORIENT     RO  bit0 = orientation 6 VBUS_STAT  RO  bit0 = vbus_en 7 DEVICE_ID  RO  8'hC7 * irq: asserted while an abnormal CC level is present or while any sticky INT_STAT bit is set (cleared via RW1C write).
-
 
 cc1 / cc2 (2-bit CC line levels: 0 open, 1 Rd, 2 Ra, 3 abnormal), attached, orientation and vbus_en pass through unchanged.
 The core's 8-bit register file is mapped one register per word (bits 7:0); a write with PSTRB != 4'hF is dropped with PSLVERR.
@@ -27,6 +37,39 @@ make -f Makefile.USB_Type_C_Port_Controller apb                # wrapper test + 
 bash scripts/cov/run_cov.sh USB_Type_C_Port_Controller          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh USB_Type_C_Port_Controller_apb      # wrapper coverage
 ```
+
+## Parameters
+
+`USB_Type_C_Port_Controller_apb` has the core's parameters and passes them to `USB_Type_C_Port_Controller_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `DW` | int | `32` |
+| `AW` | int | `32` |
+
+## Wrapper pins
+
+Pins of `USB_Type_C_Port_Controller_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address, or partial write to a core register word |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `cc1` | input | 2 | protocol pin, core port `cc1` |
+| `cc2` | input | 2 | protocol pin, core port `cc2` |
+| `attached` | output | 1 | protocol pin, core port `attached` |
+| `orientation` | output | 1 | protocol pin, core port `orientation` |
+| `vbus_en` | output | 1 | protocol pin, core port `vbus_en` |
 
 ## Core ports
 
@@ -61,30 +104,35 @@ Pass-through pins: `cc1`, `cc2`, `attached`, `orientation`, `vbus_en`.
 | 0x008 | IRQ_ENABLE | RW | 0x00000000 | Interrupt enables; irq = \|(IRQ_STATUS & IRQ_ENABLE) |
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
-| 0x014 | CC_STATUS | RO (core) | 0x00000000 | {attached, orientation, fsm[1:0], cc2[1:0], cc1[1:0]} (fsm: 0 unattached, 1 attach wait, 2 attached) |
-| 0x018 | ROLE_CTRL | RW (core) | 0x00000000 | bit 0: 1 = source / DFP (reset), 0 = sink / UFP; vbus_en needs the source role |
-| 0x01C | FAULT_STAT | RW (core) | 0x00000000 | bit 0: abnormal CC level seen (sticky, write 1 to clear; a fault in the same clock wins) |
-| 0x020 | INT_STAT | RW (core) | 0x00000000 | bit 0 attach, bit 1 detach, bit 2 fault (sticky, write 1 to clear; a new event in the same clock wins) |
-| 0x024 | DEBOUNCE | RO (core) | 0x00000000 | attach debounce in clocks (100) |
-| 0x028 | ORIENT | RO (core) | 0x00000000 | bit 0: orientation (1 = CC2 is the wired CC) |
-| 0x02C | VBUS_STAT | RO (core) | 0x00000000 | bit 0: vbus_en |
-| 0x030 | DEVICE_ID | RO (core) | 0x00000000 | device ID 0xC7 |
+| 0x014 | CC_STATUS | RO (core) | core | {attached, orientation, fsm[1:0], cc2[1:0], cc1[1:0]} (fsm: 0 unattached, 1 attach wait, 2 attached) |
+| 0x018 | ROLE_CTRL | RW (core) | core | bit 0: 1 = source / DFP (reset), 0 = sink / UFP; vbus_en needs the source role |
+| 0x01C | FAULT_STAT | RW (core) | core | bit 0: abnormal CC level seen (sticky, write 1 to clear; a fault in the same clock wins) |
+| 0x020 | INT_STAT | RW (core) | core | bit 0 attach, bit 1 detach, bit 2 fault (sticky, write 1 to clear; a new event in the same clock wins) |
+| 0x024 | DEBOUNCE | RO (core) | core | attach debounce in clocks (100) |
+| 0x028 | ORIENT | RO (core) | core | bit 0: orientation (1 = CC2 is the wired CC) |
+| 0x02C | VBUS_STAT | RO (core) | core | bit 0: vbus_en |
+| 0x030 | DEVICE_ID | RO (core) | core | device ID 0xC7 |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x034 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x5443 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| CC_STATUS | 7:0 | core register | read from core register 0 |
-| ROLE_CTRL | 7:0 | core register | written at core register 1 and read from core register 1 |
-| FAULT_STAT | 7:0 | core register | written at core register 2 and read from core register 2 |
-| INT_STAT | 7:0 | core register | written at core register 3 and read from core register 3 |
-| DEBOUNCE | 7:0 | core register | read from core register 4 |
-| ORIENT | 7:0 | core register | read from core register 5 |
-| VBUS_STAT | 7:0 | core register | read from core register 6 |
-| DEVICE_ID | 7:0 | core register | read from core register 7 |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x5443 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| CC_STATUS | 7:0 | core register | RO (core) | core | read from core register 0 |
+| ROLE_CTRL | 7:0 | core register | RW (core) | core | written at core register 1 and read from core register 1 |
+| FAULT_STAT | 7:0 | core register | RW (core) | core | written at core register 2 and read from core register 2 |
+| INT_STAT | 7:0 | core register | RW (core) | core | written at core register 3 and read from core register 3 |
+| DEBOUNCE | 7:0 | core register | RO (core) | core | read from core register 4 |
+| ORIENT | 7:0 | core register | RO (core) | core | read from core register 5 |
+| VBUS_STAT | 7:0 | core register | RO (core) | core | read from core register 6 |
+| DEVICE_ID | 7:0 | core register | RO (core) | core | read from core register 7 |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -97,6 +145,14 @@ A bit is set while its source is active, stays set until written with 1, and a s
 ### Core register port
 
 The CORE words reach the core's own register port. A write to one pulses `reg_wr` for one clock with `reg_addr` (the core register) and `reg_wdata` (PWDATA's low bits); it must cover the whole word (PSTRB = 4'hF): a partial write is dropped with PSLVERR. A read drives `reg_addr` (the core register) and pulses `reg_rd` during the access phase and returns `reg_rdata`.
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x54430200.
+2. Write 0x1 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x1 enables all).
+4. Access the core's registers through the CORE words (0x014 onward), one word per core register; write whole words (PSTRB = 0xF), a partial write is dropped with PSLVERR.
+5. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 
