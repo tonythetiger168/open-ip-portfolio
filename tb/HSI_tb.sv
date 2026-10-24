@@ -274,6 +274,11 @@ module HSI_tb;
     rst_n = 1; cycles(5);
     send(1, 2, 32'h0F0F_0F0F); send(0, 3, 32'hF0F0_F0F0);
     quiet(10_000);
+    // data patterns both ways
+    send(0, 4'h0, 32'h0000_0000); send(1, 4'hF, 32'h0000_0000);
+    send(0, 4'h5, 32'hFFFF_FFFF); send(1, 4'hA, 32'hFFFF_FFFF);
+    send(0, 4'h6, 32'h5555_5555); send(1, 4'h9, 32'hAAAA_AAAA);
+    quiet(10_000);
 
     $display("frames %0d / %0d", n_rx[0], n_rx[1]);
     if (errors == 0) $display("TEST PASSED: HSI");

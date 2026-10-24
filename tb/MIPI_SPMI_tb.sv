@@ -335,6 +335,11 @@ module MIPI_SPMI_tb;
         default: ext_read(sa, lng, n, 16'($urandom_range(0, 40)));
       endcase
     end
+    // data patterns written and read back
+    for (int k = 0; k < 4; k++) begin
+      reg_write(USID, 5'(8 + k), k == 0 ? 8'h00 : k == 1 ? 8'hFF : k == 2 ? 8'h55 : 8'hAA, 0, 0);
+      reg_read(USID, 5'(8 + k));
+    end
     compare_all();
 
     if (errors == 0) $display("TEST PASSED: MIPI_SPMI");
