@@ -59,6 +59,35 @@ module APB_sva #(parameter int DW = 32, AW = 32, DEPTH = 256) (
     else if (access_finish) begin last_wr_ok <= write_q && !err_q; last_wr_word <= addr_q[9:2]; end
   `FC(read_after_write_same, setup_cycle && !pwrite && !paddr[11] && last_wr_ok &&
       paddr[9:2] == last_wr_word)
+  // data classes moved, direction x word position, and the direction and
+  // error status of back-to-back transfer pairs
+  function automatic logic [1:0] dcls(input logic [DW-1:0] v);
+    dcls = (v == '0) ? 2'd0 : (v == '1) ? 2'd1 :
+           (v == {(DW/2){2'b01}} || v == {(DW/2){2'b10}}) ? 2'd2 : 2'd3;
+  endfunction
+  logic       m_fin_d, m_dir_d, m_err_d;
+  always_ff @(posedge clk or negedge rst_n)
+    if (!rst_n) begin m_fin_d <= 0; m_dir_d <= 0; m_err_d <= 0; end
+    else begin m_fin_d <= access_finish; m_dir_d <= write_q; m_err_d <= err_q; end
+  covergroup cg_data @(posedge clk);
+    option.per_instance = 1;
+    cp_wdata: coverpoint dcls(pwdata) iff (rst_n && access_finish && write_q && !err_q)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint dcls(prdata) iff (rst_n && access_finish && !write_q && !err_q)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_dir: coverpoint pwrite iff (rst_n && setup_cycle && !paddr[11]) { bins rd = {0}; bins wr = {1}; }
+    cp_word: coverpoint paddr[9:2] iff (rst_n && setup_cycle && !paddr[11])
+      { bins first = {0}; bins last = {DEPTH-1}; bins mid = {[1:DEPTH-2]}; }
+    x_dir_word: cross cp_dir, cp_word;
+    cp_pair: coverpoint {m_dir_d, m_err_d, pwrite, region == 2'd2} iff (rst_n && m_fin_d && setup_cycle) {
+      bins rd_rd = {4'b0000}; bins rd_wr = {4'b0010}; bins wr_rd = {4'b1000}; bins wr_wr = {4'b1010};
+      bins err_then_ok = {4'b0100, 4'b0110, 4'b1100, 4'b1110};
+      bins ok_then_err = {4'b0001, 4'b0011, 4'b1001, 4'b1011};
+    }
+  endgroup
+  cg_data u_cg_data = new;
+  `FC(slow_write, setup_cycle && region == 2'd1 && pwrite ##1 !pready ##1 pready)
+
   `FC_RST(reset_during_access, rst_n && setup_cycle ##1 !rst_n)
 endmodule
 

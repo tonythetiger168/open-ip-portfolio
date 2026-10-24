@@ -236,6 +236,31 @@ module APB_tb;
     apb_read(32'h0020, 32'h0, 0);           // register file cleared by reset
     apb_read(32'h0008, 32'h0, 0);           // aborted write did not land
 
+    // ---------------- 9. data classes, back-to-back direction pairs -------
+    // psel held high across: wr wr rd wr rd rd, then reserved -> valid ->
+    // reserved, with all-zero / all-one / alternating / other data
+    begin : data_pairs
+      logic [DW-1:0] dv [4];
+      dv[0] = '0; dv[1] = '1; dv[2] = 32'h5555_5555; dv[3] = 32'h1234_5678;
+      for (int i = 0; i < 4; i++) begin
+        @(negedge clk); #1;
+        apb_setup(32'h0040 + 4*i, 1'b1, dv[i]);   apb_access();   // wr
+        apb_setup(32'h0080 + 4*i, 1'b1, ~dv[i]);  apb_access();   // wr -> wr
+        apb_setup(32'h0040 + 4*i, 1'b0, '0);      apb_access();   // wr -> rd
+        chk(rd_data === dv[i], "pairs: read-back mismatch");
+        apb_setup(32'h00C0 + 4*i, 1'b1, dv[i]);   apb_access();   // rd -> wr
+        apb_setup(32'h0080 + 4*i, 1'b0, '0);      apb_access();   // wr -> rd
+        chk(rd_data === ~dv[i], "pairs: inverted read-back mismatch");
+        apb_setup(32'h00C0 + 4*i, 1'b0, '0);      apb_access();   // rd -> rd
+        chk(rd_data === dv[i], "pairs: rd-rd read-back mismatch");
+        apb_setup(32'h0800, i[0], dv[i]);          apb_access();   // ok -> err
+        chk(slverr_f === 1'b1, "pairs: reserved access without pslverr");
+        apb_setup(32'h0040 + 4*i, 1'b0, '0);      apb_access();   // err -> ok
+        chk(slverr_f === 1'b0 && rd_data === dv[i], "pairs: read after error");
+        apb_done();
+      end
+    end
+
     bus_idle(2);
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ------
