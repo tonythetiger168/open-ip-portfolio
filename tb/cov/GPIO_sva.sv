@@ -29,7 +29,14 @@ module GPIO_sva (
       { bins all_in = {8'h00}; bins all_out = {8'hFF}; bins mixed = default; }
     cp_waddr: coverpoint waddr iff (rst_n && wen) { bins out_reg = {0}; bins other = {[1:15]}; }
     cp_raddr: coverpoint raddr iff (rst_n && ren) { bins in_reg = {0}; bins out_reg = {1}; bins other = {[2:15]}; }
+    cp_wdata: coverpoint dcls(wdata) iff (rst_n && wen && waddr == 0) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint dcls(rdata) iff (rst_n && ren && raddr <= 1) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rreg: coverpoint raddr iff (rst_n && ren && raddr <= 1) { bins in_reg = {0}; bins out_reg = {1}; }
+    x_read: cross cp_rreg, cp_rdata;
   endgroup
+  function automatic int dcls(input logic [7:0] v);
+    dcls = v == 0 ? 0 : v == 8'hFF ? 1 : (v == 8'h55 || v == 8'hAA) ? 2 : 3;
+  endfunction
   cg_io u_cg_io = new;
 
   `FC(irq_rises, $rose(irq))
