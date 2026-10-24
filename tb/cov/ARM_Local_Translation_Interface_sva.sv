@@ -68,8 +68,13 @@ module ARM_Local_Translation_Interface_sva #(
   bit v_ok, v_tf, v_pf [0:3], v_ssid_match, v_ssid_any, v_two_hit, v_tags_full, v_wait_tag, v_inv_wait, v_inv_now;
   bit v_inv_all, v_inv_sid, v_inv_write, v_close_wait, v_nocrd, v_bad_lc, v_reopen, v_lc_with_lr;
 
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  bit c_av, c_pv;
+  int c_rw, c_ip, c_resp, c_hit, c_tag, c_id, c_dep;
+
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
+      {c_av, c_pv} = '0; c_rw = 0; c_ip = 0; c_resp = 0; c_hit = 0; c_tag = 0; c_id = 0; c_dep = 0;
       for (int i = 0; i < NE; i++) begin
         m_v[i] = 0; m_ssidv[i] = 0; m_sid[i] = 0; m_ssid[i] = 0; m_attr[i] = 0; m_va[i] = 0; m_pa[i] = 0; m_perm[i] = 0;
       end
@@ -83,6 +88,7 @@ module ARM_Local_Translation_Interface_sva #(
       bit  pushed, answered, ok;
       logic [44:0] r;
       nq0 = q.size(); pushed = 0; answered = 0;
+      {c_av, c_pv} = '0;
       {o_lr, o_crd, o_done, o_fault, o_proto} = '0;
       // ---- the head request, on the table as it stands
       if (nq0 != 0) begin
@@ -106,6 +112,8 @@ module ARM_Local_Translation_Interface_sva #(
           answered = 1;
           void'(q.pop_front());
           o_lr = 1; o_id = r[44:41];
+          c_av = 1; c_rw = int'(r[3:2]); c_ip = int'(r[1:0]); c_id = int'(r[44:41]); c_hit = hit;
+          c_resp = hit < 0 ? 1 : (!ok ? 2 : 0); c_tag = free;
           if (hit < 0) begin o_resp = 1; o_pa = 0; o_attr = 0; o_tag = 0; o_fault = 1; v_tf = 1; end
           else if (!ok) begin
             o_resp = 2; o_pa = 0; o_attr = 0; o_tag = 0; o_fault = 1;
@@ -125,6 +133,7 @@ module ARM_Local_Translation_Interface_sva #(
         else begin
           cr--; pushed = 1;
           q.push_back({la_id, la_va, la_sid, la_ssid, la_ssidv, la_rw, la_instr, la_priv});
+          c_pv = 1; c_dep = q.size();
         end
       end
       // ---- LC, then the tag handed out now
@@ -181,6 +190,23 @@ module ARM_Local_Translation_Interface_sva #(
                           !ev_fault && !ev_proto)
 
   // ---------------- functional coverage ----------------
+  // request access kind (read / write bits, instruction / privileged
+  // bits) x response, entry hit and tag handed out by OK responses,
+  // response ID, request queue depth
+  covergroup cg_lti @(negedge clk);
+    option.per_instance = 1;
+    cp_resp: coverpoint c_resp iff (rst_n && c_av) { bins ok = {0}; bins tfault = {1}; bins pfault = {2}; }
+    cp_rw: coverpoint c_rw iff (rst_n && c_av) { bins none = {0}; bins rd = {1}; bins wr = {2}; bins rdwr = {3}; }
+    cp_ip: coverpoint c_ip iff (rst_n && c_av) { bins data_user = {0}; bins data_priv = {1}; bins instr_user = {2}; bins instr_priv = {3}; }
+    x_rw_resp: cross cp_rw, cp_resp;
+    x_ip_resp: cross cp_ip, cp_resp;
+    cp_hit: coverpoint c_hit iff (rst_n && c_av && c_resp == 0) { bins e[] = {[0:NE-1]}; }
+    cp_tag: coverpoint c_tag iff (rst_n && c_av && c_resp == 0) { bins t[] = {[0:NCT-1]}; }
+    cp_id: coverpoint c_id iff (rst_n && c_av) { bins i[] = {[0:15]}; }
+    cp_depth: coverpoint c_dep iff (rst_n && c_pv) { bins d[] = {[1:RQ]}; }
+  endgroup
+  cg_lti u_cg_lti = new;
+
   `FC(translation_ok, v_ok)
   `FC(translation_fault, v_tf)
   `FC(permission_fault_read, v_pf[0])
