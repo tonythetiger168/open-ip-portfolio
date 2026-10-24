@@ -314,6 +314,31 @@ module SPMI_tb;
     repeat(5) @(posedge clk);
     if (rx_byte !== 8'h81 || ack_b !== 1'b0) begin errors++; $display("ERROR: SPMI after reset rx=%h", rx_byte); end
 
+    // reads of registers 0x00 / 0xFF, an alternating-bit write, and SSCs
+    // restarting a frame in the address and in the data field (the
+    // restarted frame then completes normally)
+    begin : frame_classes
+      logic [7:0] d;
+      logic [3:0] sa;
+      sa = 4'h5;
+      spmi_read(sa, 8'h00, d);
+      spmi_read(sa, 8'hFF, d);
+      spmi_write(sa, 8'h21, 8'h55);
+      if (rx_byte !== 8'h55 || rx_addr !== 8'h21) begin
+        errors++; $display("ERROR: SPMI alt write rx=%h addr=%h", rx_byte, rx_addr);
+      end
+      for (int k = 0; k < 2; k++) begin
+        ssc;
+        for (int i = 3; i >= 0; i--) sbit(sa[i]);
+        sbit(0); sbit(0); sbit(0); sbit(0);
+        for (int i = 0; i < 3 + 8 * k; i++) sbit(1'b1);
+        spmi_write(sa, 8'h22 + 8'(k), 8'hA0 + 8'(k));
+        if (rx_byte !== 8'hA0 + 8'(k) || rx_addr !== 8'h22 + 8'(k)) begin
+          errors++; $display("ERROR: SPMI write after restart rx=%h addr=%h", rx_byte, rx_addr);
+        end
+      end
+    end
+
     if (errors == 0) $display("TEST PASSED: SPMI");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR
