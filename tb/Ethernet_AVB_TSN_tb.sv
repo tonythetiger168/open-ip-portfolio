@@ -253,6 +253,9 @@ module Ethernet_AVB_TSN_tb;
     gcl_test(3'd0, 24'd9_000, 8'd8, 0, 0);        // 1 entry
     gcl_test(3'd2, 24'd5_000, 8'd16, 0, 0);       // list longer than the cycle
     gcl_test(3'd2, 24'd60_000, 8'd8, 0, 7000);    // last entry lasts to the end
+    g_off = 0; gcl_test(3'd7, 24'd40_000, 8'd8, 0, 0);   // every gate mask once
+    g_off = 8; gcl_test(3'd7, 24'd40_000, 8'd8, 0, 0);
+    g_off = -1;
     // a long cycle at the largest increment: elapsed counters fill up
     gcl_test(3'd1, 24'hFF_FFF0, 8'd255, 0, 0);
     inc_ns = 8;
@@ -352,13 +355,14 @@ module Ethernet_AVB_TSN_tb;
 
   // one schedule: random gates and intervals, frames on all classes, base
   // time in the future, then in the past; switched off at the end
+  int g_off = -1;                       // >= 0: entry k gets gate mask g_off + k
   task automatic gcl_test(input logic [2:0] last, input logic [23:0] cyc, input logic [7:0] inc,
                           input bit with_cbs, input int ivl_max);
     gcl_en = 0; cycles(2);
     gcl_last = last; gcl_cycle = cyc; inc_ns = inc;
     if (ivl_max == 0) ivl_max = 2 * int'(cyc) / (int'(last) + 1);
     for (int k = 0; k < 8; k++)
-      gcl_write(k, k == 0 ? 4'b1000 : k == 1 ? 4'b0111 : 4'($urandom),
+      gcl_write(k, g_off >= 0 ? 4'(g_off + k) : k == 0 ? 4'b1000 : k == 1 ? 4'b0111 : 4'($urandom),
                 $urandom_range(ivl_max, int'(inc) * 2));
     if (with_cbs) begin cbs_en = 4'b1111; set_idle(3, 200); set_idle(2, 150); set_idle(1, 100); set_idle(0, 50); end
     // base in the future
