@@ -1,4 +1,4 @@
-# OCP-IP 3.0 slave: a 256-word memory behind MCmd / SCmdAccept / SResp, WR, RD and posted WRNP with byte enables and thread IDs
+# OCP-IP 3.0 slave: a 256-word memory behind MCmd / SCmdAccept / SResp, posted WR, RD and non-posted WRNP with byte enables and thread IDs
 
 Protocol IP `OCP`, version 2.0. Apache-2.0.
 
@@ -16,9 +16,10 @@ Protocol IP `OCP`, version 2.0. Apache-2.0.
 
 OCP protocol -- OCP-IP 3.0 slave (MCmd/MAddr/MData -> SCmdAccept/SData/SResp) Scope: basic data-handshake subset of OCP-IP:
 
-- MCmd: IDLE=0 / WR=1 / RD=2 / WRNP=5 (posted write, no response)
+- MCmd: IDLE=0 / WR=1 (posted write, no response) / RD=2 /
+WRNP=5 (non-posted write, answered DVA or ERR)
 - configurable command-accept latency (ACCEPT_DLY = 0 or 1)
-- fixed 2-cycle DVA response latency for WR/RD, SData valid with DVA
+- fixed 2-cycle DVA response latency for RD/WRNP, SData valid with DVA
 - MByteEn partial-write merge, MThreadID echoed on SThreadID
 - 256x32 register file (1 KiB, word aligned); accesses outside
 0x000..0x3FC or misaligned -> SResp=ERR + irq pulse
@@ -26,7 +27,7 @@ OCP protocol -- OCP-IP 3.0 slave (MCmd/MAddr/MData -> SCmdAccept/SData/SResp) Sc
 and answered with SResp=ERR + irq pulse, no register-file effect
 
 mcmd, maddr, mdata, mbyteen, mthreadid, scmdaccept, sdata, sresp and sthreadid are the OCP slave pins; they pass through unchanged. The registers report the slave's error events.
-A command is accepted the clock after it is presented (ACCEPT_DLY 1, the default). WR and RD are answered DVA (or ERR) two clocks after acceptance with the thread ID echoed; SData carries the word as it was when the request was accepted. WRNP is not answered. MCmd values other than WR, RD and WRNP are answered ERR and do nothing.
+A command is accepted the clock after it is presented (ACCEPT_DLY 1, the default). RD and WRNP are answered DVA (or ERR) two clocks after acceptance with the thread ID echoed; SData carries the word as it was when the request was accepted. WR (posted write) is not answered. MCmd values other than WR, RD and WRNP are answered ERR and do nothing.
 
 ## Files
 
