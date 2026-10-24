@@ -224,6 +224,15 @@ module GPIO_tb;
     if (got !== 8'h00) begin errors++; $display("ERROR: GPIO out_q not cleared by reset"); end
     gpio_oe = 8'h00;
 
+    // output register data patterns, read back
+    for (int i = 0; i < 3; i++) begin
+      logic [7:0] p;
+      p = i == 0 ? 8'hFF : i == 1 ? 8'h55 : 8'hAA;
+      wr(4'd0, p); rd(4'd1, got);
+      if (got !== p) begin errors++; $display("ERROR: GPIO out_q %h exp %h", got, p); end
+    end
+    wr(4'd0, 8'h00);
+
     if (errors == 0) $display("TEST PASSED: GPIO");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR
