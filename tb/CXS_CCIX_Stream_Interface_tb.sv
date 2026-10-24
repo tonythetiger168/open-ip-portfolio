@@ -96,12 +96,13 @@ module CXS_CCIX_Stream_Interface_tb;
   // B writes, A reads (or the BFM's packets, x1)
   logic [33:0] w0 [$], w1 [$], x0 [$], x1 [$];
   int          p_tx = 70, p_rx = 70, n_pkt = 0, n_wd = 0;
+  longint      f_dp = -1;                        // forced data word (directed)
   task automatic w_pkt(input int e, input int n);
     logic [33:0] x;
     bit er;
     er = $urandom % 5 == 0;
     for (int i = 0; i < n; i++) begin
-      x = {i == n - 1 && er, i == n - 1, 32'($urandom)};
+      x = {i == n - 1 && er, i == n - 1, f_dp >= 0 ? 32'(f_dp) : 32'($urandom)};
       if (e == 0) begin w0.push_back(x); x0.push_back(x); end
       else begin w1.push_back(x); x1.push_back(x); end
     end
@@ -221,6 +222,13 @@ module CXS_CCIX_Stream_Interface_tb;
     drain("lengths");
     bg_n = 300;
     drain("random");
+    // each data pattern both ways
+    for (int k = 0; k < 4; k++) begin
+      f_dp = k == 0 ? 32'h0000_0000 : k == 1 ? 32'hFFFF_FFFF : k == 2 ? 32'h5555_5555 : 32'hAAAA_AAAA;
+      for (int i = 0; i < 3; i++) begin w_pkt(0, 4); w_pkt(1, 4); end
+      drain("data patterns");
+    end
+    f_dp = -1;
     p_tx = 100; p_rx = 100; bg_n = 300;
     drain("fast");
     bg_max = 2; bg_n = 300;

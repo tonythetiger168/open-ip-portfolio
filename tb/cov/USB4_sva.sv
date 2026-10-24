@@ -88,6 +88,10 @@ module USB4_sva #(
   bit v_pro_pdf, v_pro_idle, v_pro_glen, v_g_res, v_g_mid, v_g_hop, v_g_over, v_g_same, v_g_dup, v_g_disabled;
   bit v_hop_unknown, v_hop_disabled, v_len0, v_len_long, v_len_255, v_ovf_other, v_rx_same, v_drop_rx, v_full_read;
   bit v_both_paths_rx, v_grant_while_data;
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  bit c_dv, c_dp, c_rv, c_rp, c_gv, c_gp;
+  int c_dn, c_rn;
+  logic [7:0] c_db, c_rb;
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -109,6 +113,7 @@ module USB4_sva #(
       end
       o_dst = dst; o_gtm = gtm;
       {m_fix, m_bad, m_pro, m_hop, m_len, m_ovf} = '0;
+      {c_dv, c_rv, c_gv} = '0;
 
       // ---- transmit
       if (!link_up) begin
@@ -132,6 +137,7 @@ module USB4_sva #(
         end else if ((o_gq[0] && path_en[0] || o_gq[1] && path_en[1]) && o_dst == 2) begin
           logic [10:0] hp;
           t_kind = 1; t_path = o_gq[0] && path_en[0] ? 0 : 1; gsent[t_path] = 1;
+          c_gv = 1; c_gp = t_path;
           hp = t_path ? hop_rx1 : hop_rx0;
           h = mkh(1, 0, 4);
           ts.push_back({5'd0, hp[10:8]}); ts.push_back(hp[7:0]); ts.push_back(8'h00); ts.push_back(8'(o_adv[t_path]));
@@ -141,6 +147,7 @@ module USB4_sva #(
           if (c[0] && c[1]) v_rr = 1;
           t_kind = 2; t_path = dp; rr = 1 - dp; snt[dp] = (o_snt[dp] + 1) & 255;
           n = buff[dp].size();
+          c_dv = 1; c_dp = dp; c_dn = n; c_db = buff[dp][n - 1];
           h = mkh(0, dp ? hop_tx1 : hop_tx0, n);
           for (int i = 0; i < pad(n); i++) ts.push_back(i < n ? buff[dp][i] : 8'h00);
           v_pad[n % 4] = 1;
@@ -191,6 +198,7 @@ module USB4_sva #(
             t.delete();
             for (int i = 0; i < rlen; i++) t.push_back(pb[i]);
             rq[rp].push_back(t); ord.push_back(rp); put[rp] = 1;
+            c_rv = 1; c_rp = rp; c_rn = rlen; c_rb = t[rlen - 1];
           end else if (rm == 2) begin : b_grant
             int q, d;
             bit m0, m1;
@@ -300,6 +308,27 @@ module USB4_sva #(
   `SVA_RST(a_reset, 1'b1, tx_sym == 8'h00 && !rx_valid && !sync && path_up == 2'b00 && tx_ready)
 
   // ---------------- functional coverage ----------------
+  function automatic int dcls(input logic [7:0] v);
+    return v == 8'h00 ? 0 : v == 8'hFF ? 1 : (v == 8'h55 || v == 8'hAA) ? 2 : 3;
+  endfunction
+  covergroup cg_usb4 @(negedge clk);
+    option.per_instance = 1;
+    cp_tpath: coverpoint c_dp iff (rst_n && c_dv) { bins p[] = {0, 1}; }
+    cp_tlen: coverpoint c_dn iff (rst_n && c_dv)
+      { bins one = {1}; bins short_ = {[2:3]}; bins mid = {[4:MAXL-1]}; bins maxl = {MAXL}; }
+    x_tx: cross cp_tpath, cp_tlen;
+    cp_tdata: coverpoint dcls(c_db) iff (rst_n && c_dv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rpath: coverpoint c_rp iff (rst_n && c_rv) { bins p[] = {0, 1}; }
+    cp_rlen: coverpoint c_rn iff (rst_n && c_rv)
+      { bins one = {1}; bins short_ = {[2:3]}; bins mid = {[4:MAXL-1]}; bins maxl = {MAXL}; }
+    x_rx: cross cp_rpath, cp_rlen;
+    cp_rdata: coverpoint dcls(c_rb) iff (rst_n && c_rv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_grant: coverpoint c_gp iff (rst_n && c_gv) { bins p[] = {0, 1}; }
+  endgroup
+  cg_usb4 u_cg_usb4 = new;
+
   `FC(write_cut_at_maxl, v_cut)
   `FC(write_paths_interleaved, v_switch)
   `FC(data_len_mod4_0, v_pad[0])

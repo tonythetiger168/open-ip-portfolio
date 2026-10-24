@@ -83,6 +83,10 @@ module PCIe_sva #(
   bit v_ufc_finite, v_tlp_short, v_tlp_long, v_edb_bad, v_dllp_long, v_dllp_short, v_k_in_dllp, v_k_in_tlp;
   bit v_idle_k, v_ovf_room, v_ack_while_sending, v_link_drop_busy, v_upd_timer, v_nak_then_ack, v_dup_after_nak;
   bit v_slot_wait, v_rx_full_read;
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  bit c_tv, c_rv, c_dv;
+  int c_tk, c_tn, c_tq, c_rk, c_rn, c_dk;
+  logic [7:0] c_tb, c_rb;
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -99,6 +103,7 @@ module PCIe_sva #(
       // tlp_ready as it is now: a free slot, not the one being sent
       o_rdy = dls == 3 && nq < TXN && !(tlp_on && sd(ackd + 1 + nq, tcur) % TXN == 0);
       {m_rt, m_bad, m_seq, m_dup, m_null, m_ovf, m_dbad, m_dpro, m_fr, m_nak, m_rep} = '0;
+      {c_tv, c_rv, c_dv} = '0;
       // ---- link state timer
       fct = o_fct == 0 ? (o_dls == 3 ? UPD_GAP : FC_GAP) : o_fct - 1;
       if (o_dls == 3 && o_fct == 0) begin updp = 1; v_upd_timer = 1; end
@@ -120,13 +125,16 @@ module PCIe_sva #(
         if (nakp || ackp || fc || o_updp && o_dls == 3) begin : b_dllp
           logic [7:0] b [4];
           logic [15:0] c;
+          c_tv = 1;
           if (nakp || ackp) begin
+            c_tk = nakp ? 1 : 0;
             b[0] = nakp ? 8'h10 : 8'h00; b[1] = 0; b[2] = 8'((o_nrs - 1) >> 8) & 8'h0F; b[3] = 8'(o_nrs - 1);
             nakp = 0; ackp = 0;
           end else begin
             int h;
             h = fc ? RXN : ca;
             b[0] = fc ? (o_dls == 1 ? 8'h40 : 8'hC0) : 8'h80;
+            c_tk = fc ? (o_dls == 1 ? 2 : 3) : 4;
             b[1] = 8'(h >> 2) & 8'h3F; b[2] = 8'((h & 3) << 6); b[3] = 0;
             if (!fc) updp = 0;
           end
@@ -146,6 +154,7 @@ module PCIe_sva #(
           for (int i = 3; i >= 0; i--) ts.push_back({1'b0, c[8 * i +: 8]});
           ts.push_back({1'b1, 8'hFD});
           tlp_on = 1; tcur = eff; rpq = 0;
+          c_tv = 1; c_tk = eff == o_nsent ? 5 : 6; c_tn = tq[idx].size(); c_tq = idx; c_tb = tq[idx][c_tn - 1];
           if (eff == o_nsent) begin nsent = (o_nsent + 1) & 12'hFFF; cc = (cc + 1) & 8'hFF; end
         end
       end
@@ -182,18 +191,20 @@ module PCIe_sva #(
             for (int i = 0; i < n - 4; i++) c = c32(c, rp[i]);
             l = {rp[n - 4], rp[n - 3], rp[n - 2], rp[n - 1]};
             s = {rp[0][3:0], rp[1]};
-            if (rx_sym == 8'hFE && l == c) m_null = 1;
-            else if (rx_sym == 8'hFE || l != ~c) begin bad = 1; if (rx_sym == 8'hFE) v_edb_bad = 1; end
-            else if (sd(s, o_nrs) inside {[1:2047]}) begin m_seq = 1; bad = 1; end
+            c_rv = 1; c_rn = n - 6;
+            if (rx_sym == 8'hFE && l == c) begin m_null = 1; c_rk = 1; end
+            else if (rx_sym == 8'hFE || l != ~c) begin bad = 1; c_rk = 2; if (rx_sym == 8'hFE) v_edb_bad = 1; end
+            else if (sd(s, o_nrs) inside {[1:2047]}) begin m_seq = 1; bad = 1; c_rk = 3; end
             else if (s != o_nrs) begin
-              m_dup = 1; ackp = 1;
+              m_dup = 1; ackp = 1; c_rk = 4;
               if (naks) v_dup_after_nak = 1;
-            end else if (rq.size() == RXN) begin m_ovf = 1; v_ovf_room = 1; end
+            end else if (rq.size() == RXN) begin m_ovf = 1; v_ovf_room = 1; c_rk = 5; end
             else begin : b_good
               bq_t t;
               t.delete();
               for (int i = 2; i < n - 4; i++) t.push_back(rp[i]);
               rq.push_back(t);
+              c_rk = 0; c_rb = t[t.size() - 1];
               nrs = (o_nrs + 1) & 12'hFFF; ackp = 1; naks = 0;
               if (o_dls == 2) begin dls = 3; v_fc2_by_tlp = 1; end
             end
@@ -220,6 +231,8 @@ module PCIe_sva #(
         if (dok) begin : b_dllp_rx
           int t, h, s;
           t = rp[0]; h = {rp[1][5:0], rp[2][7:6]}; s = {rp[2][3:0], rp[3]};
+          c_dv = 1;
+          c_dk = t == 8'h00 ? 0 : t == 8'h10 ? 1 : t == 8'h40 ? 2 : t == 8'hC0 ? 3 : t == 8'h80 ? 4 : 5;
           if (t == 8'h00 || t == 8'h10) begin
             if (o_dls == 3) begin
               if (rp[1] != 0 || rp[2][7:4] != 0) begin m_dpro = 1; v_dllp_resv = 1; end
@@ -293,6 +306,30 @@ module PCIe_sva #(
                           !ev_frame && !ev_nak && !ev_replay)
 
   // ---------------- functional coverage ----------------
+  function automatic int dcls(input logic [7:0] v);
+    return v == 8'h00 ? 0 : v == 8'hFF ? 1 : (v == 8'h55 || v == 8'hAA) ? 2 : 3;
+  endfunction
+  covergroup cg_pcie @(negedge clk);
+    option.per_instance = 1;
+    cp_tx: coverpoint c_tk iff (rst_n && c_tv)
+      { bins ack = {0}; bins nak = {1}; bins initfc1 = {2}; bins initfc2 = {3}; bins updatefc = {4};
+        bins tlp_new = {5}; bins tlp_replay = {6}; }
+    cp_tlen: coverpoint c_tn iff (rst_n && c_tv && c_tk >= 5)
+      { bins one = {1}; bins short_ = {[2:3]}; bins mid = {[4:MAXLEN-1]}; bins maxlen = {MAXLEN}; }
+    cp_tslot: coverpoint c_tq iff (rst_n && c_tv && c_tk >= 5) { bins s[] = {[0:TXN-1]}; }
+    cp_tdata: coverpoint dcls(c_tb) iff (rst_n && c_tv && c_tk >= 5)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rx: coverpoint c_rk iff (rst_n && c_rv)
+      { bins good = {0}; bins nullified = {1}; bins bad = {2}; bins ahead = {3}; bins dup = {4}; bins overflow = {5}; }
+    cp_rlen: coverpoint c_rn iff (rst_n && c_rv && c_rk == 0)
+      { bins one = {1}; bins short_ = {[2:3]}; bins mid = {[4:MAXLEN-1]}; bins maxlen = {MAXLEN}; }
+    cp_rdata: coverpoint dcls(c_rb) iff (rst_n && c_rv && c_rk == 0)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_dllp: coverpoint c_dk iff (rst_n && c_dv)
+      { bins ack = {0}; bins nak = {1}; bins initfc1 = {2}; bins initfc2 = {3}; bins updatefc = {4}; bins unknown = {5}; }
+  endgroup
+  cg_pcie u_cg_pcie = new;
+
   `FC(tlp_cut_at_maxlen, v_cut)
   `FC(credit_stall, v_credit_stall)
   `FC(infinite_credit, v_inf_credit)
