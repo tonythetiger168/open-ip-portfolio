@@ -148,7 +148,13 @@ module eUSB2_sva (
     option.per_instance = 1;
     cp_w: coverpoint b1[6:4] iff (vwr_now) { bins a[] = {[0:7]}; }
     cp_r: coverpoint b1[6:4] iff (vrd_now) { bins a[] = {[0:7]}; }
+    cp_wd: coverpoint dcls(b2) iff (vwr_now) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    x_wr: cross cp_w, cp_wd;
+    cp_rd: coverpoint dcls(sh[b1[6:4]]) iff (vrd_now) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
   endgroup
+  function automatic int dcls(input logic [7:0] v);
+    dcls = v == 0 ? 0 : v == 8'hFF ? 1 : (v == 8'h55 || v == 8'hAA) ? 2 : 3;
+  endfunction
   // one-cycle-early versions of vwr / vrd so b1 still holds the address
   wire vwr_now = !sq && ln == SE0 && run && ctl && full && !lng && crc_ok && wrp;
   wire vrd_now = !sq && ln == SE0 && run && ctl && full && !lng && crc_ok && !wrp;
