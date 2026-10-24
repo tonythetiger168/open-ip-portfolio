@@ -269,6 +269,13 @@ module SAS_tb;
     wait_ok(130, "counter wrap");
     wait_ok(130, "counter wrap 2");
 
+    // ---- write / read-request data classes, a 5-dword write ----
+    for (int k = 0; k < 3; k++) begin
+      inject(8'd1, 8'h01, 8'd6, 8'h22, 1, k == 0 ? 32'h0 : (k == 1 ? 32'hFFFF_FFFF : 32'h5555_5555), 0);
+      inject(8'd0, 8'h02, 8'd6, 8'h22, 0, 0, 0);
+    end
+    inject(8'd5, 8'h01, 8'd6, 8'h22, 5, $urandom, 0);
+
     // ---- reset in the middle of a frame ----
     while (dut.tx_state != 3) @(posedge clk);
     do_reset;
