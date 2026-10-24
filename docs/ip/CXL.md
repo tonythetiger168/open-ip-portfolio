@@ -2,6 +2,17 @@
 
 Protocol IP `CXL`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `CXL_top` (`rtl/CXL_top.sv`) |
+| Register interface | APB4 slave `CXL_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x43580200 (code 0x4358, version 2.0) |
+| Registers | 16 words, 0x000 to 0x03C |
+| Interrupts | 10 sources into one level-high `irq` |
+| Data streams | REQ (to the core), RWD (to the core), NDR (from the core), DRS (from the core) |
+| Protocol pins | none (register access only) |
+
 ## Overview
 
 CXL_top v2.0: CXL.mem Type 3 device (memory expander) transaction layer: M2S Req and RwD in, S2M NDR and DRS out, host-managed device memory (HDM-H) with a 2-bit meta state, poison and a range decoder
@@ -64,6 +75,34 @@ make -f Makefile.CXL apb                # wrapper test + synthesis
 bash scripts/cov/run_cov.sh CXL          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh CXL_apb      # wrapper coverage
 ```
+
+## Parameters
+
+`CXL_apb` has the core's parameters and passes them to `CXL_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `LINES` | int | `16` |
+| `RQD` | int | `4` |
+
+## Wrapper pins
+
+Pins of `CXL_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
 
 ## Core ports
 
@@ -135,41 +174,47 @@ bash scripts/cov/run_cov.sh CXL_apb      # wrapper coverage
 | 0x038 | DRS1 | RO (pop) | 0x00000000 | One beat of an S2M DRS MemData message (8 beats per line); reading DRS2 pops it |
 | 0x03C | DRS2 | RO (pop) | 0x00000000 | One beat of an S2M DRS MemData message (8 beats per line); reading DRS2 pops it |
 
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x040 up to 0xFFC are unmapped (PSLVERR).
+
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x4358 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| CTRL | 15:0 | `hdm_base` | first host line address (byte address bits 21:6) of the device's LINES = 16 lines; change it only while no message is in flight |
-| REQ0 | 15:0 | `req_addr` | host line address |
-| REQ0 | 31:16 | `req_tag` | tag, returned in the response |
-| REQ1 | 3:0 | `req_opcode` | MemInv 0, MemRd 1, MemRdData 2, MemSpecRd 8, MemInvNT 9, MemClnEvct 10 (others are dropped: ERR_OPCODE) |
-| REQ1 | 5:4 | `req_meta_field` | Meta0-State 00, No-Op 11 (01, 10: ERR_PROTO, taken as No-Op) |
-| REQ1 | 7:6 | `req_meta_value` | new meta state for Meta0-State: Invalid 00, Any 10, Shared 11 |
-| REQ1 | 10:8 | `req_snp_type` | SnpType (1xx: ERR_PROTO) |
-| RWD0 | 15:0 | `rwd_addr` | host line address |
-| RWD0 | 31:16 | `rwd_tag` | tag, returned in the NDR |
-| RWD1 | 31:0 | `rwd_data[31:0]` | 8 data bytes |
-| RWD2 | 31:0 | `rwd_data[63:32]` | 8 data bytes |
-| RWD3 | 7:0 | `rwd_be` | byte enables (MemWrPtl) |
-| RWD3 | 11:8 | `rwd_opcode` | MemWr 1, MemWrPtl 2 (others are dropped: ERR_OPCODE) |
-| RWD3 | 13:12 | `rwd_meta_field` | Meta0-State 00, No-Op 11 |
-| RWD3 | 15:14 | `rwd_meta_value` | new meta state |
-| RWD3 | 18:16 | `rwd_snp_type` | SnpType |
-| RWD3 | 19 | `rwd_poison` | the data is poisoned |
-| NDR | 15:0 | `ndr_tag` | the request's tag |
-| NDR | 17:16 | `ndr_opcode` | Cmp 0, Cmp-S 1, Cmp-E 2 |
-| NDR | 19:18 | `ndr_meta_value` | the line's meta state before the request |
-| NDR | 21:20 | `ndr_devload` | DevLoad: Light 0, Optimal 1, Moderate 2, Severe 3 |
-| DRS0 | 31:0 | `drs_data[31:0]` | 8 data bytes |
-| DRS1 | 31:0 | `drs_data[63:32]` | 8 data bytes |
-| DRS2 | 15:0 | `drs_tag` | the request's tag |
-| DRS2 | 17:16 | `drs_meta_value` | the line's meta state before the request |
-| DRS2 | 19:18 | `drs_devload` | DevLoad |
-| DRS2 | 20 | `drs_poison` | the line is poisoned (or the address was out of range) |
-| DRS2 | 21 | `drs_last` | the eighth beat |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x4358 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 9:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 9:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| FLAGS | 3:0 | one bit per stream flag | RO | 0x0 | see FLAGS |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| CTRL | 15:0 | `hdm_base` | RW | 0x0 | first host line address (byte address bits 21:6) of the device's LINES = 16 lines; change it only while no message is in flight |
+| REQ0 | 15:0 | `req_addr` | RW | 0x0 | host line address |
+| REQ0 | 31:16 | `req_tag` | RW | 0x0 | tag, returned in the response |
+| REQ1 | 3:0 | `req_opcode` | RW | 0x0 | MemInv 0, MemRd 1, MemRdData 2, MemSpecRd 8, MemInvNT 9, MemClnEvct 10 (others are dropped: ERR_OPCODE) |
+| REQ1 | 5:4 | `req_meta_field` | RW | 0x0 | Meta0-State 00, No-Op 11 (01, 10: ERR_PROTO, taken as No-Op) |
+| REQ1 | 7:6 | `req_meta_value` | RW | 0x0 | new meta state for Meta0-State: Invalid 00, Any 10, Shared 11 |
+| REQ1 | 10:8 | `req_snp_type` | RW | 0x0 | SnpType (1xx: ERR_PROTO) |
+| RWD0 | 15:0 | `rwd_addr` | RW | 0x0 | host line address |
+| RWD0 | 31:16 | `rwd_tag` | RW | 0x0 | tag, returned in the NDR |
+| RWD1 | 31:0 | `rwd_data[31:0]` | RW | 0x0 | 8 data bytes |
+| RWD2 | 31:0 | `rwd_data[63:32]` | RW | 0x0 | 8 data bytes |
+| RWD3 | 7:0 | `rwd_be` | RW | 0x0 | byte enables (MemWrPtl) |
+| RWD3 | 11:8 | `rwd_opcode` | RW | 0x0 | MemWr 1, MemWrPtl 2 (others are dropped: ERR_OPCODE) |
+| RWD3 | 13:12 | `rwd_meta_field` | RW | 0x0 | Meta0-State 00, No-Op 11 |
+| RWD3 | 15:14 | `rwd_meta_value` | RW | 0x0 | new meta state |
+| RWD3 | 18:16 | `rwd_snp_type` | RW | 0x0 | SnpType |
+| RWD3 | 19 | `rwd_poison` | RW | 0x0 | the data is poisoned |
+| NDR | 15:0 | `ndr_tag` | RO (pop) | 0x0 | the request's tag |
+| NDR | 17:16 | `ndr_opcode` | RO (pop) | 0x0 | Cmp 0, Cmp-S 1, Cmp-E 2 |
+| NDR | 19:18 | `ndr_meta_value` | RO (pop) | 0x0 | the line's meta state before the request |
+| NDR | 21:20 | `ndr_devload` | RO (pop) | 0x0 | DevLoad: Light 0, Optimal 1, Moderate 2, Severe 3 |
+| DRS0 | 31:0 | `drs_data[31:0]` | RO (pop) | 0x0 | 8 data bytes |
+| DRS1 | 31:0 | `drs_data[63:32]` | RO (pop) | 0x0 | 8 data bytes |
+| DRS2 | 15:0 | `drs_tag` | RO (pop) | 0x0 | the request's tag |
+| DRS2 | 17:16 | `drs_meta_value` | RO (pop) | 0x0 | the line's meta state before the request |
+| DRS2 | 19:18 | `drs_devload` | RO (pop) | 0x0 | DevLoad |
+| DRS2 | 20 | `drs_poison` | RO (pop) | 0x0 | the line is poisoned (or the address was out of range) |
+| DRS2 | 21 | `drs_last` | RO (pop) | 0x0 | the eighth beat |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -203,6 +248,18 @@ A bit is set while its source is active, stays set until written with 1, and a s
 * **RWD** feeds `rwd_addr`, `rwd_tag`, `rwd_data`, `rwd_be`, `rwd_opcode`, `rwd_meta_field`, `rwd_meta_value`, `rwd_snp_type`, `rwd_poison`/`rwd_valid`. Writing RWD3 commits the beat: FLAGS.RWD_FULL is set and `rwd_valid` stays high until the core's `rwd_ready`; then RWD_DONE is set. A write while full is dropped and sets RWD_OVF.
 * **NDR** takes `ndr_tag`, `ndr_opcode`, `ndr_meta_value`, `ndr_devload` from the core with `ndr_valid` / `ndr_ready`: `ndr_ready` is high while the register is empty (or is being read in the same clock), and a captured beat sets FLAGS/IRQ NDR_AVAIL. Reading NDR pops it. Nothing is dropped: the core holds its data until the register is free.
 * **DRS** takes `drs_data`, `drs_tag`, `drs_meta_value`, `drs_devload`, `drs_poison`, `drs_last` from the core with `drs_valid` / `drs_ready`: `drs_ready` is high while the register is empty (or is being read in the same clock), and a captured beat sets FLAGS/IRQ DRS_AVAIL. Reading DRS2 pops it. Nothing is dropped: the core holds its data until the register is free.
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x43580200.
+2. Write 0x3FF to IRQ_STATUS (0x004) to clear any stale bits.
+3. Configure the core: write CTRL (0x014). Reset values are in the register map; PSTRB selects the bytes written.
+4. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x3FF enables all).
+5. To send on REQ: wait until FLAGS.REQ_FULL (bit 0) is 0, or for IRQ REQ_DONE, then write REQ0 (0x018) then REQ1 (0x01C). The last write commits the beat. REQ_OVF means a write came while the register was full and was dropped.
+6. To send on RWD: wait until FLAGS.RWD_FULL (bit 1) is 0, or for IRQ RWD_DONE, then write RWD0 (0x020) then RWD1 (0x024) then RWD2 (0x028) then RWD3 (0x02C). The last write commits the beat. RWD_OVF means a write came while the register was full and was dropped.
+7. To receive on NDR: wait for IRQ NDR_AVAIL or FLAGS.NDR_AVAIL (bit 2), then read NDR (0x030). Reading the last word frees the register for the next beat; write 1 to IRQ_STATUS.NDR_AVAIL (bit 8) to clear it.
+8. To receive on DRS: wait for IRQ DRS_AVAIL or FLAGS.DRS_AVAIL (bit 3), then read DRS0 (0x034) then DRS1 (0x038) then DRS2 (0x03C). Reading the last word frees the register for the next beat; write 1 to IRQ_STATUS.DRS_AVAIL (bit 9) to clear it.
+9. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

@@ -2,10 +2,20 @@
 
 Protocol IP `DDR6`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `DDR6_top` (`rtl/DDR6_top.sv`) |
+| Register interface | APB4 slave `DDR6_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x6D040200 (code 0x6D04, version 2.0) |
+| Registers | 9 words, 0x000 to 0x020 |
+| Interrupts | 3 sources into one level-high `irq` |
+| Data streams | CMD (to the core) |
+| Protocol pins | 12 pass-through |
+
 ## Overview
 
 DDR6 (projected) -- INDEPENDENT design IP #4/20. Architecture thesis: closed-page (auto-precharge) policy. Every RD/WR burst closes its bank immediately afterwards (D_CAS -> D_PRE -> D_IDLE), so tRP is paid on every access instead of on misses; row conflicts never happen by construction. Worst-case-latency-friendly; contrast with the open-page DDR4/DDR5 designs. Self-contained; contract identical.
-
 
 ck_t, ck_c, cke, addr, ras_n, cas_n, we_n, dq and dqs are the DRAM pins and trace_valid, trace_cmd and trace_addr the command trace (one clock before each command on the pins); they pass through unchanged.
 Address map and behaviour of the core: closed-page controller (banks = {haddr[8], haddr[10:9]}, row = haddr[31:18], storage = 256 columns per channel); every RD / WR closes its bank with a PRE after the burst.
@@ -28,6 +38,45 @@ make -f Makefile.DDR6 apb                # wrapper test + synthesis
 bash scripts/cov/run_cov.sh DDR6          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh DDR6_apb      # wrapper coverage
 ```
+
+## Parameters
+
+`DDR6_apb` has the core's parameters and passes them to `DDR6_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `NCH` | int | `2` |
+
+## Wrapper pins
+
+Pins of `DDR6_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `ck_t` | output | 1 | protocol pin, core port `ck_t` |
+| `ck_c` | output | 1 | protocol pin, core port `ck_c` |
+| `addr` | output | 17 | protocol pin, core port `addr` |
+| `ras_n` | output | 1 | protocol pin, core port `ras_n` |
+| `cas_n` | output | 1 | protocol pin, core port `cas_n` |
+| `we_n` | output | 1 | protocol pin, core port `we_n` |
+| `dq` | inout | 32 | protocol pin, core port `dq` |
+| `dqs` | inout | 2 | protocol pin, core port `dqs` |
+| `cke` | output | 1 | protocol pin, core port `cke` |
+| `trace_valid` | output | 1 | protocol pin, core port `trace_valid` |
+| `trace_cmd` | output | 3 | protocol pin, core port `trace_cmd` |
+| `trace_addr` | output | 32 | protocol pin, core port `trace_addr` |
 
 ## Core ports
 
@@ -73,19 +122,25 @@ Pass-through pins: `ck_t`, `ck_c`, `addr`, `ras_n`, `cas_n`, `we_n`, `dq`, `dqs`
 | 0x014 | CMD0 | RW | 0x00000000 | Host command; writing CMD2 sends it (the core takes it when it is idle and no refresh is due) |
 | 0x018 | CMD1 | RW | 0x00000000 | Host command; writing CMD2 sends it (the core takes it when it is idle and no refresh is due) |
 | 0x01C | CMD2 | RW | 0x00000000 | Host command; writing CMD2 sends it (the core takes it when it is idle and no refresh is due) |
-| 0x020 | RDATA | RO | 0x00000000 | Read data |
+| 0x020 | RDATA | RO | core | Read data |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x024 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x6D04 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| CMD0 | 2:0 | `hcmd` | 1 ACT, 2 RD, 3 WR, 4 PRE; other codes are no-ops |
-| CMD1 | 31:0 | `haddr` | host address (bank, row and column fields below) |
-| CMD2 | 15:0 | `hwdata` | word to write (WR) |
-| RDATA | 15:0 | `hrdata` | word of the last RD, valid once RD_DONE is set |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x6D04 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 2:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 2:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| FLAGS | 0 | one bit per stream flag | RO | 0x0 | see FLAGS |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| CMD0 | 2:0 | `hcmd` | RW | 0x0 | 1 ACT, 2 RD, 3 WR, 4 PRE; other codes are no-ops |
+| CMD1 | 31:0 | `haddr` | RW | 0x0 | host address (bank, row and column fields below) |
+| CMD2 | 15:0 | `hwdata` | RW | 0x0 | word to write (WR) |
+| RDATA | 15:0 | `hrdata` | RO | core | word of the last RD, valid once RD_DONE is set |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -106,6 +161,15 @@ A bit is set while its source is active, stays set until written with 1, and a s
 ### Streams
 
 * **CMD** feeds `hcmd`, `haddr`, `hwdata`/`hvalid`. Writing CMD2 commits the beat: FLAGS.CMD_FULL is set and `hvalid` stays high until the core's `hready`; then CMD_DONE is set. A write while full is dropped and sets CMD_OVF.
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x6D040200.
+2. Write 0x7 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x7 enables all).
+4. To send on CMD: wait until FLAGS.CMD_FULL (bit 0) is 0, or for IRQ CMD_DONE, then write CMD0 (0x014) then CMD1 (0x018) then CMD2 (0x01C). The last write commits the beat. CMD_OVF means a write came while the register was full and was dropped.
+5. Read RDATA (0x020) for the core's live `hrdata`; it needs no clearing.
+6. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

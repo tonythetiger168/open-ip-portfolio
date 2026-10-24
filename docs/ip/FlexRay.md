@@ -2,6 +2,17 @@
 
 Protocol IP `FlexRay`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `FlexRay_top` (`rtl/FlexRay_top.sv`) |
+| Register interface | APB4 slave `FlexRay_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x46520200 (code 0x4652, version 2.0) |
+| Registers | 17 words, 0x000 to 0x040 |
+| Interrupts | 11 sources into one level-high `irq` |
+| Data streams | TX (to the core), RX (from the core) |
+| Protocol pins | 3 pass-through |
+
 ## Overview
 
 FlexRay_top v2.0: FlexRay 3.0.1 communication controller, single channel, static segment
@@ -64,6 +75,32 @@ make -f Makefile.FlexRay apb                # wrapper test + synthesis
 bash scripts/cov/run_cov.sh FlexRay          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh FlexRay_apb      # wrapper coverage
 ```
+
+## Parameters
+
+The core and the wrapper have no parameters.
+
+## Wrapper pins
+
+Pins of `FlexRay_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `rxd` | input | 1 | protocol pin, core port `rxd` |
+| `txd` | output | 1 | protocol pin, core port `txd` |
+| `tx_en` | output | 1 | protocol pin, core port `tx_en` |
 
 ## Core ports
 
@@ -134,44 +171,50 @@ Pass-through pins: `rxd`, `txd`, `tx_en`.
 | 0x034 | RX2 | RO (pop) | 0x00000000 | Valid frame received in its slot (null frames included); reading RX4 frees it |
 | 0x038 | RX3 | RO (pop) | 0x00000000 | Valid frame received in its slot (null frames included); reading RX4 frees it |
 | 0x03C | RX4 | RO (pop) | 0x00000000 | Valid frame received in its slot (null frames included); reading RX4 frees it |
-| 0x040 | STATUS | RO | 0x00000000 | Synchronisation state and position in the cycle |
+| 0x040 | STATUS | RO | core | Synchronisation state and position in the cycle |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x044 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x4652 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| CFG0 | 3:0 | `cfg_spc` | clocks per sample - 1; a bit is 8 samples (0: 8 clocks per bit, 10 Mbit/s at 80 MHz) |
-| CFG0 | 7:4 | `cfg_tss` | transmission start sequence length in bits (3..15) |
-| CFG0 | 17:8 | `cfg_slot` | static slot length in bits |
-| CFG0 | 23:18 | `cfg_ap` | action point offset in bits |
-| CFG0 | 29:24 | `cfg_nslots` | static slots per cycle (1..63) |
-| CFG1 | 9:0 | `cfg_nit` | network idle time in bits |
-| CFG1 | 13:10 | `cfg_plen` | payload length of own frames in 2-byte words |
-| CFG1 | 19:14 | `cfg_my_slot` | own static slot, 0 = listen only |
-| CFG1 | 20 | `cfg_sync` | own frames are sync frames |
-| CFG1 | 21 | `cfg_cold` | coldstart node: runs its own schedule and is the time master |
-| CFG1 | 22 | `cfg_chan_b` | frame CRC initial value of channel B |
-| CFG1 | 30:23 | `cfg_corr` | largest accepted offset correction in clocks |
-| TX0 | 31:0 | `tx_data[31:0]` | payload bytes, byte 0 in bits 7:0 (sent first); bytes beyond 2 x CFG.cfg_plen are not sent |
-| TX1 | 31:0 | `tx_data[63:32]` | payload bytes, byte 0 in bits 7:0 (sent first); bytes beyond 2 x CFG.cfg_plen are not sent |
-| TX2 | 31:0 | `tx_data[95:64]` | payload bytes, byte 0 in bits 7:0 (sent first); bytes beyond 2 x CFG.cfg_plen are not sent |
-| TX3 | 31:0 | `tx_data[127:96]` | payload bytes, byte 0 in bits 7:0 (sent first); bytes beyond 2 x CFG.cfg_plen are not sent |
-| RX0 | 31:0 | `rx_data[31:0]` | first 16 payload bytes, byte 0 in bits 7:0 |
-| RX1 | 31:0 | `rx_data[63:32]` | first 16 payload bytes, byte 0 in bits 7:0 |
-| RX2 | 31:0 | `rx_data[95:64]` | first 16 payload bytes, byte 0 in bits 7:0 |
-| RX3 | 31:0 | `rx_data[127:96]` | first 16 payload bytes, byte 0 in bits 7:0 |
-| RX4 | 5:0 | `rx_id` | frame ID (= slot) |
-| RX4 | 11:6 | `rx_cycle` | cycle count |
-| RX4 | 18:12 | `rx_len` | payload length in words |
-| RX4 | 19 | `rx_null` | 1 = null frame |
-| RX4 | 20 | `rx_sync` | sync frame indicator |
-| RX4 | 21 | `rx_startup` | startup frame indicator |
-| STATUS | 0 | `synced` | 1 = synchronised to the cluster |
-| STATUS | 6:1 | `cycle` | cycle count |
-| STATUS | 12:7 | `slot` | current static slot, 0 = network idle time |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x4652 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 10:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 10:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| FLAGS | 1:0 | one bit per stream flag | RO | 0x0 | see FLAGS |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| CFG0 | 3:0 | `cfg_spc` | RW | 0x0 | clocks per sample - 1; a bit is 8 samples (0: 8 clocks per bit, 10 Mbit/s at 80 MHz) |
+| CFG0 | 7:4 | `cfg_tss` | RW | 0x5 | transmission start sequence length in bits (3..15) |
+| CFG0 | 17:8 | `cfg_slot` | RW | 0x78 | static slot length in bits |
+| CFG0 | 23:18 | `cfg_ap` | RW | 0xC | action point offset in bits |
+| CFG0 | 29:24 | `cfg_nslots` | RW | 0x8 | static slots per cycle (1..63) |
+| CFG1 | 9:0 | `cfg_nit` | RW | 0x1E | network idle time in bits |
+| CFG1 | 13:10 | `cfg_plen` | RW | 0x0 | payload length of own frames in 2-byte words |
+| CFG1 | 19:14 | `cfg_my_slot` | RW | 0x0 | own static slot, 0 = listen only |
+| CFG1 | 20 | `cfg_sync` | RW | 0x0 | own frames are sync frames |
+| CFG1 | 21 | `cfg_cold` | RW | 0x0 | coldstart node: runs its own schedule and is the time master |
+| CFG1 | 22 | `cfg_chan_b` | RW | 0x0 | frame CRC initial value of channel B |
+| CFG1 | 30:23 | `cfg_corr` | RW | 0x40 | largest accepted offset correction in clocks |
+| TX0 | 31:0 | `tx_data[31:0]` | RW | 0x0 | payload bytes, byte 0 in bits 7:0 (sent first); bytes beyond 2 x CFG.cfg_plen are not sent |
+| TX1 | 31:0 | `tx_data[63:32]` | RW | 0x0 | payload bytes, byte 0 in bits 7:0 (sent first); bytes beyond 2 x CFG.cfg_plen are not sent |
+| TX2 | 31:0 | `tx_data[95:64]` | RW | 0x0 | payload bytes, byte 0 in bits 7:0 (sent first); bytes beyond 2 x CFG.cfg_plen are not sent |
+| TX3 | 31:0 | `tx_data[127:96]` | RW | 0x0 | payload bytes, byte 0 in bits 7:0 (sent first); bytes beyond 2 x CFG.cfg_plen are not sent |
+| RX0 | 31:0 | `rx_data[31:0]` | RO (pop) | 0x0 | first 16 payload bytes, byte 0 in bits 7:0 |
+| RX1 | 31:0 | `rx_data[63:32]` | RO (pop) | 0x0 | first 16 payload bytes, byte 0 in bits 7:0 |
+| RX2 | 31:0 | `rx_data[95:64]` | RO (pop) | 0x0 | first 16 payload bytes, byte 0 in bits 7:0 |
+| RX3 | 31:0 | `rx_data[127:96]` | RO (pop) | 0x0 | first 16 payload bytes, byte 0 in bits 7:0 |
+| RX4 | 5:0 | `rx_id` | RO (pop) | 0x0 | frame ID (= slot) |
+| RX4 | 11:6 | `rx_cycle` | RO (pop) | 0x0 | cycle count |
+| RX4 | 18:12 | `rx_len` | RO (pop) | 0x0 | payload length in words |
+| RX4 | 19 | `rx_null` | RO (pop) | 0x0 | 1 = null frame |
+| RX4 | 20 | `rx_sync` | RO (pop) | 0x0 | sync frame indicator |
+| RX4 | 21 | `rx_startup` | RO (pop) | 0x0 | startup frame indicator |
+| STATUS | 0 | `synced` | RO | core | 1 = synchronised to the cluster |
+| STATUS | 6:1 | `cycle` | RO | core | cycle count |
+| STATUS | 12:7 | `slot` | RO | core | current static slot, 0 = network idle time |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -202,6 +245,17 @@ A bit is set while its source is active, stays set until written with 1, and a s
 
 * **TX** feeds `tx_data`/`tx_valid`. Writing TX3 commits the beat: FLAGS.TX_FULL is set and `tx_valid` stays high until the core's `tx_ready`; then TX_DONE is set. A write while full is dropped and sets TX_OVF.
 * **RX** captures `rx_data`, `rx_id`, `rx_cycle`, `rx_len`, `rx_null`, `rx_sync`, `rx_startup` when `rx_valid` is high and the register is empty (or is being read in the same clock), and sets FLAGS/IRQ RX_AVAIL. Reading RX4 pops it. A beat that arrives while the register is full is dropped and sets RX_OVF.
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x46520200.
+2. Write 0x7FF to IRQ_STATUS (0x004) to clear any stale bits.
+3. Configure the core: write CFG0 (0x014), CFG1 (0x018). Reset values are in the register map; PSTRB selects the bytes written.
+4. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x7FF enables all).
+5. To send on TX: wait until FLAGS.TX_FULL (bit 0) is 0, or for IRQ TX_DONE, then write TX0 (0x01C) then TX1 (0x020) then TX2 (0x024) then TX3 (0x028). The last write commits the beat. TX_OVF means a write came while the register was full and was dropped.
+6. To receive on RX: wait for IRQ RX_AVAIL or FLAGS.RX_AVAIL (bit 1), then read RX0 (0x02C) then RX1 (0x030) then RX2 (0x034) then RX3 (0x038) then RX4 (0x03C). Reading the last word frees the register for the next beat; write 1 to IRQ_STATUS.RX_AVAIL (bit 9) to clear it. Read each beat before the next arrives, or it is dropped and RX_OVF is set.
+7. Read STATUS (0x040) for the core's live `synced`, `cycle`, `slot`; it needs no clearing.
+8. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

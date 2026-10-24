@@ -2,10 +2,19 @@
 
 Protocol IP `APB`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `APB_top` (`rtl/APB_top.sv`) |
+| Register interface | APB4 slave `APB_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x41500200 (code 0x4150, version 2.0) |
+| Registers | 5 words, 0x000 to 0x010 |
+| Interrupts | 1 sources into one level-high `irq` |
+| Protocol pins | 8 pass-through |
+
 ## Overview
 
 APB3 slave -- real two-phase IDLE/SETUP/ACCESS protocol, pready wait states (slow region), pslverr on reserved region, 256x32 register file Address map (byte addresses): 0x000-0x3FF : fast region, zero wait state   (256 x 32 register file) 0x400-0x7FF : slow region, one wait state    (same register file) 0x800+      : reserved  -> pslverr at completion + irq event
-
 
 psel, penable, paddr, pwrite, pwdata, prdata, pready and pslverr are the completer pins of the IP's own APB port (the subject of the IP, separate from the register port); they pass through unchanged. The registers report the completer's error events.
 Address map seen on the IP's port (paddr[11:10]): 00 memory, no wait state; 01 the same memory with one wait state; 1x reserved, PSLVERR (writes ignored, reads 0). paddr[9:2] selects the word; other bits are ignored.
@@ -27,6 +36,43 @@ make -f Makefile.APB apb                # wrapper test + synthesis
 bash scripts/cov/run_cov.sh APB          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh APB_apb      # wrapper coverage
 ```
+
+## Parameters
+
+`APB_apb` has the core's parameters and passes them to `APB_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `DW` | int | `32` |
+| `AW` | int | `32` |
+| `DEPTH` | int | `256` |
+
+## Wrapper pins
+
+Pins of `APB_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `psel` | input | 1 | protocol pin, core port `psel` |
+| `penable` | input | 1 | protocol pin, core port `penable` |
+| `paddr` | input | 32 | protocol pin, core port `paddr` |
+| `pwrite` | input | 1 | protocol pin, core port `pwrite` |
+| `pwdata` | input | 32 | protocol pin, core port `pwdata` |
+| `prdata` | output | 32 | protocol pin, core port `prdata` |
+| `pready` | output | 1 | protocol pin, core port `pready` |
+| `pslverr` | output | 1 | protocol pin, core port `pslverr` |
 
 ## Core ports
 
@@ -60,13 +106,18 @@ Pass-through pins: `psel`, `penable`, `paddr`, `pwrite`, `pwdata`, `prdata`, `pr
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
 
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x014 up to 0xFFC are unmapped (PSLVERR).
+
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x4150 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x4150 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -75,6 +126,13 @@ A bit is set while its source is active, stays set until written with 1, and a s
 | Bit | Name | Set when |
 |---|---|---|
 | 0 | ERR | a transfer to the reserved region (paddr[11] set) completed with PSLVERR |
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x41500200.
+2. Write 0x1 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x1 enables all).
+4. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

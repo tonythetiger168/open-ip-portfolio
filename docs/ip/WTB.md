@@ -2,10 +2,20 @@
 
 Protocol IP `WTB`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `WTB_top` (`rtl/WTB_top.sv`) |
+| Register interface | APB4 slave `WTB_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x57540200 (code 0x5754, version 2.0) |
+| Registers | 12 words, 0x000 to 0x02C |
+| Interrupts | 1 sources into one level-high `irq` |
+| Core register port | CORE (5 words) |
+| Protocol pins | 3 pass-through |
+
 ## Overview
 
 WTB protocol -- IEEE 802.4 style token-bus station (educational slice) Frame: preamble(8'h55 x2) + SD(8'hD5) + FC{0=claim,1=token,2=data,3=solicit} + DA + SA + LEN + payload(<=16B) + CRC16(0x1021,init 0xFFFF) + ED(8'hD4) Serial rx/tx at 1 bit/clk (MSB first per byte), idle bus = 1. Station FSM: LISTEN -> token(DA==my_addr) -> HOLD: data frames (4-byte payload) from the 8x32 TX FIFO while fewer than MAX_FR frames were sent and the hold time is below the programmable window -> pass token to NS. claim_token contention after bus-idle timeout with response window: a claim from a lower address wins (we back off), a claim from a higher address is ignored, other traffic ends the attempt. The station hears its own frames on the bus; frames with SA == my_addr are ignored. Data frames for my_addr (or broadcast DA 8'hFF) with a good CRC and ED are delivered to an 8x32 RX FIFO: payload bytes packed big-endian into words, the last word zero-padded; a word that does not fit is dropped with irq. irq (1-clk pulse): bad CRC / bad ED / overlong frame, TX FIFO overflow, RX FIFO overflow, token acquired.
-
 
 rx_bit (serial in, 1 bit per PCLK, idle 1; the station hears its own frames), tx_bit and tx_en pass through unchanged.
 NS, DA and CTRL are write-only in the core and read back as 0. A write with PSTRB != 4'hF to a core word is dropped with PSLVERR.
@@ -27,6 +37,39 @@ make -f Makefile.WTB apb                # wrapper test + synthesis
 bash scripts/cov/run_cov.sh WTB          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh WTB_apb      # wrapper coverage
 ```
+
+## Parameters
+
+`WTB_apb` has the core's parameters and passes them to `WTB_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `IDLE_TO` | int | `300` |
+| `CLAIM_WIN` | int | `150` |
+| `HOLD_WIN` | int | `400` |
+| `MAX_FR` | int | `4` |
+
+## Wrapper pins
+
+Pins of `WTB_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address, or partial write to a core register word |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `rx_bit` | input | 1 | protocol pin, core port `rx_bit` |
+| `tx_bit` | output | 1 | protocol pin, core port `tx_bit` |
+| `tx_en` | output | 1 | protocol pin, core port `tx_en` |
 
 ## Core ports
 
@@ -64,29 +107,34 @@ Pass-through pins: `rx_bit`, `tx_bit`, `tx_en`.
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
 | 0x014 | MYADDR | RW | 0x00000011 | Station identity |
-| 0x018 | STATUS | RO | 0x00000000 | Station state |
-| 0x01C | TXF | WO (core) | 0x00000000 | push one 32-bit word (the payload of one 4-byte data frame) onto the TX FIFO; a push to a full FIFO is dropped with EVT |
-| 0x020 | NS | WO (core) | 0x00000000 | [7:0] next station: DA of the token pass |
-| 0x024 | DA | WO (core) | 0x00000000 | [7:0] DA of the data frames |
-| 0x028 | CTRL | WO (core) | 0x00000000 | [16:8] token holding window in clocks, [0] claim_en (claim the token after 300 idle clocks) |
-| 0x02C | RXF | RO (core) | 0x00000000 | RX FIFO head: received payload bytes packed big-endian, the last word zero-padded; the read pops it |
+| 0x018 | STATUS | RO | core | Station state |
+| 0x01C | TXF | WO (core) | core | push one 32-bit word (the payload of one 4-byte data frame) onto the TX FIFO; a push to a full FIFO is dropped with EVT |
+| 0x020 | NS | WO (core) | core | [7:0] next station: DA of the token pass |
+| 0x024 | DA | WO (core) | core | [7:0] DA of the data frames |
+| 0x028 | CTRL | WO (core) | core | [16:8] token holding window in clocks, [0] claim_en (claim the token after 300 idle clocks) |
+| 0x02C | RXF | RO (core) | core | RX FIFO head: received payload bytes packed big-endian, the last word zero-padded; the read pops it |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x030 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x5754 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| MYADDR | 7:0 | `my_addr` | this station's bus address (DA of its tokens and data, SA of its frames) |
-| STATUS | 3:0 | `fifo_count` | TX FIFO words (0..8) |
-| STATUS | 7:4 | `rx_count` | RX FIFO words (0..8) |
-| STATUS | 8 | `token_held` | the station holds the token |
-| TXF | 31:0 | core register | written at core register 0 |
-| NS | 31:0 | core register | written at core register 1 |
-| DA | 31:0 | core register | written at core register 2 |
-| CTRL | 31:0 | core register | written at core register 3 |
-| RXF | 31:0 | core register | read from core register 0 |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x5754 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| MYADDR | 7:0 | `my_addr` | RW | 0x11 | this station's bus address (DA of its tokens and data, SA of its frames) |
+| STATUS | 3:0 | `fifo_count` | RO | core | TX FIFO words (0..8) |
+| STATUS | 7:4 | `rx_count` | RO | core | RX FIFO words (0..8) |
+| STATUS | 8 | `token_held` | RO | core | the station holds the token |
+| TXF | 31:0 | core register | WO (core) | core | written at core register 0 |
+| NS | 31:0 | core register | WO (core) | core | written at core register 1 |
+| DA | 31:0 | core register | WO (core) | core | written at core register 2 |
+| CTRL | 31:0 | core register | WO (core) | core | written at core register 3 |
+| RXF | 31:0 | core register | RO (core) | core | read from core register 0 |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -99,6 +147,16 @@ A bit is set while its source is active, stays set until written with 1, and a s
 ### Core register port
 
 The CORE words reach the core's own register port. A write to one pulses `cpu_we` for one clock with `cpu_addr` (the core register) and `cpu_wdata` (PWDATA's low bits); it must cover the whole word (PSTRB = 4'hF): a partial write is dropped with PSLVERR. A read drives `cpu_addr` (the core register) and pulses `cpu_re` during the access phase and returns `cpu_rdata`.
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x57540200.
+2. Write 0x1 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Configure the core: write MYADDR (0x014). Reset values are in the register map; PSTRB selects the bytes written.
+4. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x1 enables all).
+5. Read STATUS (0x018) for the core's live `fifo_count`, `rx_count`, `token_held`; it needs no clearing.
+6. Access the core's registers through the CORE words (0x01C onward), one word per core register; write whole words (PSTRB = 0xF), a partial write is dropped with PSLVERR.
+7. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 

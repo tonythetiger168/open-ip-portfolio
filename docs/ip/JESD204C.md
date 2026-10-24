@@ -2,6 +2,17 @@
 
 Protocol IP `JESD204C`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `JESD204C_top` (`rtl/JESD204C_top.sv`) |
+| Register interface | APB4 slave `JESD204C_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x4A430200 (code 0x4A43, version 2.0) |
+| Registers | 14 words, 0x000 to 0x034 |
+| Interrupts | 10 sources into one level-high `irq` |
+| Data streams | TX (to the core), RX (from the core), MB (from the core) |
+| Protocol pins | 2 pass-through |
+
 ## Overview
 
 JESD204C_top v2.0: JESD204C-style 64b/66b link layer, one lane (scrambling, sync header stream with CRC-12 and command channel, multiblock and extended multiblock alignment)
@@ -62,6 +73,31 @@ bash scripts/cov/run_cov.sh JESD204C          # core coverage (Verilator)
 bash scripts/cov/run_cov.sh JESD204C_apb      # wrapper coverage
 ```
 
+## Parameters
+
+The core and the wrapper have no parameters.
+
+## Wrapper pins
+
+Pins of `JESD204C_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `tx_p` | output | 1 | protocol pin, core port `tx_p` |
+| `rx_p` | input | 1 | protocol pin, core port `rx_p` |
+
 ## Core ports
 
 | Port | Dir | Width | In the APB wrapper |
@@ -112,27 +148,33 @@ Pass-through pins: `tx_p`, `rx_p`.
 | 0x028 | RX1 | RO (pop) | 0x00000000 | Received block (RX0 = bits 31:0, RX1 = bits 63:32, RX2 = start flags; reading RX2 frees it); one arrives every 66 PCLK while emb_lock |
 | 0x02C | RX2 | RO (pop) | 0x00000000 | Received block (RX0 = bits 31:0, RX1 = bits 63:32, RX2 = start flags; reading RX2 frees it); one arrives every 66 PCLK while emb_lock |
 | 0x030 | MB | RO (pop) | 0x00000000 | Multiblock received (with emb_lock); reading MB frees it |
-| 0x034 | STATUS | RO | 0x00000000 | Receive alignment |
+| 0x034 | STATUS | RO | core | Receive alignment |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x038 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x4A43 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| CFG | 3:0 | `cfg_e` | multiblocks per extended multiblock - 1 |
-| CMD | 6:0 | `tx_cmd` | command sent in each multiblock (sampled as the multiblock starts: IRQ TX_MB) |
-| TX0 | 31:0 | `tx_data[31:0]` | payload |
-| TX1 | 31:0 | `tx_data[63:32]` | payload |
-| RX0 | 31:0 | `rx_data[31:0]` | payload |
-| RX1 | 31:0 | `rx_data[63:32]` | payload |
-| RX2 | 0 | `rx_mb_start` | first block of a multiblock |
-| RX2 | 1 | `rx_emb_start` | first block of an extended multiblock |
-| MB | 6:0 | `rx_cmd` | its command |
-| MB | 7 | `rx_crc_err` | its CRC field did not match the previous multiblock |
-| STATUS | 0 | `sh_lock` | sync header lock |
-| STATUS | 1 | `emb_lock` | extended multiblock lock (blocks are delivered) |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x4A43 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 9:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 9:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| FLAGS | 2:0 | one bit per stream flag | RO | 0x0 | see FLAGS |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| CFG | 3:0 | `cfg_e` | RW | 0x0 | multiblocks per extended multiblock - 1 |
+| CMD | 6:0 | `tx_cmd` | RW | 0x0 | command sent in each multiblock (sampled as the multiblock starts: IRQ TX_MB) |
+| TX0 | 31:0 | `tx_data[31:0]` | RW | 0x0 | payload |
+| TX1 | 31:0 | `tx_data[63:32]` | RW | 0x0 | payload |
+| RX0 | 31:0 | `rx_data[31:0]` | RO (pop) | 0x0 | payload |
+| RX1 | 31:0 | `rx_data[63:32]` | RO (pop) | 0x0 | payload |
+| RX2 | 0 | `rx_mb_start` | RO (pop) | 0x0 | first block of a multiblock |
+| RX2 | 1 | `rx_emb_start` | RO (pop) | 0x0 | first block of an extended multiblock |
+| MB | 6:0 | `rx_cmd` | RO (pop) | 0x0 | its command |
+| MB | 7 | `rx_crc_err` | RO (pop) | 0x0 | its CRC field did not match the previous multiblock |
+| STATUS | 0 | `sh_lock` | RO | core | sync header lock |
+| STATUS | 1 | `emb_lock` | RO | core | extended multiblock lock (blocks are delivered) |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -164,6 +206,18 @@ A bit is set while its source is active, stays set until written with 1, and a s
 * **TX** feeds `tx_data`/`tx_valid`. Writing TX1 commits the beat: FLAGS.TX_FULL is set and `tx_valid` stays high until the core's `tx_ready`; then TX_DONE is set. A write while full is dropped and sets TX_OVF.
 * **RX** captures `rx_data`, `rx_mb_start`, `rx_emb_start` when `rx_valid` is high and the register is empty (or is being read in the same clock), and sets FLAGS/IRQ RX_AVAIL. Reading RX2 pops it. A beat that arrives while the register is full is dropped and sets RX_OVF.
 * **MB** captures `rx_cmd`, `rx_crc_err` when `rx_mb_valid` is high and the register is empty (or is being read in the same clock), and sets FLAGS/IRQ MB_AVAIL. Reading MB pops it. A beat that arrives while the register is full is dropped and sets MB_OVF.
+
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x4A430200.
+2. Write 0x3FF to IRQ_STATUS (0x004) to clear any stale bits (TX_MB, TX_UNDERRUN may be set as soon as reset ends).
+3. Configure the core: write CFG (0x014), CMD (0x018). Reset values are in the register map; PSTRB selects the bytes written.
+4. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x3FF enables all).
+5. To send on TX: wait until FLAGS.TX_FULL (bit 0) is 0, or for IRQ TX_DONE, then write TX0 (0x01C) then TX1 (0x020). The last write commits the beat. TX_OVF means a write came while the register was full and was dropped.
+6. To receive on RX: wait for IRQ RX_AVAIL or FLAGS.RX_AVAIL (bit 1), then read RX0 (0x024) then RX1 (0x028) then RX2 (0x02C). Reading the last word frees the register for the next beat; write 1 to IRQ_STATUS.RX_AVAIL (bit 6) to clear it. Read each beat before the next arrives, or it is dropped and RX_OVF is set.
+7. To receive on MB: wait for IRQ MB_AVAIL or FLAGS.MB_AVAIL (bit 2), then read MB (0x030). Reading the last word frees the register for the next beat; write 1 to IRQ_STATUS.MB_AVAIL (bit 8) to clear it. Read each beat before the next arrives, or it is dropped and MB_OVF is set.
+8. Read STATUS (0x034) for the core's live `sh_lock`, `emb_lock`; it needs no clearing.
+9. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Verification
 
