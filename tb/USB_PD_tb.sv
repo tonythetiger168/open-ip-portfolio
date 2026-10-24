@@ -355,6 +355,13 @@ module USB_PD_tb;
     for (int i = 0; i < 9; i++) negotiate(2, (i % 2) ? 9000 : 50 * (181 + $urandom % 800), "wrap");
     negotiate(2, 50 * 179, "just below 9V");
 
+    // ---- a zero-current PDO ----
+    caps(1, 0, 10'h000, 0, "zero current");
+    src_goodcrc(kid); kid++;
+    ctrl_msg(MT_ACCEPT, "zero current");
+    ctrl_msg(MT_PSRDY, "zero current");
+    check(vbus_ok, "zero-current contract");
+
     // ---- reset mid-negotiation ----
     caps(2, 9000, 10'h3C3, 10'h0C3, "reset mid");
     do_reset;
