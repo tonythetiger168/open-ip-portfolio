@@ -55,6 +55,31 @@ module RGMII_sva #(parameter int DEPTH = 16) (
   `SVA_IMP(a_rx_read_model, ren && 5'(raddr) < m_wr, rdata == m_ring[raddr])
   `SVA_IMP(a_irq_model, 1'b1, irq == (m_wr != 0 && ren))
 
+  // TX backlog at each accepted write, written / transmitted / captured
+  // byte classes, every RX ring slot written and read
+  function automatic logic [1:0] bcls(input logic [7:0] v);
+    bcls = (v == 8'h00) ? 2'd0 : (v == 8'hFF) ? 2'd1 : (v == 8'h55 || v == 8'hAA) ? 2'd2 : 2'd3;
+  endfunction
+  wire m_cap = m_c1 != m_c2 && m_c1 && m_v && m_half;
+  covergroup cg_host @(posedge clk);
+    option.per_instance = 1;
+    cp_backlog: coverpoint (m_wp - m_rp) iff (rst_n && acc)
+      { bins empty = {0}; bins partial = {[1:3]}; bins deep = {[4:16]}; }
+    cp_wdata: coverpoint bcls(wdata) iff (rst_n && acc)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rxdata: coverpoint bcls({m_hi, m_d}) iff (rst_n && m_cap)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_slot: coverpoint m_wr[3:0] iff (rst_n && m_cap) { bins s[] = {[0:DEPTH-1]}; }
+    cp_rslot: coverpoint raddr iff (rst_n && ren && m_wr != 0) { bins s[] = {[0:DEPTH-1]}; }
+  endgroup
+  cg_host u_cg_host = new;
+  covergroup cg_txd @(posedge tx_clk);
+    option.per_instance = 1;
+    cp_txd: coverpoint bcls({txd_hi, txd_lo}) iff (rst_n && tx_ctl)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_txd u_cg_txd = new;
+
   `FC(write_dropped_when_full, wen && waddr == 0 && tx_full)
   `FC(tx_fifo_full, tx_full)
   `FC(write_other_addr, wen && waddr != 0)
