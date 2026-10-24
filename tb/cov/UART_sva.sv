@@ -76,8 +76,9 @@ module UART_sva #(parameter int DIV16 = 27) (
 
   covergroup cg_uart @(posedge clk);
     option.per_instance = 1;
-    cp_tx_byte: coverpoint tx_data iff (rst_n && tx_valid && tx_ready);
-    cp_rx_byte: coverpoint rx_data iff (rst_n && rx_valid);
+    cp_tx_byte: coverpoint tx_data iff (rst_n && tx_valid && tx_ready) { bins v[] = {[0:255]}; }
+    cp_rx_byte: coverpoint rx_data iff (rst_n && rx_valid) { bins v[] = {[0:255]}; }
+    cp_rx_err: coverpoint m_rsh iff (rst_n && m_ferr) { bins break_ = {8'h00}; bins data = {[1:255]}; }
   endgroup
   cg_uart u_cg_uart = new;
 
