@@ -202,7 +202,7 @@ module C_PHY_sva (
     x_rsym_pos: cross cp_rsym, cp_rpos;
     cp_twd: coverpoint dcls(c_twv) iff (rst_n && c_tw) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
     cp_rwd: coverpoint dcls(c_rwv) iff (rst_n && c_rw) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
-    cp_burst: coverpoint c_bn iff (rst_n && c_bd) { bins one = {1}; bins few = {[2:7]}; bins many = {[8:$]}; }
+    cp_burst: coverpoint c_bn iff (rst_n && c_bd) { bins one = {1}; bins few = {[2:7]}; bins many = {[8:1023]}; }
   endgroup
   cg_trio u_cg_trio = new;
 
