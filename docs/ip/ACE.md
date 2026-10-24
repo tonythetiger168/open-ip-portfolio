@@ -1,4 +1,4 @@
-# AMBA ACE cached interface: AXI4 channels into a 64-line write-back cache model, with the AC / CR / CD snoop channels answering ReadShared, ReadClean, MakeUnique and CleanInvalid
+# AMBA ACE cached interface: AXI4 channels into a 64-line write-back cache model, with the AC / CR / CD snoop channels answering ReadShared, ReadClean, CleanInvalid and MakeInvalid
 
 Protocol IP `ACE`, version 2.0. Apache-2.0.
 
@@ -14,10 +14,10 @@ Protocol IP `ACE`, version 2.0. Apache-2.0.
 
 ## Overview
 
-ACE (AXI Coherency Extension) -- synthesizable ACE cached-master/slave model Scope: AXI4 main channels (AW/W/B/AR/R, INCR burst) + ACE snoop channels (AC/CR/CD) with an internal 64-line cache model (valid/dirty/tag/data). Dirty-hit snoops return data on CD; MakeUnique/CleanInvalid invalidate.
+ACE (AXI Coherency Extension) -- synthesizable ACE cached-master/slave model Scope: AXI4 main channels (AW/W/B/AR/R, INCR burst) + ACE snoop channels (AC/CR/CD) with an internal 64-line cache model (valid/dirty/tag/data). Dirty-hit snoops return data on CD; MakeInvalid/CleanInvalid invalidate.
 
 The AW, W, B, AR and R channel pins with their ACE fields, and the AC, CR and CD snoop channel pins, pass through unchanged. The registers report the error event.
-The cache is 64 direct-mapped one-word lines (index address[7:2], tag address[31:8]). A write fills its line (valid, dirty) with byte strobes; a read returns the line on a tag hit, 0 otherwise. A snoop is accepted only while no write is in progress, and a write address only while no snoop is: ReadShared / ReadClean on a hit return the line on CD (IsShared, PassDirty and WasUnique when it was dirty) and leave it clean; CleanInvalid on a hit invalidates it and returns the data when it was dirty; MakeUnique invalidates the index; other snoops get an empty response. The CR Error bit is never set (waived), nor bit 0 of BRESP / RRESP.
+The cache is 64 direct-mapped one-word lines (index address[7:2], tag address[31:8]). A write fills its line (valid, dirty) with byte strobes; a read returns the line on a tag hit, 0 otherwise. A snoop is accepted only while no write is in progress, and a write address only while no snoop is: ReadShared / ReadClean on a hit return the line on CD (IsShared, PassDirty and WasUnique when it was dirty) and leave it clean; CleanInvalid on a hit invalidates it and returns the data when it was dirty; MakeInvalid invalidates the index; other snoops get an empty response. The CR Error bit is never set (waived), nor bit 0 of BRESP / RRESP.
 
 ## Files
 
@@ -207,5 +207,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/ACE_top.sv` | pass | 61/61 (+2 excl.) | 1128/1128 (+6 excl.) | 17/17 | 16/16 | 42/42 |
+| core `rtl/ACE_top.sv` | pass | 61/61 (+2 excl.) | 1128/1128 (+6 excl.) | 17/17 | 16/16 | 78/78 |
 | wrapper `rtl/ACE_apb.sv` | pass | 19/19 | 930/930 (+6 excl.) | n/a | 7/7 | 23/23 |

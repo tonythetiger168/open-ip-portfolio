@@ -1,5 +1,5 @@
 {
-  "title": "AMBA ACE cached interface: AXI4 channels into a 64-line write-back cache model, with the AC / CR / CD snoop channels answering ReadShared, ReadClean, MakeUnique and CleanInvalid",
+  "title": "AMBA ACE cached interface: AXI4 channels into a 64-line write-back cache model, with the AC / CR / CD snoop channels answering ReadShared, ReadClean, CleanInvalid and MakeInvalid",
   "code": "0x4143",
   "version": "2.0",
   "tb_clk_ns": 10,
@@ -13,6 +13,6 @@
   ],
   "notes": [
     "The AW, W, B, AR and R channel pins with their ACE fields, and the AC, CR and CD snoop channel pins, pass through unchanged. The registers report the error event.",
-    "The cache is 64 direct-mapped one-word lines (index address[7:2], tag address[31:8]). A write fills its line (valid, dirty) with byte strobes; a read returns the line on a tag hit, 0 otherwise. A snoop is accepted only while no write is in progress, and a write address only while no snoop is: ReadShared / ReadClean on a hit return the line on CD (IsShared, PassDirty and WasUnique when it was dirty) and leave it clean; CleanInvalid on a hit invalidates it and returns the data when it was dirty; MakeUnique invalidates the index; other snoops get an empty response. The CR Error bit is never set (waived), nor bit 0 of BRESP / RRESP."
+    "The cache is 64 direct-mapped one-word lines (index address[7:2], tag address[31:8]). A write fills its line (valid, dirty) with byte strobes; a read returns the line on a tag hit, 0 otherwise. A snoop is accepted only while no write is in progress, and a write address only while no snoop is: ReadShared / ReadClean on a hit return the line on CD (IsShared, PassDirty and WasUnique when it was dirty) and leave it clean; CleanInvalid on a hit invalidates it and returns the data when it was dirty; MakeInvalid invalidates the index; other snoops get an empty response. The CR Error bit is never set (waived), nor bit 0 of BRESP / RRESP."
   ]
 }

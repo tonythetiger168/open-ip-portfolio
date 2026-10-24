@@ -108,9 +108,9 @@ task automatic snoop(input logic [31:0] a, input logic [3:0] op);
   hit = c_v[i] && c_t[i] == a[31:8];
   {xf, dt, sh, un} = 0;
   case (op)
-    4'b0000, 4'b0001: if (hit) begin xf = 1; sh = 1; dt = c_d[i]; un = c_d[i]; c_d[i] = 0; end
-    4'b0111: begin c_v[i] = 0; c_d[i] = 0; end
-    4'b1000: if (hit) begin if (c_d[i]) begin xf = 1; dt = 1; un = 1; end c_v[i] = 0; c_d[i] = 0; end
+    4'b0001, 4'b0010: if (hit) begin xf = 1; sh = 1; dt = c_d[i]; un = c_d[i]; c_d[i] = 0; end
+    4'b1101: begin c_v[i] = 0; c_d[i] = 0; end
+    4'b1001: if (hit) begin if (c_d[i]) begin xf = 1; dt = 1; un = 1; end c_v[i] = 0; c_d[i] = 0; end
     default: ;
   endcase
   @(negedge PCLK);
@@ -149,8 +149,8 @@ task automatic ip_func;
   axi_rd(32'h0, 8'h3F, 2, 2'b01);
   // all data bits both ways, on the R and CD channels
   use_fix = 1;
-  wfix = 32'hFFFF_FFFF; axi_wr(32'h10, 0, 2, 2'b01, 0, 0, 1); axi_rd(32'h10, 0, 2, 2'b01); snoop(32'h10, 4'b0000);
-  wfix = 32'h0;         axi_wr(32'h10, 0, 2, 2'b01, 0, 0, 1); axi_rd(32'h10, 0, 2, 2'b01); snoop(32'h10, 4'b0001);
+  wfix = 32'hFFFF_FFFF; axi_wr(32'h10, 0, 2, 2'b01, 0, 0, 1); axi_rd(32'h10, 0, 2, 2'b01); snoop(32'h10, 4'b0001);
+  wfix = 32'h0;         axi_wr(32'h10, 0, 2, 2'b01, 0, 0, 1); axi_rd(32'h10, 0, 2, 2'b01); snoop(32'h10, 4'b0010);
   use_fix = 0;
   // random traffic within 64 KB: bursts, sizes 1, 2, 4, any alignment,
   // snoops of every kind on lines that hit and miss
@@ -165,10 +165,10 @@ task automatic ip_func;
   end
   for (int k = 0; k < 16; k++) begin
     axi_wr(32'(k * 4), 0, 2, 2'b01);
-    snoop(32'(k * 4), k % 2 ? 4'b0000 : 4'b0001);
-    snoop(32'(k * 4), 4'b0001);
-    snoop(32'(k * 4), k % 4 < 2 ? 4'b1000 : 4'b0111);
-    snoop(32'(k * 4), 4'b1000);
+    snoop(32'(k * 4), k % 2 ? 4'b0001 : 4'b0010);
+    snoop(32'(k * 4), 4'b0010);
+    snoop(32'(k * 4), k % 4 < 2 ? 4'b1001 : 4'b1101);
+    snoop(32'(k * 4), 4'b1001);
     axi_rd(32'(k * 4), 0, 2, 2'b01);
   end
   snoop(32'hFFFF_FFFF, 4'hF);
@@ -185,14 +185,14 @@ task automatic ip_func;
     join
     fork
       axi_rd(32'(k * 16), 3, 2, 2'b01);
-      snoop(32'(k * 16 + 128), 4'b0000);
+      snoop(32'(k * 16 + 128), 4'b0001);
     join
     fork
       axi_wr(32'(k * 4 + 256), 3, 2, 2'b01);
-      begin @(negedge PCLK); snoop(32'(k * 4 + 256), 4'b1000); end   // AW taken first
+      begin @(negedge PCLK); snoop(32'(k * 4 + 256), 4'b1001); end   // AW taken first
     join
     fork
-      snoop(32'(k * 4 + 256), 4'b0000);
+      snoop(32'(k * 4 + 256), 4'b0001);
       begin @(negedge PCLK); axi_wr(32'(k * 4 + 256), 0, 2, 2'b01); end   // AC taken first
     join
   end
