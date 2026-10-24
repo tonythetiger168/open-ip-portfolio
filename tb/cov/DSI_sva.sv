@@ -63,6 +63,11 @@ module DSI_sva #(
         v_rd, v_clean, v_corr_d, v_corr_p, v_uncorr, v_badsot, v_timeout, v_ackerr, v_ackok,
         v_wrap, v_hbp_big;
 
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  logic c_bv, c_cv;
+  int   c_op;
+  logic [7:0] c_b;
+
   function automatic int plen(input int p);   // bytes in packet p incl. SoT, ECC, CRC
     plen = p_long[p] ? 5 + p_d[p] + 2 : 5;
   endfunction
@@ -94,6 +99,7 @@ module DSI_sva #(
        v_rd, v_clean, v_corr_d, v_corr_p, v_uncorr, v_badsot, v_timeout, v_ackerr, v_ackok,
        v_wrap, v_hbp_big} = '0;
       m_irq = 0; m_done = 0;
+      c_bv = 0; c_cv = 0;
       if (cmd_valid && mode != M_IDLE) v_ignored = 1;
       case (mode)
         M_IDLE: begin
@@ -106,6 +112,7 @@ module DSI_sva #(
               for (int i = 0; i < 32; i++) snap[i] = ram[i];
               for (int i = 0; i < 4; i++) begin p_long[i] = 0; p_zero[i] = 0; p_d[i] = 0; end
               rd = (cmd_op == 5); np = 1;
+              c_cv = 1; c_op = cmd_op;
               case (cmd_op)
                 0: begin p_dt[0] = cmd_dt; p_d[0] = cmd_len; v_spkt = 1; end
                 1: begin p_dt[0] = 6'h05; p_d[0] = {8'h00, cmd_dcs}; v_s0 = 1; end
@@ -142,7 +149,10 @@ module DSI_sva #(
               bt = 0;
               if (trig) begin mode = M_WAIT; to = 0; end
               else begin
-                if (bi >= 5 && bi < 5 + p_d[pi] && p_long[pi]) crc = crc16(crc, cur);
+                if (bi >= 5 && bi < 5 + p_d[pi] && p_long[pi]) begin
+                  crc = crc16(crc, cur);
+                  if (!p_zero[pi] && bi > 5) begin c_bv = 1; c_b = cur; end
+                end
                 bi++;
                 if (bi == plen(pi)) begin gp = 1; m_cnt++; if (m_cnt == 0) v_wrap = 1; end
                 else cur = pbyte(pi, bi, crc);
@@ -203,6 +213,28 @@ module DSI_sva #(
   `SVA_INV(a_pkt_cnt, pkt_cnt == m_cnt)
   `SVA_IMP(a_valid_only_when_owned, tx_valid, tx_oe)
   `SVA_NXT(a_rejected_command_stays_idle, !cmd_busy && cmd_valid && cmd_op > 3'd5, !cmd_busy && irq)
+
+  function automatic int dcls(input logic [15:0] v, input int w);
+    logic [15:0] m;
+    m = w == 8 ? 16'h00FF : 16'hFFFF;
+    v &= m;
+    return v == 0 ? 0 : v == m ? 1 : (v == (16'h5555 & m) || v == (16'hAAAA & m)) ? 2 : 3;
+  endfunction
+  // commands taken, long-packet payload bytes (after the DCS byte), read
+  // responses by data type and data
+  covergroup cg_dsi @(negedge clk);
+    option.per_instance = 1;
+    cp_op: coverpoint c_op iff (rst_n && c_cv)
+      { bins spkt = {0}; bins dcs_s0 = {1}; bins dcs_s1 = {2}; bins dcs_long = {3}; bins vline = {4}; bins dcs_read = {5}; }
+    cp_pay: coverpoint dcls({8'h00, c_b}, 8) iff (rst_n && c_bv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rsp: coverpoint bta_data[7:0] iff (rst_n && bta_done)
+      { bins ack_err = {8'h02}; bins read1 = {8'h21}; bins read2 = {8'h22};
+        bins other = {[8'h00:8'h01], [8'h03:8'h20], [8'h23:8'hFF]}; }
+    cp_rdata: coverpoint dcls(bta_data[23:8], 16) iff (rst_n && bta_done && (bta_data[7:0] == 8'h21 || bta_data[7:0] == 8'h22))
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_dsi u_cg_dsi = new;
 
   // ---------------- functional coverage ----------------
   `FC(raw_short_packet, v_spkt)

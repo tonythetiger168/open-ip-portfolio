@@ -183,7 +183,8 @@ module eCPRI_over_Ethernet_tb;
                          input int mode = 0);
     {pb[0], pb[1], pb[2], pb[3]} = {pc_, sq_};
     for (int w = 0; w < 8; w++) begin
-      v = (mode == 1) ? 32'hFFFF_FFFF : (mode == 2) ? 32'h0 : $urandom;
+      v = (mode == 1) ? 32'hFFFF_FFFF : (mode == 2) ? 32'h0 : (mode == 3) ? 32'h5555_5555 :
+          (mode == 4) ? 32'hAAAA_AAAA : $urandom;
       {pb[4+4*w], pb[5+4*w], pb[6+4*w], pb[7+4*w]} = v;
     end
     send(8'd0, 16'(4 + 4 * nw_));
@@ -501,6 +502,24 @@ module eCPRI_over_Ethernet_tb;
     rnd_pay(); {pb[0], pb[1], pb[2]} = {16'h9999, 8'h01};
     n0 = ncap; send(8'd5, 16'd3);
     wait_tx(n0, "after reset");
+    repeat (80) @(negedge clk);
+    // data patterns: IQ words, memory words at both ends of the memory
+    for (int m = 3; m <= 4; m++) begin : b_pat
+      logic [31:0] d;
+      send_iq(16'h7700 + 16'(m), 16'd0, 1, m);
+      repeat (10) @(negedge clk);
+      iq_pop(d);
+      if (d !== (m == 3 ? 32'h5555_5555 : 32'hAAAA_AAAA)) fail("IQ pattern word");
+    end
+    for (int nw = 5; nw <= 7; nw++) begin : b_nw
+      logic [31:0] d;
+      send_iq(16'h7800, 16'(nw - 5), nw);
+      repeat (10) @(negedge clk);
+      for (int w = 0; w < nw; w++) iq_pop(d);
+    end
+    mem_wr(8'd0, 32'h0000_0000); mem_wr(8'd252, 32'hFFFF_FFFF);
+    mem_wr(8'd4, 32'h5555_5555); mem_wr(8'd8, 32'hAAAA_AAAA);
+    mem_rd(8'd0, 32'h0000_0000); mem_rd(8'd252, 32'hFFFF_FFFF);
     repeat (80) @(negedge clk);
 
     if (errors == 0) $display("TEST PASSED: eCPRI_over_Ethernet");

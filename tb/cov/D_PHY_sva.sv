@@ -248,6 +248,29 @@ module D_PHY_sva (
   `SVA_IMP(a_rx_data, rx_data_valid, rx_data == m_rdata)
   `SVA_IMP(a_rx_cmd, rx_esc_valid, rx_esc_cmd == m_rcmd)
 
+  function automatic int dcls(input logic [7:0] v);
+    return v == 8'h00 ? 0 : v == 8'hFF ? 1 : (v == 8'h55 || v == 8'hAA) ? 2 : 3;
+  endfunction
+  // bytes taken by each transmitter and handed out by the receiver, escape
+  // commands sent and received
+  covergroup cg_dphy @(negedge clk);
+    option.per_instance = 1;
+    cp_hs_tx: coverpoint dcls(hs_tx_data) iff (rst_n && hs_tx_valid && hs_tx_ready)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_lp_tx: coverpoint dcls(lpdt_data) iff (rst_n && lpdt_valid && lpdt_ready)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_hs_rx: coverpoint dcls(rx_data) iff (rst_n && rx_data_valid && rx_hs_active)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_lp_rx: coverpoint dcls(rx_data) iff (rst_n && rx_data_valid && !rx_hs_active)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_esc_tx: coverpoint esc_cmd iff (rst_n && esc_req)
+      { bins lpdt = {8'h87}; bins ulps = {8'h78}; bins trigger = {8'h46};
+        bins unknown = {[8'h00:8'h45], [8'h47:8'h77], [8'h79:8'h86], [8'h88:8'hFF]}; }
+    cp_esc_rx: coverpoint rx_esc_cmd iff (rst_n && rx_esc_valid)
+      { bins lpdt = {8'h87}; bins ulps = {8'h78}; bins trigger = {8'h46}; }
+  endgroup
+  cg_dphy u_cg_dphy = new;
+
   `FC(hs_burst_empty, v_hs0)
   `FC(hs_burst_three_bytes, v_hs3)
   `FC(hs_host_underrun_ends_burst, v_hs_stall)
