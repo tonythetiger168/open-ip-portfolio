@@ -30,12 +30,7 @@ A SHA-256 takes one or two compressions of 64 clocks (two when 56 or more bytes 
 | `tb/cov/Crypto___Security_Engine_sva.sv`, `tb/cov/Crypto___Security_Engine_apb_sva.sv` | coverage checkers (core, wrapper) |
 | `scripts/apb/specs/Crypto___Security_Engine.json` | register spec the wrapper, TB, checker and this page are generated from |
 
-```
-make -f Makefile.Crypto___Security_Engine sim syn            # core test + synthesis (Icarus, Yosys)
-make -f Makefile.Crypto___Security_Engine apb                # wrapper test + synthesis
-bash scripts/cov/run_cov.sh Crypto___Security_Engine          # core coverage (Verilator)
-bash scripts/cov/run_cov.sh Crypto___Security_Engine_apb      # wrapper coverage
-```
+How to run the tests and the coverage flow: see [Running and verifying](#running-and-verifying).
 
 ## Parameters
 
@@ -169,6 +164,42 @@ A bit is set while its source is active, stays set until written with 1, and a s
 6. Read DIGEST0 (0x03C), DIGEST1 (0x040), DIGEST2 (0x044), DIGEST3 (0x048), DIGEST4 (0x04C), DIGEST5 (0x050), DIGEST6 (0x054), DIGEST7 (0x058) for the core's live `digest[31:0]`, `digest[63:32]`, `digest[95:64]`, `digest[127:96]`, `digest[159:128]`, `digest[191:160]`, `digest[223:192]`, `digest[255:224]`; it needs no clearing.
 7. Read STATUS (0x05C) for the core's live `busy`; it needs no clearing.
 8. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
+
+## Running and verifying
+
+All commands run from the repository root. Icarus Verilog 12 and Yosys 0.33 are enough for steps 1 to 3; step 4 also needs Verilator 5.052 and pyslang (see [README, Setup](../../README.md#setup)).
+
+| Step | Command | Pass when | Output |
+|---|---|---|---|
+| 1. Core test | `make -f Makefile.Crypto___Security_Engine sim` | a `TEST PASSED` line, no `ERROR` | console |
+| 2. Core synthesis | `make -f Makefile.Crypto___Security_Engine syn` | Yosys ends without `ERROR`; `stat` prints the cell count | `work/Crypto___Security_Engine_top.json` |
+| 3. APB wrapper test + synthesis | `make -f Makefile.Crypto___Security_Engine apb` | `TEST PASSED: Crypto___Security_Engine_apb`, then Yosys without `ERROR` | console, `work/Crypto___Security_Engine_apb.json` |
+| 4. Coverage (core, wrapper) | `bash scripts/cov/run_cov.sh Crypto___Security_Engine`<br>`bash scripts/cov/run_cov.sh Crypto___Security_Engine_apb` | `RESULT: CLOSED` (all five metrics 100%) | `work/cov/Crypto___Security_Engine/score.json`, `work/cov/Crypto___Security_Engine_apb/score.json` |
+
+Expected end of a step 4 run:
+
+```
+===== Crypto___Security_Engine =====
+TEST: PASSED   SVA_FAILURES: 0
+LINE ... TOGGLE ... FSM ... SVA ... FUNCTIONAL  (each n/n, 100.0%)
+RESULT: CLOSED
+```
+
+**Core test** (`tb/Crypto___Security_Engine_tb.sv`): drives `Crypto___Security_Engine_top` through its own ports against a protocol peer or model and checks every result itself; any mismatch prints `ERROR`, and `TEST PASSED` is printed only when there were none.
+
+**APB wrapper test** (`tb/Crypto___Security_Engine_apb_tb.sv`), in this order:
+
+1. Reset values of every register, ID included.
+2. Writes to read-only registers are ignored.
+3. Each RW register: all ones, all zeros, then 16 random writes with every PSTRB byte-lane pattern, read back each time.
+4. Unmapped and misaligned addresses, reads and writes: PSLVERR, read data 0, no side effect on other registers.
+5. Back-to-back transfers with no idle cycle.
+6. IP traffic through the registers only (`tb/apb/Crypto___Security_Engine_apb_func.svh`): the programming sequence above, every interrupt bit set, enabled and cleared (100% wrapper toggle coverage confirms each bit moved).
+7. PRESETN asserted mid-run: `irq` and PRDATA go to 0, registers return to reset values.
+
+**Checkers** (`tb/cov/Crypto___Security_Engine_sva.sv`, `tb/cov/Crypto___Security_Engine_apb_sva.sv`): SVA protocol and APB assertions plus covergroups, bound in by the coverage flow. An assertion failure prints `SVA_FAIL` and fails the run even when the test itself passed.
+
+Whole portfolio: `bash scripts/ci_regression.sh` runs steps 1 to 3 for every IP (what CI runs), and `bash scripts/cov/run_all.sh 4` runs step 4 for every IP.
 
 ## Verification
 
