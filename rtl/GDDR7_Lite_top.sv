@@ -79,14 +79,27 @@ module GDDR7_Lite_top #(
 
   // ---------------- PAM3 nibble <-> trit coding ----------------
   // encode: v = 9*t0 + 3*t1 + t2, v in 0..15 (16 of 27 trit combos used)
+  // (a 16-entry table: '/' and '%' by 9 and 3 elaborate as 32-bit
+  // dividers, 128 of them across pack_trits, which exhausts yosys)
   function automatic [5:0] enc_nibble(input [3:0] v);
-    logic [3:0] r;
-    begin
-      enc_nibble[5:4] = v / 9;
-      r = v % 9;
-      enc_nibble[3:2] = r / 3;
-      enc_nibble[1:0] = r % 3;
-    end
+    case (v)
+      4'd0:  enc_nibble = {2'd0, 2'd0, 2'd0};
+      4'd1:  enc_nibble = {2'd0, 2'd0, 2'd1};
+      4'd2:  enc_nibble = {2'd0, 2'd0, 2'd2};
+      4'd3:  enc_nibble = {2'd0, 2'd1, 2'd0};
+      4'd4:  enc_nibble = {2'd0, 2'd1, 2'd1};
+      4'd5:  enc_nibble = {2'd0, 2'd1, 2'd2};
+      4'd6:  enc_nibble = {2'd0, 2'd2, 2'd0};
+      4'd7:  enc_nibble = {2'd0, 2'd2, 2'd1};
+      4'd8:  enc_nibble = {2'd0, 2'd2, 2'd2};
+      4'd9:  enc_nibble = {2'd1, 2'd0, 2'd0};
+      4'd10: enc_nibble = {2'd1, 2'd0, 2'd1};
+      4'd11: enc_nibble = {2'd1, 2'd0, 2'd2};
+      4'd12: enc_nibble = {2'd1, 2'd1, 2'd0};
+      4'd13: enc_nibble = {2'd1, 2'd1, 2'd1};
+      4'd14: enc_nibble = {2'd1, 2'd1, 2'd2};
+      default: enc_nibble = {2'd1, 2'd2, 2'd0};   // 15
+    endcase
   endfunction
   // decode: index = 9*t0 + 3*t1 + t2; > 15 -> invalid symbol set
   function automatic [4:0] dec_nibble(input [5:0] t);
@@ -111,16 +124,16 @@ module GDDR7_Lite_top #(
   genvar g;
   generate
     for (g = 0; g < ENTS; g = g + 1) begin : TZERO
-      assign rp_done[g]  = (rp_cnt[g]  == 16'd0);
-      assign ras_done[g] = (ras_cnt[g] == 16'd0);
-      assign rc_done[g]  = (rc_cnt[g]  == 16'd0);
-      assign wr_done[g]  = (wr_cnt[g]  == 16'd0);
+      assign rp_done[g]  = (rp_cnt[g]  == 16'd0) && !ld_rp_v[g];
+      assign ras_done[g] = (ras_cnt[g] == 16'd0) && !ld_ras_v[g];
+      assign rc_done[g]  = (rc_cnt[g]  == 16'd0) && !ld_rc_v[g];
+      assign wr_done[g]  = (wr_cnt[g]  == 16'd0) && !ld_wr_v[g];
     end
   endgenerate
   logic [15:0] rrd_cnt, wtr_cnt, rfc_cnt, refi_cnt;
-  wire rrd_done = (rrd_cnt == 16'd0);
-  wire wtr_done = (wtr_cnt == 16'd0);
-  wire rfc_done = (rfc_cnt == 16'd0);
+  wire rrd_done = (rrd_cnt == 16'd0) && !ld_rrd_v;
+  wire wtr_done = (wtr_cnt == 16'd0) && !ld_wtr_v;
+  wire rfc_done = (rfc_cnt == 16'd0) && !ld_rfc_v;
 
   logic        ref_pending, ref_overrun;
 
@@ -144,6 +157,7 @@ module GDDR7_Lite_top #(
     ENG_CL, ENG_RD_BURST, ENG_CWL, ENG_WR_BURST, ENG_REF_CMD, ENG_REF_WAIT
   } eng_t;
   eng_t eng;
+  logic eng_host_ref;     // refresh in flight was a host command
   logic [3:0]  eng_ent, eng_line;
   logic [31:0] eng_row;
   logic        eng_we, eng_pam3;
@@ -152,9 +166,17 @@ module GDDR7_Lite_top #(
   logic [191:0] trit_reg;           // trit view (PAM3)
 
   wire [31:0] mem_idx = ((eng_ent * ROWS) + eng_row[31:0]) * LINES + eng_line;
+
+  // Array write port, kept out of the async-reset engine process so the
+  // array infers as a memory (SRAM macro) instead of 192-bit registers;
+  // the engine posts one write per burst, applied on the next edge.
+  logic           mem_we;
+  logic [31:0]    mem_wa;
+  logic [191:0]   mem_wd;
+  always_ff @(posedge clk) if (mem_we) mem[mem_wa] <= mem_wd;
   wire hit = ent_open[eng_ent] &&
              (ent_row[eng_ent] == eng_row[$clog2(ROWS)-1:0]);
-  wire [4:0] bl_now = pam3 ? 5'd6 : 5'd8;   // burst length per active mode
+  wire [4:0] bl_now = eng_pam3 ? 5'd6 : 5'd8;   // burst length of the command in flight
 
   logic        dq_oe, dqs_oe;
   logic [31:0] dq_out;
@@ -294,9 +316,13 @@ module GDDR7_Lite_top #(
   endfunction
   function automatic [127:0] unpack_data(input [191:0] t);
     logic [127:0] d;
+    logic [4:0]   q;
     begin
       d = 128'd0;
-      for (int n = 0; n < 32; n++) d[4*n +: 4] = dec_nibble(t[6*n +: 6])[3:0];
+      for (int n = 0; n < 32; n++) begin
+        q = dec_nibble(t[6*n +: 6]);
+        d[4*n +: 4] = q[3:0];
+      end
       unpack_data = d;
     end
   endfunction
@@ -312,7 +338,8 @@ module GDDR7_Lite_top #(
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      eng <= ENG_IDLE;
+      eng <= ENG_IDLE; eng_host_ref <= 1'b0;
+      mem_we <= 1'b0; mem_wa <= 32'h0; mem_wd <= '0;
       eng_ent <= 4'd0; eng_line <= 4'd0; eng_row <= 32'h0;
       eng_we <= 1'b0; eng_pam3 <= 1'b0;
       lat_cnt <= 5'd0; bcnt <= 5'd0;
@@ -332,12 +359,16 @@ module GDDR7_Lite_top #(
       ld_rp_v <= '0; ld_ras_v <= '0; ld_rc_v <= '0; ld_wr_v <= '0;
       ld_rrd_v <= 1'b0; ld_wtr_v <= 1'b0; ld_rfc_v <= 1'b0;
       ref_ack <= 1'b0; req_done <= 1'b0; eng_err_pulse <= 1'b0;
+      mem_we <= 1'b0;
       case (eng)
         ENG_IDLE: begin
+          // req_valid is still high in the cycle req_done pulses (the FE
+          // drops it a cycle later): ignore it then, or the finished
+          // request is relaunched
           dq_oe <= 1'b0; dqs_oe <= 1'b0;
-          if (req_valid && req_ref) eng <= ENG_REF_CMD;
-          else if (ref_pending)     eng <= ENG_REF_CMD;
-          else if (req_valid) begin
+          if ((req_valid && !req_done) && req_ref) begin eng_host_ref <= 1'b1; eng <= ENG_REF_CMD; end
+          else if (ref_pending) begin eng_host_ref <= 1'b0; eng <= ENG_REF_CMD; end
+          else if ((req_valid && !req_done)) begin
             if (req_addr[31:19] != 13'h0) begin
               eng_err_pulse <= 1'b1; req_done <= 1'b1;
             end else begin
@@ -389,9 +420,9 @@ module GDDR7_Lite_top #(
         ENG_CL: begin
           if (lat_cnt > 5'd1) lat_cnt <= lat_cnt - 1;
           else begin
-            burst_reg <= mem[mem_idx];
+            burst_reg <= mem[mem_idx][127:0];
             if (eng_pam3)
-              trit_reg <= pack_trits(mem[mem_idx]);  // encode on the way out
+              trit_reg <= pack_trits(mem[mem_idx][127:0]);  // encode on the way out
             bcnt <= 5'd0; eng <= ENG_RD_BURST;
           end
         end
@@ -402,7 +433,6 @@ module GDDR7_Lite_top #(
           if (bcnt == bl_now - 1) begin
             for (int i = 0; i < 8; i++) rbuf[i] <= burst_reg[16*i +: 16];
             rbuf_valid <= 1'b1;
-            dq_oe <= 1'b0; dqs_oe <= 1'b0;
             ld_wtr_v <= 1'b1; req_done <= 1'b1; eng <= ENG_IDLE;
           end else bcnt <= bcnt + 1;
         end
@@ -421,17 +451,20 @@ module GDDR7_Lite_top #(
           if (eng_pam3) begin
             dq_out <= {4'h0, trit_reg[32*bcnt +: 32]};
             if (bcnt == bl_now - 1) begin
-              mem[mem_idx] <= trit_reg;        // store trit image
-              dq_oe <= 1'b0; dqs_oe <= 1'b0;
+              // decode what went over the trit bus: the array holds raw
+              // data in both modes, so a line reads back the same after
+              // an MR0 PAM2/PAM3 mode switch
+              mem_we <= 1'b1; mem_wa <= mem_idx;
+              mem_wd <= {64'd0, unpack_data(trit_reg)};
               ld_wr_v[eng_ent] <= 1'b1; ld_wr <= T_WR[15:0];
               req_done <= 1'b1; eng <= ENG_IDLE;
             end else bcnt <= bcnt + 1;
           end else begin
             dq_out <= {16'hzzzz, wbuf[bcnt[2:0]]};
             if (bcnt == bl_now - 1) begin
-              mem[mem_idx] <= {64'd0, wbuf[7], wbuf[6], wbuf[5], wbuf[4],
+              mem_we <= 1'b1; mem_wa <= mem_idx;
+              mem_wd <= {64'd0, wbuf[7], wbuf[6], wbuf[5], wbuf[4],
                                wbuf[3], wbuf[2], wbuf[1], wbuf[0]};
-              dq_oe <= 1'b0; dqs_oe <= 1'b0;
               ld_wr_v[eng_ent] <= 1'b1; ld_wr <= T_WR[15:0];
               req_done <= 1'b1; eng <= ENG_IDLE;
             end else bcnt <= bcnt + 1;
@@ -450,7 +483,7 @@ module GDDR7_Lite_top #(
           if (rfc_done && rp_done[0] && rp_done[1] && rp_done[2] &&
               rp_done[3] && rp_done[4] && rp_done[5] && rp_done[6] &&
               rp_done[7]) begin
-            ref_ack <= 1'b1; req_done <= 1'b1; eng <= ENG_IDLE;
+            ref_ack <= 1'b1; req_done <= eng_host_ref; eng <= ENG_IDLE;  // auto REF acks no host request
           end
         end
         default: eng <= ENG_IDLE;

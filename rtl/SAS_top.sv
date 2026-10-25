@@ -374,7 +374,7 @@ module SAS_top #(
             // Finding #4 defensive guard: clamp the received payload length
             // so rx_pay[0:15] cannot be overrun (framing continues past the
             // clamp, so the CRC/END checks reject the truncated frame).
-            r_len  <= (rx_dw[31:24] > 8'd16) ? 5'd16 : rx_dw[31:24][4:0];
+            r_len  <= (rx_dw[31:24] > 8'd16) ? 5'd16 : rx_dw[28:24];
             r_type <= rx_dw[23:16];
             r_dst  <= rx_dw[15:8];
             r_src  <= rx_dw[7:0];

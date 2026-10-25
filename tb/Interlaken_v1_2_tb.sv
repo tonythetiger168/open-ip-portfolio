@@ -191,7 +191,9 @@ module Interlaken_v1_2_tb;
           ftype = 3;                              // bad END -> no echo
           lenb  = 8 + $urandom_range(0, 8);
         end else begin
-          ftype = 5;                              // LEN byte with bits[7:6]
+          ftype = 5;                              // LEN byte with bits[7:6]:
+                                                  // out of 8..16, dropped at LEN
+                                                  // (F2 clamp) -> rx_err, no echo
           lenb  = (t == 124) ? 8'h40 : (t == 125) ? 8'h80 : 8'hC0;  // len_q=0
         end
         dlen = lenb & 8'h3F;                      // len_q the DUT extracts
@@ -224,14 +226,17 @@ module Interlaken_v1_2_tb;
         end
         host_oe = 0;
         // ---- shadow buf_mem update (DUT stores every received byte) ----
-        sh_buf[1] = lenb[7:0];
-        for (int i = 0; i < dlen + 4; i++) sh_buf[2+i] = fbytes[2+i];
+        // a LEN outside 8..16 is dropped before anything is stored (F2)
+        if (lenb >= 8 && lenb <= 16) begin
+          sh_buf[1] = lenb[7:0];
+          for (int i = 0; i < dlen + 4; i++) sh_buf[2+i] = fbytes[2+i];
+        end
         if (ftype == 0) n_good++;
         else if (ftype == 1) begin n_badcrc++; if (dlen > 16) n_long++; end
         else if (ftype == 2) n_badstp++;
         else if (ftype == 3) n_badend++;
         else n_zlen++;
-        if (ftype == 0 || ftype == 2 || ftype == 5) begin
+        if (ftype == 0 || ftype == 2) begin
           // ---- predict tx_mem after rx_done ----
           // v2.5.1 FIXED: exact copy, no OOB-mask clobber of tx_mem[0..3]
           for (int k = 0; k < 16; k++) exp_mem[k] = sh_buf[k+2];

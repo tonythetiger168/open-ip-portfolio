@@ -201,7 +201,10 @@ module DDR4_Lite_tb;
         fe_write_line(r_addr);
         wlog[wlog_n] = r_addr; wlog_n = wlog_n + 1;
       end else begin
-        fe_read_check(r_addr);
+        // read back a line this phase has written (an unwritten line holds
+        // no defined data, so checking a random address against
+        // data_word() can only fail)
+        fe_read_check(wlog[{$random(seed)} % wlog_n]);
       end
     end
     // read back everything that was written (post-refresh integrity)
@@ -228,13 +231,16 @@ module DDR4_Lite_tb;
     // summary
     if (tb_err == 0) $display("SIM_PASS: DDR4_Lite_tb completed, refreshes seen: %0d", ref_count);
     else             $display("SIM_FAIL: %0d errors", tb_err);
+    // regression marker (scripts/ci_regression.sh greps for it)
+    if (tb_err == 0) $display("TEST PASSED: DDR4_Lite");
+    else             $display("TEST FAILED: DDR4_Lite");
     $finish;
   end
 
   // global timeout
   initial begin
     #2_000_000;
-    $display("SIM_FAIL: timeout");
+    $display("SIM_FAIL: timeout"); $display("TEST FAILED: DDR4_Lite");
     $finish;
   end
 
