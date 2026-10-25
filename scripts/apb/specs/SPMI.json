@@ -1,0 +1,56 @@
+{
+  "title": "SPMI-style target: sequence start, a header of slave address 5 and command, a register address, then a register write (acknowledged) or read",
+  "code": "0x534D",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "TX",
+      "kind": "rw",
+      "desc": "Byte returned for a register read",
+      "fields": [
+        {
+          "port": "tx_byte",
+          "reset": "0",
+          "desc": "taken when the register address of a read is complete, sent MSB first"
+        }
+      ]
+    },
+    {
+      "name": "RX",
+      "kind": "stream_out",
+      "data": [
+        "rx_byte",
+        "rx_addr"
+      ],
+      "valid": "rx_valid",
+      "desc": "Register writes received (data and register address); reading RX frees it",
+      "fdesc": {
+        "rx_byte": "data written",
+        "rx_addr": "register address"
+      }
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Target state",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "in a command addressed to us"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "WRITE",
+      "port": "irq",
+      "desc": "a register write was received (the same clock RX captures it)"
+    }
+  ],
+  "notes": [
+    "sdata (open drain: the target only pulls it low for the ACK and read data) and sclk are the bus pins; they pass through unchanged. Each SCLK phase must last at least three PCLK clocks.",
+    "Frame: SSC (SDATA falling while SCLK is high), header {SA[3:0], CMD[3:0]} then the register address, MSB first, sampled on SCLK rising. CMD 0: a data byte follows and the target ACKs it by holding SDATA low for the next bit; CMD 1: the target sends TX on the next 8 bits, each driven from an SCLK fall. Other commands and slave addresses are ignored. This is a simplified SPMI framing: no parity bits, bus park or arbitration."
+  ]
+}

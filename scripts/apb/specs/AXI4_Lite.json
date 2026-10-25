@@ -1,0 +1,18 @@
+{
+  "title": "AMBA AXI4-Lite subordinate: a 256-word memory with byte strobes, independent read and write paths, SLVERR outside the memory",
+  "code": "0x414C",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [],
+  "irqs": [
+    {
+      "name": "ERR",
+      "port": "irq",
+      "desc": "an access outside the memory or misaligned was accepted (SLVERR); the core holds this until reset, so the bit cannot be cleared before then"
+    }
+  ],
+  "notes": [
+    "awaddr, awvalid, awready, wdata, wstrb, wvalid, wready, bresp, bvalid, bready, araddr, arvalid, arready, rdata, rresp, rvalid and rready are the AXI4-Lite subordinate pins; they pass through unchanged. The registers report the subordinate's error event.",
+    "The memory is bytes 0x000 to 0x3FF; an address above it or not word aligned gets SLVERR (a write is dropped, a read returns 0). Only OKAY and SLVERR are returned, so bresp[0] and rresp[0] are constant 0 (waived)."
+  ]
+}

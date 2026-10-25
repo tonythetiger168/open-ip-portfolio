@@ -38,7 +38,7 @@ module I2C_top #(
     ST_IDLE, ST_ADDR, ST_ACK, ST_RX, ST_TX, ST_TXACK, ST_IGNORE
   } st_t;
   st_t      state;
-  logic [3:0] bit_cnt;
+  logic [2:0] bit_cnt;
   logic [7:0] shift;
   logic       rw, ack_low, txack_done;
 
@@ -63,7 +63,7 @@ module I2C_top #(
         // -------- address phase --------
         ST_ADDR: if (scl_rise) begin
           shift <= addr_byte;
-          if (bit_cnt == 4'd7) begin
+          if (bit_cnt == 3'd7) begin
             bit_cnt <= '0;
             if (addr_byte[7:1] == I2C_ADDR[6:0]) begin
               rw   <= addr_byte[0];
@@ -95,7 +95,7 @@ module I2C_top #(
         // -------- write: receive bytes --------
         ST_RX: if (scl_rise) begin
           shift <= addr_byte;
-          if (bit_cnt == 4'd7) begin
+          if (bit_cnt == 3'd7) begin
             rx_byte  <= addr_byte;
             rx_valid <= 1'b1;
             bit_cnt  <= '0;
@@ -107,7 +107,7 @@ module I2C_top #(
 
         // -------- read: transmit tx_byte MSB-first --------
         ST_TX: if (scl_fall) begin
-          if (bit_cnt == 4'd7) begin
+          if (bit_cnt == 3'd7) begin
             bit_cnt <= '0;
             ack_low <= 1'b0;            // release SDA for master ACK
             state   <= ST_TXACK;
@@ -129,11 +129,9 @@ module I2C_top #(
             end
           end else if (scl_fall) begin
             txack_done <= 1'b0;
-            if (state == ST_TXACK) begin
-              bit_cnt <= '0;
-              ack_low <= (tx_byte[7] == 1'b0);   // ACKed: present first bit
-              state   <= ST_TX;
-            end
+            bit_cnt <= '0;
+            ack_low <= (tx_byte[7] == 1'b0);     // ACKed: present first bit
+            state   <= ST_TX;
           end
         end
 

@@ -1,0 +1,33 @@
+{
+  "title": "USB 2.0 high-speed capable device: chirp speed detection, SOF frame / microframe tracking, NRZI / bit stuffing / EOP on dp-dm, CRC5 / CRC16, ACK / NAK / STALL, DATA0/1 toggles, EP0 control (device and device_qualifier descriptors, SET_ADDRESS, SET/GET_CONFIGURATION, a vendor preset) and an EP1 interrupt-IN counter",
+  "code": "0x5548",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "40ms",
+  "regs": [
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Link speed",
+      "fields": [
+        {"port": "hs_mode", "desc": "high speed: set by a successful chirp handshake, cleared by the next bus reset"}
+      ]
+    },
+    {
+      "name": "FRAME",
+      "kind": "ro",
+      "desc": "SOF tracking",
+      "fields": [
+        {"port": "frame_no", "desc": "frame number of the last good SOF"},
+        {"port": "uframe", "desc": "SOFs seen with this frame number, minus 1 (the microframe in high speed)"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "RXERR", "port": "irq", "desc": "token or data packet with a bad CRC5 / CRC16 or a bit-stuffing error. Held in the core until the next good token addressed to the device, so the bit is set again on every clock until then"}
+  ],
+  "notes": [
+    "dp / dm (bidirectional tri-state pads: D+ needs the device pull-up, D- the host pull-down) pass through unchanged. One USB bit time is 4 PCLK clocks; the chirp handshake is a scaled digital model (device chirp K 64 PCLK, host chirps of at least 16 PCLK within 512 PCLK).",
+    "Enumeration and endpoint traffic run over the USB bus only; the registers report the speed, SOF tracking and receive errors."
+  ]
+}

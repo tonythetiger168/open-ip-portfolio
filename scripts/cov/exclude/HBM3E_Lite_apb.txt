@@ -1,0 +1,4 @@
+# HBM3E_Lite_apb: core pin bits that are constant (see scripts/cov/exclude/HBM3E_Lite.txt), seen at the wrapper's pass-through ports.
+TOGGLE \.addr\[9\]: # always 0: rows are 9 bits (addr[8:0]) and the column is {line, 4'h0}; addr[10] is the all-entry flag, addr[13:11] the pseudo-channel
+TOGGLE \.trace_cmd\[3\]: # always 0: trace codes 0..6
+TOGGLE \.trace_addr\[([5-9]|1[01]|2[1-9]|3[01])\]: # always 0: trace_addr is {11'h0, row, 12'h0}, or the entry (5 bits) for a per-entry REF

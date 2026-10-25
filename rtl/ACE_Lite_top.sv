@@ -5,6 +5,8 @@
 //        ARSNOOP/ARDOMAIN/ARBAR/AWSNOOP/AWDOMAIN/AWBAR (accepted; barrier
 //        ordering guaranteed by strict in-order completion). No snoop channels.
 //        Internal 256x32 word memory; out-of-range access -> SLVERR + irq.
+//        Range is checked per beat: an INCR burst that crosses 1KB gets
+//        SLVERR on the beats past the end instead of wrapping to word 0.
 // IP design implementation v1.0 -- Apache-2.0
 // ============================================================================
 module ACE_Lite_top #(
@@ -68,6 +70,7 @@ module ACE_Lite_top #(
   logic [7:0]    wlen_q, wbeat_q;
   logic          werr_q;
   wire           w_last = wlast || (wbeat_q == wlen_q);
+  wire           w_oor  = |waddr_q[AW-1:10];   // INCR burst ran past 1KB
 
   // ------------------------- read channel FSM -------------------------------
   typedef enum logic [0:0] {R_IDLE, R_DATA} rstate_t;
@@ -75,6 +78,7 @@ module ACE_Lite_top #(
   logic [AW-1:0] raddr_q;
   logic [7:0]    rlen_q, rbeat_q;
   logic          rerr_q;
+  wire           r_oor  = |raddr_q[AW-1:10];
 
   // ==========================================================================
   // sequential logic
@@ -105,7 +109,8 @@ module ACE_Lite_top #(
           wstate  <= W_DATA;
         end
         W_DATA: if (wvalid && wready) begin
-          if (!werr_q) begin
+          if (w_oor) werr_q <= 1'b1;   // never wrap: beats past 1KB are dropped
+          if (!werr_q && !w_oor) begin
             for (int b = 0; b < DW/8; b++)
               if (wstrb[b])
                 mem[waddr_q[9:2]][8*b +: 8] <= wdata[8*b +: 8];
@@ -114,7 +119,7 @@ module ACE_Lite_top #(
           wbeat_q <= wbeat_q + 8'd1;
           if (w_last) begin
             wstate <= W_RESP;
-            if (werr_q) irq <= 1'b1;
+            if (werr_q || w_oor) irq <= 1'b1;
           end
         end
         W_RESP: if (bvalid && bready)
@@ -136,11 +141,10 @@ module ACE_Lite_top #(
           rbeat_q <= rbeat_q + 8'd1;
           if (rbeat_q == rlen_q) begin
             rstate <= R_IDLE;
-            if (rerr_q) irq <= 1'b1;
+            if (rerr_q || r_oor) irq <= 1'b1;
           end
         end
-        default: rstate <= R_IDLE;
-      endcase
+      endcase   // 1-bit enum, both encodings listed
     end
   end
 
@@ -156,12 +160,12 @@ module ACE_Lite_top #(
     // read channel
     arready = (rstate == R_IDLE);
     rvalid  = (rstate == R_DATA);
-    rdata   = rerr_q ? {DW{1'b0}} : mem[raddr_q[9:2]];
-    rresp   = rerr_q ? AXI_SLVERR : AXI_OKAY;
+    rdata   = (rerr_q || r_oor) ? {DW{1'b0}} : mem[raddr_q[9:2]];
+    rresp   = (rerr_q || r_oor) ? AXI_SLVERR : AXI_OKAY;   // per beat
     rlast   = (rstate == R_DATA) && (rbeat_q == rlen_q);
   end
 
   // ACE-Lite coherency fields accepted; ordering enforced by in-order completion
-  wire unused = &{1'b0, awsnoop, awdomain, awbar, arsnoop, ardomain, arbar};
+  wire _unused = &{1'b0, awsnoop, awdomain, awbar, arsnoop, ardomain, arbar};
 
 endmodule

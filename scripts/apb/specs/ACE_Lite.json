@@ -1,0 +1,18 @@
+{
+  "title": "AMBA ACE-Lite subordinate: a 256-word memory behind AXI4 channels with the ACE-Lite snoop, domain and barrier fields, INCR bursts up to 256 beats with byte strobes, SLVERR",
+  "code": "0x4145",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [],
+  "irqs": [
+    {
+      "name": "ERR",
+      "port": "irq",
+      "desc": "a burst ended with SLVERR: a burst type other than INCR, a size above 4 bytes, a start above 0x3FF, or beats running past 0x3FF"
+    }
+  ],
+  "notes": [
+    "The AW, W, B, AR and R channel pins, with AWSNOOP / AWDOMAIN / AWBAR and ARSNOOP / ARDOMAIN / ARBAR, are the ACE-Lite subordinate pins; they pass through unchanged. The registers report the subordinate's error event.",
+    "One transaction at a time per direction; no ID signals. The ACE-Lite fields are accepted and do not change the transfer: completion is in order. A burst ends at WLAST or after AWLEN + 1 beats, whichever comes first. Beats past 0x3FF get SLVERR and write nothing; a burst that starts in error writes nothing; reads in error return 0."
+  ]
+}

@@ -1,0 +1,1 @@
+TOGGLE \.rty_o: # tied 0 by design: this slave never requests a retry (B4 optional signal)

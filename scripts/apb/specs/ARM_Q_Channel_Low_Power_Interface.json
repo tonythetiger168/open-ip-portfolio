@@ -1,0 +1,55 @@
+{
+  "title": "ARM Q-Channel device-side controller: qreqn / qacceptn / qdeny / qactive handshake (RUN, REQUEST, STOPPED, EXIT, DENIED), activity from software events, illegal controller sequences flagged",
+  "code": "0x5143",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "pins": ["qacceptn", "qdeny", "qactive"],
+  "regs": [
+    {
+      "name": "EVENT",
+      "kind": "cmd",
+      "desc": "Device activity",
+      "fields": [
+        {
+          "port": "dev_event",
+          "desc": "write 1: an activity event; qactive stays high for ACT_CYCLES (16) clocks after the last one, and a request while it is high is denied"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Q-Channel outputs, as driven on the pins",
+      "fields": [
+        {
+          "port": "qacceptn",
+          "desc": "low: the device accepted the request and is stopped (STOPPED and EXIT)"
+        },
+        {
+          "port": "qdeny",
+          "desc": "high: the request was denied (DENIED, until qreqn rises)"
+        },
+        {
+          "port": "qactive",
+          "desc": "high: activity within the last ACT_CYCLES clocks"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "ILLEGAL",
+      "port": "irq",
+      "desc": "the controller broke the handshake: qreqn rose before the device answered a request, or fell during the exit"
+    },
+    {
+      "name": "DENIED",
+      "port": "qdeny",
+      "desc": "a request was denied; set on every clock qdeny is high, so a clear only holds once qreqn has risen"
+    }
+  ],
+  "notes": [
+    "qreqn is the controller's request pin; it passes through unchanged and is sampled on PCLK. qacceptn, qdeny and qactive drive the Q-Channel pins and are also readable in STATUS.",
+    "A request (qreqn low) is decided in the clock after it is seen: accepted (qacceptn low) when the device is idle, denied (qdeny high) when qactive is high. Only software activity events (EVENT) make the device active."
+  ]
+}

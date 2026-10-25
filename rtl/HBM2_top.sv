@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // ============================================================================
 // HBM2 -- INDEPENDENT design IP #16/20.
-// Architecture thesis: 8 independent pseudo-channels ({ch,haddr[11:9]}),
-// each with its own page state; refresh rotates across all eight. The
-// per-pc page granularity is the point: PC traffic never disturbs its
-// neighbors. HBM2E-class timings (CL=8). Contract identical to DDR_top.
+// Architecture thesis: 8 independent pseudo-channels per channel: page
+// entry = {ch haddr[10:8], pc haddr[13:11]} (64 entries), each with its own
+// page state; per-entry refresh rotates across all 64, so a refresh closes
+// one pc while its neighbours keep their pages. RD / WR carry only the
+// column and use the pc's open row (a closed pc is activated with
+// haddr[31:18]). HBM2E-class timings. Contract identical to DDR_top.
 // ============================================================================
 module HBM2_top #(
   parameter int NCH = 8
@@ -39,7 +41,7 @@ module HBM2_top #(
   logic [8:0] rp_t [0:NB-1], ras_t [0:NB-1], rc_t [0:NB-1];
   logic [8:0] timer;
   logic [13:0] ref_cnt;
-  logic [2:0]  ref_bank;
+  logic [5:0]  ref_bank;             // next entry to refresh
 
   typedef enum logic [2:0] {D_IDLE, D_ACT, D_RCD, D_RD, D_CAS, D_WR, D_PRE} d_t;
   d_t dstate;
@@ -51,27 +53,29 @@ module HBM2_top #(
   logic [15:0] wr_data;
   logic [5:0]  cur_bank, act_bank;
   logic        rd_pending, ref_walk, auto_rd, auto_wr;
+  logic        pre_need;             // the command's bank was open: PRE it
   logic        auto_act, pre_done, ref_req;
 
-  wire [5:0] a_bank = {a_ch, haddr[11:9]};
-  wire [5:0] c_bank2 = {c_ch, cur_addr[11:9]};
+  wire [5:0] a_bank = {a_ch, haddr[13:11]};   // entry = {ch, pc}
+  wire [5:0] c_bank2 = {c_ch, cur_addr[13:11]};
   // per-bank timer-expired vectors: PRE waits tRAS, ACT waits tRP and tRC
   logic [NB-1:0] ras_z, rp_z;
   always_comb
     for (int i = 0; i < NB; i++) begin
       ras_z[i] = (ras_t[i] == 0); rp_z[i] = (rp_t[i] == 0);
     end
-  wire [2:0] ref_prev = ref_bank - 1'b1;     // bank the running REFpb targets
+  wire [5:0] ref_prev = ref_bank - 1'b1;     // entry the running per-entry REF targets
   wire [5:0] ref_tgt  = ref_prev;
   wire [5:0] pre_tgt = ref_walk ? ref_tgt : cur_bank;
   wire pre_ok = ras_z[pre_tgt];
   wire rp_ok  = rp_z[pre_tgt];
   wire act_ok = rp_z[act_bank] && (rc_t[act_bank] == 0);
-  wire a_hit = bank_open[a_bank];   // RD/WR carry only the column (as on main)
+  wire a_open = bank_open[a_bank];  // RD/WR carry only the column (as on main)
+  wire a_hit = a_open && (open_row[a_bank] == haddr[31:18]);   // ACT: row already open
 
   assign ck_t = clk;  assign ck_c = ~clk;  assign cke = rst_n;
   assign dqs  = 2'bzz;
-  assign hready = (dstate == D_IDLE);
+  assign hready = (dstate == D_IDLE) && (ref_cnt != 0);   // a due refresh goes first
   assign hdone  = (dstate == D_CAS) && (timer == 0) && rd_pending;
   assign trace_valid = (dstate == D_ACT && act_ok) || (dstate == D_RD) || (dstate == D_WR);
   assign trace_cmd   = (dstate == D_ACT) ? 3'd1 : (dstate == D_RD) ? 3'd2 : 3'd3;
@@ -86,7 +90,7 @@ module HBM2_top #(
       dstate <= D_IDLE; timer <= '0; ref_cnt <= TREFI[13:0];
       auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0;
       cur_addr <= '0; wr_data <= '0; rd_pending <= 1'b0;
-      ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0;
+      ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= 1'b0;
       cur_bank <= '0; act_bank <= '0; ref_bank <= '0;
       ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1; addr <= '0; hrdata <= '0;
       for (int i = 0; i < NB; i++) begin
@@ -106,14 +110,15 @@ module HBM2_top #(
       case (dstate)
         D_IDLE: begin
           ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;
-          if (hvalid) begin
+          if (hvalid && ref_cnt != 0) begin
             cur_addr <= haddr; wr_data <= hwdata; cur_bank <= a_bank;
             rd_pending <= (hcmd == 3'd2); ref_walk <= 1'b0; auto_act <= 1'b0;
-            auto_rd <= 1'b0; auto_wr <= 1'b0;
+            auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= bank_open[a_bank];
             case (hcmd)
               3'd1: begin
                 act_bank <= a_bank;
-                if (bank_open[a_bank] && (open_row[a_bank] != haddr[31:18])) begin
+                if (a_hit) ;                     // page already open: nothing to do
+                else if (bank_open[a_bank] && (open_row[a_bank] != haddr[31:18])) begin
                   rp_t[a_bank] <= TRP[8:0];      // conflict: PRE, then ACT the new row
                   open_row[a_bank] <= haddr[31:18]; auto_act <= 1'b1;
                   dstate <= D_PRE;
@@ -122,11 +127,8 @@ module HBM2_top #(
                   dstate <= D_ACT;
                 end
               end
-              3'd2, 3'd3: begin
-                if (!a_hit) begin
-                  if (bank_open[a_bank]) begin
-                    bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0];
-                  end
+              3'd2, 3'd3: begin               // RD / WR use the pc's open row
+                if (!a_open) begin
                   act_bank <= a_bank;
                   open_row[a_bank] <= haddr[31:18]; bank_open[a_bank] <= 1'b1;
                   auto_rd <= (hcmd == 3'd2); auto_wr <= (hcmd == 3'd3);
@@ -134,7 +136,7 @@ module HBM2_top #(
                 end else dstate <= (hcmd == 3'd2) ? D_RD : D_WR;
               end
               3'd4: begin
-                bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0];
+                if (bank_open[a_bank]) begin bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0]; end
                 dstate <= D_PRE;
               end
               default: ;
@@ -144,6 +146,7 @@ module HBM2_top #(
             if (bank_open[ref_bank]) begin
               bank_open[ref_bank] <= 1'b0; rp_t[ref_bank] <= TRP[8:0];
             end
+            pre_need <= bank_open[ref_bank];  // PRE the entry only if it is open
             ref_bank <= ref_bank + 1'b1;
             dstate <= D_PRE;
           end
@@ -157,11 +160,12 @@ module HBM2_top #(
             if (bank_open[ref_bank]) begin
               bank_open[ref_bank] <= 1'b0; rp_t[ref_bank] <= TRP[8:0];
             end
+            pre_need <= bank_open[ref_bank];  // PRE the entry only if it is open
             ref_bank <= ref_bank + 1'b1;
             dstate <= D_PRE;
           end else if (!pre_done) begin
             // PRE/PREA waits for tRAS, and tRP counts from the real issue
-            if (!ref_walk && rp_z[cur_bank]) pre_done <= 1'b1;   // bank already closed
+            if (!pre_need) pre_done <= 1'b1;   // bank already closed
             else if (pre_ok) begin
               ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0; addr[10] <= 1'b0;
               rp_t[pre_tgt] <= TRP[8:0];

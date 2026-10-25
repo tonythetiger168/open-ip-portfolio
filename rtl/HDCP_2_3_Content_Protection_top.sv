@@ -5,7 +5,7 @@
 // -> session key derivation -> pairing -> locality check (20 clk challenge)
 // -> session key exchange -> repeater-ready (if peer REPEATER bit) ->
 // authenticated streaming cipher on the pixel interface.
-// IP design implementation v1.1 -- Apache-2.0
+// IP design implementation v1.2 -- Apache-2.0
 // ----------------------------------------------------------------------------
 // Crypto is now REAL AES-128 (FIPS-197): the encrypt datapath below
 // (SubBytes/ShiftRows/MixColumns/AddRoundKey + key expansion) is copied from
@@ -20,8 +20,18 @@
 //    replacing the old XOR placeholder (real HDCP uses RSA-OAEP).
 //  - Pairing ack H' = AES-128-ECB(key=km, pt=hrx_pad)[31:0].
 //  - Content encryption: AES-128-CTR. Per 32-bit pixel word the keystream is
-//    AES-128(key=ks, counter={frame_ctr, blk_ctr})[127:96], XORed with the
-//    pixel word. blk_ctr advances per pixel word, frame_ctr per session.
+//    AES-128(key=ks, counter={rtx, 48'h0, ctr})[127:96], XORed with the
+//    pixel word; rtx is fresh per session, the 16-bit ctr advances per pixel
+//    word. After 65536 words the keystream is exhausted: pix_ready stays low
+//    and irq is raised until a new session is started.
+//
+// Protocol errors (all raise irq, set ERR flags; the first five also fail
+// the session and return to IDLE): locality timeout (20 clk), pairing ack
+// mismatch, locality value mismatch, a message of an unexpected type in a
+// wait state, no message within MSG_TIMEOUT clocks while waiting for
+// AKE_Send_Cert / the pairing ack / the repeater ack, keystream exhausted.
+// A new session (CTRL.start, from IDLE or AUTH) discards a pixel word still
+// waiting on enc_ready.
 //
 // Documented residual simplifications (still NOT production-grade):
 //  - Locality check response is L XOR ks[63:0]; the real protocol uses
@@ -36,8 +46,7 @@
 //  - rtx / locality nonces come from a free-running xorshift64, not a TRNG.
 // ============================================================================
 module HDCP_2_3_Content_Protection_top #(
-  parameter int DW = 32,          // pixel data width (CTR keystream word)
-  parameter int AW = 32           // address width (reserved, framework contract)
+  parameter int MSG_TIMEOUT = 255 // receiver message wait limit (clk, <= 255)
 )(
   input  logic         clk,
   input  logic         rst_n,
@@ -63,26 +72,26 @@ module HDCP_2_3_Content_Protection_top #(
   // ---------------- pixel stream (clear in / encrypted out) ----
   input  logic         pix_valid,
   output logic         pix_ready,
-  input  logic [DW-1:0] pix_data,
+  input  logic [31:0]  pix_data,
   output logic         enc_valid,
   input  logic         enc_ready,
-  output logic [DW-1:0] enc_data,
+  output logic [31:0]  enc_data,
 
-  output logic         irq         // locality timeout / pairing failure
+  output logic         irq         // any ERR flag set
 );
 
   // ------------------------- constants -------------------------
-  // message types (educational names mirror HDCP 2.3 AKE/LC/SKE messages)
-  localparam logic [3:0] MT_AKE_INIT = 4'd1;  // TX->RX: rtx
-  localparam logic [3:0] MT_AKE_CERT = 4'd2;  // RX->TX: rxcaps + rx pk-hash
-  localparam logic [3:0] MT_AKE_EKM  = 4'd3;  // TX->RX: AES-wrapped km
-  localparam logic [3:0] MT_PAIR_ACK = 4'd4;  // RX->TX: pairing H' ack
-  localparam logic [3:0] MT_LC_INIT  = 4'd5;  // TX->RX: locality challenge L
-  localparam logic [3:0] MT_LC_RESP  = 4'd6;  // RX->TX: locality response L'
-  localparam logic [3:0] MT_SKE      = 4'd7;  // TX->RX: masked session key
-  localparam logic [3:0] MT_RPT_ACK  = 4'd8;  // RX->TX: repeater ready (RxInfo)
+  // message types: HDCP 2.x msg_id values of the corresponding messages
+  localparam logic [3:0] MT_AKE_INIT = 4'd2;  // TX->RX: AKE_Init (rtx)
+  localparam logic [3:0] MT_AKE_CERT = 4'd3;  // RX->TX: AKE_Send_Cert (rxcaps, hrx)
+  localparam logic [3:0] MT_AKE_EKM  = 4'd4;  // TX->RX: AKE_No_Stored_km (wrapped km)
+  localparam logic [3:0] MT_PAIR_ACK = 4'd7;  // RX->TX: AKE_Send_H_prime (H')
+  localparam logic [3:0] MT_LC_INIT  = 4'd9;  // TX->RX: LC_Init (L)
+  localparam logic [3:0] MT_LC_RESP  = 4'd10; // RX->TX: LC_Send_L_prime (L')
+  localparam logic [3:0] MT_SKE      = 4'd11; // TX->RX: SKE_Send_Eks (masked ks)
+  localparam logic [3:0] MT_RPT_ACK  = 4'd12; // RX->TX: RepeaterAuth_Send_ReceiverID_List
 
-  localparam logic [4:0] LC_TIMEOUT  = 5'd20; // locality response window
+  localparam logic [7:0] LC_TIMEOUT  = 8'd20; // locality response window
   localparam logic [7:0] HDCP2_VER   = 8'h23; // hdcp2version register
 
   // register map
@@ -281,32 +290,33 @@ module HDCP_2_3_Content_Protection_top #(
   logic [3:0]   km_idx;
   logic [63:0]  rng;            // free-running xorshift64 (rtx / L source)
   logic [63:0]  rtx;            // transmitter nonce sent in AKE_Init
-  logic [63:0]  rxcaps;         // receiver capabilities (bit0 = REPEATER)
+  logic         rpt_peer;       // receiver capabilities bit0 (REPEATER)
   logic [31:0]  hrx;            // receiver pubkey-hash placeholder
   logic [127:0] ks;             // derived session key: AES-128-ECB(km, rtx)
   logic [63:0]  lc_r_n;         // locality challenge L
-  logic [4:0]   lc_cnt;         // locality response countdown
-  logic [63:0]  frame_ctr;      // AES-CTR frame counter (per session)
-  logic [63:0]  blk_ctr;        // AES-CTR block counter (per pixel word)
+  logic [7:0]   wait_cnt;       // locality / message response countdown
+  logic [15:0]  ctr;            // AES-CTR block counter (per pixel word)
+  logic         exh;            // keystream exhausted (ctr wrapped)
   logic         fail;           // sticky authentication-failed flag
-  logic [2:0]   err_flags;      // bit0 locality timeout, bit1 pairing fail,
-                                // bit2 locality value mismatch
+  logic [5:0]   err_flags;      // bit0 locality timeout, bit1 pairing fail,
+                                // bit2 locality value mismatch, bit3
+                                // unexpected message, bit4 message timeout,
+                                // bit5 keystream exhausted
 
   // ------------------------- AES-based derivations -------------
   wire [127:0] hrx_pad  = {hrx, hrx, hrx, hrx};   // pubkey-hash pad to 128b
-  wire         rpt_peer = rxcaps[0];              // REPEATER bit
 
   // One shared combinational AES-128 encrypt instance, muxed by FSM state
   // (the four uses never overlap in time):
   //   AKE_CERT: session-key KDF    ks = AES-128-ECB(km, {rtx,rtx})
   //   PAIR_TX : pairing wrap       E_km = AES-128-ECB(hrx_pad, km)
   //   PAIR_RX : pairing ack        H' = AES-128-ECB(km, hrx_pad)[31:0]
-  //   AUTH    : AES-128-CTR stream AES-128(ks, {frame_ctr, blk_ctr})[127:96]
+  //   AUTH    : AES-128-CTR stream AES-128(ks, {rtx, 48'h0, ctr})[127:96]
   wire [127:0] aes_key = (state == ST_PAIR_TX) ? hrx_pad :
                          (state == ST_AUTH)    ? ks      : km;
   wire [127:0] aes_pt  = (state == ST_PAIR_TX) ? km                  :
                          (state == ST_PAIR_RX) ? hrx_pad             :
-                         (state == ST_AUTH)    ? {frame_ctr, blk_ctr}
+                         (state == ST_AUTH)    ? {rtx, 48'h0, ctr}
                                                : {rtx, rtx};
   wire [127:0] aes_out = aes128_enc(aes_key, aes_pt);
 
@@ -314,6 +324,21 @@ module HDCP_2_3_Content_Protection_top #(
   wire [127:0] ekm      = aes_out;              // consumed in ST_PAIR_TX
   wire [31:0]  ack_exp  = aes_out[31:0];        // consumed in ST_PAIR_RX
   wire [31:0]  ks_word  = aes_out[127:96];      // consumed in ST_AUTH
+
+  // the message a wait state expects
+  function automatic logic [3:0] exp_type(input state_t st);
+    case (st)
+      ST_AKE_CERT: exp_type = MT_AKE_CERT;
+      ST_PAIR_RX:  exp_type = MT_PAIR_ACK;
+      ST_LC_WAIT:  exp_type = MT_LC_RESP;
+      default:     exp_type = MT_RPT_ACK;
+    endcase
+  endfunction
+
+  wire rx_wait  = (state == ST_AKE_CERT) || (state == ST_PAIR_RX) ||
+                  (state == ST_LC_WAIT)  || (state == ST_RPT_WAIT);
+  wire rx_bad   = rx_wait && rxm_valid && (rxm_type != exp_type(state));
+  wire pix_take = pix_valid && pix_ready;
 
   // ------------------------- sequential ------------------------
   always_ff @(posedge clk or negedge rst_n) begin
@@ -323,15 +348,15 @@ module HDCP_2_3_Content_Protection_top #(
       km_idx    <= 4'h0;
       rng       <= 64'h9E37_79B9_7F4A_7C15; // golden-ratio seed (nonzero)
       rtx       <= 64'h0;
-      rxcaps    <= 64'h0;
+      rpt_peer  <= 1'b0;
       hrx       <= 32'h0;
       ks        <= 128'h0;
       lc_r_n    <= 64'h0;
-      lc_cnt    <= 5'h0;
-      frame_ctr <= 64'h0;
-      blk_ctr   <= 64'h0;
+      wait_cnt  <= 8'h0;
+      ctr       <= 16'h0;
+      exh       <= 1'b0;
       fail      <= 1'b0;
-      err_flags <= 3'b000;
+      err_flags <= 6'h0;
       enc_valid <= 1'b0;
       enc_data  <= '0;
     end else begin
@@ -344,12 +369,13 @@ module HDCP_2_3_Content_Protection_top #(
           REG_KMDAT: km[km_idx*8 +: 8] <= reg_wdata;
           REG_CTRL: begin
             if (reg_wdata[2]) begin      // irq / error clear
-              err_flags <= 3'b000;
+              err_flags <= 6'h0;
               fail      <= 1'b0;
             end
             if (reg_wdata[0] && (state == ST_IDLE || state == ST_AUTH)) begin
-              err_flags <= 3'b000;       // new session clears status
+              err_flags <= 6'h0;         // new session clears status
               fail      <= 1'b0;
+              exh       <= 1'b0;
               state     <= ST_AKE_INIT;
               rtx       <= xs64(rng);    // fresh rtx nonce
             end
@@ -359,80 +385,103 @@ module HDCP_2_3_Content_Protection_top #(
       end
 
       // -------- authentication FSM --------
-      case (state)
-        ST_IDLE: ; // start handled by CTRL write above
+      if (rx_bad) begin
+        err_flags[3] <= 1'b1;            // unexpected message type
+        fail         <= 1'b1;
+        state        <= ST_IDLE;
+      end else begin
+        case (state)
+          ST_IDLE: ; // start handled by CTRL write above
 
-        ST_AKE_INIT: if (txm_ready) state <= ST_AKE_CERT;
-
-        ST_AKE_CERT:
-          if (rxm_valid && rxm_type == MT_AKE_CERT) begin
-            rxcaps <= rxm_data[63:0];
-            hrx    <= rxm_data[95:64];
-            // derive session key: ks = AES-128-ECB(key=km, pt={rtx,rtx})
-            ks     <= ks_next;
-            state  <= ST_PAIR_TX;
+          ST_AKE_INIT: if (txm_ready) begin
+            state    <= ST_AKE_CERT;
+            wait_cnt <= 8'(MSG_TIMEOUT);
           end
 
-        ST_PAIR_TX: if (txm_ready) state <= ST_PAIR_RX;
-
-        ST_PAIR_RX:
-          if (rxm_valid && rxm_type == MT_PAIR_ACK) begin
-            if (rxm_data[31:0] == ack_exp) begin
-              state  <= ST_LC_TX;
-              lc_r_n <= xs64(rng);       // fresh locality challenge
-            end else begin
-              err_flags[1] <= 1'b1;      // pairing failure
+          ST_AKE_CERT:
+            if (rxm_valid) begin
+              rpt_peer <= rxm_data[0];
+              hrx      <= rxm_data[95:64];
+              // derive session key: ks = AES-128-ECB(key=km, pt={rtx,rtx})
+              ks       <= ks_next;
+              state    <= ST_PAIR_TX;
+            end else if (wait_cnt == 8'd0) begin
+              err_flags[4] <= 1'b1;      // message timeout
               fail         <= 1'b1;
               state        <= ST_IDLE;
-            end
+            end else wait_cnt <= wait_cnt - 8'd1;
+
+          ST_PAIR_TX: if (txm_ready) begin
+            state    <= ST_PAIR_RX;
+            wait_cnt <= 8'(MSG_TIMEOUT);
           end
 
-        ST_LC_TX: if (txm_ready) begin
-          state  <= ST_LC_WAIT;
-          lc_cnt <= LC_TIMEOUT;          // start 20-clk locality window
-        end
-
-        ST_LC_WAIT: begin
-          if (rxm_valid && rxm_type == MT_LC_RESP) begin
-            if (rxm_data[63:0] == (lc_r_n ^ ks[63:0]))
-              state <= ST_SKE_TX;
-            else begin
-              err_flags[2] <= 1'b1;      // locality value mismatch
+          ST_PAIR_RX:
+            if (rxm_valid) begin
+              if (rxm_data[31:0] == ack_exp) begin
+                state  <= ST_LC_TX;
+                lc_r_n <= xs64(rng);     // fresh locality challenge
+              end else begin
+                err_flags[1] <= 1'b1;    // pairing failure
+                fail         <= 1'b1;
+                state        <= ST_IDLE;
+              end
+            end else if (wait_cnt == 8'd0) begin
+              err_flags[4] <= 1'b1;
               fail         <= 1'b1;
               state        <= ST_IDLE;
-            end
-          end else if (lc_cnt == 5'd0) begin
-            err_flags[0] <= 1'b1;        // locality timeout
-            fail         <= 1'b1;
-            state        <= ST_IDLE;
-          end else
-            lc_cnt <= lc_cnt - 5'd1;
-        end
+            end else wait_cnt <= wait_cnt - 8'd1;
 
-        ST_SKE_TX: if (txm_ready)
-          state <= rpt_peer ? ST_RPT_WAIT : ST_AUTH;
+          ST_LC_TX: if (txm_ready) begin
+            state    <= ST_LC_WAIT;
+            wait_cnt <= LC_TIMEOUT;      // start 20-clk locality window
+          end
 
-        ST_RPT_WAIT:
-          if (rxm_valid && rxm_type == MT_RPT_ACK) state <= ST_AUTH;
+          ST_LC_WAIT:
+            if (rxm_valid) begin
+              if (rxm_data[63:0] == (lc_r_n ^ ks[63:0]))
+                state <= ST_SKE_TX;
+              else begin
+                err_flags[2] <= 1'b1;    // locality value mismatch
+                fail         <= 1'b1;
+                state        <= ST_IDLE;
+              end
+            end else if (wait_cnt == 8'd0) begin
+              err_flags[0] <= 1'b1;      // locality timeout
+              fail         <= 1'b1;
+              state        <= ST_IDLE;
+            end else wait_cnt <= wait_cnt - 8'd1;
 
-        ST_AUTH: ; // streaming; session ends via CTRL.start (new session)
+          ST_SKE_TX: if (txm_ready) begin
+            state    <= rpt_peer ? ST_RPT_WAIT : ST_AUTH;
+            wait_cnt <= 8'(MSG_TIMEOUT);
+            ctr      <= 16'h0;           // CTR restarts with the session
+          end
 
-        default: state <= ST_IDLE;
-      endcase
+          ST_RPT_WAIT:
+            if (rxm_valid) state <= ST_AUTH;
+            else if (wait_cnt == 8'd0) begin
+              err_flags[4] <= 1'b1;
+              fail         <= 1'b1;
+              state        <= ST_IDLE;
+            end else wait_cnt <= wait_cnt - 8'd1;
 
-      // -------- AES-128-CTR stream cipher pipeline --------
-      // (re)initialise the CTR counters when authentication completes
-      if ((state == ST_SKE_TX && txm_ready && !rpt_peer) ||
-          (state == ST_RPT_WAIT && rxm_valid && rxm_type == MT_RPT_ACK)) begin
-        frame_ctr <= frame_ctr + 64'd1;  // new session -> new frame number
-        blk_ctr   <= 64'h0;
+          ST_AUTH: ; // streaming; session ends via CTRL.start (new session)
+
+          default: state <= ST_IDLE;
+        endcase
       end
 
+      // -------- AES-128-CTR stream cipher pipeline --------
       if (state == ST_AUTH) begin
-        if (pix_valid && pix_ready) begin
+        if (pix_take) begin
           enc_data  <= pix_data ^ ks_word;  // AES-CTR: XOR keystream word
           enc_valid <= 1'b1;
-          blk_ctr   <= blk_ctr + 64'd1;     // advance CTR per pixel word
+          ctr       <= ctr + 16'd1;         // advance CTR per pixel word
+          if (ctr == 16'hFFFF) begin
+            exh          <= 1'b1;           // keystream exhausted
+            err_flags[5] <= 1'b1;
+          end
         end else if (enc_valid && enc_ready)
           enc_valid <= 1'b0;
       end else begin
@@ -440,6 +489,10 @@ module HDCP_2_3_Content_Protection_top #(
       end
     end
   end
+
+  // rxm_data bits the slice does not use (capabilities beyond REPEATER,
+  // upper halves of pairing / locality responses)
+  wire _unused = &{1'b0, rxm_data[127:96]};
 
   // ------------------------- outputs ---------------------------
   always_comb begin
@@ -456,24 +509,23 @@ module HDCP_2_3_Content_Protection_top #(
     rxm_ready = (state == ST_AKE_CERT) || (state == ST_PAIR_RX) ||
                 (state == ST_LC_WAIT)  || (state == ST_RPT_WAIT);
     // pixel stream
-    pix_ready = (state == ST_AUTH) && (!enc_valid || enc_ready);
-    // interrupt: locality timeout / pairing failure / locality mismatch
-    irq = (err_flags != 3'b000);
+    pix_ready = (state == ST_AUTH) && !exh && (!enc_valid || enc_ready);
+    // interrupt: any error flag
+    irq = (err_flags != 6'h0);
 
     // register window read
     case (reg_addr)
       REG_CTRL:   reg_rdata = 8'h00;            // write-only action reg
-      REG_STATUS: reg_rdata = {3'b000, rpt_peer, fail,
+      REG_STATUS: reg_rdata = {2'b00, exh, rpt_peer, fail,
                                (state == ST_AUTH),   // bit2 enc_active
                                (state == ST_AUTH),   // bit1 authenticated
                                (state != ST_IDLE)};  // bit0 busy
       REG_VER:    reg_rdata = HDCP2_VER;
-      REG_ERR:    reg_rdata = {5'b00000, err_flags};
+      REG_ERR:    reg_rdata = {2'b00, err_flags};
       REG_KMIDX:  reg_rdata = {4'h0, km_idx};
       REG_KMDAT:  reg_rdata = km[km_idx*8 +: 8];
       REG_STATE:  reg_rdata = {4'h0, state};
       REG_KSDAT:  reg_rdata = ks[km_idx*8 +: 8];
-      default:    reg_rdata = 8'h00;
     endcase
   end
 

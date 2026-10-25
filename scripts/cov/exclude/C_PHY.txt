@@ -1,0 +1,2 @@
+LINE \| default: tstate <= T_IDLE; # 5-state FSM in 3 bits: recovery for the 3 unused encodings, unreachable
+LINE \| default: rstate <= R_IDLE; # 5-state FSM in 3 bits: recovery for the 3 unused encodings, unreachable

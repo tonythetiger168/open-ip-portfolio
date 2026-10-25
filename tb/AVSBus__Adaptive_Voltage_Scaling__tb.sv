@@ -21,7 +21,8 @@ module AVSBus__Adaptive_Voltage_Scaling__tb;
   logic [11:0] vdac;
   logic busy, irq;
 
-  assign sdat = mst_oe ? mst_bit : 1'bz;
+  // open-drain master: pulls low for a 0, releases for a 1 (pull-up)
+  assign sdat = (mst_oe && !mst_bit) ? 1'b0 : 1'bz;
 
   int errors = 0;
   int irq_seen = 0;
@@ -74,7 +75,7 @@ module AVSBus__Adaptive_Voltage_Scaling__tb;
   always @(posedge clk) begin
     if (!rst_n) rst_obs <= 1'b1;
     if (rst_obs) begin
-      if (!p_rstn) begin
+      if (!p_rstn || !rst_n) begin
         // A1: outputs quiescent during reset
         sva_check(busy === 1'b0 && vdac === 12'h000 && irq === 1'b0,
                   "A1 reset: outputs quiescent");
@@ -402,6 +403,41 @@ module AVSBus__Adaptive_Voltage_Scaling__tb;
                n_set, n_get, n_nack);
     end
 `endif
+    // ---------------- out-of-range SET code -> NACK + irq ------------------
+    begin
+      logic [11:0] v0;
+      v0 = vdac;
+      irq_seen = 0;
+      avs_send(SLAVE_ADDR, CMD_SET, 16'h1234, 0, ack, rd);
+      repeat (4) @(posedge clk);
+      if (ack !== 1'b0 || irq_seen != 1) begin
+        errors++; $display("ERROR: AVSBus out-of-range SET ack=%b irq=%0d", ack, irq_seen);
+      end
+      repeat (50) @(posedge clk);
+      if (vdac !== v0) begin errors++; $display("ERROR: AVSBus out-of-range SET changed vdac"); end
+    end
+
+    // ---------------- abandoned frame: timeout, next frame decodes ------
+    avs_tx_bit(1'b1);
+    for (int i = 0; i < 12; i++) avs_tx_bit(i[0]);
+    mst_oe = 0;
+    #12000;                                       // > TIMEOUT clk cycles idle
+    set_and_verify(12'd77);
+
+    // ---------------- reset while ramping ----------------------------------
+    begin
+      logic        a2;
+      logic [15:0] r2;
+      avs_send(SLAVE_ADDR, CMD_SET, 16'h0F00, 0, a2, r2);
+      repeat (20) @(posedge clk);
+      @(negedge clk) rst_n = 1'b0;
+      #1;
+      if (busy !== 1'b0 || vdac !== 12'h000) begin errors++; $display("ERROR: AVSBus not reset mid-ramp"); end
+      @(negedge clk) rst_n = 1'b1;
+      #200;
+      set_and_verify(12'd500);
+    end
+
     if (errors == 0) $display("TEST PASSED: AVSBus__Adaptive_Voltage_Scaling_");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR

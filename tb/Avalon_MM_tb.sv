@@ -2,7 +2,8 @@
 // ============================================================================
 // Self-checking testbench for Avalon_MM_top (Avalon-MM slave, burst capable)
 // TB acts as an Avalon master model: single/burst read & write, waitrequest
-// observance, byteenable merge, out-of-range burst truncation + irq.
+// observance, byteenable merge, out-of-range beats (writes dropped, reads
+// return zero data for every requested beat) + irq.
 // ============================================================================
 `timescale 1ns/1ps
 module Avalon_MM_tb;
@@ -77,7 +78,8 @@ module Avalon_MM_tb;
       // A5: state register holds a legal encoding (3 of 4 used)
       sva_check(dut_state <= 2'd2, "A5 state legal");
       // A6: readdata always reflects the regfile at the running address
-      sva_check(av_readdata === dut.mem[dut.cur_addr[9:2]], "A6 readdata == mem[cur]");
+      sva_check(av_readdata === ((dut.cur_addr < 33'h400) ? dut.mem[dut.cur_addr[9:2]] : 32'h0),
+                "A6 readdata == mem[cur] (zero out of range)");
     end
     rst_n_q <= rst_n;
   end
@@ -274,13 +276,14 @@ module Avalon_MM_tb;
     end
     av_read_burst(32'h0000_03F0, 4, 32'hF000_0000);   // valid part intact
 
-    // CHECK 9: out-of-range read burst truncated -> fewer beats + irq
-    //   start 0x3F8 len 8 -> only 2 beats returned
+    // CHECK 9: read burst running out of range -> all 8 beats return,
+    //   the 6 beats past 0x3FC carry zero data, irq set
     rd_mark = rd_i;
     begin
       int to;
       exp_q[exp_n] = 32'hF000_0002; exp_n++;   // 0x3F8 holds F000_0002
       exp_q[exp_n] = 32'hF000_0003; exp_n++;   // 0x3FC holds F000_0003
+      for (int k = 0; k < 6; k++) begin exp_q[exp_n] = 32'h0; exp_n++; end
       @(negedge clk);
       av_address <= 32'h0000_03F8; av_burstcount <= 8'd8;
       av_read <= 1'b1; av_write <= 1'b0;
@@ -291,19 +294,20 @@ module Avalon_MM_tb;
       end
       av_idle();
       to = 0;
-      while (rd_i < rd_mark + 2 && to < 100) begin @(posedge clk); to++; end
+      while (rd_i < rd_mark + 8 && to < 100) begin @(posedge clk); to++; end
       repeat (6) @(posedge clk);               // no more beats may follow
     end
-    if (rd_i != rd_mark + 2) begin
-      errors++; $display("ERROR: truncated read burst beats %0d (exp 2)", rd_i - rd_mark);
+    if (rd_i != rd_mark + 8) begin
+      errors++; $display("ERROR: out-of-range read burst beats %0d (exp 8)", rd_i - rd_mark);
     end
     if (irq !== 1'b1) begin
-      errors++; $display("ERROR: irq not set after truncated read burst");
+      errors++; $display("ERROR: irq not set after out-of-range read burst");
     end
 
     // CHECK 10: error injection -- out-of-range single write + read
     av_write1(32'h0000_0800, 32'hFFFF_FFFF, 4'hF);
     rd_mark = rd_i;
+    exp_q[exp_n] = 32'h0; exp_n++;             // one zero-data beat
     begin
       int to;
       @(negedge clk);
@@ -317,8 +321,8 @@ module Avalon_MM_tb;
       av_idle();
       repeat (8) @(posedge clk);
     end
-    if (rd_i != rd_mark) begin
-      errors++; $display("ERROR: out-of-range read returned data");
+    if (rd_i != rd_mark + 1) begin
+      errors++; $display("ERROR: out-of-range read returned %0d beats (exp 1)", rd_i - rd_mark);
     end
     if (irq !== 1'b1) begin
       errors++; $display("ERROR: irq not set after out-of-range single access");
@@ -330,6 +334,69 @@ module Avalon_MM_tb;
     end
 
     repeat (2) @(posedge clk);
+
+    // CHECK 11: a burst wrapping past 4GB never aliases into the regfile
+    av_write1(32'h0000_0000, 32'h0A0A_0000, 4'hF);
+    av_write1(32'h0000_0004, 32'h0A0A_0004, 4'hF);
+    av_write_burst(32'hFFFF_FFF8, 4, 32'h5EED_0000);
+    rd_mark = rd_i;
+    for (int k = 0; k < 4; k++) begin exp_q[exp_n] = 32'h0; exp_n++; end
+    @(negedge clk);
+    av_address <= 32'hFFFF_FFF8; av_burstcount <= 8'd4; av_read <= 1'b1; av_write <= 1'b0;
+    @(posedge clk); while (av_waitrequest) @(posedge clk);
+    av_idle();
+    begin int to; to = 0; while (rd_i < rd_mark + 4 && to < 50) begin @(posedge clk); to++; end end
+    av_read1(32'h0000_0000, 32'h0A0A_0000);
+    av_read1(32'h0000_0004, 32'h0A0A_0004);
+
+    // CHECK 12: next command held off while read data drains
+    rd_mark = rd_i;
+    for (int k = 0; k < 4; k++) begin exp_q[exp_n] = 32'hB000_0000 + k; exp_n++; end
+    exp_q[exp_n] = 32'hDEAD_BEEF; exp_n++;
+    @(negedge clk);
+    av_address <= 32'h0000_0040; av_burstcount <= 8'd4; av_read <= 1'b1; av_write <= 1'b0;
+    @(posedge clk); while (av_waitrequest) @(posedge clk);
+    @(negedge clk);
+    av_address <= 32'h0000_0010; av_burstcount <= 8'd1;
+    @(posedge clk); while (av_waitrequest) @(posedge clk);
+    av_idle();
+    begin int to; to = 0; while (rd_i < rd_mark + 5 && to < 50) begin @(posedge clk); to++; end end
+    if (rd_i != rd_mark + 5) begin
+      errors++; $display("ERROR: held command: %0d beats (exp 5)", rd_i - rd_mark);
+    end
+
+    // CHECK 13: reset in the middle of a write burst clears state and irq
+    @(negedge clk);
+    av_address <= 32'h0000_0100; av_writedata <= 32'h7E57_0000; av_byteenable <= 4'hF;
+    av_burstcount <= 8'd8; av_write <= 1'b1; av_read <= 1'b0;
+    repeat (3) @(negedge clk);
+    rst_n = 0;
+    av_write <= 1'b0;
+    @(negedge clk);
+    if (av_readdatavalid !== 1'b0 || irq !== 1'b0) begin
+      errors++; $display("ERROR: outputs not quiescent in reset");
+    end
+    rst_n = 1;
+    av_idle();
+    if (av_waitrequest !== 1'b0) begin errors++; $display("ERROR: waitrequest after reset"); end
+    av_read1(32'h0000_0104, 32'h7E57_0000);   // beat 1 landed before reset
+
+    // CHECK 14: write burst with an idle gap between beats; byteenable 0
+    // on the last beat leaves the word unchanged
+    av_write1(32'h0000_0128, 32'h0123_4567, 4'hF);
+    @(negedge clk);
+    av_address <= 32'h0000_0120; av_writedata <= 32'h6A90_0000; av_byteenable <= 4'hF;
+    av_burstcount <= 8'd3; av_write <= 1'b1; av_read <= 1'b0;
+    @(negedge clk);
+    av_write <= 1'b0;                          // master pauses the burst
+    repeat (2) @(negedge clk);
+    av_write <= 1'b1; av_writedata <= 32'h6A90_0001;
+    @(negedge clk);
+    av_writedata <= 32'hFFFF_FFFF; av_byteenable <= 4'h0;
+    @(negedge clk);
+    av_write <= 1'b0; av_byteenable <= 4'hF;
+    av_read_burst(32'h0000_0120, 2, 32'h6A90_0000);
+    av_read1(32'h0000_0128, 32'h0123_4567);
 
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ----
@@ -373,7 +440,7 @@ module Avalon_MM_tb;
           int efflen;
           efflen = (len == 0) ? 1 : (len > 16) ? 16 : len;
           for (int j = 0; j < efflen; j++)
-            if (ba + j*4 < 32'h400) begin
+            if (33'(ba) + 33'(j*4) < 33'h400) begin
               logic [31:0] dw;
               dw = db + j;
               for (int b = 0; b < 4; b++)
@@ -401,11 +468,10 @@ module Avalon_MM_tb;
           // ---- read burst: expected beats from the shadow regfile ----
           int efflen;
           efflen = (len == 0) ? 1 : (len > 16) ? 16 : len;
-          nvalid = 0;
-          for (int j = 0; j < efflen; j++)
-            if (ba + j*4 < 32'h400) nvalid++;
-          for (int j = 0; j < nvalid; j++) begin
-            exp_q[exp_n] = sh_mem[(ba[9:2]) + j]; exp_n++;
+          nvalid = efflen;                     // every beat returns
+          for (int j = 0; j < efflen; j++) begin
+            exp_q[exp_n] = (33'(ba) + 33'(j*4) < 33'h400) ? sh_mem[(ba[9:2]) + j] : 32'h0;
+            exp_n++;
           end
           rd_mark_c = rd_i;
           @(negedge clk);

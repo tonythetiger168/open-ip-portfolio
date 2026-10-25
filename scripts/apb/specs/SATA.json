@@ -1,0 +1,15 @@
+{
+  "title": "SATA host: OOB bring-up (COMRESET / COMINIT / COMWAKE, ALIGNp lock), link layer with frame handshakes, CRC-32 and resends, and a built-in DMA command sequencer (IDENTIFY, then WRITE / READ DMA EXT read-verify)",
+  "code": "0x5354",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "200ms",
+  "regs": [],
+  "irqs": [
+    {"name": "ERR", "port": "irq", "desc": "link loss, illegal primitive, receive frame error (CRC, overflow, abort, handshake timeout), transmit failure (resends exhausted, timeout), unexpected or malformed FIS, error status, read data mismatch, or a command response timeout"}
+  ],
+  "notes": [
+    "tx_p / tx_n, rx_p / rx_n (1 line bit per PCLK, no 8b/10b) and refclk (interface compatibility only) pass through unchanged. The host brings the link up and runs its command sequence on its own after reset.",
+    "The registers report the host's error events; commands and data stay on the serial pins."
+  ]
+}

@@ -1,0 +1,1 @@
+TOGGLE \.afready: # constant 1 by design: a flush is always completed in the cycle it is requested

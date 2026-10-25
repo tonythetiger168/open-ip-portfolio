@@ -24,7 +24,7 @@ module AXI_Stream_top #(
   logic [4:0]    wr_ptr;
 
   assign tready = (wr_ptr < DEPTH);
-  assign push   = tvalid && tready;
+  wire   push   = tvalid && tready;
   assign count  = wr_ptr;
   assign irq    = push && tlast;
 

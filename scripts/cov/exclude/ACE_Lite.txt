@@ -1,0 +1,3 @@
+LINE \| default: wstate <= W_IDLE; # defensive default: unused wstate encoding 2'b11
+TOGGLE \.bresp\[0\]: # constant 0: the slave only returns OKAY (00) or SLVERR (10)
+TOGGLE \.rresp\[0\]: # constant 0: the slave only returns OKAY (00) or SLVERR (10)

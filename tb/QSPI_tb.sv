@@ -7,6 +7,7 @@ module QSPI_tb;
   tri  [3:0] io;
   logic [3:0] drv_val = 0;
   logic       drv_en  = 0;
+  logic [3:0] drv_mask = 4'hF;   // which io bits the master drives when drv_en
   logic wen = 0, ren = 0;
   logic [3:0] waddr = 0, raddr = 0;
   logic [7:0] wdata = 0, rdata;
@@ -18,7 +19,11 @@ module QSPI_tb;
     .ren(ren), .raddr(raddr), .rdata(rdata), .irq());
 
   always #5 clk = ~clk;
-  assign io = drv_en ? drv_val : 4'bzzzz;
+  // per-bit master drivers (no z constants in drv_val: Verilator's tristate
+  // lowering mishandles a variable assigned z from several places)
+  for (genvar i = 0; i < 4; i++) begin : g_mdrv
+    assign io[i] = (drv_en && drv_mask[i]) ? drv_val[i] : 1'bz;
+  end
 
 `ifdef VERILATOR
   // =====================================================================
@@ -59,7 +64,7 @@ module QSPI_tb;
       // A6: illegal read addresses return zero
       sva_check((raddr <= 4'd1) || (rdata === 8'h00), "A6 illegal addr reads 0");
       // A7: in steady std mode only io[1] (MISO) is driven
-      sva_check((mode_q != 2'd0) || (dut.io_oe === 4'b0010),
+      sva_check((dut.mode != 2'd0) || (dut.io_oe === 4'b0010),
                 "A7 std mode drives MISO only");
     end
     csn_q  <= csn;
@@ -84,9 +89,9 @@ module QSPI_tb;
 
   task automatic std_xfer(input logic [7:0] din, output logic [7:0] dout);
     begin
-      csn = 1'b0; drv_en = 1'b1;
+      csn = 1'b0; drv_en = 1'b1; drv_mask = 4'b0001;   // MOSI only
       for (int i = 0; i < 8; i++) begin
-        drv_val = {3'bzzz, din[7-i]};
+        drv_val = {3'b000, din[7-i]};
         #40 sclk = 1'b1;
         #1 dout[7-i] = io[1];
         #39 sclk = 1'b0;
@@ -109,7 +114,7 @@ module QSPI_tb;
 
   task automatic quad_write(input logic [7:0] din);
     begin
-      csn = 1'b0; drv_en = 1'b1;
+      csn = 1'b0; drv_en = 1'b1; drv_mask = 4'b1111;
       for (int i = 0; i < 2; i++) begin
         drv_val = din[7-4*i -: 4];
         #40 sclk = 1'b1; #1; #39 sclk = 1'b0;
@@ -245,6 +250,41 @@ module QSPI_tb;
       end
     end
 `endif
+
+    // two-byte quad read under one CSn: the high nibble is re-presented on
+    // the falling edge after the byte boundary
+    wr(4'd2, 8'h01); wr(4'd0, 8'hC4); wr(4'd3, 8'h00);
+    repeat (2) @(posedge clk);
+    begin
+      logic [15:0] q16;
+      csn = 1'b0; drv_en = 1'b0;
+      for (int i = 0; i < 4; i++) begin
+        #40 sclk = 1'b1;
+        #1 q16[15-4*i -: 4] = io[3:0];
+        #39 sclk = 1'b0;
+      end
+      csn = 1'b1; #100;
+      if (q16 !== 16'hC4C4) begin errors++; $display("ERROR: QSPI 2-byte quad read got=%h", q16); end
+    end
+    // std frame aborted after 3 bits, then a clean frame
+    wr(4'd2, 8'h00); wr(4'd0, 8'h96);
+    csn = 1'b0; drv_en = 1'b1; drv_mask = 4'b0001;
+    for (int i = 0; i < 3; i++) begin drv_val = 4'b0001; #40 sclk = 1'b1; #40 sclk = 1'b0; end
+    drv_en = 1'b0; csn = 1'b1; #100;
+    std_xfer(8'h3E, d1);
+    rd(4'd0, got);
+    if (d1 !== 8'h96 || got !== 8'h3E) begin
+      errors++; $display("ERROR: QSPI post-abort frame miso=%h mosi=%h", d1, got);
+    end
+    // reset mid-frame
+    wr(4'd2, 8'h00);
+    csn = 1'b0;
+    #40 sclk = 1'b1; #40 sclk = 1'b0;
+    @(negedge clk) rst_n = 1'b0;
+    #1;
+    if (dut.irq !== 1'b0 || dut.io_oe !== 4'b0010) begin errors++; $display("ERROR: QSPI not idle in reset"); end
+    csn = 1'b1; drv_en = 1'b0;
+    @(negedge clk) rst_n = 1'b1;
 
     if (errors == 0) $display("TEST PASSED: QSPI");
     else             $display("TEST FAILED: %0d errors", errors);

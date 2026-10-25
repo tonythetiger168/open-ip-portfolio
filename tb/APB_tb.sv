@@ -222,6 +222,20 @@ module APB_tb;
     apb_read(32'h0020, 32'hC3C3_0020, 0);
     apb_read(32'h0020, 32'hC3C3_0020, 0);   // repeated read, same value
 
+    // ---------------- 8. reset asserted inside a slow ACCESS wait state ---
+    apb_setup(32'h0420, 1'b1, 32'h7777_0008);
+    @(negedge clk); penable = 1'b1; #1;     // first ACCESS cycle (pready=0)
+    chk(pready === 1'b0, "mid-access reset: expected wait state");
+    rst_n = 0; #1;                          // async reset in the wait state
+    chk(pready === 1'b0 && pslverr === 1'b0 && prdata === '0 && irq === 1'b0,
+        "mid-access reset: outputs must be quiescent");
+    psel = 1'b0; penable = 1'b0;
+    repeat (2) @(negedge clk);
+    rst_n = 1;
+    @(negedge clk);
+    apb_read(32'h0020, 32'h0, 0);           // register file cleared by reset
+    apb_read(32'h0008, 32'h0, 0);           // aborted write did not land
+
     bus_idle(2);
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ------

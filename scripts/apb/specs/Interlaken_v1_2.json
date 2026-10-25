@@ -1,0 +1,35 @@
+{
+  "title": "Interlaken-style lane: 64b/67b framing, scrambling, metaframe (sync, scrambler state, skip, diagnostic with CRC-32), bursts with CRC-24, in-band flow control",
+  "code": "0x494C",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "80ms",
+  "regs": [
+    {"name": "FC", "kind": "rw", "desc": "In-band flow control sent in every control word",
+     "fields": [{"port": "tx_fc", "reset": "0", "desc": "flow control bits"}]},
+    {"name": "TX", "kind": "stream_in", "data": ["tx_data", "tx_sop", "tx_eop", "tx_bytes", "tx_chan"], "valid": "tx_valid", "ready": "tx_ready",
+     "desc": "Transmit word (TX0 = bits 31:0, TX1 = bits 63:32, TX2 = flags and channel; writing TX2 commits it); a burst control word takes SOP and channel of the word waiting, the word itself goes out next; one word per 67 PCLK",
+     "fdesc": {"tx_data": "payload", "tx_sop": "first word of a packet", "tx_eop": "last word of a packet", "tx_bytes": "with EOP: valid bytes of the word (0 = 8)", "tx_chan": "channel (taken at the burst start)"}},
+    {"name": "RX", "kind": "stream_out", "data": ["rx_data", "rx_sop", "rx_eop", "rx_bytes", "rx_chan", "rx_err"], "valid": "rx_valid",
+     "desc": "Received word (RX0 = bits 31:0, RX1 = bits 63:32, RX2 = flags; reading RX2 frees it); each data word arrives once the next protocol word shows whether it ends the packet",
+     "fdesc": {"rx_data": "payload", "rx_sop": "first word of a packet", "rx_eop": "last word of a packet", "rx_bytes": "with EOP: valid bytes (0 = 8)", "rx_chan": "channel of its burst", "rx_err": "its burst failed the CRC-24 (or the lane lost sync)"}},
+    {"name": "RX_FC", "kind": "ro", "desc": "Flow control received",
+     "fields": [{"port": "rx_fc", "desc": "from the last control word that passed its CRC-24"}]},
+    {"name": "STATUS", "kind": "ro", "desc": "Receive alignment and peer status",
+     "fields": [{"port": "word_lock", "desc": "word (framing bit) lock"},
+                {"port": "sync_lock", "desc": "metaframe lock (words are delivered)"},
+                {"port": "peer_status", "desc": "{lane, link} status from the peer's last good diagnostic word"}]}
+  ],
+  "irqs": [
+    {"name": "ERR_WORD", "port": "err_word", "desc": "invalid framing bits while word locked"},
+    {"name": "ERR_SYNC", "port": "err_sync", "desc": "a sync word missing while sync locked"},
+    {"name": "ERR_SCR", "port": "err_scr", "desc": "a scrambler state word that does not match"},
+    {"name": "ERR_CRC32", "port": "err_crc32", "desc": "a diagnostic word whose CRC-32 does not match the metaframe"},
+    {"name": "ERR_CRC24", "port": "err_crc24", "desc": "a control word whose CRC-24 fails"},
+    {"name": "ERR_PROTO", "port": "err_proto", "desc": "a protocol error (data outside a burst, EOP without data, SOP inside a packet, burst without SOP outside one, framing word out of place)"}
+  ],
+  "notes": [
+    "tx_p and rx_p are the serial lane pins (one bit per PCLK); they pass through unchanged.",
+    "The core parameters MF (metaframe length, 64), BMAX (data words per burst, 8) and SEED (scrambler start) keep their defaults."
+  ]
+}

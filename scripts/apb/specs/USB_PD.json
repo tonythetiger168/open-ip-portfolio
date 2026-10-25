@@ -1,0 +1,25 @@
+{
+  "title": "USB Power Delivery sink (UFP): BMC on CC, SOP / HardReset ordered sets, CRC-32, GoodCRC, Source_Capabilities -> Request -> Accept -> PS_RDY negotiation picking the 9 V PDO, Reject, renegotiation, MessageIDCounter with GoodCRC timeout and retries",
+  "code": "0x5044",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "40ms",
+  "pins": ["vbus_ok"],
+  "regs": [
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Contract state",
+      "fields": [
+        {"port": "vbus_ok", "desc": "explicit contract established (PS_RDY received); same as the vbus_ok pin"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "ERR", "port": "irq", "desc": "bad CRC, bad EOP or more than two objects (no GoodCRC sent), a GoodCRC with the wrong MessageID, or a Request given up after its retries. Held in the core until the next good message or a HardReset, so the bit is set again on every clock until then"}
+  ],
+  "notes": [
+    "cc_rxd (CC line level in), cc_txd / cc_tx_en (BMC drive and its enable) and vbus_ok pass through unchanged. One BMC unit interval is one PCLK.",
+    "Messages travel on the CC wire only; the registers report the contract state and protocol errors."
+  ]
+}

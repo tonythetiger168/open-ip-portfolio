@@ -26,18 +26,32 @@ module RGMII_top #(
   output logic [4:0] count,
   output logic       irq
 );
-  // TX queue (bytes to send)
-  logic [7:0]  txq [0:7];
-  logic [2:0]  tx_wr, tx_rd;
-  logic [3:0]  txd_hi, txd_lo; // nibble for high/low phase of tx_clk
-  logic        tx_ctl_q;
+  // ---------------- TX: 8-entry async FIFO, clk -> tx_clk ----------------
+  // Binary + Gray pointers with one wrap bit; each side sees the other's
+  // pointer through a 2-flop synchronizer (one Gray bit changes per step).
+  // A host write while the FIFO is full is dropped.
+  logic [7:0] txq [0:7];
+  logic [3:0] tw_bin, tw_gray, tr_bin, tr_gray;
+  logic [3:0] tr_gray_s1, tr_gray_s2;     // read pointer seen in clk domain
+  logic [3:0] tw_gray_s1, tw_gray_s2;     // write pointer seen in tx_clk domain
+  logic [3:0] txd_hi, txd_lo;             // nibble for high/low phase of tx_clk
+  logic       tx_ctl_q;
+  wire  [3:0] tw_next = tw_bin + 4'd1;
+  wire  [3:0] tr_next = tr_bin + 4'd1;
+  wire        tx_full  = (tw_gray == {~tr_gray_s2[3:2], tr_gray_s2[1:0]});
+  wire        tx_empty = (tr_gray == tw_gray_s2);
 
   // push on host write (waddr 0 = data)
   always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin tx_wr <= '0; end
-    else if (wen && waddr == 4'd0) begin
-      txq[tx_wr] <= wdata;
-      tx_wr <= tx_wr + 1'b1;
+    if (!rst_n) begin
+      tw_bin <= '0; tw_gray <= '0; tr_gray_s1 <= '0; tr_gray_s2 <= '0;
+    end else begin
+      tr_gray_s1 <= tr_gray; tr_gray_s2 <= tr_gray_s1;
+      if (wen && waddr == 4'd0 && !tx_full) begin
+        txq[tw_bin[2:0]] <= wdata;
+        tw_bin  <= tw_next;
+        tw_gray <= tw_next ^ (tw_next >> 1);
+      end
     end
   end
 
@@ -48,14 +62,19 @@ module RGMII_top #(
   // On real silicon this mux would be mapped to an ODDR/ALTDDIO primitive.
   always_ff @(posedge tx_clk or negedge rst_n) begin
     if (!rst_n) begin
-      txd_hi <= 4'h0; txd_lo <= 4'h0; tx_ctl_q <= 1'b0; tx_rd <= '0;
-    end else if (tx_wr != tx_rd) begin
-      tx_ctl_q <= 1'b1;
-      txd_hi   <= txq[tx_rd][7:4];
-      txd_lo   <= txq[tx_rd][3:0];
-      tx_rd    <= tx_rd + 1'b1;
+      txd_hi <= 4'h0; txd_lo <= 4'h0; tx_ctl_q <= 1'b0;
+      tr_bin <= '0; tr_gray <= '0; tw_gray_s1 <= '0; tw_gray_s2 <= '0;
     end else begin
-      tx_ctl_q <= 1'b0;
+      tw_gray_s1 <= tw_gray; tw_gray_s2 <= tw_gray_s1;
+      if (!tx_empty) begin
+        tx_ctl_q <= 1'b1;
+        txd_hi   <= txq[tr_bin[2:0]][7:4];
+        txd_lo   <= txq[tr_bin[2:0]][3:0];
+        tr_bin   <= tr_next;
+        tr_gray  <= tr_next ^ (tr_next >> 1);
+      end else begin
+        tx_ctl_q <= 1'b0;
+      end
     end
   end
   assign txd    = tx_clk ? txd_hi : txd_lo;
@@ -81,20 +100,22 @@ module RGMII_top #(
   end
   wire rxv_edge = rxv_s ^ rxv_d;
 
+  // Nibble pairs are aligned to the rx_clk phase, not to a toggle: the high
+  // nibble is the one valid before a falling edge, the low nibble the one
+  // before the following rising edge. A byte whose rx_ctl drops for either
+  // half is discarded without shifting the alignment of the next byte.
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       rx_wr <= '0; rx_half <= 1'b0; rx_hi <= '0;
     end else if (rxv_edge) begin
-      if (rxc_d) begin
-        if (!rx_half) begin
-          rx_hi   <= rxd_d;
-          rx_half <= 1'b1;
-        end else begin
+      if (!rxv_s) begin                 // falling edge: high nibble
+        rx_hi   <= rxd_d;
+        rx_half <= rxc_d;
+      end else begin                    // rising edge: low nibble
+        if (rxc_d && rx_half) begin
           rxq[rx_wr[3:0]] <= {rx_hi, rxd_d};
-          rx_wr   <= rx_wr + 1'b1;
-          rx_half <= 1'b0;
+          rx_wr <= rx_wr + 1'b1;
         end
-      end else begin
         rx_half <= 1'b0;
       end
     end

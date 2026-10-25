@@ -1,769 +1,473 @@
 // SPDX-License-Identifier: Apache-2.0
 // ============================================================================
-// Self-checking testbench for USB_top (USB 1.1 Full-Speed device)
-// Host model drives dp/dm at bit level (NRZI + bit stuffing + EOP) and
-// decodes device responses at bit level.
-// Checks:
-//   1. reset state (irq low, device not driving the bus)
-//   2. GET_DESCRIPTOR control read: SETUP->ACK + 8x8 regfile write-back
-//      compare, IN->DATA1 descriptor payload+CRC16 compare, host ACK
-//   3. EP1 interrupt IN x2 back-to-back: payload counter increments,
-//      DATA0/DATA1 toggle alternates
-//   4. DATA toggle misorder injection: SETUP with DATA1 -> ACK but
-//      register file NOT written (duplicate discarded)
-//   5. lost-ACK retransmission: IN without ACK -> same DATA payload/toggle
-//      re-sent on next IN
-//   6. bad CRC5 token injection: no device response + irq raised,
-//      next good token clears irq
-//   7. bad CRC16 data injection: no handshake + irq raised
-//   8. IN to illegal endpoint -> STALL handshake
+// Self-checking testbench for USB_top (USB 1.1 FS device, EP0 + EP1 IN)
+// The TB is the host: it drives tokens / data / handshakes on dp/dm at bit
+// level (NRZI, bit stuffing, CRC5 / CRC16, EOP) and decodes the device's
+// answers. Covered: enumeration (GET_DESCRIPTOR in 8-byte packets, short and
+// zero-length packets, SET_ADDRESS taking effect after the status stage,
+// SET/GET_CONFIGURATION), EP1 counter (NAK until configured, preset by the
+// vendor request, increment on ACK only, DATA0/1 toggling, retransmit on lost
+// ACK), protocol STALLs, duplicate data, every receive error class (CRC5,
+// CRC16, stuffing, PID check, sync, truncation), ACK timeout, host NAK, bus
+// reset and reset mid-packet.
+// Under Verilator the bound checker (tb/cov/USB_sva.sv) predicts the device's
+// line drive on every clock.
 // ============================================================================
 `timescale 1ns/1ps
 module USB_tb;
-  localparam int BIT_CLKS = 4;
+  localparam int BC = 4;                         // clk per bit time (DUT default)
 
   logic clk = 0, rst_n = 0;
   always #5 clk = ~clk;
 
-  // USB bus: weak pull-up on D+ (device pull-up), weak pull-down on D- (host)
-  tri1 dp;
-  tri0 dm;
-  logic host_oe = 0, host_dp = 1, host_dm = 0;
-  assign dp = host_oe ? host_dp : 1'bz;
-  assign dm = host_oe ? host_dm : 1'bz;
+  // bus: device pull-up on D+, host pull-down on D-
+  tri1  dp;
+  tri0  dm;
+  logic h_oe = 0, h_dp = 1, h_dm = 0;
+  assign dp = h_oe ? h_dp : 1'bz;
+  assign dm = h_oe ? h_dm : 1'bz;
+  wire  irq;
 
-  wire irq;
-  int  errors = 0;
+  USB_top #(.BIT_CLKS(BC)) dut (.clk(clk), .rst_n(rst_n), .dp(dp), .dm(dm), .irq(irq));
 
-  USB_top #(.DW(32), .AW(32), .BIT_CLKS(BIT_CLKS)) dut (
-    .clk(clk), .rst_n(rst_n), .dp(dp), .dm(dm), .irq(irq)
-  );
-
-  // ------------------------------------------------------------------
-  // check helper
-  // ------------------------------------------------------------------
-  task automatic check(input bit cond, input string msg);
-    begin
-      if (cond) $display("[OK]   %s", msg);
-      else begin
-        errors++;
-        $display("[FAIL] %s", msg);
-      end
-    end
+  int errors = 0;
+  task automatic fail(input string s);
+    errors++; $display("ERROR: %s @%0t", s, $time);
   endtask
 
-  // ------------------------------------------------------------------
-  // CRC models (mirror of DUT, verified against USB spec vectors)
-  // ------------------------------------------------------------------
-  function automatic logic [4:0] crc5_token(input logic [6:0] a, input logic [3:0] e);
-    logic [4:0] c; logic fb; logic b;
-    begin
-      c = 5'h1F;
-      for (int i = 0; i < 11; i++) begin
-        b  = (i < 7) ? a[i] : e[i-7];
-        fb = c[0] ^ b;
-        c  = fb ? (c >> 1) ^ 5'h14 : (c >> 1);
-      end
-      crc5_token = ~c;
-    end
-  endfunction
+  localparam logic [3:0] OUT = 4'h1, IN = 4'h9, SOF = 4'h5, SETUP = 4'hD, DATA0 = 4'h3,
+                         DATA1 = 4'hB, ACK = 4'h2, NAK = 4'hA, STALL = 4'hE, NONE = 4'h0;
 
-  function automatic logic [15:0] crc16_upd(input logic [15:0] c, input logic [7:0] d);
-    logic [15:0] r;
-    begin
-      r = c;
-      for (int k = 0; k < 8; k++)
-        r = (r[0] ^ d[k]) ? (r >> 1) ^ 16'hA001 : (r >> 1);
-      crc16_upd = r;
-    end
+  function automatic logic [4:0] crc5(input logic [10:0] v);
+    logic [4:0] c;
+    c = 5'h1F;
+    for (int i = 0; i < 11; i++) c = (c[0] ^ v[i]) ? ((c >> 1) ^ 5'h14) : (c >> 1);
+    crc5 = ~c;
+  endfunction
+  function automatic logic [15:0] crc16(input logic [15:0] c, input logic [7:0] d);
+    for (int k = 0; k < 8; k++) c = (c[0] ^ d[k]) ? ((c >> 1) ^ 16'hA001) : (c >> 1);
+    crc16 = c;
+  endfunction
+  function automatic logic [7:0] desc(input int i);
+    case (i)
+      0: desc = 8'h12;  1: desc = 8'h01;  3: desc = 8'h02;  7: desc = 8'h08;
+      8: desc = 8'h09;  9: desc = 8'h12; 10: desc = 8'h01; 13: desc = 8'h01;
+      17: desc = 8'h01;
+      default: desc = 8'h00;
+    endcase
   endfunction
 
   // ------------------------------------------------------------------
-  // host bit-level transmit (NRZI + stuffing), driven on negedge
-  // payload passed through global h_pl[] (iverilog: no array task ports)
+  // host transmitter
   // ------------------------------------------------------------------
-  logic       h_lvl;   // current NRZI level (1=J, 0=K)
-  int         h_ones;
-  logic [7:0] h_pl [0:7];
+  logic [7:0] pk [0:63];        // packet bytes after SYNC (PID first)
+  int         pk_n;
+  // fault modes for the next packet
+  int         f_cut = -1;       // SE0 after this many line bits
+  bit         f_nostuff = 0;    // no bit stuffing -> stuff error at receiver
+  bit         f_badsync = 0;
+  logic       lvl;
 
-  task automatic h_bit(input logic b);
-    begin
-      if (!b) h_lvl = ~h_lvl;
-      host_oe = 1; host_dp = h_lvl; host_dm = ~h_lvl;
-      repeat (BIT_CLKS) @(negedge clk);
+  task automatic line_bit(input logic b);
+    if (!b) lvl = !lvl;
+    @(negedge clk); h_oe = 1; h_dp = lvl; h_dm = !lvl;
+    repeat (BC - 1) @(negedge clk);
+  endtask
+
+  task automatic eop;
+    @(negedge clk); h_oe = 1; h_dp = 0; h_dm = 0;
+    repeat (2 * BC - 1) @(negedge clk);
+    @(negedge clk); h_dp = 1; h_dm = 0;
+    repeat (BC - 1) @(negedge clk);
+    @(negedge clk); h_oe = 0;
+  endtask
+
+  task automatic tx_pkt;
+    int ones, nbits;
+    logic b;
+    lvl = 1; ones = 0; nbits = 0;
+    for (int k = 0; k < 8 && nbits != f_cut; k++) begin
+      line_bit(f_badsync ? (k >= 6) : (k == 7)); nbits++;
     end
+    for (int i = 0; i < pk_n && nbits != f_cut; i++)
+      for (int k = 0; k < 8 && nbits != f_cut; k++) begin
+        b = pk[i][k];
+        line_bit(b); nbits++;
+        ones = b ? ones + 1 : 0;
+        if (ones == 6 && !f_nostuff && nbits != f_cut) begin line_bit(0); nbits++; ones = 0; end
+      end
+    eop();
+    f_cut = -1; f_nostuff = 0; f_badsync = 0;
+    repeat (2 * BC) @(negedge clk);
   endtask
 
-  task automatic h_raw_bit(input logic b);   // with bit-stuff accounting
-    begin
-      h_bit(b);
-      if (b) begin
-        h_ones = h_ones + 1;
-        if (h_ones == 6) begin h_bit(1'b0); h_ones = 0; end
-      end else h_ones = 0;
-    end
+  task automatic token(input logic [3:0] pid, input logic [6:0] a, input logic [3:0] ep,
+                       input bit bad_crc = 0);
+    logic [10:0] v;
+    logic [4:0]  c;
+    v = {ep, a};
+    c = crc5(v) ^ (bad_crc ? 5'h01 : 5'h00);
+    pk[0] = {~pid, pid}; pk[1] = v[7:0]; pk[2] = {c, v[10:8]}; pk_n = 3;
+    tx_pkt();
   endtask
 
-  task automatic h_byte(input logic [7:0] d);
-    for (int i = 0; i < 8; i++) h_raw_bit(d[i]);
-  endtask
-
-  task automatic h_sop_sync;
-    begin
-      h_ones = 0; h_lvl = 1'b1;
-      host_oe = 1; host_dp = 1; host_dm = 0;   // idle J
-      @(negedge clk);
-      h_byte(8'h80);                            // SYNC: KJKJKJKK
-      h_ones = 0;                               // stuffing starts after SYNC
-    end
-  endtask
-
-  task automatic h_eop;
-    begin
-      host_oe = 1; host_dp = 0; host_dm = 0;
-      repeat (2*BIT_CLKS) @(negedge clk);       // SE0 x2 bit times
-      host_dp = 1; host_dm = 0;
-      repeat (BIT_CLKS) @(negedge clk);         // J x1 bit time
-      host_oe = 0;                              // release bus
-      @(negedge clk);
-    end
-  endtask
-
-  task automatic h_token(input logic [3:0] pid, input logic [6:0] addr,
-                         input logic [3:0] endp, input bit corrupt);
-    logic [4:0]  c5;
-    logic [15:0] tf;
-    begin
-      c5 = crc5_token(addr, endp) ^ (corrupt ? 5'h1F : 5'h00);
-      tf = {c5, endp, addr};
-      h_sop_sync;
-      h_byte({~pid, pid});
-      for (int i = 0; i < 16; i++) h_raw_bit(tf[i]);
-      h_eop;
-    end
-  endtask
-
-  task automatic h_data(input logic [3:0] pid, input int len, input bit corrupt);
+  logic [7:0] dbuf [0:63];      // data payload to send
+  task automatic data(input logic [3:0] pid, input int n, input bit bad_crc = 0);
     logic [15:0] c;
-    begin
-      c = 16'hFFFF;
-      h_sop_sync;
-      h_byte({~pid, pid});
-      for (int i = 0; i < len; i++) begin
-        h_byte(h_pl[i]);
-        c = crc16_upd(c, h_pl[i]);
-      end
-      c = ~c ^ (corrupt ? 16'hFFFF : 16'h0000);
-      h_byte(c[7:0]);
-      h_byte(c[15:8]);
-      h_eop;
-    end
+    c = 16'hFFFF;
+    pk[0] = {~pid, pid};
+    for (int i = 0; i < n; i++) begin pk[1+i] = dbuf[i]; c = crc16(c, dbuf[i]); end
+    c = ~c ^ (bad_crc ? 16'h0100 : 16'h0);
+    pk[1+n] = c[7:0]; pk[2+n] = c[15:8]; pk_n = n + 3;
+    tx_pkt();
   endtask
 
-  task automatic h_handshake(input logic [3:0] pid);
-    begin
-      h_sop_sync;
-      h_byte({~pid, pid});
-      h_eop;
-    end
+  task automatic hshake(input logic [3:0] pid);
+    pk[0] = {~pid, pid}; pk_n = 1;
+    tx_pkt();
   endtask
 
   // ------------------------------------------------------------------
-  // host bit-level receive (samples at bit centers on negedge)
-  //   fills rbuf/rlen; rto=1 if no SOP within timeout
+  // host receiver: wait for a device packet, decode it
   // ------------------------------------------------------------------
-  logic [7:0] rbuf [0:15];
-  int         rlen;
-  bit         rto;
+  logic [3:0] r_pid;
+  logic [7:0] r_buf [0:15];
+  int         r_n;               // payload bytes (data packets)
+  bit         r_crc_ok;
 
-  task automatic h_recv(input int to_clks);
-    int  to;
-    logic prev, raw;
-    int  ones;
-    logic [7:0] sh;
-    int  bc;
-    int  guard;
-    bit  done;
-    bit  got_sync;
-    begin : recv_blk
-      rto = 0; rlen = 0;
-      host_oe = 0;                               // release while device talks
-      to = 0;
-      while (!(dp === 1'b0 && dm === 1'b1)) begin   // wait SOP (J->K)
-        @(negedge clk);
-        to = to + 1;
-        if (to > to_clks) begin rto = 1; disable recv_blk; end
-      end
-      repeat (BIT_CLKS/2) @(negedge clk);        // to center of first bit
-      prev = 1'b1;                               // idle J before SOP
-      ones = 0; bc = 0; sh = 8'h00; guard = 0; done = 0; got_sync = 0;
-      while (!done) begin
-        if (dp === 1'b0 && dm === 1'b0) done = 1;   // EOP (SE0)
-        else begin
-          raw = (dp === prev);
-          prev = dp;
-          if (ones == 6) begin                   // stuffed bit, drop
-            ones = 0;
-          end else begin
-            sh = {raw, sh[7:1]};
-            bc = bc + 1;
-            if (raw) ones = ones + 1; else ones = 0;
-            if (bc == 8) begin
-              bc = 0;
-              if (!got_sync) begin               // first byte is SYNC, drop it
-                got_sync = 1;
-                ones = 0;                        // stuffing starts after SYNC
-              end else if (rlen < 16) begin
-                rbuf[rlen] = sh; rlen = rlen + 1;
-              end
-            end
+  task automatic rx_pkt(input int timeout = 200);
+    int   t, nb, ones, nd;
+    logic prev, b;
+    logic [7:0] d [0:15];
+    logic [15:0] c;
+    t = 0; r_pid = NONE; r_n = 0; r_crc_ok = 0;
+    while (!(dp === 1'b0 && dm === 1'b1) && t < timeout * BC) begin @(posedge clk); t++; end
+    if (t < timeout * BC) begin
+      repeat (BC / 2) @(posedge clk);
+      prev = 1; nb = 0; ones = 0; nd = 0;
+      for (int i = 0; i < 16; i++) d[i] = 0;
+      while (!(dp === 1'b0 && dm === 1'b0)) begin
+        b = (dp == prev); prev = dp;
+        if (nb >= 8) begin
+          if (ones == 6) ones = 0;               // stuffed bit
+          else begin
+            if (nd < 128) d[nd / 8][nd % 8] = b;
+            nd++;
+            ones = b ? ones + 1 : 0;
           end
-          guard = guard + 1;
-          if (guard > 400) done = 1;
-          else repeat (BIT_CLKS) @(negedge clk);
         end
+        nb++;
+        repeat (BC) @(posedge clk);
       end
-      repeat (3*BIT_CLKS) @(negedge clk);        // let device finish EOP
-    end
-  endtask
-
-  // ------------------------------------------------------------------
-  // PID constants / expected descriptor
-  // ------------------------------------------------------------------
-  localparam logic [3:0] P_OUT=4'h1, P_IN=4'h9, P_SETUP=4'hD,
-                         P_DATA0=4'h3, P_DATA1=4'hB,
-                         P_ACK=4'h2, P_NAK=4'hA, P_STALL=4'hE;
-  localparam logic [7:0] B_ACK   = 8'hD2, B_STALL = 8'h1E,
-                         B_DATA0 = 8'hC3, B_DATA1 = 8'h4B;
-
-  function automatic logic [7:0] desc_byte(input int i);
-    begin
-      case (i)
-        0:       desc_byte = 8'h12;
-        1:       desc_byte = 8'h01;
-        2:       desc_byte = 8'h00;
-        3:       desc_byte = 8'h02;
-        4:       desc_byte = 8'h00;
-        5:       desc_byte = 8'h00;
-        6:       desc_byte = 8'h00;
-        default: desc_byte = 8'h08;
-      endcase
-    end
-  endfunction
-
-  // decode + verify a received data packet against expected payload exp_pl[]
-  logic [7:0] exp_pl [0:7];
-
-  task automatic expect_data_pkt(input logic [7:0] pid_byte,
-                                 input int len, input string tag);
-    logic [15:0] c;
-    bit ok;
-    begin
-      h_recv(600);
-      check(!rto, {tag, ": device responded (no timeout)"});
-      if (!rto) begin
-        check(rlen == len+3, {tag, ": byte count = payload+PID+CRC16"});
-        check(rbuf[0] === pid_byte, {tag, ": PID byte as expected"});
-        ok = 1'b1;
-        for (int i = 0; i < len; i++)
-          if (rbuf[i+1] !== exp_pl[i]) begin
-            ok = 0;
-            $display("       mismatch byte %0d: got %02x exp %02x", i, rbuf[i+1], exp_pl[i]);
-          end
-        check(ok, {tag, ": payload compare"});
+      while (!(dp === 1'b1 && dm === 1'b0)) @(posedge clk);    // EOP J
+      while (dut.tx_oe) @(posedge clk);
+      r_pid = d[0][3:0];
+      if (d[0][7:4] != ~d[0][3:0]) fail("device PID check");
+      if (r_pid == DATA0 || r_pid == DATA1) begin
+        r_n = nd / 8 - 3;
         c = 16'hFFFF;
-        for (int i = 0; i < len; i++) c = crc16_upd(c, rbuf[i+1]);
-        c = ~c;
-        check(rbuf[len+1] === c[7:0] && rbuf[len+2] === c[15:8],
-              {tag, ": CRC16 valid"});
+        for (int i = 0; i < r_n; i++) begin r_buf[i] = d[1+i]; c = crc16(c, d[1+i]); end
+        r_crc_ok = {d[r_n+2], d[r_n+1]} == ~c;
+        if (!r_crc_ok) fail("device CRC16");
       end
+      repeat (2 * BC) @(negedge clk);
     end
   endtask
 
-`ifdef VERILATOR
-  // =====================================================================
-  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
-  // Tool notes (Verilator 5.006): no native FSM/SVA coverage and
-  // randomize() ignores constraint blocks -> procedural constraints
-  // ($urandom_range + rejection sampling), TB FSM probe, immediate
-  // assertions.
-  // =====================================================================
-  localparam int USB_FSM_TOTAL = 15;   // rs(7) + ts(5) + cs(3)
-  logic [14:0] fsm_seen = '0;          // visited-state bitmap
-  wire  [2:0]  dut_rs = dut.rs;        // hierarchical FSM probes
-  wire  [2:0]  dut_ts = dut.ts;
-  wire  [1:0]  dut_cs = dut.cs;
-
-  int sva_total = 0, sva_fail = 0;
-  // counted immediate assertion: every evaluation is one check
-  task automatic sva_check(input bit cond, input string name);
-    begin
-      sva_total++;
-      if (!cond) begin
-        sva_fail++;
-        errors++;
-        $display("SVA_FAIL: %s @%0t", name, $time);
-      end
-    end
+  task automatic expect_pid(input logic [3:0] p, input string s);
+    if (r_pid !== p) fail($sformatf("%s: device PID %h exp %h", s, r_pid, p));
   endtask
-
-  // FSM coverage: sample all three DUT state registers every clock
-  always @(posedge clk) begin
-    fsm_seen[dut_rs]      <= 1'b1;
-    fsm_seen[7 + dut_ts]  <= 1'b1;
-    fsm_seen[12 + dut_cs] <= 1'b1;
-  end
-
-  // output-invariant assertion suite (sampled coherently pre-NBA)
-  always @(posedge clk) begin
-    if (!rst_n) begin
-      // A1: outputs quiescent during reset
-      sva_check(irq === 1'b0 && dut.tx_oe === 1'b0, "A1 reset: outputs quiescent");
-    end else begin
-      // A2: state registers hold legal enum encodings
-      sva_check(dut_rs <= 3'd6 && dut_ts <= 3'd4 && dut_cs <= 2'd2,
-                "A2 state encodings legal");
-      // A3: no illegal SE1 on the bus
-      sva_check({dp, dm} !== 2'b11, "A3 no SE1 on bus");
-      // A4: irq never X
-      sva_check(irq !== 1'bx, "A4 irq not X");
-      // A5: bus rests at idle J whenever neither side drives
-      sva_check(host_oe || dut.tx_oe || ({dp, dm} === 2'b10),
-                "A5 idle J when undriven");
-      // A6: host and device never drive simultaneously
-      sva_check(!(host_oe && dut.tx_oe), "A6 no drive contention");
-      // A7: device drives only while its TX FSM is active
-      sva_check(!dut.tx_oe || (dut_ts != 3'd0), "A7 tx_oe implies TS active");
-    end
-  end
-
-  // ---- constrained-random transaction tasks ---------------------------
-  int         ep1_cnt_model;            // EP1 payload counter model
-  bit         ep1_tgl_model;            // EP1 next DATA toggle model
-  bit         out_tgl_model;            // EP0 OUT next DATA toggle model
-  logic [7:0] setup_model [0:7];        // shadow of DUT setup_q
-
-  // EP1 interrupt IN, model-checked; optionally ACK (advance) or drop ACK
-  task automatic crv_ep1_in(input bit do_ack);
-    begin
-      set_exp_count(ep1_cnt_model[7:0]);
-      h_token(P_IN, 7'd0, 4'd1, 1'b0);
-      expect_data_pkt(ep1_tgl_model ? B_DATA1 : B_DATA0, 4, "CRV EP1 IN");
-      if (do_ack) begin
-        h_handshake(P_ACK);
-        repeat (2) @(negedge clk);
-        ep1_cnt_model = ep1_cnt_model + 1;
-        ep1_tgl_model = ~ep1_tgl_model;
-      end else begin
-        repeat (100) @(negedge clk);    // lost ACK: let the DUT time out
-      end
-    end
-  endtask
-
-  // SETUP with random request bytes + EP0 IN descriptor + ACK
-  task automatic crv_setup_in;
-    bit ff;
-    begin
-      ff = ($urandom_range(0, 4) == 0);   // 20% all-ones payload: forces
-      for (int i = 0; i < 8; i++)         // host stuffing / DUT unstuffing
-        h_pl[i] = ff ? 8'hFF : $urandom_range(0, 255);
-      h_token(P_SETUP, 7'd0, 4'd0, 1'b0);
-      h_data(P_DATA0, 8, 1'b0);
-      h_recv(600);
-      check(!rto && rlen == 1 && rbuf[0] === B_ACK, "CRV SETUP data ACKed");
-      for (int i = 0; i < 8; i++) begin
-        if (dut.setup_q[i] !== h_pl[i]) begin
-          errors++;
-          $display("ERROR: CRV setup_q[%0d] got=%h exp=%h", i, dut.setup_q[i], h_pl[i]);
-        end
-        setup_model[i] = h_pl[i];
-      end
-      out_tgl_model = 1'b1;               // successful SETUP data: out_tgl<=1
-      check(dut.ep0in_tgl === 1'b1, "CRV SETUP resets EP0 IN toggle");
-      h_token(P_IN, 7'd0, 4'd0, 1'b0);
-      for (int i = 0; i < 8; i++) exp_pl[i] = desc_byte(i);
-      expect_data_pkt(B_DATA1, 8, "CRV EP0 IN descriptor");
-      h_handshake(P_ACK);
-      repeat (4) @(negedge clk);
-      check(dut.ep0in_tgl === 1'b0, "CRV EP0 IN toggle flips after ACK");
-    end
-  endtask
-
-  // IN to an illegal endpoint -> STALL
-  task automatic crv_stall;
-    logic [3:0] ep;
-    begin
-      ep = $urandom_range(2, 15);
-      h_token(P_IN, 7'd0, ep, 1'b0);
-      h_recv(600);
-      check(!rto && rlen == 1 && rbuf[0] === B_STALL,
-            "CRV IN illegal endpoint -> STALL");
-    end
-  endtask
-
-  // bad CRC5 token: no response + irq; a valid token clears irq
-  task automatic crv_badcrc5;
-    logic [3:0] pid, ep; logic [6:0] ad;
-    begin
-      pid = ($urandom_range(0, 2) == 0) ? P_OUT :
-            ($urandom_range(0, 1) == 0) ? P_IN : P_SETUP;
-      ad  = $urandom_range(0, 127);
-      ep  = $urandom_range(0, 15);
-      h_token(pid, ad, ep, 1'b1);
-      h_recv(300);
-      check(rto, "CRV bad CRC5 token: no device response");
-      check(irq === 1'b1, "CRV bad CRC5 token: irq raised");
-      crv_ep1_in(1'b1);
-      check(irq === 1'b0, "CRV irq cleared by next valid token");
-    end
-  endtask
-
-  // bad CRC16 SETUP data: no handshake + irq, setup_q untouched
-  task automatic crv_badcrc16;
-    begin
-      for (int i = 0; i < 8; i++) h_pl[i] = $urandom_range(0, 255);
-      h_token(P_SETUP, 7'd0, 4'd0, 1'b0);
-      h_data(P_DATA0, 8, 1'b1);
-      h_recv(300);
-      check(rto, "CRV bad CRC16 data: no handshake");
-      check(irq === 1'b1, "CRV bad CRC16 data: irq raised");
-      for (int i = 0; i < 8; i++)
-        if (dut.setup_q[i] !== setup_model[i]) begin
-          errors++;
-          $display("ERROR: CRV setup_q[%0d] clobbered by bad-CRC data", i);
-        end
-      crv_ep1_in(1'b1);
-      check(irq === 1'b0, "CRV irq cleared after bad CRC16");
-    end
-  endtask
-
-  // token to a foreign address (device addr is 0): ignored
-  task automatic crv_wrong_addr;
-    logic [6:0] ad;
-    begin
-      ad = $urandom_range(1, 127);
-      h_token(P_IN, ad, 4'd1, 1'b0);
-      h_recv(300);
-      check(rto, "CRV wrong-address token ignored");
-    end
-  endtask
-
-  // SETUP with wrong data toggle: ACKed but register file not written
-  task automatic crv_misorder;
-    begin
-      for (int i = 0; i < 8; i++) h_pl[i] = $urandom_range(0, 255);
-      h_token(P_SETUP, 7'd0, 4'd0, 1'b0);
-      h_data(P_DATA1, 8, 1'b0);
-      h_recv(600);
-      check(!rto && rlen == 1 && rbuf[0] === B_ACK,
-            "CRV misordered SETUP data ACKed");
-      for (int i = 0; i < 8; i++)
-        if (dut.setup_q[i] !== setup_model[i]) begin
-          errors++;
-          $display("ERROR: CRV setup_q[%0d] overwritten by misordered data", i);
-        end
-    end
-  endtask
-
-  // bad PID check-nibble: byte 8'h3F fails the nibble-complement test and
-  // carries six leading 1s (exercises the RS_PID stuffed-bit drop arm);
-  // device must drop the packet silently
-  task automatic crv_badpid;
-    logic [15:0] tf;
-    begin
-      tf = {$urandom_range(0, 31), $urandom_range(0, 15),
-            $urandom_range(0, 127)};
-      h_sop_sync;
-      h_byte(8'h3F);                          // not {~pid,pid}
-      for (int i = 0; i < 16; i++) h_raw_bit(tf[i]);
-      h_eop;
-      h_recv(300);
-      check(rto, "CRV bad PID nibble: no device response");
-    end
-  endtask
-
-  // truncated packets: SE0 inside SYNC / PID / token field; the token
-  // truncation is a short IN token -> crc-bad -> irq (cleared by a good IN)
-  task automatic crv_trunc;
-    begin
-      // (a) SE0 after 4 SYNC bits
-      h_ones = 0; h_lvl = 1'b1;
-      host_oe = 1; host_dp = 1; host_dm = 0;
-      @(negedge clk);
-      for (int i = 0; i < 4; i++) h_bit(1'b0);
-      h_eop;
-      h_recv(300);
-      check(rto, "CRV truncated SYNC: no device response");
-      // (b) SE0 after 4 PID bits
-      h_sop_sync;
-      for (int i = 0; i < 4; i++) h_raw_bit(P_IN[i]);
-      h_eop;
-      h_recv(300);
-      check(rto, "CRV truncated PID: no device response");
-      // (c) SE0 after 8 token bits (short IN token): bad CRC5 -> irq
-      h_sop_sync;
-      h_byte({~P_IN, P_IN});
-      for (int i = 0; i < 8; i++) h_raw_bit(1'b0);
-      h_eop;
-      h_recv(300);
-      check(rto, "CRV truncated token: no device response");
-      check(irq === 1'b1, "CRV truncated token: irq raised");
-      crv_ep1_in(1'b1);
-      check(irq === 1'b0, "CRV irq cleared after truncated token");
-    end
-  endtask
-
-  // OUT to an illegal endpoint + data stage -> STALL (pend_stall arm)
-  task automatic crv_stall_out;
-    logic [3:0] ep;
-    int         len;
-    begin
-      ep  = $urandom_range(2, 15);
-      len = $urandom_range(1, 8);
-      for (int i = 0; i < 8; i++) h_pl[i] = $urandom_range(0, 255);
-      h_token(P_OUT, 7'd0, ep, 1'b0);
-      h_data(P_DATA0, len, 1'b0);
-      h_recv(600);
-      check(!rto && rlen == 1 && rbuf[0] === B_STALL,
-            "CRV OUT illegal endpoint + data -> STALL");
-    end
-  endtask
-
-  // OUT to EP0 with in-sequence toggle: ACKed, out_tgl advances
-  task automatic crv_out_data;
-    int len;
-    begin
-      len = $urandom_range(0, 8);
-      for (int i = 0; i < 8; i++) h_pl[i] = $urandom_range(0, 255);
-      h_token(P_OUT, 7'd0, 4'd0, 1'b0);
-      h_data(out_tgl_model ? P_DATA1 : P_DATA0, len, 1'b0);
-      h_recv(600);
-      check(!rto && rlen == 1 && rbuf[0] === B_ACK, "CRV OUT data ACKed");
-      out_tgl_model = ~out_tgl_model;
-    end
-  endtask
-
-  // bit-stuff violation: 7 unstuffed 1s in the data stage -> stuff_err,
-  // data rejected (no handshake) + irq
-  task automatic crv_stuff_viol;
-    begin
-      h_token(P_SETUP, 7'd0, 4'd0, 1'b0);
-      h_sop_sync;
-      h_byte({~P_DATA0, P_DATA0});
-      for (int i = 0; i < 7; i++) h_bit(1'b1);   // no stuffed 0: violation
-      h_ones = 0;
-      h_bit(1'b0);
-      for (int i = 0; i < 24; i++) h_raw_bit($urandom_range(0, 1));
-      h_eop;
-      h_recv(300);
-      check(rto, "CRV bit-stuff violation: no handshake");
-      check(irq === 1'b1, "CRV bit-stuff violation: irq raised");
-      crv_ep1_in(1'b1);
-      check(irq === 1'b0, "CRV irq cleared after stuff violation");
-    end
-  endtask
-`endif
 
   // ------------------------------------------------------------------
-  // stimulus
+  // transactions
   // ------------------------------------------------------------------
-  logic [7:0] saved_rf [0:7];
-  bit         same;
+  logic [6:0] A = 0;             // current device address
+  logic       h_t0, h_t1;        // expected device IN toggles (EP0 / EP1)
 
-  task automatic set_exp_count(input logic [7:0] v);
-    begin
-      for (int i = 0; i < 8; i++) exp_pl[i] = 8'h00;
-      exp_pl[0] = v;
-    end
+  function automatic logic [63:0] pack8(input logic [7:0] b0, b1, b2, b3, b4, b5, b6, b7);
+    pack8 = {b7, b6, b5, b4, b3, b2, b1, b0};
+  endfunction
+
+  task automatic setup8(input logic [63:0] b, input logic [3:0] expect_ = ACK);
+    token(SETUP, A, 0);
+    for (int i = 0; i < 8; i++) dbuf[i] = b[8*i +: 8];
+    data(DATA0, 8);
+    rx_pkt(); expect_pid(expect_, "setup");
+    h_t0 = 1;
   endtask
 
+  // IN on ep; ack_mode 0 = ACK, 1 = none (timeout), 2 = NAK
+  task automatic in_tx(input logic [3:0] ep, input int ack_mode = 0);
+    token(IN, A, ep);
+    rx_pkt();
+    if (r_pid == DATA0 || r_pid == DATA1)
+      case (ack_mode)
+        0: hshake(ACK);
+        2: hshake(NAK);
+        default: repeat (40 * BC) @(negedge clk);       // let the device time out
+      endcase
+  endtask
+
+  task automatic out_tx(input logic [3:0] ep, input logic [3:0] pid, input int n,
+                        input logic [3:0] expect_);
+    token(OUT, A, ep);
+    data(pid, n);
+    rx_pkt(); expect_pid(expect_, "out");
+  endtask
+
+  // control read: GET_DESCRIPTOR(device) with wLength
+  task automatic get_desc(input int wlen);
+    logic [63:0] s;                  // SETUP bytes, byte 0 at [7:0]
+    int got, total;
+    s = pack8(8'h80, 8'h06, 8'h00, 8'h01, 8'h00, 8'h00, 8'(wlen), 8'(wlen >> 8));
+    setup8(s);
+    total = (wlen > 18) ? 18 : wlen;
+    got = 0;
+    do begin
+      in_tx(0);
+      expect_pid(h_t0 ? DATA1 : DATA0, "descriptor toggle");
+      for (int i = 0; i < r_n; i++)
+        if (r_buf[i] !== desc(got + i)) fail($sformatf("descriptor byte %0d", got + i));
+      got += r_n; h_t0 = !h_t0;
+    end while (r_n == 8 && got < total);
+    if (got != total) fail($sformatf("descriptor length %0d exp %0d", got, total));
+    out_tx(0, DATA1, 0, ACK);                       // status stage
+  endtask
+
+  // control write without data stage + IN status (ZLP)
+  task automatic ctl_write(input logic [7:0] bm, input logic [7:0] rq, input logic [15:0] val,
+                           input logic [15:0] idx);
+    logic [63:0] s;                  // SETUP bytes, byte 0 at [7:0]
+    s = pack8(bm, rq, val[7:0], val[15:8], idx[7:0], idx[15:8], 8'h00, 8'h00);
+    setup8(s);
+    in_tx(0);
+    expect_pid(DATA1, "status ZLP");
+    if (r_n != 0) fail("status stage not zero length");
+  endtask
+
+  task automatic set_addr(input logic [6:0] a);
+    ctl_write(8'h00, 8'h05, {9'h0, a}, 16'h0);
+    A = a;
+  endtask
+
+  task automatic get_cfg(input logic exp_v);
+    logic [63:0] s;                  // SETUP bytes, byte 0 at [7:0]
+    s = pack8(8'h80, 8'h08, 8'h00, 8'h00, 8'h00, 8'h00, 8'h01, 8'h00);
+    setup8(s);
+    in_tx(0);
+    expect_pid(DATA1, "get_configuration");
+    if (r_n != 1 || r_buf[0] !== {7'h0, exp_v}) fail("get_configuration value");
+    out_tx(0, DATA1, 0, ACK);
+  endtask
+
+  logic [31:0] cnt_exp;
+  task automatic ep1_read(input int ack_mode = 0);
+    in_tx(1, ack_mode);
+    expect_pid(h_t1 ? DATA1 : DATA0, "ep1 toggle");
+    if (r_n != 4 || {r_buf[3], r_buf[2], r_buf[1], r_buf[0]} !== cnt_exp)
+      fail($sformatf("ep1 counter %h exp %h", {r_buf[3], r_buf[2], r_buf[1], r_buf[0]}, cnt_exp));
+    if (ack_mode == 0) begin h_t1 = !h_t1; cnt_exp++; end
+  endtask
+
+  task automatic bus_reset;
+    @(negedge clk); h_oe = 1; h_dp = 0; h_dm = 0;
+    repeat (40 * BC) @(negedge clk);
+    h_dp = 1;
+    repeat (BC) @(negedge clk);
+    h_oe = 0;
+    repeat (4 * BC) @(negedge clk);
+    A = 0; h_t1 = 0;
+  endtask
+
+  task automatic expect_irq(input logic v, input string s);
+    if (irq !== v) fail($sformatf("%s: irq=%b exp %b", s, irq, v));
+  endtask
+
+  // ------------------------------------------------------------------
+  // test sequence
+  // ------------------------------------------------------------------
+  logic [63:0] s;                  // SETUP bytes, byte 0 at [7:0]
   initial begin
-    // ---------------- 1. reset ----------------
-    rst_n = 0;
-    repeat (8) @(negedge clk);
-    check(irq === 1'b0, "reset: irq low");
-    check(dp === 1'b1 && dm === 1'b0, "reset: device not driving bus (idle J via pull-up)");
+    for (int i = 0; i < 64; i++) dbuf[i] = 8'h00;
+    repeat (4) @(negedge clk);
+    if (irq || dut.tx_oe) fail("reset state");
     rst_n = 1;
-    repeat (4) @(negedge clk);
+    repeat (10) @(negedge clk);
+    h_t0 = 0; h_t1 = 0;
 
-    // ---------------- 2. GET_DESCRIPTOR ----------------
-    $display("-- GET_DESCRIPTOR control read on EP0 --");
-    h_pl[0]=8'h80; h_pl[1]=8'h06; h_pl[2]=8'h00; h_pl[3]=8'h01;
-    h_pl[4]=8'h00; h_pl[5]=8'h00; h_pl[6]=8'h08; h_pl[7]=8'h00;
-    h_token(P_SETUP, 7'd0, 4'd0, 1'b0);
-    h_data(P_DATA0, 8, 1'b0);
-    h_recv(600);
-    check(!rto && rlen == 1 && rbuf[0] === B_ACK, "SETUP data stage ACKed");
-    same = 1'b1;
-    for (int i = 0; i < 8; i++) begin
-      if (dut.setup_q[i] !== h_pl[i]) same = 0;
-      saved_rf[i] = dut.setup_q[i];
+    // ---------------- default state
+    in_tx(1); expect_pid(NAK, "ep1 before configuration");
+    in_tx(0); expect_pid(STALL, "ep0 IN without request");
+    in_tx(5); expect_pid(STALL, "IN to missing endpoint");
+    out_tx(1, DATA0, 2, STALL);
+    token(SOF, 7'h55, 4'hA);                          // SOF ignored
+    rx_pkt(20); expect_pid(NONE, "SOF answered");
+
+    // ---------------- enumeration
+    get_desc(64);
+    get_desc(18);
+    get_desc(8);
+    get_desc(5);
+    get_desc(13);
+    for (int i = 0; i < 4; i++) get_desc(1 + $urandom % 30);
+    set_addr(7'h2A);
+    token(IN, 7'h00, 0); rx_pkt(20); expect_pid(NONE, "old address answered");
+    get_desc(18);
+    set_addr(7'h55);
+    get_cfg(0);
+    ctl_write(8'h00, 8'h09, 16'h0001, 16'h0);       // SET_CONFIGURATION 1
+    get_cfg(1);
+
+    // ---------------- EP1 counter
+    cnt_exp = 0; h_t1 = 0;
+    ep1_read(); ep1_read(); ep1_read();
+    ep1_read(1);                                      // no ACK: resend same data
+    ep1_read(2);                                      // host NAK: resend
+    ep1_read();
+    for (int r = 0; r < 4; r++) begin                 // vendor preset, all bits
+      logic [31:0] v;
+      v = (r == 0) ? 32'hFFFF_FFFF : (r == 1) ? 32'h0 : $urandom;
+      ctl_write(8'h40, 8'h01, v[15:0], v[31:16]);
+      cnt_exp = v;
+      ep1_read(); ep1_read();
     end
-    check(same, "SETUP 8x8 register file written with request bytes");
-    check(dut.ep0in_tgl === 1'b1, "SETUP resets EP0 IN toggle to DATA1");
-
-    h_token(P_IN, 7'd0, 4'd0, 1'b0);
-    for (int i = 0; i < 8; i++) exp_pl[i] = desc_byte(i);
-    expect_data_pkt(B_DATA1, 8, "GET_DESCRIPTOR IN");
-    h_handshake(P_ACK);
-    repeat (4) @(negedge clk);
-    check(dut.ep0in_tgl === 1'b0, "EP0 IN toggle flips after ACK");
-
-    // ---------------- 3. EP1 interrupt IN x2 (back-to-back) ----------------
-    $display("-- EP1 interrupt IN x2 --");
-    set_exp_count(8'h00);
-    h_token(P_IN, 7'd0, 4'd1, 1'b0);
-    expect_data_pkt(B_DATA0, 4, "EP1 IN #1 (count=0)");
-    h_handshake(P_ACK);
-    repeat (2) @(negedge clk);
-    set_exp_count(8'h01);
-    h_token(P_IN, 7'd0, 4'd1, 1'b0);
-    expect_data_pkt(B_DATA1, 4, "EP1 IN #2 (count=1)");
-    h_handshake(P_ACK);
-    repeat (2) @(negedge clk);
-
-    // ---------------- 4. toggle misorder injection ----------------
-    $display("-- SETUP with wrong toggle (DATA1) injected --");
-    h_pl[0]=8'hAA; h_pl[1]=8'hBB; h_pl[2]=8'hCC; h_pl[3]=8'hDD;
-    h_pl[4]=8'h11; h_pl[5]=8'h22; h_pl[6]=8'h33; h_pl[7]=8'h44;
-    h_token(P_SETUP, 7'd0, 4'd0, 1'b0);
-    h_data(P_DATA1, 8, 1'b0);                   // wrong: SETUP expects DATA0
-    h_recv(600);
-    check(!rto && rlen == 1 && rbuf[0] === B_ACK,
-          "misordered SETUP data still ACKed (duplicate discarded)");
-    same = 1'b1;
-    for (int i = 0; i < 8; i++)
-      if (dut.setup_q[i] !== saved_rf[i]) same = 0;
-    check(same, "register file NOT overwritten by misordered data");
-
-    // ---------------- 5. lost-ACK retransmission ----------------
-    $display("-- IN without ACK -> device retransmits --");
-    set_exp_count(8'h02);
-    h_token(P_IN, 7'd0, 4'd1, 1'b0);
-    expect_data_pkt(B_DATA0, 4, "EP1 IN #3 (count=2)");
-    repeat (100) @(negedge clk);                // no ACK: let DUT time out
-    h_token(P_IN, 7'd0, 4'd1, 1'b0);            // retry
-    expect_data_pkt(B_DATA0, 4, "EP1 IN retry: same toggle+payload re-sent");
-    h_handshake(P_ACK);
-    repeat (2) @(negedge clk);
-    set_exp_count(8'h03);
-    h_token(P_IN, 7'd0, 4'd1, 1'b0);
-    expect_data_pkt(B_DATA1, 4, "EP1 IN #4 advances after ACK (count=3)");
-    h_handshake(P_ACK);
-    repeat (2) @(negedge clk);
-
-    // ---------------- 6. bad CRC5 token ----------------
-    $display("-- bad CRC5 token injected --");
-    h_token(P_IN, 7'd0, 4'd0, 1'b1);
-    h_recv(300);
-    check(rto, "bad CRC5 token: no device response");
-    check(irq === 1'b1, "bad CRC5 token: irq raised");
-    set_exp_count(8'h04);
-    h_token(P_IN, 7'd0, 4'd1, 1'b0);            // good token clears irq
-    expect_data_pkt(B_DATA0, 4, "recovery IN after bad CRC5 (count=4)");
-    h_handshake(P_ACK);
-    check(irq === 1'b0, "irq cleared by next valid token");
-
-    // ---------------- 7. bad CRC16 data ----------------
-    $display("-- bad CRC16 data injected --");
-    h_token(P_SETUP, 7'd0, 4'd0, 1'b0);
-    h_data(P_DATA0, 8, 1'b1);
-    h_recv(300);
-    check(rto, "bad CRC16 data: no handshake from device");
-    check(irq === 1'b1, "bad CRC16 data: irq raised");
-
-    // ---------------- 8. illegal endpoint STALL ----------------
-    $display("-- IN to illegal endpoint --");
-    h_token(P_IN, 7'd0, 4'd2, 1'b0);
-    h_recv(600);
-    check(!rto && rlen == 1 && rbuf[0] === B_STALL, "IN ep2 -> STALL handshake");
-    check(irq === 1'b0, "irq cleared by valid token");
-
-`ifdef VERILATOR
-    // ---------------- v2.5 CRV random phase (directed above untouched) --
-    begin : crv_phase
-      int n_in = 0, n_lost = 0, n_su = 0, n_st = 0, n_c5 = 0, n_c16 = 0,
-          n_wa = 0, n_mo = 0, n_bp = 0, n_tr = 0, n_so = 0, n_od = 0,
-          n_sv = 0;
-      int roll;
-      // models start from the directed-test end state
-      ep1_cnt_model = 5;
-      ep1_tgl_model = 1'b1;
-      out_tgl_model = 1'b1;              // last directed SETUP set out_tgl
-      for (int i = 0; i < 8; i++) setup_model[i] = saved_rf[i];
-      // deterministic first pass: every rare error class seen at least once
-      crv_badpid;      n_bp++;
-      crv_trunc;       n_tr++;
-      crv_stall_out;   n_so++;
-      crv_out_data;    n_od++;
-      crv_stuff_viol;  n_sv++;
-      for (int t = 0; t < 100; t++) begin
-        roll = $urandom_range(0, 99);
-        if (roll < 28) begin
-          n_in++;   crv_ep1_in(1'b1);
-        end else if (roll < 38) begin
-          n_lost++; crv_ep1_in(1'b0); crv_ep1_in(1'b1);  // lost ACK + retry
-        end else if (roll < 56) begin
-          n_su++;   crv_setup_in;
-        end else if (roll < 63) begin
-          n_st++;   crv_stall;
-        end else if (roll < 71) begin
-          n_c5++;   crv_badcrc5;
-        end else if (roll < 78) begin
-          n_c16++;  crv_badcrc16;
-        end else if (roll < 82) begin
-          n_wa++;   crv_wrong_addr;
-        end else if (roll < 86) begin
-          n_mo++;   crv_misorder;
-        end else if (roll < 89) begin
-          n_bp++;   crv_badpid;
-        end else if (roll < 92) begin
-          n_tr++;   crv_trunc;
-        end else if (roll < 95) begin
-          n_so++;   crv_stall_out;
-        end else if (roll < 98) begin
-          n_od++;   crv_out_data;
-        end else begin
-          n_sv++;   crv_stuff_viol;
-        end
-      end
-      $display("CRV: 105 txns (ep1_in=%0d lost_ack=%0d setup_in=%0d stall=%0d bad_crc5=%0d bad_crc16=%0d wrong_addr=%0d misorder=%0d bad_pid=%0d trunc=%0d stall_out=%0d out_data=%0d stuff_viol=%0d)",
-               n_in, n_lost, n_su, n_st, n_c5, n_c16, n_wa, n_mo, n_bp,
-               n_tr, n_so, n_od, n_sv);
+    // a counter value whose packet ends in six 1s: stuff bit right before EOP
+    for (int k = 0; k < 2; k++) begin
+      logic [31:0] v;
+      logic [15:0] c;
+      do begin
+        v = $urandom; c = 16'hFFFF;
+        for (int i = 0; i < 4; i++) c = crc16(c, v[8*i +: 8]);
+      end while (c[15:9] != 7'b0000001);           // last byte ~c[15:8] = 111111 0 x
+      ctl_write(8'h40, 8'h01, v[15:0], v[31:16]);
+      cnt_exp = v;
+      ep1_read();
     end
-`endif
-    // ---------------- summary ----------------
-    repeat (20) @(negedge clk);
+    ctl_write(8'h40, 8'h01, 16'hFFFF, 16'hFFFF);
+    cnt_exp = 32'hFFFF_FFFF;
+    ep1_read(); ep1_read();                           // wraps to 0
+
+    // ---------------- protocol stalls / duplicates
+    s = pack8(8'h80, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00, 8'h02, 8'h00);   // GET_STATUS
+    setup8(s);
+    in_tx(0); expect_pid(STALL, "unsupported request IN");
+    out_tx(0, DATA1, 0, STALL);
+    for (int i = 0; i < 8; i++) begin                 // random unsupported requests
+      s = {$urandom, $urandom};
+      s[7:0] = (i % 2) ? 8'h00 : 8'h80;
+      if (s[15:8] == 8'h05 || s[15:8] == 8'h06 || s[15:8] == 8'h08 || s[15:8] == 8'h09)
+        s[15:8] = 8'h0C;
+      setup8(s);
+      in_tx(0); expect_pid(STALL, "random request");
+    end
+    s = pack8(8'h00, 8'h09, 8'h02, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00);   // config 2: bad
+    setup8(s); in_tx(0); expect_pid(STALL, "set_configuration 2");
+    s = pack8(8'h00, 8'h05, 8'h80, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00);   // address 128: bad
+    setup8(s); in_tx(0); expect_pid(STALL, "set_address 128");
+    // SETUP with 7 bytes: stalled
+    token(SETUP, A, 0);
+    for (int i = 0; i < 7; i++) dbuf[i] = 8'h00;
+    data(DATA0, 7); rx_pkt(); expect_pid(ACK, "short setup acked");
+    in_tx(0); expect_pid(STALL, "short setup");
+    // control read then OUT status sent twice (second is a duplicate)
+    s = pack8(8'h80, 8'h06, 8'h00, 8'h01, 8'h00, 8'h00, 8'h04, 8'h00);
+    setup8(s);
+    in_tx(0); expect_pid(DATA1, "desc 4");
+    out_tx(0, DATA1, 0, ACK);
+    out_tx(0, DATA1, 0, ACK);                         // duplicate: acked, ignored
+    out_tx(0, DATA0, 0, ACK);
+    // long OUT data packet (dlen saturates)
+    for (int i = 0; i < 40; i++) dbuf[i] = 8'($urandom);
+    out_tx(0, DATA1, 36, ACK);
+    // SETUP data with DATA1 PID: acked, ignored
+    token(SETUP, A, 0);
+    for (int i = 0; i < 8; i++) dbuf[i] = 8'($urandom);
+    data(DATA1, 8); rx_pkt(); expect_pid(ACK, "setup DATA1");
+    in_tx(0); expect_pid(STALL, "after ignored setup");
+    // SETUP to EP1 is stalled
+    token(SETUP, A, 1); for (int i = 0; i < 8; i++) dbuf[i] = 0;
+    data(DATA0, 8); rx_pkt(); expect_pid(STALL, "setup to ep1");
+    // data without a token is ignored
+    data(DATA0, 2); rx_pkt(20); expect_pid(NONE, "stray data");
+
+    // ---------------- receive errors
+    token(IN, A, 1, 1); rx_pkt(20); expect_pid(NONE, "bad CRC5 IN");
+    expect_irq(1, "bad CRC5");
+    ep1_read(); expect_irq(0, "irq cleared by good token");
+    token(OUT, A, 0, 1); rx_pkt(20); expect_irq(1, "bad CRC5 OUT");
+    ep1_read();
+    token(OUT, A, 0); data(DATA0, 2, 1); rx_pkt(20); expect_pid(NONE, "bad CRC16");
+    expect_irq(1, "bad CRC16");
+    ep1_read();
+    f_nostuff = 1; token(IN, 7'h7F, 4'hF); rx_pkt(20);  // 6+ ones unstuffed
+    expect_irq(1, "stuff error in token");
+    ep1_read();
+    token(OUT, A, 0); for (int i = 0; i < 4; i++) dbuf[i] = 8'hFF;
+    f_nostuff = 1; data(DATA1, 4); rx_pkt(20); expect_pid(NONE, "stuff error in data");
+    ep1_read();
+    pk[0] = 8'h3F; pk[1] = 8'h00; pk_n = 2; tx_pkt();           // PID check fails
+    rx_pkt(20); expect_pid(NONE, "bad PID");                     // (six 1s + stuff bit)
+    f_nostuff = 1; pk[0] = 8'hFF; pk_n = 1; tx_pkt();             // stuff error in PID
+    rx_pkt(20); expect_pid(NONE, "bad PID 2");
+    pk[0] = 8'h00; pk_n = 1; tx_pkt();
+    rx_pkt(20); expect_pid(NONE, "bad PID 3");
+    f_badsync = 1; token(IN, A, 1); rx_pkt(20); expect_pid(NONE, "bad sync");
+    f_cut = 5; token(IN, A, 1); rx_pkt(20); expect_pid(NONE, "SE0 in sync");
+    f_cut = 12; token(IN, A, 1); rx_pkt(20); expect_pid(NONE, "SE0 in PID");
+    f_cut = 20; token(IN, A, 1); rx_pkt(20); expect_irq(1, "truncated token");
+    ep1_read();
+    token(OUT, A, 0); f_cut = 20; data(DATA1, 2); rx_pkt(20);
+    token(OUT, A, 0); data(DATA1, 0); rx_pkt();                  // recover
+    hshake(ACK); hshake(NAK); hshake(STALL);                     // ignored when idle
+    // tokens to other addresses, random endpoints (token field toggles)
+    for (int i = 0; i < 12; i++) begin
+      token((i % 3 == 0) ? IN : (i % 3 == 1) ? OUT : SETUP, 7'($urandom) | 7'h01 ^ A,
+            4'($urandom));
+      rx_pkt(10);
+    end
+    // while waiting for an ACK, another packet arrives
+    token(IN, A, 1); rx_pkt();
+    token(IN, A, 1); rx_pkt();
+    hshake(ACK);
+    cnt_exp++; h_t1 = !h_t1;
+    ep1_read();
+
+    // ---------------- descriptor reads that end with a zero-length packet
+    s = pack8(8'h80, 8'h06, 8'h00, 8'h01, 8'h00, 8'h00, 8'h08, 8'h00);
+    setup8(s);
+    in_tx(0); in_tx(0);
+    if (r_n != 0) fail("ZLP after full descriptor");
+    out_tx(0, DATA1, 0, ACK);
+    for (int i = 0; i < 6; i++) get_desc(1 + $urandom % 18);
+
+    // ---------------- bus reset
+    bus_reset();
+    in_tx(1); expect_pid(NAK, "ep1 after bus reset");
+    get_desc(18);
+    set_addr(7'h01);
+    ctl_write(8'h00, 8'h09, 16'h0001, 16'h0);
+    ctl_write(8'h00, 8'h09, 16'h0000, 16'h0);         // back to unconfigured
+    get_cfg(0);
+    ctl_write(8'h00, 8'h09, 16'h0001, 16'h0);
+    for (int a = 0; a < 7; a++) set_addr(7'h1 << a);  // all address bits
+    set_addr(7'h7F); set_addr(7'h00);
+
+    // ---------------- reset while the device transmits
+    token(IN, A, 1);
+    while (!dut.tx_oe) @(negedge clk);
+    repeat (10) @(negedge clk);
+    rst_n = 0; @(negedge clk); rst_n = 1;
+    repeat (20 * BC) @(negedge clk);
+    A = 0; h_t0 = 0; h_t1 = 0;
+    in_tx(1); expect_pid(NAK, "after reset");
+
     if (errors == 0) $display("TEST PASSED: USB");
     else             $display("TEST FAILED: %0d errors", errors);
-`ifdef VERILATOR
-    begin
-      int visited;
-      visited = 0;
-      for (int s = 0; s < USB_FSM_TOTAL; s++) visited += fsm_seen[s];
-      $display("FSM_COV: %0d/%0d", visited, USB_FSM_TOTAL);
-      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
-    end
-`endif
     $finish;
   end
 
-`ifdef VERILATOR
-  // CRV phase adds ~1 ms of bus traffic: extend the guard. The timeout is
-  // chunked into 1-us delays: with Verilator 5.006 a single long-pending
-  // #delay event corrupts the --timing delay heap (docs/COVERAGE.md note 1).
   initial begin
-    repeat (8000) #1000;    // 8 ms in 1-us chunks
-    $display("TIMEOUT");
-    $display("TEST FAILED: %0d errors", errors + 1);
-    $finish;
+    #40_000_000;
+    $display("TEST FAILED: TIMEOUT"); $finish;
   end
-`else
-  initial begin
-    #5000000;
-    $display("TIMEOUT");
-    $display("TEST FAILED: %0d errors", errors + 1);
-    $finish;
-  end
-`endif
 endmodule

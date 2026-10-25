@@ -1,0 +1,36 @@
+{
+  "title": "MIPI HSI (High-Speed Synchronous Interface) link endpoint, frame mode",
+  "code": "0x4853",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "50ms",
+  "regs": [
+    {"name": "CFG", "kind": "rw", "desc": "Link configuration",
+     "fields": [{"port": "cfg_div", "reset": "7", "desc": "bit time - 1 in PCLK (3 or more on both ends)"},
+                {"port": "cfg_chbits", "reset": "4", "desc": "channel bits per frame (0..4; larger values count as 4)"},
+                {"port": "cfg_rx_en", "reset": "1", "desc": "receiver enabled (drives READY)"},
+                {"port": "cfg_wake", "reset": "0", "desc": "hold WAKE high while idle"}]},
+    {"name": "TX", "kind": "stream_in", "data": ["txq_ch", "txq_data"], "valid": "txq_valid", "ready": "txq_ready",
+     "desc": "Frame to send; writing TX_DATA commits it. The core sends it once the peer's READY is high",
+     "fdesc": {"txq_ch": "channel", "txq_data": "frame data"}},
+    {"name": "RX", "kind": "stream_out", "data": ["rxq_ch", "rxq_data"], "valid": "rxq_valid", "ready": "rxq_ready",
+     "desc": "Received frame (head of the core's 4-frame FIFO); reading RX_DATA pops it",
+     "fdesc": {"rxq_ch": "channel (upper bits 0 when fewer channel bits are used)", "rxq_data": "frame data"}},
+    {"name": "CMD", "kind": "cmd", "desc": "Commands",
+     "fields": [{"port": "tx_brk", "desc": "send a break (once the transmitter is idle; does not wait for READY)"}]},
+    {"name": "STATUS", "kind": "ro", "desc": "Transmitter state",
+     "fields": [{"port": "tx_busy", "desc": "a frame or break is being sent, or a break is pending"}]}
+  ],
+  "irqs": [
+    {"name": "TX_SENT", "port": "tx_done", "desc": "a frame was sent (TX_DONE is set earlier, when the core takes the frame)"},
+    {"name": "RX_BREAK", "port": "rx_break", "desc": "a break was received"},
+    {"name": "ERR_OVERFLOW", "port": "err_overflow", "desc": "a frame arrived with the receive FIFO full and was dropped"},
+    {"name": "ERR_STRAY", "port": "err_stray", "desc": "a start bit followed fewer zeros than a break"},
+    {"name": "ERR_DS", "port": "err_ds", "desc": "DATA and FLAG changed in the same clock"},
+    {"name": "ERR_TIMEOUT", "port": "err_timeout", "desc": "no bit for 4 bit times inside a frame (frame dropped)"}
+  ],
+  "notes": [
+    "tx_data / tx_flag / tx_wake and tx_ready_in are the transmit lines (tx_ready_in is the peer's READY); rx_data / rx_flag / rx_wake and rx_ready_out are the receive lines. All pass through unchanged.",
+    "The receive lines are synchronised inside the core; the transmit lines are registered."
+  ]
+}

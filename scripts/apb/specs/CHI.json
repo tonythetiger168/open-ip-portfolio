@@ -1,0 +1,16 @@
+{
+  "title": "AMBA CHI subordinate node (SN-F) for a small memory: ReadNoSnp, WriteNoSnpPtl and WriteNoSnpFull over the RXREQ, RXDAT, TXRSP and TXDAT link channels with L-Credit flow control",
+  "code": "0x4348",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "40ms",
+  "regs": [],
+  "irqs": [
+    {"name": "ERR", "port": "ev_err", "desc": "a request got an error response: DERR (address beyond the memory) or NDERR (opcode or size not supported)"},
+    {"name": "PROTO", "port": "ev_proto", "desc": "a flit was dropped: it came without an L-Credit, or it was write data not expected (opcode, DBID or DataID)"}
+  ],
+  "notes": [
+    "rxreqflitv, rxreqflit, rxreqlcrdv, rxdatflitv, rxdatflit, rxdatlcrdv, txrspflitv, txrspflit, txrsplcrdv, txdatflitv, txdatflit and txdatlcrdv are the CHI link channels to the home node; they pass through unchanged. The registers report the node's error events.",
+    "The core parameters LINES (16), RQ (4) and NDC (2) keep their defaults."
+  ]
+}

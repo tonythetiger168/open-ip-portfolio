@@ -7,8 +7,10 @@
 //         (MBurstSeq=0), MBurstLength 1..8, address given once, write data
 //         beats handshaken per-beat with SCmdAccept.  SCmdAccept backpressure
 //         is obeyed (request held stable); 64 clk without SCmdAccept aborts
-//         the transaction -> resp_err + sticky irq.  SResp : 1=DVA, 2=ERR
-//         (ERR -> resp_err + sticky irq).  CPU-side transaction port:
+//         the transaction -> resp_err + sticky irq.  SResp : 0=NULL,
+//         1=DVA, 2=FAIL, 3=ERR; FAIL or ERR -> resp_err on that beat +
+//         sticky irq, and a read burst still consumes its remaining beats.
+//         irq is cleared only by reset.  CPU-side transaction port:
 //         req_valid/req_ready + req_rw/req_posted/req_addr/req_len/req_wdata
 //         (write-burst data words are streamed after the descriptor while
 //         req_ready is high) -> resp_valid/resp_rdata/resp_err.
@@ -50,9 +52,6 @@ module OCP_IP_Open_Core_Protocol_top #(
   localparam logic [2:0] CMD_RD   = 3'd2;
   localparam logic [2:0] CMD_WRNP = 3'd5;
 
-  localparam logic [1:0] RSP_DVA = 2'd1;
-  localparam logic [1:0] RSP_ERR = 2'd2;
-
   localparam int TIMEOUT = 64;   // clk cycles without SCmdAccept
 
   typedef enum logic [2:0] {O_IDLE, O_WCOL, O_ISSUE, O_RDATA, O_WRESP, O_DONE}
@@ -62,19 +61,19 @@ module OCP_IP_Open_Core_Protocol_top #(
   // descriptor registers
   logic        rw_q, posted_q;
   logic [31:0] addr_q;
-  logic [4:0]  len_q;
+  logic [3:0]  len_q;     // 1..8
   // write data buffer (max burst 8)
   logic [31:0] wbuf [0:7];
   logic [3:0]  wcnt;      // words collected
-  logic [3:0]  beat;      // write beat being issued
-  logic [4:0]  rcnt;      // read response beats seen
+  logic [2:0]  beat;      // write beat being issued
+  logic [3:0]  rcnt;      // read response beats seen
   logic [6:0]  to_cnt;    // SCmdAccept timeout counter
   logic        done_err;  // error flag for O_DONE pulse
 
   // burst length clamp : 0 -> 1, >8 -> 8 (+ irq)
-  wire [4:0] req_len_c = (req_len == 5'd0) ? 5'd1 :
-                         (req_len >  5'd8) ? 5'd8 : req_len;
   wire       len_over  = (req_len > 5'd8);
+  wire [3:0] req_len_c = (req_len == 5'd0) ? 4'd1 :
+                         len_over ? 4'd8 : req_len[3:0];
 
   assign req_ready = (state == O_IDLE) || (state == O_WCOL);
 
@@ -83,16 +82,18 @@ module OCP_IP_Open_Core_Protocol_top #(
                         (rw_q ? (posted_q ? CMD_WRNP : CMD_WR) : CMD_RD)
                         : CMD_IDLE;
   assign MAddr        = addr_q;
-  assign MData        = wbuf[beat[2:0]];
+  assign MData        = wbuf[beat];
   assign MByteEn      = 4'hF;
-  assign MBurstLength = len_q;
+  assign MBurstLength = {1'b0, len_q};
   assign MBurstSeq    = 3'b000;   // INCR
 
   // CPU response channel
   wire rsp_beat = ((state == O_RDATA) || (state == O_WRESP)) && (SResp != 2'd0);
+  wire rsp_bad  = SResp[1];                        // FAIL (2) or ERR (3)
+  wire rd_last  = SRespLast || (rcnt == len_q - 4'd1);
   assign resp_valid = rsp_beat || (state == O_DONE);
   assign resp_rdata = (state == O_RDATA) ? SData : {DW{1'b0}};
-  assign resp_err   = (rsp_beat && (SResp == RSP_ERR)) ||
+  assign resp_err   = (rsp_beat && rsp_bad) ||
                       ((state == O_DONE) && done_err);
 
   // ------------------------------------------------------------------
@@ -104,10 +105,10 @@ module OCP_IP_Open_Core_Protocol_top #(
       rw_q     <= 1'b0;
       posted_q <= 1'b0;
       addr_q   <= 32'd0;
-      len_q    <= 5'd1;
+      len_q    <= 4'd1;
       wcnt     <= 4'd0;
-      beat     <= 4'd0;
-      rcnt     <= 5'd0;
+      beat     <= 3'd0;
+      rcnt     <= 4'd0;
       to_cnt   <= 7'd0;
       done_err <= 1'b0;
       irq      <= 1'b0;
@@ -119,14 +120,14 @@ module OCP_IP_Open_Core_Protocol_top #(
           posted_q <= req_posted;
           addr_q   <= req_addr;
           len_q    <= req_len_c;
-          beat     <= 4'd0;
-          rcnt     <= 5'd0;
+          beat     <= 3'd0;
+          rcnt     <= 4'd0;
           to_cnt   <= 7'd0;
           if (len_over) irq <= 1'b1;               // illegal burst length
           if (req_rw) begin
             wbuf[0] <= req_wdata;                  // first word with descriptor
             wcnt    <= 4'd1;
-            state   <= (req_len_c > 5'd1) ? O_WCOL : O_ISSUE;
+            state   <= (req_len_c > 4'd1) ? O_WCOL : O_ISSUE;
           end else begin
             state <= O_ISSUE;
           end
@@ -135,7 +136,7 @@ module OCP_IP_Open_Core_Protocol_top #(
         // ------------------------------ write-burst data word collect
         O_WCOL : if (req_valid) begin
           wbuf[wcnt[2:0]] <= req_wdata;
-          if (wcnt == {1'b0, len_q[3:0]} - 4'd1 || wcnt == 4'd7) begin
+          if (wcnt == len_q - 4'd1) begin
             state <= O_ISSUE;
           end
           wcnt <= wcnt + 4'd1;
@@ -147,7 +148,7 @@ module OCP_IP_Open_Core_Protocol_top #(
             to_cnt <= 7'd0;
             if (!rw_q) begin
               state <= O_RDATA;                    // read : wait data beats
-            end else if (beat == {1'b0, len_q[3:0]} - 4'd1) begin
+            end else if ({1'b0, beat} == len_q - 4'd1) begin
               if (posted_q) begin
                 done_err <= 1'b0;                  // WRNP : no SResp expected
                 state    <= O_DONE;
@@ -155,10 +156,10 @@ module OCP_IP_Open_Core_Protocol_top #(
                 state <= O_WRESP;                  // WR : wait completion
               end
             end else begin
-              beat <= beat + 4'd1;                 // next write data beat
+              beat <= beat + 3'd1;                 // next write data beat
             end
           end else begin
-            if (to_cnt == TIMEOUT-1) begin         // 64 clk without accept
+            if (to_cnt == 7'(TIMEOUT-1)) begin         // 64 clk without accept
               done_err <= 1'b1;
               irq      <= 1'b1;
               state    <= O_DONE;
@@ -169,25 +170,21 @@ module OCP_IP_Open_Core_Protocol_top #(
 
         // --------------------------------------------- read data return
         O_RDATA : if (SResp != 2'd0) begin
-          if (SResp == RSP_ERR) begin
-            irq   <= 1'b1;                         // error response : abort
-            state <= O_IDLE;
-          end else if (SRespLast || (rcnt == len_q - 5'd1)) begin
-            state <= O_IDLE;
-          end
-          rcnt <= rcnt + 5'd1;
+          if (rsp_bad) irq <= 1'b1;                // error beat : flag, keep
+          if (rd_last) state <= O_IDLE;            // draining the burst
+          rcnt <= rcnt + 4'd1;
         end
 
         // ------------------------------------------- write completion
         O_WRESP : if (SResp != 2'd0) begin
-          if (SResp == RSP_ERR) irq <= 1'b1;
+          if (rsp_bad) irq <= 1'b1;
           state <= O_IDLE;
         end
 
         // ------------------------------- local completion / error pulse
         O_DONE : state <= O_IDLE;
 
-        default : state <= O_IDLE;
+        default : state <= O_IDLE;           // unused encodings 6, 7
       endcase
     end
   end

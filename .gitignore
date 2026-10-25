@@ -2,3 +2,5 @@ work/
 simv
 simv_bitclks
 *.vcd
+__pycache__/
+simv_apb

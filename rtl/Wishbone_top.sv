@@ -61,8 +61,10 @@ module Wishbone_top #(
 
   // classic-cycle guard : a cti_i=000 master holds stb_i until ack_o, so the
   // held strobe must not be re-accepted as a new request; block acceptance
-  // until stb_i is observed low again.  Pipelined cycles (cti_i/=000) are
-  // accepted every cycle while stall_o is low.
+  // until that request is answered (a classic block cycle keeps stb_i high
+  // and presents the next address right after ack_o) or stb_i drops.
+  // Pipelined cycles (cti_i/=000) are accepted every cycle while stall_o
+  // is low.
   logic        cls_blk;
 
   wire in_valid = (adr_i < VALID_END);
@@ -99,7 +101,8 @@ module Wishbone_top #(
     end else begin
       // classic-cycle guard bookkeeping
       if (acc && (cti_i == 3'b000)) cls_blk <= 1'b1;
-      else if (!stb_i)              cls_blk <= 1'b0;
+      else if (!stb_i || (head_resp && q_count == 2'd1))
+                                    cls_blk <= 1'b0;
 
       // service FSM
       case (state)

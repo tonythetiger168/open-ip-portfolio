@@ -1,0 +1,25 @@
+{
+  "title": "Toggle-mode NAND flash target: SDR command / address cycles, DDR data in (dqs) and out (re_n echoed on dqs), Read ID, page read / program, block erase, Read Status, reset, a protected block, and protocol-error detection",
+  "code": "0x544E",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "40ms",
+  "pins": ["rb_n"],
+  "regs": [
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Target state",
+      "fields": [
+        {"port": "rb_n", "desc": "ready (1) / busy (0); same as the rb_n pin"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "PROTO", "port": "irq", "desc": "unknown command, command out of sequence, address cycle outside an address phase, or a command other than 70h / FFh while busy. Held in the core until FFh, so the bit is set again on every clock until then"}
+  ],
+  "notes": [
+    "ce_n, cle, ale, we_n, re_n (in), dq[7:0] and dqs (bidirectional tri-state) and rb_n (out) are the NAND bus; they pass through unchanged. PCLK oversamples the bus: each strobe phase must last at least two PCLK clocks.",
+    "The 16 x 64-byte array is reached over the NAND bus only; the registers report the ready / busy state and protocol errors."
+  ]
+}

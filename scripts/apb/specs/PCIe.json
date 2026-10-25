@@ -1,0 +1,36 @@
+{
+  "title": "PCIe-style data link layer: TLP framing with sequence numbers and LCRC, Ack/Nak DLLPs with CRC-16, replay buffer and timer, flow-control init (InitFC1/InitFC2) and header credits, on a PIPE-like symbol interface",
+  "code": "0x5043",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "80ms",
+  "regs": [
+    {"name": "CTRL", "kind": "rw", "desc": "Link control",
+     "fields": [{"port": "link_up", "reset": "0", "desc": "physical link up: starts flow-control init; clearing it drops the link (buffers and sequence numbers reset)"}]},
+    {"name": "TX", "kind": "stream_in", "data": ["tlp_data", "tlp_last"], "valid": "tlp_valid", "ready": "tlp_ready",
+     "desc": "TLP byte to send; one write per byte, LAST on the final byte (a TLP is cut after MAXLEN = 32 bytes). The core takes bytes while the link is up and a replay-buffer slot is free",
+     "fdesc": {"tlp_data": "byte", "tlp_last": "last byte of the TLP"}},
+    {"name": "RX", "kind": "stream_out", "data": ["rx_data", "rx_last"], "valid": "rx_valid", "ready": "rx_ready",
+     "desc": "Received TLP byte (head of the core's receive buffer); reading it pops it. TLPs are delivered once their LCRC and sequence number check out; header credits are returned as they are read",
+     "fdesc": {"rx_data": "byte", "rx_last": "last byte of the TLP"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Link state",
+     "fields": [{"port": "dl_up", "desc": "data link up (flow-control init done)"}]}
+  ],
+  "irqs": [
+    {"name": "RETRAIN", "port": "retrain", "desc": "the fourth replay without progress: the physical layer should retrain"},
+    {"name": "ERR_TLP", "port": "ev_tlp_bad", "desc": "a TLP failed (bad LCRC, bad EDB, framing, sequence number ahead): a Nak is sent"},
+    {"name": "ERR_SEQ", "port": "ev_tlp_seq", "desc": "a TLP with a sequence number ahead of the expected one"},
+    {"name": "TLP_DUP", "port": "ev_tlp_dup", "desc": "a duplicate TLP (already received): dropped and acknowledged"},
+    {"name": "TLP_NULL", "port": "ev_tlp_null", "desc": "a nullified TLP (EDB with inverted LCRC): dropped silently"},
+    {"name": "ERR_OVERFLOW", "port": "ev_overflow", "desc": "a good TLP with the receive buffer full: dropped, not acknowledged"},
+    {"name": "ERR_DLLP", "port": "ev_dllp_bad", "desc": "a DLLP failed its CRC-16"},
+    {"name": "ERR_PROTO", "port": "ev_dllp_proto", "desc": "a DLLP of unknown type, or an Ack/Nak with reserved bits or a sequence number never sent"},
+    {"name": "ERR_FRAME", "port": "ev_frame", "desc": "a framing error (K symbol out of place, DLLP of the wrong length)"},
+    {"name": "NAK", "port": "ev_nak", "desc": "a Nak was received"},
+    {"name": "REPLAY", "port": "ev_replay", "desc": "the replay timer expired"}
+  ],
+  "notes": [
+    "tx_sym / tx_k and rx_sym / rx_k are the symbol interface (one 8-bit symbol per PCLK, K flag for STP FB, SDP 5C, END FD, EDB FE); they pass through unchanged.",
+    "The core parameters MAXLEN (32), TXN (4 replay slots), RXN (4 receive TLPs), REPLAY_TO (600), FC_GAP (32) and UPD_GAP (1024) keep their defaults."
+  ]
+}

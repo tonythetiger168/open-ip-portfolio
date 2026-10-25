@@ -174,6 +174,48 @@ module I3C_tb;
     if (rb !== 8'h73) begin errors++; $display("ERROR: I3C read got=%h exp=73", rb); end
     i3c_stop;
 
+    // second NACKed read: the ACK/NACK sampler must be re-armed (a stale
+    // txack_done from the first read used to make the slave ignore the
+    // NACK and keep driving data into the STOP)
+    tx_byte = 8'h0F;
+    i3c_start;
+    i3c_wbyte(8'h55, ack);
+    if (!ack) begin errors++; $display("ERROR: I3C no ACK addr R (2nd read)"); end
+    i3c_rbyte(1'b0, rb);
+    if (rb !== 8'h0F) begin errors++; $display("ERROR: I3C 2nd read got=%h exp=0F", rb); end
+    i3c_stop;
+    repeat (5) @(posedge clk);
+    if (busy !== 1'b0 || sda !== 1'b1) begin
+      errors++; $display("ERROR: I3C slave still active after NACK+STOP (busy=%b sda=%b)", busy, sda);
+    end
+
+    // repeated START: write a byte, then Sr + read without STOP
+    tx_byte = 8'hC6;
+    i3c_start;
+    i3c_wbyte(8'h54, ack);
+    i3c_wbyte(8'h3C, ack);
+    if (!ack) begin errors++; $display("ERROR: I3C Sr no ACK on data"); end
+    i3c_start;                              // repeated START
+    i3c_wbyte(8'h55, ack);
+    if (!ack) begin errors++; $display("ERROR: I3C Sr no ACK addr R"); end
+    i3c_rbyte(1'b0, rb);
+    if (rb !== 8'hC6) begin errors++; $display("ERROR: I3C Sr read got=%h exp=C6", rb); end
+    i3c_stop;
+    if (rx_byte !== 8'h3C) begin errors++; $display("ERROR: I3C Sr rx_byte=%h exp=3C", rx_byte); end
+
+    // reset asserted in the middle of a write data byte
+    i3c_start;
+    i3c_wbyte(8'h54, ack);
+    for (int i = 0; i < 3; i++) begin master_low = 1'b1; #300; scl = 1; #600; scl = 0; #300; end
+    @(negedge clk) rst_n = 0;
+    repeat (4) @(posedge clk);
+    if (busy !== 1'b0 || int_n !== 1'b1 || dut.ack_low !== 1'b0) begin
+      errors++; $display("ERROR: I3C mid-txn reset: busy=%b int_n=%b", busy, int_n);
+    end
+    @(negedge clk) rst_n = 1;
+    repeat (4) @(posedge clk);
+    i3c_stop;
+
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ----
     // 150 randomized transactions: ~40% write (rx_byte compared, IBI

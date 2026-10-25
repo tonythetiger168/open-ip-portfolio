@@ -1,0 +1,17 @@
+{
+  "title": "SPI slave (mode 0, MSB first): a byte shifted in on MOSI while the TX byte shifts out on MISO",
+  "code": "0x5350",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {"name": "CORE", "kind": "bus", "wen": "wen", "waddr": "waddr", "wdata": "wdata", "ren": "ren", "raddr": "raddr", "rdata": "rdata",
+     "words": [{"name": "TX", "w": 0, "r": 1, "desc": "Byte shifted out on MISO in the next transfer"},
+               {"name": "RX", "r": 0, "desc": "Last byte shifted in on MOSI"}]}
+  ],
+  "irqs": [
+    {"name": "BYTE", "port": "irq", "desc": "a byte was received (eighth SCLK rising edge)"}
+  ],
+  "notes": [
+    "sclk, mosi, miso and csn are the SPI pins; they pass through unchanged. SCLK is sampled on clk: it must stay high and low at least two clocks each."
+  ]
+}

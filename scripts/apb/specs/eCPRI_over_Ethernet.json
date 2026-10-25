@@ -1,0 +1,104 @@
+{
+  "title": "eCPRI over Ethernet node: 64-byte Ethernet frames with FCS, address and Ethertype filter, eCPRI IQ data into a 32-word buffer with seq_id gap tracking, generic memory transfer against a 64 x 32-bit memory, remote reset, event indication with fault / sync acks, and CPU fault injection",
+  "code": "0x6543",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "40ms",
+  "regs": [
+    {
+      "name": "CORE",
+      "kind": "bus",
+      "wen": "cpu_we",
+      "waddr": "cpu_addr",
+      "wdata": "cpu_wdata",
+      "ren": "cpu_re",
+      "raddr": "cpu_addr",
+      "rdata": "cpu_rdata",
+      "words": [
+        {
+          "name": "DMAC_LO",
+          "w": 0,
+          "r": 0,
+          "desc": "peer MAC [31:0] (DMAC of transmitted frames); reset 0xCCDDEEFF"
+        },
+        {
+          "name": "DMAC_HI",
+          "w": 1,
+          "r": 1,
+          "desc": "[15:0] peer MAC [47:32]; reset 0xAABB"
+        },
+        {
+          "name": "SMAC_LO",
+          "w": 2,
+          "r": 2,
+          "desc": "own MAC [31:0] (SMAC of transmitted frames, RX address filter); reset 0x33445566"
+        },
+        {
+          "name": "SMAC_HI",
+          "w": 3,
+          "r": 3,
+          "desc": "[15:0] own MAC [47:32]; reset 0x1122"
+        },
+        {
+          "name": "IQ",
+          "r": 4,
+          "desc": "IQ buffer head (32 x 32-bit, big-endian packed IQ bytes); the read pops it"
+        },
+        {
+          "name": "COUNTS",
+          "r": 5,
+          "desc": "{rx error count[7:0], rx ok count[7:0], seq_id gap count[7:0], 2'b0, IQ words[5:0]}"
+        },
+        {
+          "name": "IQ_LAST",
+          "r": 6,
+          "desc": "{pc_id[15:0], seq_id[15:0]} of the last IQ message"
+        },
+        {
+          "name": "EVENT",
+          "w": 7,
+          "r": 7,
+          "desc": "write: inject a fault indication {raise[20], fault number[19:8], event_id[7:0]}; read: last recorded event {8'h0, seq[7:0], 5'h0, type[2:0], event_id[7:0]}"
+        },
+        {
+          "name": "ERRORS",
+          "w": 8,
+          "r": 8,
+          "desc": "{concat, overflow, malformed, msgtype, fcs} error flags (sticky, write 1 to clear; a new error in the same clock wins)"
+        },
+        {
+          "name": "RESET_OP",
+          "w": 9,
+          "r": 9,
+          "desc": "[15:0] reset_id of the last remote reset request (also the reset_op pin); write bit 0 = 1 to clear"
+        },
+        {
+          "name": "RX_SMAC_LO",
+          "r": 10,
+          "desc": "source MAC [31:0] of the last accepted message"
+        },
+        {
+          "name": "RX_SMAC_HI",
+          "r": 11,
+          "desc": "[15:0] source MAC [47:32] of the last accepted message"
+        },
+        {
+          "name": "TX_STATUS",
+          "r": 12,
+          "desc": "{14'h0, ack_wait, injection pending, tx seq[7:0], 5'h0, TX queue count[2:0]}"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "ERR",
+      "port": "irq",
+      "desc": "any ERRORS flag is set (FCS, msgtype, malformed message, IQ buffer / TX queue overflow, concatenation); held until ERRORS is cleared, so the bit is set again on every clock until then"
+    }
+  ],
+  "notes": [
+    "rx_d / rx_dv (received frame bytes), tx_d / tx_en (transmitted frame bytes) and reset_op pass through unchanged. Preamble, SFD and IFG belong to the external MAC.",
+    "The core's CPU port is mapped one word per register; a write with PSTRB != 4'hF to a writable word is dropped with PSLVERR."
+  ]
+}
