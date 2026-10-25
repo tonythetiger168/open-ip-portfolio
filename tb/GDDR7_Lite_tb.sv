@@ -133,7 +133,10 @@ module GDDR7_Lite_tb;
 
     if (tb_err==0) $display("SIM_PASS: GDDR7_Lite_tb");
     else $display("SIM_FAIL: %0d", tb_err);
+    // regression marker (scripts/ci_regression.sh greps for it)
+    if (tb_err == 0) $display("TEST PASSED: GDDR7_Lite");
+    else             $display("TEST FAILED: GDDR7_Lite");
     $finish;
   end
-  initial begin #3_000_000; $display("SIM_FAIL: timeout"); $finish; end
+  initial begin #3_000_000; $display("SIM_FAIL: timeout"); $display("TEST FAILED: GDDR7_Lite"); $finish; end
 endmodule
