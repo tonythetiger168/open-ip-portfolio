@@ -1,0 +1,1 @@
+LINE \| default: avstate <= AV_IDLE; # defensive recovery for the three unused encodings of the 5-state FSM (3-bit register); unreachable in simulation

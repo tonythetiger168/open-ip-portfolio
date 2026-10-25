@@ -1,0 +1,9 @@
+# LPDDR5X_Lite: unreachable branches under the TB configuration and pin bits
+# that are constant by the command format.
+LINE if:LPDDR5X_Lite_top \| if \(pbref_pend\[ref_rot\] && !\(pbref_ack && eng_bank == ref_rot\)\) ref_overrun # unreachable unless a bank falls due again before it is served: one rotation is 8 x tREFI = 1200 clocks in the TB, and a due bank is served at the next idle engine clock (one operation, about 100 clocks)
+LINE else:LPDDR5X_Lite_top \| if \(rp_done\[eng_bank\] && rc_done\[eng_bank\] && rrd_done\) # unreachable: a bank is closed only by the PRE of a row conflict (which goes on through ENG_PRE_WAIT), by a refresh PRE (whose REF and tRFC_PB follow) or by a PREA (whose REF and tRFC follow), all longer than tRP, tRC and tRRD
+LINE case:LPDDR5X_Lite_top \| default: eng <= ENG_IDLE; # unused 5-bit encodings of the 17-state engine enum
+TOGGLE LPDDR5X_Lite_top\.ref_overrun: # unreachable, as the overrun line above
+TOGGLE LPDDR5X_Lite_top\.addr\[(9|11|12|13)\]: # always 0: rows are 9 bits (addr[8:0]) and the column is {line, 4'h0}; addr[10] is the all-bank flag
+TOGGLE LPDDR5X_Lite_top\.trace_cmd\[3\]: # always 0: trace codes 0..6
+TOGGLE LPDDR5X_Lite_top\.trace_addr\[([3-9]|1[01]|2[1-9]|3[01])\]: # always 0: trace_addr is {11'h0, row, 12'h0}, or the bank (3 bits) for a per-bank REF

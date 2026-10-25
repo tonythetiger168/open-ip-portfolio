@@ -1,0 +1,18 @@
+{
+  "title": "Wishbone B4 pipelined subordinate: a 256-word memory with a wait-state window, two requests outstanding with in-order acknowledges, classic cycles, ERR for the reserved region",
+  "code": "0x5742",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [],
+  "irqs": [
+    {
+      "name": "ERR",
+      "port": "irq",
+      "desc": "a request to the reserved region (address 0x800 and up) was answered with ERR; the core holds this until reset, so the bit cannot be cleared before then"
+    }
+  ],
+  "notes": [
+    "cyc_i, stb_i, we_i, adr_i, dat_i, sel_i, cti_i, dat_o, ack_o, stall_o, err_o and rty_o are the Wishbone B4 subordinate pins; they pass through unchanged. The registers report the subordinate's error event.",
+    "Bytes 0x000 to 0x1FF answer in the next clock, 0x200 to 0x3FF two clocks later; 0x400 to 0x7FF acknowledge with reads 0 and writes dropped; 0x800 and up answer ERR. Up to two requests are accepted ahead of their acknowledges (stall_o when two are waiting). A classic cycle (cti_i 000) holds its strobe until the acknowledge and is taken once. rty_o is never set (waived)."
+  ]
+}

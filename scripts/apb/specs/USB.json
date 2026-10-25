@@ -1,0 +1,15 @@
+{
+  "title": "USB 1.1 full-speed device: NRZI / bit stuffing / EOP on dp-dm, CRC5 / CRC16, ACK / NAK / STALL, DATA0/1 toggles, EP0 control (GET_DESCRIPTOR, SET_ADDRESS, SET/GET_CONFIGURATION, a vendor preset) and an EP1 interrupt-IN counter",
+  "code": "0x5531",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "40ms",
+  "regs": [],
+  "irqs": [
+    {"name": "RXERR", "port": "irq", "desc": "token or data packet with a bad CRC5 / CRC16 or a bit-stuffing error. Held in the core until the next good token addressed to the device, so the bit is set again on every clock until then"}
+  ],
+  "notes": [
+    "dp / dm (bidirectional tri-state pads: D+ needs the device pull-up, D- the host pull-down) pass through unchanged. One USB bit time is 4 PCLK clocks.",
+    "Enumeration and endpoint traffic run over the USB bus only; the registers report receive errors."
+  ]
+}

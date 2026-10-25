@@ -9,6 +9,7 @@ module GPIO_tb;
   logic [7:0] gpio_oe = 0;
   logic [7:0] drive_val = 0;
   logic       drive_en = 0;
+  logic [7:0] drive_mask = 8'hFF;     // pins the TB drives when drive_en
   tri  [7:0]  gpio;
   int errors = 0;
 
@@ -18,7 +19,9 @@ module GPIO_tb;
     .gpio(gpio), .gpio_oe(gpio_oe), .irq());
 
   always #5 clk = ~clk;
-  assign gpio = drive_en ? drive_val : 8'hzz;
+  for (genvar i = 0; i < 8; i++) begin : g_tbdrv
+    assign gpio[i] = (drive_en && drive_mask[i]) ? drive_val[i] : 1'bz;
+  end
 
 `ifdef VERILATOR
   // =====================================================================
@@ -49,12 +52,14 @@ module GPIO_tb;
       sva_check(!$isunknown(rdata), "A2 rdata never X/Z");
       // A3: raddr==1 always reads back the output register
       sva_check((raddr != 4'd1) || (rdata === dut.out_q), "A3 raddr1 reads out_q");
-      // A4: DUT drives the pins only when OE is nonzero
-      sva_check((gpio_oe != 8'h00) || (gpio === 8'hzz || drive_en),
-                "A4 hi-Z when OE clear");
-      // A5: driven pin value matches the output register
-      sva_check((gpio_oe == 8'h00) || (gpio === dut.out_q),
-                "A5 driven value == out_q");
+      for (int i = 0; i < 8; i++) begin
+        // A4: a pin with OE clear (and no TB driver) floats
+        if (!gpio_oe[i] && !(drive_en && drive_mask[i]))
+          sva_check(gpio[i] === 1'bz, "A4 hi-Z when OE clear");
+        // A5: a pin with OE set carries its output-register bit
+        if (gpio_oe[i])
+          sva_check(gpio[i] === dut.out_q[i], "A5 driven value == out_q");
+      end
       // A6: illegal read addresses return zero
       sva_check((raddr <= 4'd1) || (rdata === 8'h00), "A6 illegal addr reads 0");
     end
@@ -105,6 +110,19 @@ module GPIO_tb;
     if (got !== 8'hA5) begin
       errors++; $display("ERROR: GPIO out_reg got=%h exp=A5", got);
     end
+
+    // mixed direction: low nibble output, high nibble input
+    gpio_oe = 8'h0F; drive_mask = 8'hF0; drive_val = 8'hC3;
+    wr(4'd0, 8'h5A);
+    repeat(2) @(posedge clk); #1;
+    if (gpio !== 8'hCA) begin
+      errors++; $display("ERROR: GPIO mixed-direction pins got=%h exp=CA", gpio);
+    end
+    rd(4'd0, got);
+    if (got !== 8'hCA) begin
+      errors++; $display("ERROR: GPIO mixed-direction input got=%h exp=CA", got);
+    end
+    drive_mask = 8'hFF;
 
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ----
@@ -180,6 +198,17 @@ module GPIO_tb;
       $display("CRV: 120 txns (out=%0d in=%0d rd=%0d)", n_out, n_in, n_rd);
     end
 `endif
+
+    // reset with the output register set clears both registers
+    drive_en = 1'b0; gpio_oe = 8'hFF;
+    wr(4'd0, 8'h81);
+    @(negedge clk) rst_n = 1'b0;
+    #1;
+    if (gpio !== 8'h00) begin errors++; $display("ERROR: GPIO pins not cleared by reset"); end
+    @(negedge clk) rst_n = 1'b1;
+    rd(4'd1, got);
+    if (got !== 8'h00) begin errors++; $display("ERROR: GPIO out_q not cleared by reset"); end
+    gpio_oe = 8'h00;
 
     if (errors == 0) $display("TEST PASSED: GPIO");
     else             $display("TEST FAILED: %0d errors", errors);

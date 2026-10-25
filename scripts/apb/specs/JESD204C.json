@@ -1,0 +1,35 @@
+{
+  "title": "JESD204C-style 64b/66b link layer: scrambling, sync header stream (CRC-12, command channel), multiblock and extended multiblock alignment",
+  "code": "0x4A43",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "60ms",
+  "regs": [
+    {"name": "CFG", "kind": "rw", "desc": "Extended multiblock length (both ends alike)",
+     "fields": [{"port": "cfg_e", "reset": "0", "desc": "multiblocks per extended multiblock - 1"}]},
+    {"name": "CMD", "kind": "rw", "desc": "Command channel",
+     "fields": [{"port": "tx_cmd", "reset": "0", "desc": "command sent in each multiblock (sampled as the multiblock starts: IRQ TX_MB)"}]},
+    {"name": "TX", "kind": "stream_in", "data": "tx_data", "valid": "tx_valid", "ready": "tx_ready",
+     "desc": "Transmit block payload (TX0 = bits 31:0, TX1 = bits 63:32; writing TX1 commits it); one block goes out every 66 PCLK, a block without data is sent as zeros (TX_UNDERRUN)",
+     "fdesc": {"tx_data": "payload"}},
+    {"name": "RX", "kind": "stream_out", "data": ["rx_data", "rx_mb_start", "rx_emb_start"], "valid": "rx_valid",
+     "desc": "Received block (RX0 = bits 31:0, RX1 = bits 63:32, RX2 = start flags; reading RX2 frees it); one arrives every 66 PCLK while emb_lock",
+     "fdesc": {"rx_data": "payload", "rx_mb_start": "first block of a multiblock", "rx_emb_start": "first block of an extended multiblock"}},
+    {"name": "MB", "kind": "stream_out", "data": ["rx_cmd", "rx_crc_err"], "valid": "rx_mb_valid",
+     "desc": "Multiblock received (with emb_lock); reading MB frees it",
+     "fdesc": {"rx_cmd": "its command", "rx_crc_err": "its CRC field did not match the previous multiblock"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Receive alignment",
+     "fields": [{"port": "sh_lock", "desc": "sync header lock"},
+                {"port": "emb_lock", "desc": "extended multiblock lock (blocks are delivered)"}]}
+  ],
+  "irqs": [
+    {"name": "TX_MB", "port": "tx_mb_start", "desc": "a transmit multiblock started (CMD sampled)"},
+    {"name": "TX_UNDERRUN", "port": "tx_underrun", "desc": "a block went out as zeros: TX was empty"},
+    {"name": "ERR_SH", "port": "err_sh", "desc": "an invalid sync header while locked"},
+    {"name": "ERR_EMB", "port": "err_emb", "desc": "a multiblock or extended multiblock alignment error"}
+  ],
+  "irq_at_reset": ["TX_MB", "TX_UNDERRUN"],
+  "notes": [
+    "tx_p and rx_p are the serial lane pins (one bit per PCLK); they pass through unchanged."
+  ]
+}

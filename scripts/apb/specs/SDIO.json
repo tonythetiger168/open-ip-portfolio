@@ -1,0 +1,15 @@
+{
+  "title": "SDIO card (function 1, 4-bit bus): CMD52 IO_RW_DIRECT and CMD53 IO_RW_EXTENDED (byte mode, incrementing or fixed address) over a 128 x 8 register file, R5 responses with error flags, CRC7, CRC16 data blocks and CRC status tokens",
+  "code": "0x5349",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "40ms",
+  "regs": [],
+  "irqs": [
+    {"name": "ERR", "port": "irq", "desc": "a command was dropped (bad CRC7, bad framing, unsupported index or block mode) or a data block was discarded (bad CRC16 or end bits, no write block within 64 clocks)"}
+  ],
+  "notes": [
+    "sd_clk (in), cmd and dat[3:0] (bidirectional, need pull-ups) are the SDIO bus; they pass through unchanged. The card runs on sd_clk; sd_clk must be synchronous to PCLK and at most PCLK / 2 so that every error pulse is seen.",
+    "The register file is reached over the SDIO bus only; the registers report the card's error events."
+  ]
+}

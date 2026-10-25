@@ -1,0 +1,47 @@
+{
+  "title": "TSN egress transmission selection (802.1Qbv gates, 802.1Qav shapers, strict priority, PTP time)",
+  "code": "0x5453",
+  "version": "2.0",
+  "tb_clk_ns": 8,
+  "tb_timeout": "100ms",
+  "regs": [
+    {"name": "CFG", "kind": "rw", "desc": "Time increment, schedule and shaper enables",
+     "fields": [{"port": "cfg_inc_ns", "reset": "8", "desc": "time increment per clock, whole ns (8: 125 MHz)"},
+                {"port": "cfg_inc_frac", "reset": "0", "desc": "time increment per clock, 1/65536 ns"},
+                {"port": "gcl_en", "reset": "0", "desc": "1 = run the gate control list from GCL_BASE; 0 = all gates open"},
+                {"port": "gcl_last", "reset": "0", "desc": "last gate control list entry (0..7)"},
+                {"port": "cbs_en", "reset": "0", "desc": "credit-based shaper enable per class"},
+                {"port": "gcl_cycle", "reset": "1000000", "desc": "cycle time, ns"}]},
+    {"name": "GCL_BASE", "kind": "rw", "desc": "Schedule start time, ns: the list starts in the first clock with time >= GCL_BASE",
+     "fields": [{"port": "gcl_base", "reset": "0", "desc": "base time, ns"}]},
+    {"name": "CBS_IDLE", "kind": "rw", "desc": "Shaper idle slopes, class c in bits 9c+8:9c, in 1/256 of the line rate (0..256)",
+     "fields": [{"port": "cbs_idle", "reset": "0", "desc": "idle slopes of classes 0..3"}]},
+    {"name": "GCL_WR", "kind": "stream_in", "data": ["gcl_wivl", "gcl_wgates", "gcl_waddr"], "valid": "gcl_we",
+     "desc": "Writes one gate control list entry; writing GCL_WR commits it. Write entries while CFG.gcl_en = 0",
+     "fdesc": {"gcl_wivl": "interval, ns (at least CFG.cfg_inc_ns)", "gcl_wgates": "gate states, bit c = class c open",
+               "gcl_waddr": "entry"}},
+    {"name": "TIME_SET", "kind": "stream_in", "data": "time_set_ns", "valid": "time_set",
+     "desc": "Loads the time (fraction 0); writing TIME_SET1 commits it",
+     "fdesc": {"time_set_ns": "new time, ns"}},
+    {"name": "TIME_ADJ", "kind": "stream_in", "data": "time_adj_ns", "valid": "time_adj",
+     "desc": "Adds a signed offset to the time once; writing TIME_ADJ commits it",
+     "fdesc": {"time_adj_ns": "signed offset, ns"}},
+    {"name": "TIME", "kind": "ro", "desc": "Current time, ns. TIME0 and TIME1 are read separately: read TIME1, TIME0, TIME1 again and retry if TIME1 changed",
+     "fields": [{"port": "time_ns", "desc": "time, ns"}]},
+    {"name": "STATUS", "kind": "ro", "desc": "Schedule and line state",
+     "fields": [{"port": "gcl_running", "desc": "1 = the gate control list runs"},
+                {"port": "gcl_entry", "desc": "current entry"},
+                {"port": "gate_state", "desc": "gate state per class (all open while the list does not run)"},
+                {"port": "tx_busy", "desc": "a frame occupies the line"}]},
+    {"name": "CREDIT", "kind": "ro", "desc": "Shaper credits, class c in bits 20c+19:20c, signed, 1/256 byte",
+     "fields": [{"port": "cbs_credit", "desc": "credits of classes 0..3"}]}
+  ],
+  "irqs": [
+    {"name": "CYCLE", "port": "cycle_start", "desc": "a gate control list cycle started"},
+    {"name": "TX", "port": "tx_start", "desc": "a frame was selected for transmission"}
+  ],
+  "notes": [
+    "q_valid / q_len / q_pop connect to the four class queues of the frame buffer (head frame length, pop when taken); tx_start, tx_tc, tx_len, tx_ts and tx_busy connect to the MAC. One byte per PCLK: a frame of L bytes occupies the line for L + 20 clocks.",
+    "The wrapper takes tx_start and tx_busy into IRQ_STATUS and STATUS; the MAC uses |q_pop as the frame start strobe (q_pop is one-hot in exactly that clock). tx_ts is the time in the clock the frame was selected (the egress timestamp before the MAC's fixed latency)."
+  ]
+}

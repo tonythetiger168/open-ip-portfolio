@@ -1,79 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
-// Self-checking testbench for I2S_top: loopback SDIN=SDOUT -- SystemVerilog
+// Self-checking testbench for I2S_top -- SystemVerilog
+// The TB is the I2S bus master: free-running BCLK, LRCK changing on BCLK
+// falling edges, its own SDIN words sent with the standard one-BCLK delay,
+// and SDOUT sampled on BCLK rising edges and checked against the DUT's
+// TX registers. Slot lengths of exactly 16 bits and longer (padded) slots
+// are both exercised.
 `timescale 1ns/1ps
 module I2S_tb;
   logic clk = 0, rst_n = 0;
-  logic bclk = 0, lrck = 0;
-  logic sdin, sdout;
+  logic bclk = 0, lrck = 1;
+  logic sdin = 0, sdout;
   logic wen = 0, ren = 0;
   logic [3:0] waddr = 0, raddr = 0;
   logic [15:0] wdata = 0, rdata;
+  logic irq;
   int errors = 0;
 
   I2S_top dut (
     .clk(clk), .rst_n(rst_n), .bclk(bclk), .lrck(lrck),
     .sdin(sdin), .sdout(sdout),
     .wen(wen), .waddr(waddr), .wdata(wdata),
-    .ren(ren), .raddr(raddr), .rdata(rdata), .irq());
+    .ren(ren), .raddr(raddr), .rdata(rdata), .irq(irq));
 
   always #5 clk = ~clk;
-  assign sdin = sdout;   // loopback
-
-`ifdef VERILATOR
-  // =====================================================================
-  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
-  // Tool notes (Verilator 5.006): no native FSM/SVA coverage and
-  // randomize() ignores constraint blocks -> $urandom_range + rejection
-  // sampling, hierarchical FSM probe, counted immediate assertions.
-  // =====================================================================
-  localparam int I2S_FSM_TOTAL = 2;  // channel phase: 0=left, 1=right (lrck_s)
-  logic [1:0] fsm_seen = '0;
-  wire        dut_lr = dut.lrck_s;   // hierarchical FSM probe
-
-  int sva_total = 0, sva_fail = 0;
-  // counted immediate assertion: every evaluation is one check
-  task automatic sva_check(input bit cond, input string name);
-    begin
-      sva_total++;
-      if (!cond) begin
-        sva_fail++;
-        errors++;
-        $display("SVA_FAIL: %s @%0t", name, $time);
-      end
-    end
-  endtask
-
-  // FSM coverage: sample channel phase every clock
-  always @(posedge clk) fsm_seen[dut_lr] <= 1'b1;
-
-  // output-invariant assertion suite (sampled coherently pre-NBA)
-  int rst_cyc = 0;   // first reset posedge is sampled pre-NBA (regs still X)
-  logic [4:0] bc_q = '0;
-  always @(posedge clk) begin
-    if (!rst_n) begin
-      // A1: sample registers cleared in reset
-      if (rst_cyc > 0)
-        sva_check((dut.tx_left === 16'h0) && (dut.rx_left === 16'h0) &&
-                  (dut.bit_cnt === 5'd0), "A1 reset: regs cleared");
-      rst_cyc++;
-    end else begin
-      // A2: bit counter bounded by the 16-bit word length
-      sva_check(dut.bit_cnt < 5'd16, "A2 bit_cnt < 16");
-      // A3: irq is exactly the (synchronized) LRCK transition
-      sva_check(dut.irq === (dut.lrck_s ^ dut.lrck_d), "A3 irq is lrck_change");
-      // A4: sdout is the MSB of the TX shift register
-      sva_check(sdout === dut.tx_shift[15], "A4 sdout is tx_shift MSB");
-      // A5: read mux: 0->rx_left, 1->rx_right, others->0
-      sva_check(rdata === ((raddr == 4'd0) ? dut.rx_left :
-                           (raddr == 4'd1) ? dut.rx_right : 16'h0),
-                "A5 rdata mux");
-      // A6: bit_cnt steps by one, or wraps/clears on a word/LRCK boundary
-      sva_check(((dut.bit_cnt - bc_q) <= 5'd1) || (dut.bit_cnt === 5'd0),
-                "A6 bit_cnt step");
-    end
-    bc_q <= dut.bit_cnt;
-  end
-`endif
+  localparam int HB = 50;               // BCLK half period (ns)
 
   task automatic wr(input logic [3:0] a, input logic [15:0] d);
     begin
@@ -90,118 +40,104 @@ module I2S_tb;
     end
   endtask
 
-  task automatic channel(input logic lr);
+  // ---- master BFM ----
+  // Word w (w = 0, 1, ...) is the left channel when w is even. LRCK is set
+  // for word w at falling edge w*slot; its bits sit on falling edges
+  // w*slot+1 .. w*slot+16 and are sampled on the rising edge after each.
+  // One extra falling edge ends the run (the last word's LSB at slot 16).
+  logic [15:0] m_tx [0:63];             // master -> DUT (sdin)
+  logic [15:0] m_rx [0:63];             // DUT -> master (sdout)
+  task automatic run(input int nw, input int slot);
+    int w, b;
     begin
-      if (lrck == lr) lrck = ~lr;   // force a transition so frame-sync fires
-      #600;
-      lrck = lr;
-      #600;
-      for (int i = 0; i < 16; i++) begin
-        bclk = 1; #300; bclk = 0; #300;
+      for (int i = 0; i < nw; i++) m_rx[i] = 16'h0;
+      for (int k = 0; k <= nw * slot; k++) begin
+        // falling edge k
+        bclk = 0;
+        if (k < nw * slot) lrck = ((k / slot) % 2 == 1);
+        else               lrck = ((nw % 2) == 1);
+        w = (k - 1) / slot; b = (k - 1) % slot;
+        sdin = (k >= 1 && b < 16) ? m_tx[w][15 - b] : 1'b0;
+        #HB bclk = 1;                   // rising edge k: sample sdout
+        if (k >= 1 && b < 16) m_rx[w][15 - b] = sdout;
+        #HB;
+      end
+      bclk = 0;
+      #(4 * HB);
+    end
+  endtask
+
+  // run nw words with the given TX registers; check both directions
+  task automatic frames(input int nw, input int slot,
+                        input logic [15:0] txl, input logic [15:0] txr);
+    logic [15:0] got;
+    begin
+      wr(4'd0, txl); wr(4'd1, txr);
+      // idle in the right channel so the first word sees an LRCK change
+      lrck = 1; #(4 * HB);
+      for (int i = 0; i < nw; i++) m_tx[i] = $urandom;
+      run(nw, slot);
+      for (int i = 0; i < nw; i++)
+        if (m_rx[i] !== ((i % 2) ? txr : txl)) begin
+          errors++;
+          $display("ERROR: I2S slot=%0d word %0d sdout=%h exp=%h", slot, i, m_rx[i],
+                   (i % 2) ? txr : txl);
+        end
+      rd(4'd0, got);
+      if (got !== m_tx[(nw - 1) & ~1]) begin
+        errors++; $display("ERROR: I2S slot=%0d rx_left=%h exp=%h", slot, got, m_tx[(nw - 1) & ~1]);
+      end
+      rd(4'd1, got);
+      if (got !== m_tx[(nw - 1) | 1] && nw >= 2) begin
+        errors++; $display("ERROR: I2S slot=%0d rx_right=%h exp=%h", slot, got, m_tx[(nw - 1) | 1]);
       end
     end
   endtask
 
-  logic [15:0] gotL, gotR;
+  logic [15:0] got;
   initial begin
     rst_n = 0; repeat(10) @(posedge clk);
     rst_n = 1; repeat(10) @(posedge clk);
 
-    wr(4'd0, 16'h1234);   // tx_left
-    wr(4'd1, 16'hABCD);   // tx_right
+    frames(4, 16, 16'h1234, 16'hABCD);  // 16-bit slots: LSB at the LRCK edge
+    frames(4, 32, 16'h55AA, 16'h0FF0);  // 32-bit slots: 16 padding bits
+    frames(4, 17, 16'hFFFF, 16'h0000);
+    frames(6, 24, 16'h0000, 16'hFFFF);
 
-    channel(1'b0);        // left frame:  shifts tx_left out, loops back in
-    channel(1'b1);        // right frame: shifts tx_right out
+    // undefined register addresses: writes ignored, reads return 0
+    wr(4'd2, 16'hDEAD);
+    wr(4'd12, 16'hBEEF);
+    rd(4'd2, got);
+    if (got !== 16'h0) begin errors++; $display("ERROR: I2S raddr 2 got=%h", got); end
+    rd(4'd15, got);
+    if (got !== 16'h0) begin errors++; $display("ERROR: I2S raddr 15 got=%h", got); end
 
-    rd(4'd0, gotL);
-    rd(4'd1, gotR);
-    if (gotL !== 16'h1234) begin errors++; $display("ERROR: I2S left got=%h exp=1234", gotL); end
-    if (gotR !== 16'hABCD) begin errors++; $display("ERROR: I2S right got=%h exp=ABCD", gotR); end
-
-    // second pass: change data, verify again
-    wr(4'd0, 16'h55AA);
-    channel(1'b0);
-    rd(4'd0, gotL);
-    if (gotL !== 16'h55AA) begin errors++; $display("ERROR: I2S left2 got=%h exp=55AA", gotL); end
-
-`ifdef VERILATOR
-    // ---- v2.5 CRV random phase (directed tests above untouched) ----
-    // 120 randomized loopback frames: random L/R sample data with
-    // 0000/FFFF corners, random channel order. Error classes:
-    // wrong-address writes (waddr>=2, must be ignored) and reads of
-    // undefined raddr>=2 (must return 0).
-    begin : crv_phase
-      logic [15:0] dl, dr, rb;
-      int n_frm = 0, n_wa = 0, n_ur = 0;
-      for (int t = 0; t < 120; t++) begin
-        dl = $urandom_range(0, 65535);
-        dr = $urandom_range(0, 65535);
-        if ($urandom_range(0, 11) == 0) dl = 16'h0000;
-        if ($urandom_range(0, 11) == 0) dl = 16'hFFFF;
-        if ($urandom_range(0, 11) == 0) dr = 16'h0000;
-        if ($urandom_range(0, 11) == 0) dr = 16'hFFFF;
-        wr(4'd0, dl);
-        wr(4'd1, dr);
-        // error injection 1: wrong-address write must be ignored
-        if ($urandom_range(0, 9) < 3) begin
-          n_wa++;
-          wr($urandom_range(2, 15), $urandom_range(0, 65535));
-        end
-        // random channel order (both channels always exercised)
-        if ($urandom_range(0, 1)) begin
-          channel(1'b0); channel(1'b1);
-        end else begin
-          channel(1'b1); channel(1'b0);
-        end
-        rd(4'd0, rb);
-        if (rb !== dl) begin
-          errors++; $display("ERROR: CRV %0d left got=%h exp=%h", t, rb, dl);
-        end
-        rd(4'd1, rb);
-        if (rb !== dr) begin
-          errors++; $display("ERROR: CRV %0d right got=%h exp=%h", t, rb, dr);
-        end
-        // error injection 2: undefined read address must return 0
-        if ($urandom_range(0, 9) < 3) begin
-          n_ur++;
-          rd($urandom_range(2, 15), rb);
-          if (rb !== 16'h0000) begin
-            errors++; $display("ERROR: CRV %0d undef-raddr got=%h exp=0", t, rb);
-          end
-        end
-        n_frm++;
-      end
-      $display("CRV: %0d frame pairs (%0d wrong-addr wr, %0d undef-addr rd)",
-               n_frm, n_wa, n_ur);
+    // random data / slot lengths
+    for (int t = 0; t < 40; t++) begin
+      int slot;
+      slot = $urandom_range(16, 32);
+      frames(2 * $urandom_range(1, 4), slot, $urandom, $urandom);
     end
-`endif
+
+    // reset in the middle of a word: outputs and registers return to zero,
+    // and the next run is received correctly
+    wr(4'd0, 16'hFFFF);
+    lrck = 1; #(4 * HB);
+    fork
+      run(2, 16);
+      begin #(10 * HB) @(negedge clk) rst_n = 1'b0; end
+    join
+    if (sdout !== 1'b0) begin errors++; $display("ERROR: I2S sdout not 0 in reset"); end
+    #(2 * HB) rst_n = 1'b1;
+    frames(4, 16, 16'hC3C3, 16'h3C3C);
 
     if (errors == 0) $display("TEST PASSED: I2S");
     else             $display("TEST FAILED: %0d errors", errors);
-`ifdef VERILATOR
-    begin
-      int visited;
-      visited = 0;
-      for (int s = 0; s < I2S_FSM_TOTAL; s++) visited += fsm_seen[s];
-      $display("FSM_COV: %0d/%0d", visited, I2S_FSM_TOTAL);
-      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
-    end
-`endif
     $finish;
   end
 
-`ifdef VERILATOR
-  // Random phase adds bus traffic: extend the guard. Chunked into 1-us
-  // delays: with Verilator 5.006 a single long-pending #delay event
-  // corrupts the --timing delay heap once many short-delay resumptions
-  // interleave (processes lose wakeups, long event fires early).
   initial begin
-    repeat (20000) #1000;   // 20 ms in 1-us chunks
+    repeat (5000) #1000;
     $display("TIMEOUT"); $finish;
   end
-`else
-  initial begin
-    #1_000_000; $display("TIMEOUT"); $finish;
-  end
-`endif
 endmodule

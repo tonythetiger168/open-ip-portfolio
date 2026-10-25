@@ -57,8 +57,7 @@ module APB_top #(
       case (state)
         APB_IDLE   : state <= setup_cycle   ? APB_ACCESS : APB_IDLE;
         APB_ACCESS : state <= access_finish ? APB_IDLE   : APB_ACCESS;
-        default    : state <= APB_IDLE;
-      endcase
+      endcase   // 1-bit enum, both encodings listed: no default needed
   end
 
   // ------------------------------------------------------------------

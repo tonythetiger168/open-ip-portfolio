@@ -1,0 +1,1 @@
+LINE \| default: state <= S_IDLE; # defensive recovery for the unused encoding of the 7-state 3-bit FSM; unreachable

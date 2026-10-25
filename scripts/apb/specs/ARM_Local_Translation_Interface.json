@@ -1,0 +1,28 @@
+{
+  "title": "AMBA LTI translation unit: translation requests (LA) answered in order on LR with context tags from a programmed table, completions (LC), link open / close with request credits, invalidation with synchronization",
+  "code": "0x4C54",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "20ms",
+  "regs": [
+    {"name": "TBL", "kind": "stream_in", "data": ["cfg_sid", "cfg_ssid", "cfg_ssidv", "cfg_idx", "cfg_v", "cfg_perm", "cfg_va", "cfg_attr", "cfg_pa"], "valid": "cfg_we",
+     "desc": "Translation table entry; writing TBL2 writes entry cfg_idx",
+     "fdesc": {"cfg_sid": "StreamID", "cfg_ssid": "SubstreamID", "cfg_ssidv": "set: the entry is for SubstreamID cfg_ssid only; clear: for any substream",
+               "cfg_idx": "entry", "cfg_v": "valid", "cfg_perm": "permissions {U, X, W, R}", "cfg_va": "VA[31:12]",
+               "cfg_attr": "memory attributes returned on LR", "cfg_pa": "PA[31:12]"}},
+    {"name": "INV", "kind": "stream_in", "data": ["inv_all", "inv_sid"], "valid": "inv_valid", "ready": "inv_ready",
+     "desc": "Invalidation; writing INV clears every entry (inv_all) or the entries of StreamID inv_sid. The core takes it once the one before has synchronized",
+     "fdesc": {"inv_all": "every entry", "inv_sid": "StreamID"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Context tags",
+     "fields": [{"port": "ctags_out", "desc": "context tags handed out on LR and not yet returned on LC"}]}
+  ],
+  "irqs": [
+    {"name": "FAULT", "port": "ev_fault", "desc": "a translation or permission fault was returned on LR"},
+    {"name": "PROTO", "port": "ev_proto", "desc": "a request without a credit (dropped) or a context tag returned that was not out"},
+    {"name": "SYNC", "port": "inv_done", "desc": "an invalidation has synchronized: every tag out when it was taken has come back"}
+  ],
+  "notes": [
+    "lm_open_*, la_*, lr_* and lc_* are the LTI link, request, response and completion channels to the manager; they pass through unchanged.",
+    "The core parameters NE (8), RQ (4) and NCT (8) keep their defaults."
+  ]
+}

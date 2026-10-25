@@ -34,24 +34,26 @@ module SPMI_top #(
 
   typedef enum logic [2:0] {ST_IDLE, ST_HEAD, ST_ADDR, ST_DATA, ST_ACKP, ST_IGNORE} st_t;
   st_t      state;
-  logic [3:0] bit_cnt;
-  logic [7:0] shift, addr_q;
+  logic [2:0] bit_cnt;
+  logic [6:0] shift;                  // first 7 bits of the field being received
+  logic [7:0] addr_q;
+  logic [7:0] tx_q;                   // read data, latched when the read starts
   logic [3:0] cmd;
   logic       sd_oe;
 
+  wire drive_low_c = sd_oe;
   assign sdata   = drive_low_c ? 1'b0 : 1'bz;   // open-drain: ACK + read data
   assign busy    = (state != ST_IDLE) && (state != ST_IGNORE);
   assign irq     = rx_valid;
   assign rx_addr = addr_q;
 
-  wire [7:0] head_w = {shift[6:0], sdata_s};
+  wire [7:0] head_w = {shift, sdata_s};
 
   // read data: registered on SCLK fall (the post-address fall presents bit 7)
-  wire drive_low_c = sd_oe;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      state <= ST_IDLE; bit_cnt <= '0; shift <= '0; addr_q <= '0; cmd <= '0;
+      state <= ST_IDLE; bit_cnt <= '0; shift <= '0; addr_q <= '0; cmd <= '0; tx_q <= '0;
       sd_oe <= 1'b0; rx_byte <= '0; rx_valid <= 1'b0;
     end else begin
       rx_valid <= 1'b0;
@@ -59,8 +61,8 @@ module SPMI_top #(
         state <= ST_HEAD; bit_cnt <= '0; sd_oe <= 1'b0;
       end else case (state)
         ST_HEAD: if (sclk_rise) begin
-          shift <= head_w;
-          if (bit_cnt == 4'd7) begin
+          shift <= head_w[6:0];
+          if (bit_cnt == 3'd7) begin
             if (head_w[7:4] == SPMI_ADDR) begin
               cmd <= head_w[3:0];
               bit_cnt <= '0; state <= ST_ADDR;
@@ -68,18 +70,19 @@ module SPMI_top #(
           end else bit_cnt <= bit_cnt + 1'b1;
         end
         ST_ADDR: if (sclk_rise) begin
-          shift <= head_w;
-          if (bit_cnt == 4'd7) begin
+          shift <= head_w[6:0];
+          if (bit_cnt == 3'd7) begin
             addr_q <= head_w; bit_cnt <= '0;
             sd_oe  <= 1'b0;
+            tx_q   <= tx_byte;
             state <= (cmd == 4'h0) ? ST_DATA :   // write: data follows
                      (cmd == 4'h1) ? ST_ACKP : ST_IGNORE;
           end else bit_cnt <= bit_cnt + 1'b1;
         end
         // write: receive 8 data bits, then ACK (drive 0 one bit)
         ST_DATA: if (sclk_rise) begin
-          shift <= head_w;
-          if (bit_cnt == 4'd7) begin
+          shift <= head_w[6:0];
+          if (bit_cnt == 3'd7) begin
             rx_byte <= head_w; rx_valid <= 1'b1;
             bit_cnt <= '0; state <= ST_ACKP;
           end else bit_cnt <= bit_cnt + 1'b1;
@@ -87,16 +90,18 @@ module SPMI_top #(
         // ACK pulse (write) or read data phase (cmd==1)
         ST_ACKP: begin
           if (cmd == 4'h0) begin                 // write ACK: drive low 1 bit
-            if (sclk_fall) sd_oe <= 1'b1;
-            else if (sclk_rise) begin sd_oe <= 1'b0; state <= ST_IDLE; end
-          end else if (cmd == 4'h1) begin        // read data: drive on fall
+            // held for a full bit (fall to fall) like read data, so the
+            // master can sample it anywhere in the high phase; IDLE
+            // releases it on the next fall
+            if (sclk_fall) begin sd_oe <= 1'b1; state <= ST_IDLE; end
+          end else begin                         // read (cmd 1): drive on fall
             if (sclk_fall) begin
-              sd_oe <= (tx_byte[7-bit_cnt] == 1'b0);
-              if (bit_cnt == 4'd7) begin
+              sd_oe <= (tx_q[3'd7 - bit_cnt] == 1'b0);
+              if (bit_cnt == 3'd7) begin
                 bit_cnt <= '0; state <= ST_IDLE;
               end else bit_cnt <= bit_cnt + 1'b1;
             end
-          end else state <= ST_IDLE;
+          end
         end
         // v2.5.1 fix: release SDATA on the clock fall after the last read
         // bit (previously sd_oe stayed set after a read with tx_byte[0]=0,

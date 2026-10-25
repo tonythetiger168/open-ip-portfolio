@@ -11,7 +11,8 @@
 //   * Attach-detect FSM: UNATTACHED -> ATTACHWAIT (100 clk debounce)
 //     -> ATTACHED; orientation resolved from which CC pin saw Rd
 //     (cc1 -> orientation=0, cc2 -> orientation=1). Ra-only or Rd on
-//     both pins is not a sink attach and is ignored.
+//     both pins is not a sink attach and is ignored. The debounce restarts
+//     if Rd moves to the other pin or an abnormal level appears.
 //   * Detach detect: active CC pin back to OPEN for 10 consecutive clks.
 //   * vbus_en: asserted in ATTACHED when configured role is source (DFP);
 //     stays low for sink role.
@@ -50,8 +51,7 @@ module USB_Type_C_Port_Controller_top #(
 );
 
   localparam logic [1:0] CC_OPEN = 2'b00;
-  localparam logic [1:0] CC_RD   = 2'b01;
-  localparam logic [1:0] CC_RA   = 2'b10;
+  localparam logic [1:0] CC_RD   = 2'b01;      // (CC_RA = 2'b10: no attach)
 
   localparam int DEBOUNCE_ATTACH = 100;  // clk
   localparam int DEBOUNCE_DETACH = 10;   // clk
@@ -72,15 +72,21 @@ module USB_Type_C_Port_Controller_top #(
   wire cc1_rd   = (cc1 == CC_RD);
   wire cc2_rd   = (cc2 == CC_RD);
   wire attach_c = cc1_rd ^ cc2_rd;
+  // still the same candidate while debouncing: Rd on the pin first seen
+  wire attach_same = attach_c && (cc2_rd == orient_q);
   // active CC pin released -> candidate detach
   wire active_open = orient_q ? (cc2 == CC_OPEN) : (cc1 == CC_OPEN);
   // abnormal level on either pin -> fault
   wire fault_det = (cc1 == 2'b11) || (cc2 == 2'b11);
 
-  wire entering_attached = (state == ST_ATTACHWAIT) &&
-                           (deb_cnt == DEBOUNCE_ATTACH-1) && attach_c;
-  wire leaving_attached  = (state == ST_ATTACHED) &&
-                           (rel_cnt == DEBOUNCE_DETACH-1) && active_open;
+  wire deb_done = (deb_cnt == 7'(DEBOUNCE_ATTACH-1));
+  wire rel_done = (rel_cnt == 4'(DEBOUNCE_DETACH-1));
+  wire entering_attached = (state == ST_ATTACHWAIT) && deb_done &&
+                           attach_same && !fault_det;
+  wire leaving_attached  = (state == ST_ATTACHED) && rel_done && active_open;
+  wire [2:0] int_set = {fault_det, leaving_attached, entering_attached};
+  wire w1c_fault = reg_wr && (reg_addr == 3'd2);
+  wire w1c_int   = reg_wr && (reg_addr == 3'd3);
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -103,9 +109,9 @@ module USB_Type_C_Port_Controller_top #(
           end
         end
         ST_ATTACHWAIT: begin
-          if (!attach_c) begin
-            state <= ST_UNATTACHED; // glitch rejected by debounce
-          end else if (deb_cnt == DEBOUNCE_ATTACH-1) begin
+          if (!attach_same || fault_det) begin
+            state <= ST_UNATTACHED; // glitch / pin swap / fault: restart
+          end else if (deb_done) begin
             state <= ST_ATTACHED;
           end else begin
             deb_cnt <= deb_cnt + 7'd1;
@@ -113,7 +119,7 @@ module USB_Type_C_Port_Controller_top #(
         end
         ST_ATTACHED: begin
           if (active_open) begin
-            if (rel_cnt == DEBOUNCE_DETACH-1) begin
+            if (rel_done) begin
               state   <= ST_UNATTACHED;
               rel_cnt <= '0;
             end else begin
@@ -123,24 +129,13 @@ module USB_Type_C_Port_Controller_top #(
             rel_cnt <= '0;
           end
         end
-        default: state <= ST_UNATTACHED;
+        default: state <= ST_UNATTACHED;   // unused encoding 2'b11
       endcase
-      // ---- sticky events ----------------------------------------
-      if (entering_attached) int_sticky[0] <= 1'b1;
-      if (leaving_attached)  int_sticky[1] <= 1'b1;
-      if (fault_det) begin
-        fault_sticky  <= 1'b1;
-        int_sticky[2] <= 1'b1;
-      end
-      // ---- register writes --------------------------------------
-      if (reg_wr) begin
-        case (reg_addr)
-          3'd1: role_src_q   <= reg_wdata[0];              // ROLE_CTRL
-          3'd2: if (reg_wdata[0]) fault_sticky <= 1'b0;    // FAULT_STAT W1C
-          3'd3: int_sticky   <= int_sticky & ~reg_wdata[2:0]; // INT_STAT W1C
-          default: ;                                       // RO regs ignored
-        endcase
-      end
+      // ---- sticky events / W1C: a hardware set wins over a clear in the
+      // same cycle, so no event is lost while software clears another bit
+      fault_sticky <= fault_det || (fault_sticky && !(w1c_fault && reg_wdata[0]));
+      int_sticky   <= int_set | (int_sticky & ~(w1c_int ? reg_wdata[2:0] : 3'b000));
+      if (reg_wr && reg_addr == 3'd1) role_src_q <= reg_wdata[0];   // ROLE_CTRL
     end
   end
 
@@ -165,12 +160,11 @@ module USB_Type_C_Port_Controller_top #(
       3'd4:    reg_rdata = DEBOUNCE_ATTACH[7:0];
       3'd5:    reg_rdata = {7'b0, orient_q};
       3'd6:    reg_rdata = {7'b0, vbus_en};
-      3'd7:    reg_rdata = 8'hC7;
-      default: reg_rdata = 8'h00;
+      default: reg_rdata = 8'hC7;           // 3'd7 DEVICE_ID
     endcase
   end
 
-  // keep framework parameters visibly used (no functional effect)
-  wire unused = &{1'b0, DW[0], AW[0], reg_rd};
+  // reads have no side effect; upper write-data bits are reserved
+  wire _unused = &{1'b0, reg_rd, reg_wdata[7:3]};
 
 endmodule

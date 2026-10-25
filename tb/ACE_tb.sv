@@ -15,6 +15,7 @@ module ACE_tb;
   localparam logic [3:0] SNP_READSHARED = 4'b0000;
   localparam logic [3:0] SNP_READCLEAN  = 4'b0001;
   localparam logic [3:0] SNP_MAKEUNIQUE = 4'b0111;
+  localparam logic [3:0] SNP_CLEANINVALID = 4'b1000;  // RTL encoding
 
   logic clk = 0, rst_n = 0;
   // AW
@@ -92,7 +93,6 @@ module ACE_tb;
   // ($urandom_range + rejection sampling), TB FSM probes, immediate
   // assertions. The timeout guard is chunked (see bottom of file).
   // =====================================================================
-  localparam logic [3:0] SNP_CLEANINVALID = 4'b1000;  // RTL encoding
   localparam int ACE_FSM_TOTAL = 8;   // W 3 + R 2 + S 3 states
   logic [2:0] wfsm_seen = '0;         // visited-state bitmaps
   logic [1:0] rfsm_seen = '0;
@@ -169,9 +169,10 @@ module ACE_tb;
         sva_check((!bvalid || (bresp !== 2'b01 && bresp !== 2'b11)) &&
                   (!rvalid || (rresp !== 2'b01 && rresp !== 2'b11)),
                   "A7 b/rresp legal");
-        // A8: crresp WasUnique[4]/Error[1] are hard-wired 0
-        sva_check(!crvalid || (crresp[4] === 1'b0 && crresp[1] === 1'b0),
-                  "A8 crresp fixed bits zero");
+        // A8: crresp Error[1] is hard-wired 0; a dirty line is always
+        // UniqueDirty here, so WasUnique[4] == PassDirty[2]
+        sva_check(!crvalid || (crresp[1] === 1'b0 && crresp[4] === crresp[2]),
+                  "A8 crresp Error=0, WasUnique=PassDirty");
         // A9: write-channel phase outputs mutually exclusive
         sva_check((awready + wready + bvalid) <= 1,
                   "A9 write phases mutually exclusive");
@@ -306,12 +307,12 @@ module ACE_tb;
       exp_resp = 5'b0; exp_cd = 1'b0; exp_data = '0;
       case (stype)
         SNP_READSHARED, SNP_READCLEAN: if (hit) begin
-          exp_resp = {1'b0, 1'b1, dty, 1'b0, 1'b1};
+          exp_resp = {dty, 1'b1, dty, 1'b0, 1'b1};    // WasUnique = dirty
           exp_cd   = 1'b1;
           exp_data = m_data[addr[7:2]];
         end
         SNP_CLEANINVALID: if (hit && dty) begin
-          exp_resp = {1'b0, 1'b0, 1'b1, 1'b0, 1'b1};
+          exp_resp = {1'b1, 1'b0, 1'b1, 1'b0, 1'b1};
           exp_cd   = 1'b1;
           exp_data = m_data[addr[7:2]];
         end
@@ -551,6 +552,79 @@ module ACE_tb;
       $display("ERROR: ACE back-to-back snoop resp=%b data=%h", sresp, sdat_q);
     end
 
+    // ---------------- 8. snoops on a clean (shared) line ----------------
+    axi_write(32'h0000_0500, 8'd0, 32'h0C1E_A500, 2'b01, AXI_OKAY);
+    do_snoop(32'h0000_0500, SNP_READSHARED, sresp, sdat_q);   // dirty -> clean
+    if (sresp !== 5'b11101 || sdat_q !== 32'h0C1E_A500) begin
+      errors++; $display("ERROR: ACE dirty ReadShared crresp=%b data=%h", sresp, sdat_q);
+    end
+    do_snoop(32'h0000_0500, SNP_READSHARED, sresp, sdat_q);   // clean hit
+    if (sresp !== 5'b01001 || sdat_q !== 32'h0C1E_A500) begin
+      errors++; $display("ERROR: ACE clean ReadShared crresp=%b data=%h", sresp, sdat_q);
+    end
+    do_snoop(32'h0000_0500, SNP_READCLEAN, sresp, sdat_q);    // clean hit
+    if (sresp !== 5'b01001) begin
+      errors++; $display("ERROR: ACE clean ReadClean crresp=%b", sresp);
+    end
+    do_snoop(32'h0000_0500, SNP_CLEANINVALID, sresp, sdat_q); // clean hit: no data
+    if (sresp !== 5'b00000) begin
+      errors++; $display("ERROR: ACE clean CleanInvalid crresp=%b", sresp);
+    end
+    axi_read(32'h0000_0500, 8'd0, 32'h0, AXI_OKAY, 1);        // invalidated
+
+    // ---------------- 9. channel interlocks ----------------
+    // snoop issued while a write burst is in progress waits for it
+    fork
+      axi_write(32'h0000_0600, 8'd3, 32'h0600_0000, 2'b01, AXI_OKAY);
+      begin
+        repeat (3) @(negedge clk);
+        do_snoop(32'h0000_0600, SNP_READSHARED, sresp, sdat_q);
+      end
+    join
+    if (sresp !== 5'b11101 || sdat_q !== 32'h0600_0000) begin
+      errors++; $display("ERROR: ACE snoop-after-write crresp=%b data=%h", sresp, sdat_q);
+    end
+    // write and read issued while a snoop is in progress
+    axi_write(32'h0000_0700, 8'd0, 32'h0700_0000, 2'b01, AXI_OKAY);
+    fork
+      do_snoop(32'h0000_0700, SNP_READSHARED, sresp, sdat_q);
+      begin
+        wait (crvalid === 1'b1);   // snoop in flight: AW must stall
+        axi_write(32'h0000_0704, 8'd0, 32'h0704_0000, 2'b01, AXI_OKAY);
+      end
+      begin
+        @(posedge clk);
+        axi_read(32'h0000_0608, 8'd1, 32'h0600_0002, AXI_OKAY, 0);  // lines 2-3 (0x700 aliases 0-1)
+      end
+    join
+    // early wlast: burst declared 3 beats, wlast on beat 2 ends it
+    @(negedge clk);
+    awvalid = 1; awaddr = 32'h0000_0740; awlen = 8'd2; awsize = 3'd2; awburst = 2'b01;
+    while (!awready) @(negedge clk);
+    @(posedge clk); @(negedge clk) awvalid = 0;
+    for (int i = 0; i < 2; i++) begin
+      wvalid = 1; wdata = 32'h0740_0000 + i; wstrb = 4'hF; wlast = (i == 1);
+      while (!wready) @(negedge clk);
+      @(posedge clk); @(negedge clk) wvalid = 0; wlast = 0;
+    end
+    while (!bvalid) @(negedge clk);
+    bready = 1; @(posedge clk); @(negedge clk) bready = 0;
+    axi_read(32'h0000_0740, 8'd1, 32'h0740_0000, AXI_OKAY, 0);
+
+    // ---------------- 10. reset with every cache line valid ----------------
+    axi_write(32'h0000_0000, 8'd63, 32'h0F11_0000, 2'b01, AXI_OKAY);  // fills 64 lines
+    @(negedge clk) rst_n = 0;
+    @(negedge clk);
+    if (bvalid !== 1'b0 || rvalid !== 1'b0 || crvalid !== 1'b0 || irq !== 1'b0) begin
+      errors++; $display("ERROR: ACE outputs not quiescent in reset");
+    end
+    @(negedge clk) rst_n = 1;
+    axi_read(32'h0000_0000, 8'd3, 32'h0, AXI_OKAY, 1);   // all lines invalid now
+    do_snoop(32'h0000_0010, SNP_READSHARED, sresp, sdat_q);
+    if (sresp !== 5'b00000) begin
+      errors++; $display("ERROR: ACE snoop after reset crresp=%b", sresp);
+    end
+
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ------
     // 64-line init sweep (resyncs the scoreboard) + 140 randomized
@@ -638,7 +712,7 @@ module ACE_tb;
       // PassDirty + DataTransfer, then invalidates)
       axi_write(32'h020, 8'd0, 32'h5A5A_5A5A, 2'b01, AXI_OKAY);
       do_snoop(32'h020, SNP_CLEANINVALID, sresp, sdat_q);
-      if (sresp !== 5'b00101 || sdat_q !== 32'h5A5A_5A5A) begin
+      if (sresp !== 5'b10101 || sdat_q !== 32'h5A5A_5A5A) begin
         errors++;
         $display("ERROR: ACE CleanInvalid dirty hit resp=%b data=%h",
                  sresp, sdat_q);

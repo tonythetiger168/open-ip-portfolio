@@ -1,0 +1,4 @@
+LINE \| default : state <= O_IDLE;           // unused encodings 6, 7 # defensive recovery for the two unused encodings of the 6-state 3-bit FSM; unreachable
+TOGGLE \.MByteEn\[ # tied 4'hF by design: the master issues full-word transfers only
+TOGGLE \.MBurstSeq\[ # tied 3'b000 (INCR) by design: the only burst sequence this master issues
+TOGGLE \.MBurstLength\[4\]: # bursts are clamped to 1..8 beats, so bit 4 of the 5-bit OCP field is always 0

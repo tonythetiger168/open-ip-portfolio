@@ -1,54 +1,60 @@
 // SPDX-License-Identifier: Apache-2.0
 // ============================================================================
 // HBM3E_Lite_top -- educational HBM3E-flavoured controller.
-// Fork of the DDR4_Lite micro-architecture with REAL HBM organization:
-//   * 8 pseudo-channels x 4 banks (32 independent open-row trackers);
-//     address bits [13:11] select the pseudo-channel -- each PC has its
-//     own bank state, timers and refresh domain
-//   * per-bank refresh everywhere: the auto-refresh engine walks the
-//     32 (pc,bank) entries round-robin, refreshing ONE entry per tREFI
-//     interval without touching the other 31
-//   * all-bank refresh (hcmd 5) sweeps every entry with PREA + REF + tRFC
-//   * HBM has no DLL (unlike DDR4) -- no DLL-reset semantics anywhere;
-//     mode register file kept for CL/CWL and refresh-related settings
-//
-// Documented abstractions: TSV/stack organization, 3D connectivity and
-// lane repair are not controller-visible and are not modeled; the PHY
-// pins remain a JEDEC-style command subset per pseudo-channel (ba carries
-// {pc, bank} on addr[13:11]); SDR dqs; array inside the model; single
-// command engine shared across pseudo-channels (one transaction in
-// flight -- pseudo-channel interleaving happens at the front-end level).
-//
-// Front-end: hcmd 0 NOP | 1 RD | 2 WR | 3 MRW (haddr[2:0], hwdata[7:0])
-// | 4 MRR | 5 REF (all entries).  haddr: [13:11]=pc [8:7]=bank
-// [18:9]=row [6:4]=line [3:0]=byte; [31:19] must be 0.
+// Built on the DDR4_Lite micro-architecture with HBM organization:
+//   * 8 pseudo-channels x 4 banks = 32 entries, each with its own open-row
+//     state and tRP / tRAS / tRC / tWR timers; the pseudo-channel travels
+//     on addr[13:11] of ACT / RD / WR / PRE / per-entry REF, the bank on ba
+//   * per-entry refresh: every tREFI the next entry in rotation (0..31)
+//     falls due; it is served by PRE (if that entry is open) + REF with
+//     addr[10] = 0 to that entry + tRFC_PB, without touching the other 31
+//   * all-entry refresh (host REFRESH): PREA (if any entry is open) + REF
+//     with addr[10] = 1 + tRFC
+//   * timing as DDR4_Lite: tRCD, tRP, tRC, tRAS, tRRD, tWR, tWTR; data
+//     exactly CL / CWL clocks after RD / WR
+//   * MR file MR0..MR7 (MR0[3:0] CL, MR1[3:0] CWL); HBM has no DLL, so
+//     there is no DLL-reset bit; sticky irq on rejected commands and on a
+//     refresh overrun (an entry falling due again before it was served,
+//     which needs a tREFI shorter than one engine operation / 32)
+// Documented abstractions: TSV / stack organization, lane repair and the
+// separate row / column command buses are not modeled; JEDEC-style command
+// subset on one bus; SDR dqs; array inside the model; one command engine
+// shared by the pseudo-channels (one transaction in flight).
+// Front-end: hcmd 0 NOP | 1 READ line | 2 WRITE line | 3 MRW (haddr[2:0],
+// hwdata[7:0]) | 4 MRR | 5 REFRESH (all entries).
+// haddr: [11:9]=pseudo-channel [8:7]=bank [20:12]=row [6:4]=line
+// [3:0]=byte; [31:21] must be 0. Handshake and data beats as DDR4_Lite: a
+// command is taken on hvalid && hready; a WRITE takes 8 beats on hvalid
+// clocks; read data is on hrdata in the 8 clocks ending with hdone.
 // ============================================================================
 module HBM3E_Lite_top #(
-  parameter integer T_RCD  = 6,
-  parameter integer T_RP   = 6,
-  parameter integer T_RC   = 24,
-  parameter integer T_RAS  = 16,
-  parameter integer T_RRD  = 3,
-  parameter integer T_WR   = 8,
-  parameter integer T_WTR  = 4,
-  parameter integer T_RFC  = 40,    // all-entry refresh recovery
-  parameter integer T_RFC_PB = 20,  // per-bank refresh recovery
-  parameter integer T_REFI = 1560,  // per-bank average interval (32 banks)
-  parameter integer CL     = 11,
-  parameter integer CWL    = 8,
-  parameter integer ROWS   = 512
+  parameter integer T_RCD  = 6,     // ACT  -> RD/WR
+  parameter integer T_RP   = 6,     // PRE  -> ACT
+  parameter integer T_RC   = 24,    // ACT  -> ACT (same bank)
+  parameter integer T_RAS  = 16,    // ACT  -> PRE
+  parameter integer T_RRD  = 3,     // ACT  -> ACT (different bank)
+  parameter integer T_WR   = 8,     // end of WR burst -> PRE
+  parameter integer T_WTR  = 4,     // end of WR burst -> RD issue
+  parameter integer T_RFC  = 40,    // all-entry REF -> next command
+  parameter integer T_RFC_PB = 20,  // per-entry REF -> that entry's next ACT
+  parameter integer T_REFI = 1560,  // per-entry refresh interval (32 entries)
+  parameter integer CL     = 11,    // read latency   (MR0[3:0] overrides)
+  parameter integer CWL    = 8      // write latency  (MR1[3:0] overrides)
 )(
   input  logic        clk,
   input  logic        rst_n,
+  // ---- front-end ----
   input  logic        hvalid,
   output logic        hready,
   input  logic [2:0]  hcmd,
   input  logic [31:0] haddr,
   input  logic [15:0] hwdata,
   output logic [15:0] hrdata,
+  output logic [127:0] rdline,       // line of the last READ, held until the next one
   output logic        hdone,
   output logic        irq,
-  output logic [2:0]  pc_act,       // active pseudo-channel (trace/debug)
+  output logic [2:0]  pc_act,       // pseudo-channel of the engine (debug)
+  // ---- DRAM-facing pins (JEDEC-style subset) ----
   output logic        ck_t,
   output logic        ck_c,
   output logic        cke,
@@ -58,372 +64,527 @@ module HBM3E_Lite_top #(
   output logic        cas_n,
   output logic        we_n,
   output logic [1:0]  ba,
-  output logic [13:0] addr,         // [13:11]=pc
+  output logic [13:0] addr,         // [13:11] pseudo-channel
   inout  tri [15:0]   dq,
   inout  tri [1:0]    dqs,
+  // ---- trace ----
   output logic        trace_valid,
-  output logic [3:0]  trace_cmd,
+  output logic [3:0]  trace_cmd,    // 0 ACT 1 RD 2 WR 3 PRE 5 REFpb 6 REFab
   output logic [31:0] trace_addr
 );
 
-  localparam integer PCS   = 8;
-  localparam integer BANKS = 4;
-  localparam integer ENTS  = PCS*BANKS;   // 32 entries
-  localparam integer LINES = 8;
+  localparam integer BANKS = 32;             // 8 pseudo-channels x 4 banks
+  localparam integer ROWS  = 512;            // row field haddr[20:12]
+  localparam integer LINES = 8;              // BL8 bursts per row segment
+  localparam integer CW    = 16;             // dq width
 
-  // ---------------- mode registers (no DLL in HBM) ----------------
+  // ---------------- derived latencies (from MR0/MR1) ----------------
+  // CL cycles = 5 + MR0[3:0] (JEDEC DDR4 CL step is coarser; educational
+  // linear map keeps the register meaningful).  CWL = 5 + MR1[3:0].
   logic [7:0] mr [0:7];
   wire [4:0] cl_now  = 5'd5 + {1'b0, mr[0][3:0]};
   wire [4:0] cwl_now = 5'd5 + {1'b0, mr[1][3:0]};
 
-  // ---------------- memory array ----------------
-  logic [127:0] mem [0:ENTS*ROWS*LINES-1];
+  // ---------------- memory array (controller + DRAM model) ----------------
+  // 32 entries x ROWS rows x LINES lines x 128 bits
+  logic [127:0] mem [0:BANKS*ROWS*LINES-1];
+  // a DRAM keeps its data through rst_n; zero it once for deterministic
+  // simulation (not in synthesis: the array is an SRAM macro there, and
+  // yosys unrolling this loop takes minutes and gigabytes)
+`ifndef SYNTHESIS
+  initial for (int i = 0; i < BANKS*ROWS*LINES; i++) mem[i] = '0;
+`endif
 
-  // ---------------- per-entry state / timers ----------------
-  logic [ENTS-1:0]         ent_open;
-  logic [$clog2(ROWS)-1:0] ent_row [0:ENTS-1];
-  logic [15:0] rp_cnt [0:ENTS-1], ras_cnt [0:ENTS-1],
-               rc_cnt [0:ENTS-1], wr_cnt [0:ENTS-1];
-  wire rp_done  [0:ENTS-1], ras_done [0:ENTS-1],
-       rc_done  [0:ENTS-1], wr_done  [0:ENTS-1];
+  // ---------------- per-bank state ----------------
+  logic [BANKS-1:0]       bank_open;
+  logic [$clog2(ROWS)-1:0] bank_row [0:BANKS-1];
+
+  // ---------------- timers ----------------
+  // each counter is as wide as its own parameter
+  localparam integer RPW  = $clog2(T_RP + 1),  RASW = $clog2(T_RAS + 1),
+                     RCW  = $clog2(T_RC + 1),  WRW  = $clog2(T_WR + 1),
+                     RRDW = $clog2(T_RRD + 1), WTRW = $clog2(T_WTR + 1),
+                     RFCW = $clog2((T_RFC > T_RFC_PB ? T_RFC : T_RFC_PB) + 1),
+                     REFIW = $clog2(T_REFI + 1);
+  logic [RPW-1:0]  rp_cnt  [0:BANKS-1];
+  logic [RASW-1:0] ras_cnt [0:BANKS-1];
+  logic [RCW-1:0]  rc_cnt  [0:BANKS-1];
+  logic [WRW-1:0]  wr_cnt  [0:BANKS-1];
+  logic [RRDW-1:0] rrd_cnt;
+  logic [WTRW-1:0] wtr_cnt;
+  logic [RFCW-1:0] rfc_cnt;
+  logic [REFIW-1:0] refi_cnt;
+  // timer load strobes (engine -> timer block, one cycle); each loads its
+  // timing parameter
+  logic [BANKS-1:0] ld_rp_v,  ld_ras_v, ld_rc_v, ld_wr_v;
+  logic        ld_rrd_v, ld_wtr_v, ld_rfc_v, ld_rfc_pb, pbref_ack;
+  wire [BANKS-1:0] rp_done, ras_done, rc_done, wr_done;
   genvar g;
   generate
-    for (g = 0; g < ENTS; g = g + 1) begin : TZERO
-      assign rp_done[g]  = (rp_cnt[g]  == 16'd0) && !ld_rp_v[g];
-      assign ras_done[g] = (ras_cnt[g] == 16'd0) && !ld_ras_v[g];
-      assign rc_done[g]  = (rc_cnt[g]  == 16'd0) && !ld_rc_v[g];
-      assign wr_done[g]  = (wr_cnt[g]  == 16'd0) && !ld_wr_v[g];
+    for (g = 0; g < BANKS; g = g + 1) begin : TZERO
+      // a load strobe in flight means the timer is about to be armed:
+      // treat it as not-done, or the engine sees a stale zero for a cycle
+      assign rp_done[g]  = (rp_cnt[g] == '0) && !ld_rp_v[g];
+      assign ras_done[g] = (ras_cnt[g] == '0) && !ld_ras_v[g];
+      assign rc_done[g]  = (rc_cnt[g] == '0) && !ld_rc_v[g];
+      assign wr_done[g]  = (wr_cnt[g] == '0) && !ld_wr_v[g];
     end
   endgenerate
-  logic [15:0] rrd_cnt, wtr_cnt, rfc_cnt, refi_cnt;
-  wire rrd_done = (rrd_cnt == 16'd0) && !ld_rrd_v;
-  wire wtr_done = (wtr_cnt == 16'd0) && !ld_wtr_v;
-  wire rfc_done = (rfc_cnt == 16'd0) && !ld_rfc_v;
+  wire rrd_done = (rrd_cnt == '0) && !ld_rrd_v;
+  wire wtr_done = (wtr_cnt == '0) && !ld_wtr_v;
+  wire rfc_done = (rfc_cnt == '0) && !ld_rfc_v;
 
-  // ---------------- per-bank refresh rotation over 32 entries ----------------
-  logic [4:0]  ref_rot;
-  logic [ENTS-1:0] pbref_pend;
-  logic        refa_pend, ref_overrun;
+  // ---------------- refresh: one entry falls due per tREFI ----------------
+  logic [BANKS-1:0] pbref_pend;
+  logic [4:0]       ref_rot;               // next entry to fall due
+  logic             ref_overrun;
 
-  // ---------------- front-end <-> engine ----------------
-  logic        req_valid, req_we, req_refall;
+  // ---------------- front-end <-> engine handshake ----------------
+  logic        req_valid, req_we, req_ref;
   logic        req_done;
-  logic [31:0] req_addr;
-  logic [5:0]  req_ent, req_line;      // entry = {pc, bank}
-  logic [31:0] req_row;
+  logic [20:0] req_addr;               // in-range host address
 
-  typedef enum logic [2:0] {FE_IDLE, FE_FILL, FE_WAIT, FE_DRAIN} fe_t;
+  // ---------------- front-end ----------------
+  typedef enum logic [1:0] {FE_IDLE, FE_FILL, FE_WAIT, FE_DRAIN} fe_t;
   fe_t fe;
-  logic [3:0]  fe_cnt;
+  logic [2:0]  fe_cnt;
   logic [15:0] wbuf [0:7];
   logic [15:0] rbuf [0:7];
   logic        rbuf_valid;
-  logic [31:0] fe_addr;
+  logic        rbuf_take;              // FE -> engine: rbuf consumed
+  logic        fe_err;                 // 1-cycle protocol-error pulse
+  logic [20:0] fe_addr;
 
-  typedef enum logic [4:0] {   // 17 states: needs 5 bits
+  // ---------------- engine ----------------
+  typedef enum logic [4:0] {            // 17 states
     ENG_IDLE, ENG_BANK_CHK, ENG_PRE, ENG_PRE_WAIT, ENG_ACT, ENG_TRCD,
     ENG_CL, ENG_RD_BURST, ENG_CWL, ENG_WR_BURST,
-    ENG_RFB_CHK, ENG_RFB_PRE, ENG_RFB_PRE_WAIT, ENG_RFB_CMD, ENG_RFB_WAIT,
-    ENG_RFA_CMD, ENG_RFA_WAIT
+    ENG_REF_PRE, ENG_REF_WAITRP, ENG_REF_CMD, ENG_REF_WAIT,
+    ENG_RFB_PRE, ENG_RFB_WAITRP, ENG_RFB_CMD
   } eng_t;
   eng_t eng;
-  logic [5:0]  eng_ent, eng_line;
-  logic [31:0] eng_row;
+  logic [4:0]  eng_bank;                // entry {pseudo-channel, bank}
+  logic [2:0]  eng_line;
+  logic [8:0]  eng_row;                 // haddr[20:12] (ROWS = 512)
   logic        eng_we;
-  logic [4:0]  lat_cnt, bcnt;
+  logic        eng_ref_req;            // refresh was a host REFRESH command
+  logic [4:0]  lat_cnt;
+  logic [2:0]  bcnt;
   logic [127:0] burst_reg;
 
-  wire [31:0] mem_idx = ((eng_ent * ROWS) + eng_row[31:0]) * LINES + eng_line;
-
-  // Array write port, kept out of the async-reset engine process so the
-  // array infers as a memory (SRAM macro) instead of 128-bit registers;
-  // the engine posts one write per burst, applied on the next edge.
-  logic           mem_we;
-  logic [31:0]    mem_wa;
-  logic [127:0]   mem_wd;
-  always_ff @(posedge clk) if (mem_we) mem[mem_wa] <= mem_wd;
-  wire hit = ent_open[eng_ent] &&
-             (ent_row[eng_ent] == eng_row[$clog2(ROWS)-1:0]);
-
+  // ---------------- dq / dqs ----------------
   logic        dq_oe, dqs_oe;
   logic [15:0] dq_out;
   logic        dqs_t;
-  assign dq  = dq_oe  ? dq_out      : 16'hzzzz;
-  assign dqs = dqs_oe ? {~dqs_t, dqs_t} : 2'bzz;
+  assign dq      = dq_oe  ? dq_out      : 16'hzzzz;
+  assign dqs     = dqs_oe ? {~dqs_t, dqs_t} : 2'bzz;
+
+  // ---------------- pins ----------------
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      cs_n <= 1'b1; act_n <= 1'b1; ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;
+      ba <= 2'b00; addr <= 14'h0;
+    end else begin
+      // default: bus deselect every cycle; states override for 1 cycle
+      cs_n <= 1'b1; act_n <= 1'b1; ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;
+      case (eng)
+        ENG_PRE: begin                    // PRE (single bank; addr[10]=0)
+          cs_n <= 1'b0; act_n <= 1'b1; ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0;
+          ba <= eng_bank[1:0]; addr <= {eng_bank[4:2], 11'h000};
+        end
+        ENG_RFB_PRE: if (rfb_go && bank_open[eng_bank]) begin  // refresh PRE
+          cs_n <= 1'b0; act_n <= 1'b1; ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0;
+          ba <= eng_bank[1:0]; addr <= {eng_bank[4:2], 11'h000};
+        end
+        ENG_ACT: begin                    // ACT (row on addr)
+          cs_n <= 1'b0; act_n <= 1'b0; ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;
+          ba <= eng_bank[1:0]; addr <= {eng_bank[4:2], 2'b00, eng_row};
+        end
+        ENG_TRCD: if (lat_cnt == 5'd1 && (eng_we || wtr_done)) begin  // RD / WR command
+          cs_n <= 1'b0; act_n <= 1'b1; ras_n <= 1'b1; cas_n <= 1'b0;
+          we_n <= ~eng_we;
+          ba <= eng_bank[1:0]; addr <= {eng_bank[4:2], 4'b0000, eng_line, 4'h0};
+        end
+        ENG_REF_PRE: if (ref_go && bank_open != '0) begin  // PREA (all banks)
+          cs_n <= 1'b0; act_n <= 1'b1; ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0;
+          ba <= 2'b00; addr <= 14'h0400;  // A10=1 -> precharge all
+        end
+        ENG_REF_CMD: begin                // REF, all entries (A10=1)
+          cs_n <= 1'b0; act_n <= 1'b1; ras_n <= 1'b0; cas_n <= 1'b0; we_n <= 1'b1;
+          ba <= 2'b00; addr <= 14'h0400;
+        end
+        ENG_RFB_CMD: begin                // REF, one entry (A10=0)
+          cs_n <= 1'b0; act_n <= 1'b1; ras_n <= 1'b0; cas_n <= 1'b0; we_n <= 1'b1;
+          ba <= eng_bank[1:0]; addr <= {eng_bank[4:2], 11'h000};
+        end
+        default: ;
+      endcase
+    end
+  end
+  assign ck_t = clk;  assign ck_c = ~clk;  assign cke = rst_n;
+  assign pc_act = eng_bank[4:2];
+
+  // ---------------- trace ----------------
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      trace_valid <= 1'b0; trace_cmd <= 4'd0; trace_addr <= 32'h0;
+    end else begin
+      trace_valid <= 1'b0;
+      case (eng)
+        ENG_ACT:     begin trace_valid <= 1'b1; trace_cmd <= 4'd0; trace_addr <= {11'h0, eng_row, 12'h0}; end
+        // a PRE traces the row it closes
+        ENG_PRE:     begin trace_valid <= 1'b1; trace_cmd <= 4'd3; trace_addr <= {11'h0, bank_row[eng_bank], 12'h0}; end
+        ENG_RFB_PRE: if (rfb_go && bank_open[eng_bank]) begin
+          trace_valid <= 1'b1; trace_cmd <= 4'd3; trace_addr <= {11'h0, bank_row[eng_bank], 12'h0};
+        end
+        ENG_REF_CMD: begin trace_valid <= 1'b1; trace_cmd <= 4'd6; trace_addr <= 32'h0; end
+        ENG_RFB_CMD: begin trace_valid <= 1'b1; trace_cmd <= 4'd5; trace_addr <= {27'h0, eng_bank}; end
+        ENG_TRCD: if (lat_cnt == 5'd1 && (eng_we || wtr_done)) begin
+          trace_valid <= 1'b1; trace_cmd <= eng_we ? 4'd2 : 4'd1;
+          trace_addr <= {11'h0, eng_row, 12'h0};
+        end
+        default: ;
+      endcase
+    end
+  end
 
   // ========================================================================
-  // Timers (single owner)
+  // Timers -- single owner (no multi-driver): loads come from the engine
+  // via one-cycle load strobes; everything else free-runs down to zero.
   // ========================================================================
-  logic [ENTS-1:0] ld_rp_v, ld_ras_v, ld_rc_v, ld_wr_v;
-  logic [15:0] ld_rp, ld_ras, ld_rc, ld_wr;
-  logic        ld_rrd_v, ld_wtr_v, ld_rfc_v;
-  logic [15:0] ld_rfc;
-  logic        pbref_ack;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      for (int i = 0; i < ENTS; i++) begin
-        rp_cnt[i] <= 16'd0; ras_cnt[i] <= 16'd0;
-        rc_cnt[i] <= 16'd0; wr_cnt[i] <= 16'd0;
-        pbref_pend[i] <= 1'b0;
+      for (int i = 0; i < BANKS; i++) begin
+        rp_cnt[i] <= '0; ras_cnt[i] <= '0;
+        rc_cnt[i] <= '0; wr_cnt[i] <= '0;
       end
-      rrd_cnt <= 16'd0; wtr_cnt <= 16'd0; rfc_cnt <= 16'd0;
-      refi_cnt <= T_REFI[15:0];
-      ref_rot <= 5'd0; refa_pend <= 1'b0; ref_overrun <= 1'b0;
+      rrd_cnt <= '0; wtr_cnt <= '0; rfc_cnt <= '0;
+      refi_cnt <= REFIW'(T_REFI);
+      pbref_pend <= '0; ref_rot <= '0; ref_overrun <= 1'b0;
     end else begin
-      for (int i = 0; i < ENTS; i++) begin
-        if (ld_rp_v[i])        rp_cnt[i]  <= ld_rp;
-        else if (rp_cnt[i]!=0) rp_cnt[i]  <= rp_cnt[i] - 1;
-        if (ld_ras_v[i])       ras_cnt[i] <= ld_ras;
+      for (int i = 0; i < BANKS; i++) begin
+        if (ld_rp_v[i])       rp_cnt[i]  <= RPW'(T_RP);
+        else if (rp_cnt[i]!=0) rp_cnt[i] <= rp_cnt[i] - 1;
+        if (ld_ras_v[i])      ras_cnt[i] <= RASW'(T_RAS);
         else if (ras_cnt[i]!=0) ras_cnt[i] <= ras_cnt[i] - 1;
-        if (ld_rc_v[i])        rc_cnt[i]  <= ld_rc;
-        else if (rc_cnt[i]!=0) rc_cnt[i]  <= rc_cnt[i] - 1;
-        if (ld_wr_v[i])        wr_cnt[i]  <= ld_wr;
-        else if (wr_cnt[i]!=0) wr_cnt[i]  <= wr_cnt[i] - 1;
+        if (ld_rc_v[i])       rc_cnt[i]  <= RCW'(T_RC);
+        else if (rc_cnt[i]!=0) rc_cnt[i] <= rc_cnt[i] - 1;
+        if (ld_wr_v[i])       wr_cnt[i]  <= WRW'(T_WR);
+        else if (wr_cnt[i]!=0) wr_cnt[i] <= wr_cnt[i] - 1;
       end
-      if (ld_rrd_v)      rrd_cnt <= T_RRD[15:0];
+      if (ld_rrd_v)      rrd_cnt <= RRDW'(T_RRD);
       else if (rrd_cnt != 0) rrd_cnt <= rrd_cnt - 1;
-      if (ld_wtr_v)      wtr_cnt <= T_WTR[15:0];
+      if (ld_wtr_v)      wtr_cnt <= WTRW'(T_WTR);
       else if (wtr_cnt != 0) wtr_cnt <= wtr_cnt - 1;
-      if (ld_rfc_v)      rfc_cnt <= ld_rfc;
+      if (ld_rfc_v)      rfc_cnt <= ld_rfc_pb ? RFCW'(T_RFC_PB) : RFCW'(T_RFC);
       else if (rfc_cnt != 0) rfc_cnt <= rfc_cnt - 1;
+      // refresh interval: the next entry in rotation falls due; overrun
+      // sticky if it is still waiting from its previous turn. The REF
+      // going out to an entry serves it.
+      if (pbref_ack) pbref_pend[eng_bank] <= 1'b0;
       if (refi_cnt != 0) refi_cnt <= refi_cnt - 1;
       else begin
-        refi_cnt <= T_REFI[15:0];
-        if (pbref_pend[ref_rot]) ref_overrun <= 1'b1;
+        refi_cnt <= REFIW'(T_REFI);
+        if (pbref_pend[ref_rot] && !(pbref_ack && eng_bank == ref_rot)) ref_overrun <= 1'b1;
         pbref_pend[ref_rot] <= 1'b1;
-        ref_rot <= ref_rot + 1;
+        ref_rot <= ref_rot + 1'b1;
       end
-      if (pbref_ack) pbref_pend[eng_ent] <= 1'b0;
     end
   end
 
   // ========================================================================
   // Front-end
   // ========================================================================
-  assign hready = (fe == FE_IDLE) || (fe == FE_FILL) || (fe == FE_DRAIN);
+  assign hready = (fe == FE_IDLE) || (fe == FE_FILL);
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      fe <= FE_IDLE; fe_cnt <= 4'd0;
-      req_valid <= 1'b0; req_we <= 1'b0; req_refall <= 1'b0;
-      req_addr <= 32'h0; fe_addr <= 32'h0;
+      fe <= FE_IDLE; fe_cnt <= '0;
+      req_valid <= 1'b0; req_we <= 1'b0; req_ref <= 1'b0;
+      req_addr <= '0; fe_addr <= '0;
       hrdata <= 16'h0; hdone <= 1'b0;
+      rbuf_take <= 1'b0; fe_err <= 1'b0;
       for (int i = 0; i < 8; i++) wbuf[i] <= 16'h0;
-      fe_err_pulse <= 1'b0;
-      for (int i = 0; i < 8; i++) mr[i] <= 8'h00;
-      mr[0] <= CL - 5; mr[1] <= CWL - 5;
+      for (int i = 0; i < 8; i++) mr[i] <= 8'h0;
+      mr[0] <= 8'(CL - 5); mr[1] <= 8'(CWL - 5);   // CL / CWL fields
     end else begin
-      hdone <= 1'b0; fe_err_pulse <= 1'b0;
+      hdone <= 1'b0; rbuf_take <= 1'b0; fe_err <= 1'b0;
       case (fe)
         FE_IDLE: begin
           if (hvalid) begin
             case (hcmd)
-              3'd1: begin
-                if (haddr[31:22] != 10'h0 || haddr[16]) begin   // same map check as the engine ([21:19]=PC)
-                  fe_err_pulse <= 1'b1; hdone <= 1'b1;
+              3'd1: begin                       // READ line
+                if (haddr[31:21] != 11'h0) begin
+                  fe_err <= 1'b1; hdone <= 1'b1;         // out of range
                 end else begin
-                  fe_addr <= haddr; req_addr <= haddr;
-                  req_we <= 1'b0; req_refall <= 1'b0;
-                  req_valid <= 1'b1; fe <= FE_WAIT;
+                  fe_addr <= haddr[20:0];
+                  req_addr <= haddr[20:0]; req_we <= 1'b0; req_ref <= 1'b0;
+                  req_valid <= 1'b1;
+                  fe <= FE_WAIT;
                 end
               end
-              3'd2: begin
-                if (haddr[31:22] != 10'h0 || haddr[16]) begin   // same map check as the engine ([21:19]=PC)
-                  fe_err_pulse <= 1'b1; hdone <= 1'b1;
+              3'd2: begin                       // WRITE line: collect 8 beats
+                if (haddr[31:21] != 11'h0) begin
+                  fe_err <= 1'b1; hdone <= 1'b1;
                 end else begin
-                  fe_addr <= haddr; fe_cnt <= 4'd0; fe <= FE_FILL;
+                  fe_addr <= haddr[20:0]; fe_cnt <= '0;
+                  fe <= FE_FILL;
                 end
               end
-              3'd3: begin mr[haddr[2:0]] <= hwdata[7:0]; hdone <= 1'b1; end
-              3'd4: begin hrdata <= {8'h00, mr[haddr[2:0]]}; hdone <= 1'b1; end
-              3'd5: begin
-                req_we <= 1'b0; req_refall <= 1'b1; req_valid <= 1'b1;
+              3'd3: begin                       // MRW (no DLL-reset bit in HBM)
+                mr[haddr[2:0]] <= hwdata[7:0];
+                hdone <= 1'b1;
+              end
+              3'd4: begin                       // MRR
+                hrdata <= {8'h00, mr[haddr[2:0]]};
+                hdone <= 1'b1;
+              end
+              3'd5: begin                       // manual REFRESH
+                req_we <= 1'b0; req_ref <= 1'b1; req_valid <= 1'b1;
                 fe <= FE_WAIT;
               end
-              default: begin
-                if (hcmd != 3'd0) fe_err_pulse <= 1'b1;
+              default: begin                    // NOP / illegal
+                if (hcmd != 3'd0) fe_err <= 1'b1;
                 hdone <= 1'b1;
               end
             endcase
           end
         end
-        FE_FILL: begin
-          wbuf[fe_cnt[2:0]] <= hwdata;
-          if (fe_cnt == 4'd7) begin
-            req_addr <= fe_addr; req_we <= 1'b0 + 1'b1;
-            req_refall <= 1'b0; req_valid <= 1'b1; fe <= FE_WAIT;
+        FE_FILL: if (hvalid) begin           // one data beat per hvalid clock
+          wbuf[fe_cnt] <= hwdata;
+          if (fe_cnt == 3'd7) begin
+            req_addr <= fe_addr; req_we <= 1'b1; req_ref <= 1'b0;
+            req_valid <= 1'b1;
+            fe <= FE_WAIT;
           end else fe_cnt <= fe_cnt + 1;
         end
         FE_WAIT: begin
           if (req_done) begin
-            req_valid <= 1'b0; req_refall <= 1'b0;
-            if (!req_we && rbuf_valid) begin fe_cnt <= 4'd0; fe <= FE_DRAIN; end
-            else begin hdone <= 1'b1; fe <= FE_IDLE; end
+            req_valid <= 1'b0; req_ref <= 1'b0;
+            if (!req_we && rbuf_valid) begin
+              fe_cnt <= '0; fe <= FE_DRAIN;   // read: return 8 beats
+            end else begin
+              hdone <= 1'b1; fe <= FE_IDLE;     // write / refresh done
+            end
           end
         end
         FE_DRAIN: begin
-          hrdata <= rbuf[fe_cnt[2:0]];
-          if (fe_cnt == 4'd7) begin hdone <= 1'b1; fe <= FE_IDLE; end
-          else fe_cnt <= fe_cnt + 1;
+          hrdata <= rbuf[fe_cnt];
+          if (fe_cnt == 3'd7) begin
+            hdone <= 1'b1; rbuf_take <= 1'b1; fe <= FE_IDLE;
+          end else fe_cnt <= fe_cnt + 1;
         end
-        default: fe <= FE_IDLE;
       endcase
     end
   end
 
+  // rbuf is filled by the engine at the end of a read burst; the engine is
+  // the single driver of rbuf / rbuf_valid and clears it on rbuf_take
+  assign rdline = {rbuf[7], rbuf[6], rbuf[5], rbuf[4], rbuf[3], rbuf[2], rbuf[1], rbuf[0]};
+
   // ========================================================================
-  // Command engine (single engine shared across pseudo-channels)
+  // Command engine
   // ========================================================================
+  localparam integer MAW = $clog2(BANKS * ROWS * LINES);
+  wire [MAW-1:0] mem_idx = {eng_bank, eng_row, eng_line};
+
+  // Array write port, kept out of the async-reset engine process so the
+  // array infers as a memory (SRAM macro) instead of 128-bit registers;
+  // the engine posts one write per burst, applied on the next edge.
+  logic           mem_we;
+  logic [MAW-1:0] mem_wa;
+  logic [127:0]   mem_wd;
+  always_ff @(posedge clk) if (mem_we) mem[mem_wa] <= mem_wd;
+  wire hit = bank_open[eng_bank] &&
+             (bank_row[eng_bank] == eng_row);
+  // refresh may only start when no bank is mid-write or inside tRAS
+  wire ref_go = (&wr_done) && (&ras_done);
+  // a per-entry refresh waits for that entry only
+  wire rfb_go = wr_done[eng_bank] && ras_done[eng_bank];
+  // lowest due entry
+  logic [4:0] pb_pick;
+  always_comb begin
+    pb_pick = '0;
+    for (int i = BANKS - 1; i >= 0; i--) if (pbref_pend[i]) pb_pick = 5'(i);
+  end
+
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       eng <= ENG_IDLE;
-      mem_we <= 1'b0; mem_wa <= 32'h0; mem_wd <= '0;
-      eng_ent <= 6'd0; eng_line <= 6'd0; eng_row <= 32'h0; eng_we <= 1'b0;
-      lat_cnt <= 5'd0; bcnt <= 5'd0; burst_reg <= 128'h0;
+      mem_we <= 1'b0; mem_wa <= '0; mem_wd <= '0;
+      eng_bank <= '0; eng_line <= '0; eng_row <= '0; eng_we <= 1'b0;
+      eng_ref_req <= 1'b0;
+      lat_cnt <= 5'd0; bcnt <= '0;
+      burst_reg <= 128'h0;
       req_done <= 1'b0;
       ld_rp_v <= '0; ld_ras_v <= '0; ld_rc_v <= '0; ld_wr_v <= '0;
-      ld_rp <= 16'h0; ld_ras <= 16'h0; ld_rc <= 16'h0; ld_wr <= 16'h0;
-      ld_rrd_v <= 1'b0; ld_wtr_v <= 1'b0; ld_rfc_v <= 1'b0; ld_rfc <= 16'h0;
-      pbref_ack <= 1'b0; eng_err_pulse <= 1'b0;
+      ld_rrd_v <= 1'b0; ld_wtr_v <= 1'b0; ld_rfc_v <= 1'b0; ld_rfc_pb <= 1'b0;
+      pbref_ack <= 1'b0;
       dq_oe <= 1'b0; dqs_oe <= 1'b0; dq_out <= 16'h0; dqs_t <= 1'b0;
-      for (int i = 0; i < ENTS; i++) begin
-        ent_open[i] <= 1'b0; ent_row[i] <= '0;
+      for (int i = 0; i < BANKS; i++) begin
+        bank_open[i] <= 1'b0; bank_row[i] <= '0;
       end
       for (int i = 0; i < 8; i++) rbuf[i] <= 16'h0;
       rbuf_valid <= 1'b0;
     end else begin
+      // default strobes low
       ld_rp_v <= '0; ld_ras_v <= '0; ld_rc_v <= '0; ld_wr_v <= '0;
-      ld_rrd_v <= 1'b0; ld_wtr_v <= 1'b0; ld_rfc_v <= 1'b0;
-      pbref_ack <= 1'b0; req_done <= 1'b0; eng_err_pulse <= 1'b0;
+      ld_rrd_v <= 1'b0; ld_wtr_v <= 1'b0; ld_rfc_v <= 1'b0; ld_rfc_pb <= 1'b0;
+      pbref_ack <= 1'b0; req_done <= 1'b0;
       mem_we <= 1'b0;
+      if (rbuf_take) rbuf_valid <= 1'b0;
       case (eng)
+        // --------------------------------------------------------------
         ENG_IDLE: begin
-          // req_valid is still high in the cycle req_done pulses (the FE
-          // drops it a cycle later): ignore it then, or the finished
-          // request is relaunched
           dq_oe <= 1'b0; dqs_oe <= 1'b0;
-          if ((req_valid && !req_done) && req_refall) eng <= ENG_RFA_CMD;
-          else if (pbref_pend != 32'h0 && !pbref_ack) begin   // ack clears pend a cycle late
-            for (int i = 0; i < ENTS; i++)
-              if (pbref_pend[i] && eng == ENG_IDLE) eng_ent <= i[5:0];
-            eng <= ENG_RFB_CHK;
-          end
-          else if ((req_valid && !req_done)) begin
-            if (req_addr[31:22] != 10'h0 || req_addr[16] != 1'b0) begin
-              eng_err_pulse <= 1'b1; req_done <= 1'b1;
-            end else begin
-              if (!req_we) rbuf_valid <= 1'b0;
-              eng_ent  <= {req_addr[21:19], req_addr[18:17]};
-              eng_row  <= {23'h0, req_addr[15:7]};
-              eng_line <= {3'b0, req_addr[6:4]};
-              eng_we   <= req_we;
-              eng <= ENG_BANK_CHK;
-            end
+          // req_valid is still high in the cycle req_done pulses (the FE
+          // drops it one cycle later): ignore it then, or the engine
+          // relaunches the request it just finished
+          if (req_valid && req_ref && !req_done) begin
+            eng_ref_req <= 1'b1;
+            eng <= ENG_REF_PRE;
+          end else if (pbref_pend != '0) begin   // an entry is due
+            eng_ref_req <= 1'b0;
+            eng_bank <= pb_pick;
+            eng <= ENG_RFB_PRE;
+          end else if (req_valid && !req_done) begin
+            // the front-end already rejected out-of-range addresses
+            eng_bank <= req_addr[11:7];
+            eng_row  <= req_addr[20:12];
+            eng_line <= req_addr[6:4];
+            eng_we   <= req_we;
+            eng <= ENG_BANK_CHK;
           end
         end
+        // --------------------------------------------------------------
         ENG_BANK_CHK: begin
           if (hit) begin
-            if (wr_done[eng_ent] && (eng_we || wtr_done)) begin
-              lat_cnt <= 5'd1; eng <= ENG_TRCD;
-            end
-          end else if (ent_open[eng_ent]) begin
-            if (ras_done[eng_ent] && wr_done[eng_ent]) eng <= ENG_PRE;
+            // open-page hit: no ACT, the RD / WR goes out next clock (an RD
+            // still waits out tWTR there)
+            lat_cnt <= 5'd1;
+            eng <= ENG_TRCD;
+          end else if (bank_open[eng_bank]) begin
+            if (ras_done[eng_bank] && wr_done[eng_bank])
+              eng <= ENG_PRE;
           end else begin
-            if (rp_done[eng_ent] && rc_done[eng_ent] && rrd_done)
+            if (rp_done[eng_bank] && rc_done[eng_bank] && rrd_done)
               eng <= ENG_ACT;
           end
         end
+        // ---- PRE: pulse, then wait tRP ----
         ENG_PRE: begin
-          ent_open[eng_ent] <= 1'b0;
-          ld_rp_v[eng_ent] <= 1'b1; ld_rp <= T_RP[15:0];
+          bank_open[eng_bank] <= 1'b0;
+          ld_rp_v[eng_bank] <= 1'b1;
           eng <= ENG_PRE_WAIT;
         end
-        ENG_PRE_WAIT: if (rp_done[eng_ent]) eng <= ENG_ACT;
+        ENG_PRE_WAIT: if (rp_done[eng_bank] && rc_done[eng_bank] && rrd_done) eng <= ENG_ACT;
+        // ---- ACT: pulse, then wait tRCD ----
         ENG_ACT: begin
-          ent_open[eng_ent] <= 1'b1;
-          ent_row[eng_ent] <= eng_row[$clog2(ROWS)-1:0];
-          ld_ras_v[eng_ent] <= 1'b1; ld_ras <= T_RAS[15:0];
-          ld_rc_v[eng_ent]  <= 1'b1; ld_rc  <= T_RC[15:0];
+          bank_open[eng_bank] <= 1'b1;
+          bank_row[eng_bank] <= eng_row;
+          ld_ras_v[eng_bank] <= 1'b1;
+          ld_rc_v[eng_bank]  <= 1'b1;
           ld_rrd_v <= 1'b1;
           lat_cnt <= T_RCD[4:0];
           eng <= ENG_TRCD;
         end
+        // ---- tRCD elapse, then RD/WR command pulse ----
         ENG_TRCD: begin
           if (lat_cnt > 5'd1) lat_cnt <= lat_cnt - 1;
-          else begin
-            if (eng_we) begin lat_cnt <= cwl_now; eng <= ENG_CWL; end
-            else          begin lat_cnt <= cl_now;  eng <= ENG_CL;  end
+          else if (eng_we) begin
+            lat_cnt <= cwl_now - 5'd1;          // data CWL clocks after the WR
+            eng <= ENG_CWL;
+          end else if (wtr_done) begin          // tWTR: WR burst end -> RD
+            lat_cnt <= cl_now - 5'd1;           // data CL clocks after the RD
+            eng <= ENG_CL;
           end
         end
+        // ---- read: wait CL, then drive 8 beats ----
         ENG_CL: begin
           if (lat_cnt > 5'd1) lat_cnt <= lat_cnt - 1;
-          else begin burst_reg <= mem[mem_idx]; bcnt <= 5'd0; eng <= ENG_RD_BURST; end
+          else begin
+            burst_reg <= mem[mem_idx];
+            bcnt <= '0;
+            eng <= ENG_RD_BURST;
+          end
         end
         ENG_RD_BURST: begin
           dq_oe <= 1'b1; dqs_oe <= 1'b1; dqs_t <= ~dqs_t;
           dq_out <= burst_reg[16*bcnt +: 16];
-          if (bcnt == 5'd7) begin
+          if (bcnt == 3'd7) begin
             for (int i = 0; i < 8; i++) rbuf[i] <= burst_reg[16*i +: 16];
             rbuf_valid <= 1'b1;
-            ld_wtr_v <= 1'b1; req_done <= 1'b1; eng <= ENG_IDLE;
+            req_done <= 1'b1;
+            eng <= ENG_IDLE;
           end else bcnt <= bcnt + 1;
         end
+        // ---- write: wait CWL, then drive 8 beats, commit ----
         ENG_CWL: begin
           if (lat_cnt > 5'd1) lat_cnt <= lat_cnt - 1;
-          else begin bcnt <= 5'd0; eng <= ENG_WR_BURST; end
+          else begin
+            bcnt <= '0;
+            eng <= ENG_WR_BURST;
+          end
         end
         ENG_WR_BURST: begin
           dq_oe <= 1'b1; dqs_oe <= 1'b1; dqs_t <= ~dqs_t;
-          dq_out <= wbuf[bcnt[2:0]];
-          if (bcnt == 5'd7) begin
+          dq_out <= wbuf[bcnt];
+          if (bcnt == 3'd7) begin
             mem_we <= 1'b1; mem_wa <= mem_idx;
             mem_wd <= {wbuf[7], wbuf[6], wbuf[5], wbuf[4],
                              wbuf[3], wbuf[2], wbuf[1], wbuf[0]};
-            ld_wr_v[eng_ent] <= 1'b1; ld_wr <= T_WR[15:0];
-            req_done <= 1'b1; eng <= ENG_IDLE;
+            ld_wr_v[eng_bank] <= 1'b1;  // tWR
+            ld_wtr_v <= 1'b1;                   // tWTR before the next RD
+            req_done <= 1'b1;
+            eng <= ENG_IDLE;
           end else bcnt <= bcnt + 1;
         end
-        // ---- per-entry refresh (one of 32 per tREFI) ----
-        ENG_RFB_CHK: begin
-          if (wr_done[eng_ent] && ras_done[eng_ent]) begin
-            if (ent_open[eng_ent]) eng <= ENG_RFB_PRE;
-            else                   eng <= ENG_RFB_CMD;
+        // ---- all-entry refresh: PREA (if any entry open), then REF + tRFC ----
+        ENG_REF_PRE: begin
+          if (ref_go) begin
+            if (bank_open != '0) begin
+              for (int i = 0; i < BANKS; i++) begin
+                bank_open[i] <= 1'b0;
+                ld_rp_v[i] <= 1'b1;
+              end
+              eng <= ENG_REF_WAITRP;              // pins: ENG_REF_PRE pulse
+            end else begin
+              eng <= ENG_REF_CMD;
+            end
           end
         end
+        ENG_REF_WAITRP: begin                     // tRP after PREA, then REF
+          if (&rp_done)
+            eng <= ENG_REF_CMD;
+        end
+        ENG_REF_CMD: begin                        // 1-cycle REF pulse
+          ld_rfc_v <= 1'b1;
+          eng <= ENG_REF_WAIT;
+        end
+        // ---- per-entry refresh: PRE (if open), then REF + tRFC_PB ----
         ENG_RFB_PRE: begin
-          ent_open[eng_ent] <= 1'b0;
-          ld_rp_v[eng_ent] <= 1'b1; ld_rp <= T_RP[15:0];
-          eng <= ENG_RFB_PRE_WAIT;
+          if (rfb_go) begin
+            if (bank_open[eng_bank]) begin
+              bank_open[eng_bank] <= 1'b0;
+              ld_rp_v[eng_bank] <= 1'b1;
+              eng <= ENG_RFB_WAITRP;              // pins: ENG_RFB_PRE pulse
+            end else eng <= ENG_RFB_CMD;
+          end
         end
-        ENG_RFB_PRE_WAIT: if (rp_done[eng_ent]) eng <= ENG_RFB_CMD;
+        ENG_RFB_WAITRP: if (rp_done[eng_bank]) eng <= ENG_RFB_CMD;
         ENG_RFB_CMD: begin
-          ld_rfc_v <= 1'b1; ld_rfc <= T_RFC_PB[15:0];
-          eng <= ENG_RFB_WAIT;
+          ld_rfc_v <= 1'b1; ld_rfc_pb <= 1'b1;
+          pbref_ack <= 1'b1;                      // this REF serves the entry
+          eng <= ENG_REF_WAIT;
         end
-        ENG_RFB_WAIT: begin
+        ENG_REF_WAIT: begin
           if (rfc_done) begin
-            pbref_ack <= 1'b1; eng <= ENG_IDLE;   // auto refresh: no host request to ack
-          end
-        end
-        // ---- all-entry refresh ----
-        ENG_RFA_CMD: begin
-          for (int i = 0; i < ENTS; i++) begin
-            ent_open[i] <= 1'b0;
-            ld_rp_v[i] <= 1'b1; ld_rp <= T_RP[15:0];
-          end
-          ld_rfc_v <= 1'b1; ld_rfc <= T_RFC[15:0];
-          eng <= ENG_RFA_WAIT;
-        end
-        ENG_RFA_WAIT: begin
-          if (rfc_done && (&{rp_done[31],rp_done[30],rp_done[29],rp_done[28],
-              rp_done[27],rp_done[26],rp_done[25],rp_done[24],rp_done[23],
-              rp_done[22],rp_done[21],rp_done[20],rp_done[19],rp_done[18],
-              rp_done[17],rp_done[16],rp_done[15],rp_done[14],rp_done[13],
-              rp_done[12],rp_done[11],rp_done[10],rp_done[9],rp_done[8],
-              rp_done[7],rp_done[6],rp_done[5],rp_done[4],rp_done[3],
-              rp_done[2],rp_done[1],rp_done[0]})) begin
-            req_done <= 1'b1; eng <= ENG_IDLE;
+            // only a host REFRESH completes a front-end request; a
+            // per-entry refresh must not ack the read/write still waiting
+            req_done <= eng_ref_req;
+            eng_ref_req <= 1'b0;
+            eng <= ENG_IDLE;
           end
         end
         default: eng <= ENG_IDLE;
@@ -431,75 +592,12 @@ module HBM3E_Lite_top #(
     end
   end
 
-  // ========================================================================
-  // Pins / trace
-  // ========================================================================
-  assign pc_act = eng_ent[4:2];          // eng_ent = {pc[2:0], bank[1:0]}
-
+  // ------------------------------------------------------------------------
+  // irq: sticky protocol-error / refresh-overrun indicator
+  // ------------------------------------------------------------------------
   always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      ck_t <= 1'b0; cke <= 1'b1;
-      cs_n <= 1'b1; act_n <= 1'b1; ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;
-      ba <= 2'b00; addr <= 14'h0;
-    end else begin
-      ck_t <= 1'b1; cke <= 1'b1;
-      cs_n <= 1'b1; act_n <= 1'b1; ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;
-      case (eng)
-        ENG_PRE, ENG_RFB_PRE: begin
-          cs_n <= 1'b0; ras_n <= 1'b0; we_n <= 1'b0;
-          ba <= eng_ent[1:0]; addr <= {eng_ent[5:3], 11'h000};
-        end
-        ENG_ACT: begin
-          cs_n <= 1'b0; act_n <= 1'b0;
-          ba <= eng_ent[1:0]; addr <= eng_row[13:0];
-        end
-        ENG_TRCD: if (lat_cnt == 5'd1) begin
-          cs_n <= 1'b0; cas_n <= 1'b0; we_n <= ~eng_we;
-          ba <= eng_ent[1:0]; addr <= {eng_ent[5:3], 3'b000, eng_line, 4'h0};
-        end
-        ENG_RFB_CMD: begin
-          cs_n <= 1'b0; ras_n <= 1'b0; cas_n <= 1'b0;   // per-bank REF
-          ba <= eng_ent[1:0]; addr <= {eng_ent[5:3], 11'h000};
-        end
-        ENG_RFA_CMD: begin
-          cs_n <= 1'b0; ras_n <= 1'b0; cas_n <= 1'b0;   // all-bank REF
-          ba <= 2'b00; addr <= 14'h0400;                 // A10=1
-        end
-        default: ;
-      endcase
-    end
-  end
-  assign ck_c = ~ck_t;
-
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      trace_valid <= 1'b0; trace_cmd <= 4'd0; trace_addr <= 32'h0;
-    end else begin
-      trace_valid <= 1'b0;
-      case (eng)
-        ENG_ACT:     begin trace_valid <= 1'b1; trace_cmd <= 4'd0; trace_addr <= {eng_row[19:0], 12'h0}; end
-        ENG_PRE:     begin trace_valid <= 1'b1; trace_cmd <= 4'd3; trace_addr <= {eng_row[19:0], 12'h0}; end
-        ENG_RFB_CMD: begin trace_valid <= 1'b1; trace_cmd <= 4'd5; trace_addr <= {26'h0, eng_ent}; end
-        ENG_RFA_CMD: begin trace_valid <= 1'b1; trace_cmd <= 4'd6; trace_addr <= 32'h0; end
-        ENG_TRCD: if (lat_cnt == 5'd1) begin
-          trace_valid <= 1'b1; trace_cmd <= eng_we ? 4'd2 : 4'd1;
-          trace_addr <= {eng_row[19:0], 12'h0};
-        end
-        default: ;
-      endcase
-    end
-  end
-
-  // ========================================================================
-  // Error aggregation (single driver)
-  // ========================================================================
-  logic fe_err_pulse, eng_err_pulse;
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      irq <= 1'b0;
-    end else begin
-      if (fe_err_pulse || eng_err_pulse || ref_overrun) irq <= 1'b1;
-    end
+    if (!rst_n) irq <= 1'b0;
+    else if (fe_err || ref_overrun) irq <= 1'b1;
   end
 
 endmodule

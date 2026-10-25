@@ -1,0 +1,15 @@
+{
+  "title": "UFS device link: training handshake, SOF / header / payload / CRC-32 / EOF frames on a serial lane, COMMAND UPIUs (TEST UNIT READY, READ10, WRITE10) answered with RESPONSE and DATA UPIUs from a 256 x 32-bit LUN0 medium",
+  "code": "0x5546",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "40ms",
+  "regs": [],
+  "irqs": [
+    {"name": "ERR", "port": "irq", "desc": "CRC mismatch, bad EOF, length above 8, malformed CDB, bad LUN, unknown opcode, out-of-range LBA or transfer length, WRITE10 length mismatch, or a command while a response is still owed"}
+  ],
+  "notes": [
+    "tx_p / tx_n (serial out, 1 bit per PCLK), rx_p / rx_n (serial in; only rx_p is sampled) and refclk pass through unchanged. The core trains the link on its own after reset and answers the commands the link partner sends.",
+    "The LUN0 medium is reached over the serial link only; the registers report its errors."
+  ]
+}

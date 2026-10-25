@@ -1,0 +1,2 @@
+TOGGLE \.bresp\[0\]: # architecturally constant: AXI4-Lite slave never returns EXOKAY/DECERR
+TOGGLE \.rresp\[0\]: # architecturally constant: AXI4-Lite slave never returns EXOKAY/DECERR

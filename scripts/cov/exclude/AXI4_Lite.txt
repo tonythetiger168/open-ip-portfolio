@@ -1,0 +1,7 @@
+# AXI4-Lite slave: only OKAY (2'b00) and SLVERR (2'b10) are ever returned;
+# EXOKAY/DECERR are not defined for this slave, so resp bit 0 is constant.
+TOGGLE \.bresp\[0\]: # architecturally constant: AXI4-Lite slave never returns EXOKAY/DECERR
+TOGGLE \.rresp\[0\]: # architecturally constant: AXI4-Lite slave never returns EXOKAY/DECERR
+# 2-bit write FSM has 3 states; the default arm only recovers the unused
+# encoding 2'b11, which no legal input sequence can produce.
+LINE AXI4_Lite_top\.sv:.*\| default: wstate <= W_IDLE; # defensive default: unused wstate encoding 2'b11

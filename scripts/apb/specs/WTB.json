@@ -1,0 +1,32 @@
+{
+  "title": "IEEE 802.4-style token-bus station: serial frames with preamble, SD, FC, DA, SA, LEN, payload, CRC-16 and ED; token hold with up to four data frames inside a programmable window, token pass to the next station, claim_token contention, an 8-word TX FIFO and an 8-word RX FIFO",
+  "code": "0x5754",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {"name": "MYADDR", "kind": "rw", "desc": "Station identity",
+     "fields": [{"port": "my_addr", "reset": "0x11", "desc": "this station's bus address (DA of its tokens and data, SA of its frames)"}]},
+    {"name": "STATUS", "kind": "ro", "desc": "Station state",
+     "fields": [
+       {"port": "fifo_count", "desc": "TX FIFO words (0..8)"},
+       {"port": "rx_count", "desc": "RX FIFO words (0..8)"},
+       {"port": "token_held", "desc": "the station holds the token"}
+     ]},
+    {"name": "CORE", "kind": "bus", "wen": "cpu_we", "waddr": "cpu_addr", "wdata": "cpu_wdata",
+     "ren": "cpu_re", "raddr": "cpu_addr", "rdata": "cpu_rdata",
+     "words": [
+       {"name": "TXF", "w": 0, "desc": "push one 32-bit word (the payload of one 4-byte data frame) onto the TX FIFO; a push to a full FIFO is dropped with EVT"},
+       {"name": "NS", "w": 1, "desc": "[7:0] next station: DA of the token pass"},
+       {"name": "DA", "w": 2, "desc": "[7:0] DA of the data frames"},
+       {"name": "CTRL", "w": 3, "desc": "[16:8] token holding window in clocks, [0] claim_en (claim the token after 300 idle clocks)"},
+       {"name": "RXF", "r": 0, "desc": "RX FIFO head: received payload bytes packed big-endian, the last word zero-padded; the read pops it"}
+     ]}
+  ],
+  "irqs": [
+    {"name": "EVT", "port": "irq", "desc": "token acquired, or an error: bad CRC, bad ED or overlong frame received, TX FIFO overflow, RX FIFO overflow"}
+  ],
+  "notes": [
+    "rx_bit (serial in, 1 bit per PCLK, idle 1; the station hears its own frames), tx_bit and tx_en pass through unchanged.",
+    "NS, DA and CTRL are write-only in the core and read back as 0. A write with PSTRB != 4'hF to a core word is dropped with PSLVERR."
+  ]
+}

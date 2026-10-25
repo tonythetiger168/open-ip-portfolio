@@ -302,6 +302,29 @@ module AXI4_Lite_tb;
     axi_read (32'h100, OKAY, 1'b0, 1'b1);
     axi_read (32'h104, OKAY, 1'b0, 1'b1);
 
+    // ---- check 8: concurrent write + read (independent channels; AW and
+    //      AR presented in the same cycle) ----
+    fork
+      axi_write(32'h200, 32'h0C0C_0C0C, 4'hF, OKAY, 1'b1, 1'b1);
+      axi_read (32'h104, OKAY, 1'b1, 1'b1);
+    join
+    axi_read (32'h200, OKAY, 1'b0, 1'b1);
+
+    // ---- check 9: reset with a write in flight clears irq and channels ----
+    axi_aw(32'h300);                       // address accepted, W pending
+    @(negedge clk) rst_n = 0;
+    @(negedge clk);
+    if (wready !== 1'b0 || bvalid !== 1'b0 || rvalid !== 1'b0 || irq !== 1'b0) begin
+      errors++; $display("ERROR: reset with write in flight: channels/irq not cleared");
+    end
+    @(negedge clk) rst_n = 1;
+    @(negedge clk);
+    if (awready !== 1'b1 || arready !== 1'b1) begin
+      errors++; $display("ERROR: not ready after mid-run reset");
+    end
+    axi_write(32'h300, 32'h0300_0300, 4'hF, OKAY, 1'b0, 1'b1);
+    axi_read (32'h300, OKAY, 1'b0, 1'b1);
+
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ------
     // 140 randomized single-beat transactions, ~50/50 write/read.

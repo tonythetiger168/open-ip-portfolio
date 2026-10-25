@@ -9,8 +9,9 @@ flows (Icarus Verilog simulation + Yosys synthesis).
 > compact, readable implementation of the protocol's core transaction flow —
 > not a full-spec, production-hardened controller. Some catalog entries are
 > **parameterized variants of a shared core** rather than independent
-> implementations (e.g. DDR4/DDR5/HBM3 are timing-parameter shells over the
-> common `MEMCH` memory-controller core). 117 catalog entries = 81 distinct
+> implementations (e.g. DDR4/DDR5/HBM3 each carry their own copy of one
+> memory-controller design, with their own timing and channel count; the old
+> shared `MEMCH` / `MEMCORE` cores are no longer used by any IP). 117 catalog entries = 81 distinct
 > cores + 36 shared-core variants, itemized
 > [below](#design-organization-cores-vs-variants).
 
@@ -270,7 +271,16 @@ for m in Makefile.*; do make -f $m sim; done
 unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
 ```
 
-## Verification status (v2.5.1)
+## Verification status
+
+- **Five-metric closure (Verilator 5.052):** every IP's testbench reaches
+  100% line, toggle, FSM, SVA and functional coverage, and so does every
+  IP's APB4 register wrapper (`rtl/<P>_apb.sv`, register map in
+  `docs/ip/<P>.md`): 121 cores and 121 wrappers, 242/242 closed. Results,
+  exclusions and how to run: [docs/COVERAGE_CLOSURE.md](docs/COVERAGE_CLOSURE.md).
+  The v2.5.1 numbers below are the earlier four-metric flow.
+
+### Earlier four-metric flow (v2.5.1)
 
 - Constrained-random verification: **117/117 protocols closed** on all
   four coverage metrics (LINE / TOGGLE / FSM / SVA-subset assertions);

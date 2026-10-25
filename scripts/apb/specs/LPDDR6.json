@@ -1,0 +1,49 @@
+{
+  "title": "LPDDR6 memory controller: bank-group mobile controller (bank = {haddr[8] channel, haddr[11:9]}, group = haddr[11], row = haddr[31:18], storage = 256 columns per channel), group-aware tRRD, per-bank refresh over all 16; commands leave as framed beats on the 8-bit CA bus",
+  "code": "0x6D13",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "20ms",
+  "regs": [
+    {
+      "name": "CMD",
+      "kind": "stream_in",
+      "data": [
+        "hcmd",
+        "haddr",
+        "hwdata"
+      ],
+      "valid": "hvalid",
+      "ready": "hready",
+      "desc": "Host command; writing CMD2 sends it (the core takes it when it is idle and no refresh is due)",
+      "fdesc": {
+        "hcmd": "1 ACT, 2 RD, 3 WR, 4 PRE; other codes are no-ops",
+        "haddr": "host address (bank, row and column fields below)",
+        "hwdata": "word to write (WR)"
+      }
+    },
+    {
+      "name": "RDATA",
+      "kind": "ro",
+      "desc": "Read data",
+      "fields": [
+        {
+          "port": "hrdata",
+          "desc": "word of the last RD, valid once RD_DONE is set"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "RD_DONE",
+      "port": "hdone",
+      "desc": "a RD finished; RDATA holds its word"
+    }
+  ],
+  "notes": [
+    "ck_t, ck_c, cke, ca, cs_n, dq and dqs are the DRAM pins and trace_valid, trace_cmd and trace_addr the command trace (one clock before each command on the pins); they pass through unchanged.",
+    "Address map and behaviour of the core: bank-group mobile controller (bank = {haddr[8] channel, haddr[11:9]}, group = haddr[11], row = haddr[31:18], storage = 256 columns per channel), group-aware tRRD, per-bank refresh over all 16; commands leave as framed beats on the 8-bit CA bus.",
+    "The core's own verification (pin-level checker, 100% coverage) is tb/cov/LPDDR6_sva.sv with tb/LPDDR6_tb.sv; this wrapper test drives the core only through the registers."
+  ]
+}

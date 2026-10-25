@@ -1,0 +1,118 @@
+{
+  "title": "Avalon-ST sink: a 16-beat capture buffer, read back through the registers",
+  "code": "0x4176",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Capture buffer state",
+      "fields": [
+        {
+          "port": "count",
+          "desc": "beats captured (16: full, av_ready low until reset)"
+        }
+      ]
+    },
+    {
+      "name": "CORE",
+      "kind": "bus",
+      "ren": "ren",
+      "raddr": "raddr",
+      "rdata": "rdata",
+      "words": [
+        {
+          "name": "D0",
+          "r": 0,
+          "desc": "Capture buffer entry 0"
+        },
+        {
+          "name": "D1",
+          "r": 1,
+          "desc": "Capture buffer entry 1"
+        },
+        {
+          "name": "D2",
+          "r": 2,
+          "desc": "Capture buffer entry 2"
+        },
+        {
+          "name": "D3",
+          "r": 3,
+          "desc": "Capture buffer entry 3"
+        },
+        {
+          "name": "D4",
+          "r": 4,
+          "desc": "Capture buffer entry 4"
+        },
+        {
+          "name": "D5",
+          "r": 5,
+          "desc": "Capture buffer entry 5"
+        },
+        {
+          "name": "D6",
+          "r": 6,
+          "desc": "Capture buffer entry 6"
+        },
+        {
+          "name": "D7",
+          "r": 7,
+          "desc": "Capture buffer entry 7"
+        },
+        {
+          "name": "D8",
+          "r": 8,
+          "desc": "Capture buffer entry 8"
+        },
+        {
+          "name": "D9",
+          "r": 9,
+          "desc": "Capture buffer entry 9"
+        },
+        {
+          "name": "D10",
+          "r": 10,
+          "desc": "Capture buffer entry 10"
+        },
+        {
+          "name": "D11",
+          "r": 11,
+          "desc": "Capture buffer entry 11"
+        },
+        {
+          "name": "D12",
+          "r": 12,
+          "desc": "Capture buffer entry 12"
+        },
+        {
+          "name": "D13",
+          "r": 13,
+          "desc": "Capture buffer entry 13"
+        },
+        {
+          "name": "D14",
+          "r": 14,
+          "desc": "Capture buffer entry 14"
+        },
+        {
+          "name": "D15",
+          "r": 15,
+          "desc": "Capture buffer entry 15"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "LAST",
+      "port": "irq",
+      "desc": "a beat with av_eop was accepted"
+    }
+  ],
+  "notes": [
+    "av_valid, av_ready, av_data and av_eop are the Avalon-ST sink pins; they pass through unchanged. Beats fill entries 0 to 15 in order; the buffer is emptied only by reset."
+  ]
+}

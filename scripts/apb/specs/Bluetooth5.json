@@ -1,0 +1,59 @@
+{
+  "title": "Bluetooth 5 (BLE) link-layer peripheral on a 1 bit per clock baseband: ADV_IND from a host payload, SCAN_REQ / SCAN_RSP, CONNECT_REQ, connection events with SN / NESN acknowledgement, peripheral latency and supervision timeout",
+  "code": "0x4254",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "pins": ["tx_act"],
+  "regs": [
+    {
+      "name": "CFG",
+      "kind": "bus",
+      "wen": "cfg_we",
+      "waddr": "cfg_addr",
+      "wdata": "cfg_wdata",
+      "words": [
+        {"name": "PAY0", "w": 0, "desc": "ADV_IND payload byte 0 (write only; reset 0xB0)"},
+        {"name": "PAY1", "w": 1, "desc": "ADV_IND payload byte 1 (write only; reset 0xB1)"},
+        {"name": "PAY2", "w": 2, "desc": "ADV_IND payload byte 2 (write only; reset 0xB2)"},
+        {"name": "PAY3", "w": 3, "desc": "ADV_IND payload byte 3 (write only; reset 0xB3)"},
+        {"name": "PAY4", "w": 4, "desc": "ADV_IND payload byte 4 (write only; reset 0xB4)"},
+        {"name": "PAY5", "w": 5, "desc": "ADV_IND payload byte 5 (write only; reset 0xB5)"},
+        {"name": "PAY6", "w": 6, "desc": "ADV_IND payload byte 6 (write only; reset 0xB6)"},
+        {"name": "PAY7", "w": 7, "desc": "ADV_IND payload byte 7 (write only; reset 0xB7)"},
+        {"name": "PAY8", "w": 8, "desc": "ADV_IND payload byte 8 (write only; reset 0xB8)"},
+        {"name": "PAY9", "w": 9, "desc": "ADV_IND payload byte 9 (write only; reset 0xB9)"},
+        {"name": "PAY10", "w": 10, "desc": "ADV_IND payload byte 10 (write only; reset 0xBA)"},
+        {"name": "PAY11", "w": 11, "desc": "ADV_IND payload byte 11 (write only; reset 0xBB)"},
+        {"name": "PAY12", "w": 12, "desc": "ADV_IND payload byte 12 (write only; reset 0xBC)"},
+        {"name": "PAY13", "w": 13, "desc": "ADV_IND payload byte 13 (write only; reset 0xBD)"},
+        {"name": "PAY14", "w": 14, "desc": "ADV_IND payload byte 14 (write only; reset 0xBE)"},
+        {"name": "PAY15", "w": 15, "desc": "ADV_IND payload byte 15 (write only; reset 0xBF)"},
+        {"name": "ADV_CTRL", "w": 16, "desc": "bit 0 adv_en: send ADV_IND every ADV_INTV clocks while advertising (write only; reset 1)"},
+        {"name": "SCAN_CTRL", "w": 17, "desc": "bit 0 scan_en: answer SCAN_REQ with SCAN_RSP (write only; reset 1)"}
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Baseband state, as driven on the pin",
+      "fields": [
+        {
+          "port": "tx_act",
+          "desc": "high while a packet is being sent on txd"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "ERROR",
+      "port": "irq",
+      "desc": "a bad CRC24, an unknown advertising PDU type, a reserved LLID, a length above 16, a CONNECT_REQ of the wrong length, or a supervision timeout (back to advertising)"
+    }
+  ],
+  "notes": [
+    "rxd and txd are the baseband pins (1 bit per PCLK, LSB first); they pass through unchanged. tx_act also drives a pin.",
+    "The core's configuration port has no read side, so PAY0..PAY15, ADV_CTRL and SCAN_CTRL are write only and read as 0. A write must set all four byte strobes (the low 8 bits are used); a partial-strobe write gets PSLVERR and is dropped. The payload is read while ADV_IND is sent, so a write during a packet can change it mid-way.",
+    "Simplified link layer (see rtl/Bluetooth5_top.sv): advertising channel 37 only, the 15-byte CONNECT_REQ, channel selection algorithm #1 without a channel map."
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "title": "UART (8N1)",
+  "code": "0x5541",
+  "version": "2.0",
+  "tb_clk_ns": 20,
+  "tb_params": {"BAUD": "1_000_000"},
+  "regs": [
+    {"name": "TXDATA", "kind": "stream_in", "data": "tx_data", "valid": "tx_valid", "ready": "tx_ready",
+     "desc": "Byte to transmit"},
+    {"name": "RXDATA", "kind": "stream_out", "data": "rx_data", "valid": "rx_valid",
+     "desc": "Received byte"}
+  ],
+  "irqs": [
+    {"name": "CORE", "port": "irq", "desc": "core irq: a byte was received or a framing error occurred"}
+  ],
+  "notes": [
+    "A framing error sets IRQ_STATUS.CORE without RXDATA_AVAIL; a received byte sets both."
+  ]
+}

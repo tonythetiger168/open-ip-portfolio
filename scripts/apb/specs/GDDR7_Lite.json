@@ -1,0 +1,79 @@
+{
+  "title": "GDDR7_Lite: GDDR7-style line controller: 2 channels x 4 banks, PAM3 symbol bus (BL6 of 16 ternary lanes) or PAM2 (BL8), the line read back the same in either mode, DDR4_Lite timing and refresh",
+  "code": "0x6D22",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "40ms",
+  "pins": [
+    "pam3"
+  ],
+  "regs": [
+    {
+      "name": "CMD",
+      "kind": "stream_in",
+      "data": [
+        "hcmd",
+        "haddr",
+        "hwdata"
+      ],
+      "valid": "hvalid",
+      "ready": "hready",
+      "desc": "Host command beat; writing CMD2 sends it: a command, or one of the 8 data beats that follow a WRITE",
+      "fdesc": {
+        "hcmd": "command (see the notes); ignored on a data beat",
+        "haddr": "host address (see the notes); ignored on a data beat",
+        "hwdata": "MRW value (bits 7:0), or the data beat of a WRITE (beat 0 = line bits 15:0)"
+      }
+    },
+    {
+      "name": "RDATA",
+      "kind": "ro",
+      "desc": "MRR result",
+      "fields": [
+        {
+          "port": "hrdata",
+          "desc": "{8'h0, MR value} after an MRR (also carries read beats while a READ drains)"
+        }
+      ]
+    },
+    {
+      "name": "RLINE",
+      "kind": "ro",
+      "desc": "Line of the last READ (RLINE0 = bits 31:0)",
+      "fields": [
+        {
+          "port": "rdline",
+          "desc": "the 128-bit line of the last READ, held until the next READ completes"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Core state",
+      "fields": [
+        {
+          "port": "pam3",
+          "desc": "signaling mode: MR2[0], 1 = PAM3 (BL6 on the 16 symbol lanes); same as the pam3 pin"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DONE",
+      "port": "hdone",
+      "desc": "a command finished (READ: RLINE holds the line; MRR: RDATA holds the value)"
+    },
+    {
+      "name": "ERR",
+      "port": "irq",
+      "desc": "a command was rejected (out-of-range address, illegal code) or a refresh overran; the core holds this until reset, so the bit cannot be cleared before then"
+    }
+  ],
+  "notes": [
+    "haddr: [9] channel, [8:7] bank, [18:10] row, [6:4] line; [31:19] must be 0. hcmd 0 NOP, 1 READ line, 2 WRITE line (then 8 data beats), 3 MRW (haddr[2:0], hwdata[7:0]; MR2[0] selects PAM3), 4 MRR, 5 REFRESH; 6 and 7 are rejected.",
+    "The DRAM pins (ck_t, ck_c, cke, cs_n, act_n, ras_n, cas_n, we_n, ba, addr, dq, dqs) and the command trace pass through unchanged.",
+    "The core's own verification (pin-level checker, 100% coverage) is tb/cov/GDDR7_Lite_sva.sv with tb/GDDR7_Lite_tb.sv; this wrapper test drives the core only through the registers."
+  ]
+}

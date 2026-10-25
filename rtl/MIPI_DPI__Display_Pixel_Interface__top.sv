@@ -12,7 +12,10 @@
 //   * Control register (reg 8): bit0 enable, bit1 shutdown (outputs forced
 //     low, counters held), bit2 color_mode (18-bit color: 2 LSBs of each
 //     channel masked)
-//   * Enabling with any timing register == 0 is rejected and raises irq
+//   * Enabling with any timing register == 0, or with a line/frame total
+//     that does not fit the 16-bit counters, is rejected and raises irq
+//   * Timing registers may be rewritten while running: a counter already
+//     past the new total wraps at once
 //   * frame_cnt output increments at each vertical wrap; reg readback port
 // IP design implementation v1.0 -- Apache-2.0
 // ============================================================================
@@ -49,25 +52,26 @@ module MIPI_DPI__Display_Pixel_Interface__top #(
   wire [15:0] hfp = treg[0], hsw = treg[1], hbp = treg[2], hact = treg[3];
   wire [15:0] vfp = treg[4], vsw = treg[5], vbp = treg[6], vact = treg[7];
 
-  wire cfg_ok = (hfp != 0) && (hsw != 0) && (hbp != 0) && (hact != 0) &&
-                (vfp != 0) && (vsw != 0) && (vbp != 0) && (vact != 0);
+  // region boundaries (18-bit sums: a total above 16 bits is rejected)
+  wire [16:0] hs_end    = {1'b0, hfp} + {1'b0, hsw};
+  wire [17:0] act_h_s   = {1'b0, hs_end} + {2'b0, hbp};
+  wire [17:0] htotal    = act_h_s + {2'b0, hact};
+  wire [16:0] vs_end    = {1'b0, vfp} + {1'b0, vsw};
+  wire [17:0] act_v_s   = {1'b0, vs_end} + {2'b0, vbp};
+  wire [17:0] vtotal    = act_v_s + {2'b0, vact};
 
-  // region boundaries
-  wire [15:0] hs_start  = hfp;
-  wire [15:0] hs_end    = hfp + hsw;
-  wire [15:0] act_h_s   = hfp + hsw + hbp;
-  wire [15:0] htotal    = hfp + hsw + hbp + hact;
-  wire [15:0] vs_start  = vfp;
-  wire [15:0] vs_end    = vfp + vsw;
-  wire [15:0] act_v_s   = vfp + vsw + vbp;
-  wire [15:0] vtotal    = vfp + vsw + vbp + vact;
+  wire cfg_ok = (hfp != 0) && (hsw != 0) && (hbp != 0) && (hact != 0) &&
+                (vfp != 0) && (vsw != 0) && (vbp != 0) && (vact != 0) &&
+                (htotal <= 18'h10000) && (vtotal <= 18'h10000);
 
   logic [15:0] hcnt, vcnt;
 
-  wire hsync_n = (hcnt >= hs_start) && (hcnt < hs_end);
-  wire vsync_n = (vcnt >= vs_start) && (vcnt < vs_end);
-  wire act_n   = (hcnt >= act_h_s) && (hcnt < htotal) &&
-                 (vcnt >= act_v_s) && (vcnt < vtotal);
+  wire hsync_n = (hcnt >= hfp) && ({1'b0, hcnt} < hs_end);
+  wire vsync_n = (vcnt >= vfp) && ({1'b0, vcnt} < vs_end);
+  wire act_n   = ({2'b0, hcnt} >= act_h_s) && ({2'b0, hcnt} < htotal) &&
+                 ({2'b0, vcnt} >= act_v_s) && ({2'b0, vcnt} < vtotal);
+  wire h_last  = ({2'b0, hcnt} >= htotal - 18'd1);   // also catches a shrunk total
+  wire v_last  = ({2'b0, vcnt} >= vtotal - 18'd1);
   wire [23:0] pix_mask = ctrl[2] ? (pixel & 24'hFCFCFC) : pixel;
 
   // ------------------------------------------------------------------
@@ -120,9 +124,9 @@ module MIPI_DPI__Display_Pixel_Interface__top #(
         vsync <= vsync_n;
         de    <= act_n;
         rgb   <= act_n ? pix_mask : 24'h0;
-        if (hcnt == htotal - 16'd1) begin
+        if (h_last) begin
           hcnt <= 16'h0;
-          if (vcnt == vtotal - 16'd1) begin
+          if (v_last) begin
             vcnt      <= 16'h0;
             frame_cnt <= frame_cnt + 16'd1;
           end else begin

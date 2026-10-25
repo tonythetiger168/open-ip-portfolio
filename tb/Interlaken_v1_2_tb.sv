@@ -1,342 +1,350 @@
 // SPDX-License-Identifier: Apache-2.0
-// Interlaken_v1_2 TB: host sends flit frame, device echoes, host verifies payload.
+// Interlaken_v1_2_top testbench: two lane ends A and B cross-connected. The
+// line A -> B runs through a TB channel with a variable bit delay (bits or
+// whole words added or dropped) and bit flips aimed at chosen bits of
+// chosen words.
+//  - host drivers send packets of random length, channel and last-word
+//    byte count, with gaps between words, and random flow control; each
+//    records the words its end takes
+//  - receive scoreboards: from the first packet start after a lock, every
+//    word must be the next one sent (data, SOP, EOP, byte count, channel)
+//    and no word may carry rx_err unless the channel corrupted something
+//  - alignment: slides at many bit offsets, invalid framing below and at
+//    the unlock threshold, sync and scrambler state words hit in a row,
+//    word shifts; protocol errors from flips of the framing bits, SOP,
+//    EOP and control bits of protocol words
+// The bound checker (tb/cov/Interlaken_v1_2_sva.sv) checks every output of
+// both ends on every clock.
 `timescale 1ns/1ps
 module Interlaken_v1_2_tb;
-  localparam int BIT = 400;
-  localparam int HB  = 8;
-  localparam logic [7:0] STP = 8'hFB, END_B = 8'hFD;
+  localparam int MF = 64, BMAX = 8, WCLK = 67, MCLK = MF * WCLK;
   logic clk = 0, rst_n = 0;
-  logic host_val = 1'b1, host_oe = 1'b0;
-  tri1  rx, tx;
-  int errors = 0;
-
-  Interlaken_v1_2_top #(.BAUD_DIV(20)) dut (
-    .clk(clk), .rst_n(rst_n), .refclk(clk), .rx(rx), .tx(tx), .busy(), .irq());
   always #5 clk = ~clk;
-  assign rx = host_oe ? host_val : tx;
+  int errors = 0;
+  task automatic fail(input string s);
+    errors++;
+    $display("ERROR: %s @%0t", s, $time);
+  endtask
 
-  function automatic logic [31:0] crc32(input logic [31:0] c, input logic b);
-    logic fb; begin fb=c[0]^b; crc32=c>>1; if(fb) crc32=crc32^32'hEDB88320; end
+  // ---------------- ends: index 0 = A, 1 = B ----------------
+  logic [1:0]       tx_valid = 0, tx_sop = 0, tx_eop = 0;
+  logic [1:0][63:0] tx_data = 0;
+  logic [1:0][2:0]  tx_bytes = 0;
+  logic [1:0][7:0]  tx_chan = 0;
+  logic [1:0][15:0] tx_fc = 0;
+  wire  [1:0]       tx_ready, rx_valid, rx_sop, rx_eop, rx_err, word_lock, sync_lock;
+  wire  [1:0]       err_word, err_sync, err_scr, err_crc32, err_crc24, err_proto;
+  wire  [1:0][63:0] rx_data;
+  wire  [1:0][2:0]  rx_bytes;
+  wire  [1:0][7:0]  rx_chan;
+  wire  [1:0][15:0] rx_fc;
+  wire  [1:0][1:0]  peer_status;
+  wire              a_tx, b_tx;
+  // channel A -> B
+  logic [1023:0]    dl = 0;
+  int               dly = 0;
+  logic             flip = 0;
+  always @(posedge clk) dl <= {dl[1022:0], a_tx};
+  wire              b_rx = dl[dly] ^ flip;
+
+  Interlaken_v1_2_top #(.MF(MF), .BMAX(BMAX), .SEED(58'h155_5555_0000_FFFF)) u_a (
+    .clk(clk), .rst_n(rst_n), .tx_p(a_tx), .rx_p(b_tx),
+    .tx_valid(tx_valid[0]), .tx_ready(tx_ready[0]), .tx_data(tx_data[0]), .tx_sop(tx_sop[0]), .tx_eop(tx_eop[0]),
+    .tx_bytes(tx_bytes[0]), .tx_chan(tx_chan[0]), .tx_fc(tx_fc[0]),
+    .rx_valid(rx_valid[0]), .rx_data(rx_data[0]), .rx_sop(rx_sop[0]), .rx_eop(rx_eop[0]), .rx_bytes(rx_bytes[0]),
+    .rx_chan(rx_chan[0]), .rx_err(rx_err[0]), .rx_fc(rx_fc[0]), .word_lock(word_lock[0]), .sync_lock(sync_lock[0]),
+    .peer_status(peer_status[0]), .err_word(err_word[0]), .err_sync(err_sync[0]), .err_scr(err_scr[0]),
+    .err_crc32(err_crc32[0]), .err_crc24(err_crc24[0]), .err_proto(err_proto[0]));
+  Interlaken_v1_2_top #(.MF(MF), .BMAX(BMAX), .SEED(58'h3AB_CDEF_0123_4567)) u_b (
+    .clk(clk), .rst_n(rst_n), .tx_p(b_tx), .rx_p(b_rx),
+    .tx_valid(tx_valid[1]), .tx_ready(tx_ready[1]), .tx_data(tx_data[1]), .tx_sop(tx_sop[1]), .tx_eop(tx_eop[1]),
+    .tx_bytes(tx_bytes[1]), .tx_chan(tx_chan[1]), .tx_fc(tx_fc[1]),
+    .rx_valid(rx_valid[1]), .rx_data(rx_data[1]), .rx_sop(rx_sop[1]), .rx_eop(rx_eop[1]), .rx_bytes(rx_bytes[1]),
+    .rx_chan(rx_chan[1]), .rx_err(rx_err[1]), .rx_fc(rx_fc[1]), .word_lock(word_lock[1]), .sync_lock(sync_lock[1]),
+    .peer_status(peer_status[1]), .err_word(err_word[1]), .err_sync(err_sync[1]), .err_scr(err_scr[1]),
+    .err_crc32(err_crc32[1]), .err_crc24(err_crc24[1]), .err_proto(err_proto[1]));
+
+  // ---------------- host drivers ----------------
+  // a word offered stays offered until taken; between words a gap of a
+  // random number of clocks may follow
+  int   gap_pct = 0;                    // chance of a gap (up to 6 words) after a word
+  int   gw [0:1];                       // clocks of gap left
+  int   len_max = 4;                    // packet length 1..len_max words
+  bit   hold = 0;                       // A offers nothing new
+  bit   fc_hold = 0;                    // flow control held still
+  int   left [0:1];                     // words left in the packet
+  bit   tk [0:1];
+  // what each end took: {chan, bytes, eop, sop, data}
+  logic [76:0] sent0 [$];
+  logic [76:0] sent1 [$];
+  initial for (int p = 0; p < 2; p++) begin left[p] = 0; tk[p] = 0; gw[p] = 0; end
+  // a word is taken on a posedge with tx_valid and tx_ready (sampled
+  // there, before the core moves on)
+  always @(posedge clk)
+    for (int p = 0; p < 2; p++)
+      if (rst_n && tx_valid[p] && tx_ready[p]) begin : b_take
+        logic [76:0] w;
+        w = {tx_chan[p], tx_eop[p] ? tx_bytes[p] : 3'd0, tx_eop[p], tx_sop[p], tx_data[p]};
+        if (p == 0) begin sent0.push_back(w); if (sent0.size() > 4000) void'(sent0.pop_front()); end
+        else begin sent1.push_back(w); if (sent1.size() > 4000) void'(sent1.pop_front()); end
+        tk[p] = 1;
+      end
+  always @(negedge clk)
+    for (int p = 0; p < 2; p++) begin
+      if (!rst_n) begin
+        tx_valid[p] = 0; tk[p] = 0; left[p] = 0;
+      end else begin
+        if (tk[p]) begin
+          tx_valid[p] = 0; tk[p] = 0;
+          gw[p] = ($urandom % 100) < gap_pct ? $urandom % (6 * WCLK) : 0;
+        end
+        if (gw[p] > 0) gw[p]--;
+        else if (!tx_valid[p] && !(p == 0 && hold)) begin
+          tx_sop[p] = left[p] == 0;
+          if (left[p] == 0) begin
+            left[p] = 1 + $urandom % len_max;
+            tx_chan[p] = $urandom;
+            tx_bytes[p] = $urandom;
+          end
+          left[p]--;
+          tx_eop[p] = left[p] == 0;
+          tx_data[p] = {$urandom, $urandom};
+          tx_valid[p] = 1;
+        end
+        if (!fc_hold && $urandom % 500 == 0) tx_fc[p] = $urandom;
+      end
+    end
+
+  // ---------------- receive scoreboards ----------------
+  // end p receives what end 1-p sent
+  bit [1:0] synced = 0, dirty = 0;
+  int       nrx [0:1], npkt [0:1];
+  initial for (int p = 0; p < 2; p++) begin nrx[p] = 0; npkt[p] = 0; end
+  function automatic int ssize(input int p);
+    return p == 0 ? sent0.size() : sent1.size();
   endfunction
-
-  logic [7:0] hdr [0:7];
-  logic [7:0] pl  [0:7];
-  task automatic send_tlp(input int plen);
-    logic [31:0] c; logic [7:0] fb;
-    begin
-      host_oe = 1; host_val = 1'b0; #(BIT);
-      fb = STP; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
-      fb = HB + plen; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
-      c = 32'hFFFFFFFF;
-      for (int i=0;i<HB;i++) begin
-        fb = hdr[i];
-        for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; #(BIT); end
-      end
-      for (int i=0;i<plen;i++) begin
-        fb = pl[i];
-        for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; #(BIT); end
-      end
-      c = ~c;
-      for (int i=0;i<32;i++) begin host_val=c[0]; c=c>>1; #(BIT); end
-      fb = END_B; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
-      host_oe = 0;
-    end
+  function automatic logic [76:0] sfront(input int p);
+    return p == 0 ? sent0[0] : sent1[0];
+  endfunction
+  task automatic spop(input int p);
+    if (p == 0) void'(sent0.pop_front()); else void'(sent1.pop_front());
   endtask
-
-  logic b; logic [7:0] sh;
-  task automatic recv_tlp(output int plen);
-    begin
-      plen = 0; sh = 0;
-      wait (tx === 1'b0);
-      #(BIT + BIT/2);
-      for (int i=0;i<8;i++) begin b=tx; sh={b,sh[7:1]}; #(BIT); end
-      sh = 0;
-      for (int i=0;i<8;i++) begin b=tx; sh={b,sh[7:1]}; if(i==7) plen = sh - HB; #(BIT); end
-      for (int i=0;i<HB+plen;i++) begin
-        sh = 0;
-        for (int j=0;j<8;j++) begin
-          b = tx; sh = {b, sh[7:1]};
-          if (j == 7) begin
-            if (i < HB) hdr[i] = sh;
-            else        pl[i-HB] = sh;
-          end
-          #(BIT);
+  always @(negedge clk)
+    for (int p = 0; p < 2; p++) begin
+      if (!rst_n || !sync_lock[p] && !rx_valid[p]) synced[p] = 0;
+      if (rx_valid[p]) begin : b_rx
+        logic [76:0] got, e;
+        got = {rx_chan[p], rx_bytes[p], rx_eop[p], rx_sop[p], rx_data[p]};
+        if (rx_err[p] && !dirty[p]) fail($sformatf("end %0d: rx_err on a clean line", p));
+        if (!synced[p] && rx_sop[p] && !rx_err[p]) begin
+          // the first packet start after a lock: find it among those sent
+          while (ssize(1 - p) != 0 && sfront(1 - p) !== got) spop(1 - p);
+          if (ssize(1 - p) != 0) synced[p] = 1;
+          else if (!dirty[p]) fail($sformatf("end %0d: first word %h was never sent", p, rx_data[p]));
         end
-      end
-      #(BIT*40);
-    end
-  endtask
-
-`ifdef VERILATOR
-  // =====================================================================
-  // v2.5 CRV instrumentation (tool build only; iverilog path unchanged)
-  // FSMs probed: dut.tstate (T_IDLE/T_PKT/T_END) + dut.rstate
-  // (R_IDLE/R_BYTE), 5 states total.
-  // =====================================================================
-  localparam int Interlaken_v1_2_FSM_TOTAL = 5;   // 3 TX + 2 RX states
-  logic [3:0] fsm_seen_t = '0;        // visited TX-state bitmap
-  logic [1:0] fsm_seen_r = '0;        // visited RX-state bitmap
-  wire  [1:0] dut_tstate = dut.tstate;
-  wire  [1:0] dut_rstate = dut.rstate;
-
-  int sva_total = 0, sva_fail = 0;
-  // counted immediate assertion: every evaluation is one check
-  task automatic sva_check(input bit cond, input string name);
-    begin
-      sva_total++;
-      if (!cond) begin
-        sva_fail++;
-        errors++;
-        $display("SVA_FAIL: %s @%0t", name, $time);
-      end
-    end
-  endtask
-
-  // FSM coverage: sample DUT state registers on both edges (scheduler
-  // failure mode #3 mitigation: dual-edge probe tolerates lost wakeups)
-  always @(posedge clk or negedge clk) begin
-    fsm_seen_t[dut_tstate] <= 1'b1;
-    fsm_seen_r[dut_rstate] <= 1'b1;
-  end
-
-  // output-invariant assertion suite (level/comb checks, negedge-sampled
-  // so all NBA updates are settled; no history-dependent properties)
-  logic rst_n_q = 1'b1;
-  always @(negedge clk) begin
-    if (!rst_n) begin
-      // A1: outputs quiescent during reset (one cycle for regs to init)
-      if (!rst_n_q)
-        sva_check(dut.busy === 1'b0 && dut.irq === 1'b0,
-                  "A1 reset: outputs quiescent");
-    end else begin
-      // A2: busy exactly reflects non-idle of either FSM
-      sva_check(dut.busy === ((dut_rstate != 2'd0) || (dut_tstate != 2'd0)),
-                "A2 busy == FSMs non-idle");
-      // A3: irq mirrors the rx_done pulse
-      sva_check(dut.irq === dut.rx_done, "A3 irq == rx_done");
-      // A4: TX FSM never takes the unused 2'd3 encoding
-      sva_check(dut_tstate !== 2'd3, "A4 tstate legal encoding");
-      // A5: RX FSM never takes the unused 2'd2/2'd3 encodings
-      sva_check(dut_rstate <= 2'd1, "A5 rstate legal encoding");
-      // A6: TX-arm countdown never exceeds its programmed value
-      sva_check(dut.ta_cnt <= 4'd6, "A6 ta_cnt <= 6");
-      // A7: field sequencer never takes unused encodings 6/7
-      sva_check(dut.tfld <= 3'd5, "A7 tfld legal encoding");
-      // A8: when the DUT releases the line the tri1 pullup holds it high
-      sva_check(dut.oe_q || (tx === 1'b1), "A8 released line pulled high");
-    end
-    rst_n_q <= rst_n;
-  end
-`endif
-
-  int rlen;
-  initial begin
-    for (int i=0;i<8;i++) begin hdr[i] = 8'h10 + i; pl[i] = 8'hA0 + i * 8'h11; end
-    rst_n = 0; repeat(10) @(posedge clk);
-    rst_n = 1; repeat(20) @(posedge clk);
-    send_tlp(4);
-    recv_tlp(rlen);
-    if (rlen !== 4) begin errors++; $display("ERROR: Interlaken_v1_2 plen got=%0d exp=4", rlen); end
-    for (int i=0;i<4;i++) begin
-      if (pl[i] !== 8'hA0 + i * 8'h11) begin
-        errors++; $display("ERROR: Interlaken_v1_2 pl[%0d] got=%h exp=%h", i, pl[i], 8'hA0 + i*8'h11);
-      end
-    end
-    if (dut.rx_err !== 1'b0) begin errors++; $display("ERROR: Interlaken_v1_2 rx_err set"); end
-
-`ifdef VERILATOR
-    // ---- v2.5 CRV random phase (directed tests above untouched) ----
-    // 114 randomized frames: 100 good (random LEN 8..16 / all-zero /
-    // all-one content), 8 bad-CRC + 2 long (LEN=17/18, toggle buf_mem[22:23]
-    // via the RX store path, bad CRC so no echo), 2 bad-STP (echo still
-    // expected, rx_done is not gated by rx_err), 2 bad-END (no echo).
-    // Fully inlined (no timing-task coroutine chains): one coroutine with
-    // plain awaits dodges the 5.006 timing-scheduler corruption; all waits
-    // are bounded.
-    // RTL-bug handling (recorded in docs/coverage/W6_REST.md, NOT fixed):
-    // the echo copy `for (i=2;i<=21;i++) tx_mem[i-2] <= buf_mem[i]` writes
-    // tx_mem[16..19] out of bounds; iverilog drops the OOB writes, Verilator
-    // masks the index so buf_mem[18..21] clobber tx_mem[0..3]. The shadow
-    // model below predicts the masked behaviour exactly.
-    begin : crv_phase
-      int n_good = 0, n_badcrc = 0, n_badstp = 0, n_badend = 0, n_long = 0, n_zlen = 0;
-      int lenb, dlen, edat, enf, ftype, nf, wt, ecount;
-      logic [7:0] sh_buf [0:23];   // model of dut.buf_mem (RX store port)
-      logic [7:0] exp_mem [0:15];  // predicted dut.tx_mem after rx_done
-      logic [7:0] fbytes [0:31];
-      logic [7:0] rcv    [0:31];
-      logic [7:0] shv;
-      logic [31:0] c32, ce;
-      logic        rb;
-      for (int i = 0; i < 24; i++) sh_buf[i] = 8'h00;
-      ecount = errors;
-      repeat (400) @(posedge clk);          // settle after directed phase
-      for (int t = 0; t < 127; t++) begin
-        // ---- frame class selection ----
-        if (t < 100) begin
-          ftype = 0;                              // good frame
-          lenb  = 8 + $urandom_range(0, 8);       // v2.5.1: full LEN 8..16
-                                                  // (LEN=8 overrun fixed, W6-3)
-          if (t == 10) lenb = 8;                  // deterministic LEN=8 lock
-        end else if (t < 102) begin
-          ftype = 2;                              // bad STP -> echo anyway
-          lenb  = 8 + $urandom_range(0, 8);
-        end else if (t < 110) begin
-          ftype = 1;                              // bad CRC -> no echo
-          lenb  = 8 + $urandom_range(0, 8);
-        end else if (t < 122) begin
-          ftype = 1;                              // long frames, bad CRC
-          lenb  = 17 + ((t - 110) % 2);           // LEN 17 / 18 (buf_mem[22:23])
-        end else if (t < 124) begin
-          ftype = 3;                              // bad END -> no echo
-          lenb  = 8 + $urandom_range(0, 8);
-        end else begin
-          ftype = 5;                              // LEN byte with bits[7:6]:
-                                                  // out of 8..16, dropped at LEN
-                                                  // (F2 clamp) -> rx_err, no echo
-          lenb  = (t == 124) ? 8'h40 : (t == 125) ? 8'h80 : 8'hC0;  // len_q=0
+        if (synced[p] && ssize(1 - p) == 0) begin
+          if (!dirty[p]) fail($sformatf("end %0d: word %h was never sent", p, got));
+          synced[p] = 0;
         end
-        dlen = lenb & 8'h3F;                      // len_q the DUT extracts
-        // ---- content ----
-        for (int i = 0; i < 25; i++) fbytes[i] = 8'h00;
-        for (int i = 0; i < dlen; i++)
-          fbytes[2+i] = $urandom_range(0, 255);
-        if (ftype == 0 && t % 17 == 0)
-          for (int i = 0; i < dlen; i++) fbytes[2+i] = 8'h00;     // all-zero
-        if (ftype == 0 && t % 19 == 0)
-          for (int i = 0; i < dlen; i++) fbytes[2+i] = 8'hFF;     // all-one
-        fbytes[0] = (ftype == 2) ? (STP ^ 8'hA5) : STP;
-        fbytes[1] = lenb[7:0];
-        c32 = 32'hFFFFFFFF;
-        for (int i = 0; i < dlen; i++)
-          for (int j = 0; j < 8; j++) c32 = crc32(c32, fbytes[2+i][j]);
-        c32 = ~c32;
-        if (ftype == 1) c32 = c32 ^ 32'h0000_0001;                // corrupt
-        for (int k = 0; k < 4; k++) fbytes[2+dlen+k] = (c32 >> (8*k)) & 8'hFF;
-        fbytes[dlen+6] = (ftype == 3) ? (END_B ^ 8'hFF) : END_B;
-        nf = dlen + 7;
-        // ---- send (clock-counted bit cells: 40 clks/bit, no #delays) ----
-        host_oe = 1; host_val = 1'b0; repeat (40) @(posedge clk); // start bit
-        for (int i = 0; i < nf; i++) begin
-          shv = fbytes[i];
-          for (int j = 0; j < 8; j++) begin
-            host_val = shv[0]; shv = {1'b0, shv[7:1]};
-            repeat (40) @(posedge clk);
-          end
-        end
-        host_oe = 0;
-        // ---- shadow buf_mem update (DUT stores every received byte) ----
-        // a LEN outside 8..16 is dropped before anything is stored (F2)
-        if (lenb >= 8 && lenb <= 16) begin
-          sh_buf[1] = lenb[7:0];
-          for (int i = 0; i < dlen + 4; i++) sh_buf[2+i] = fbytes[2+i];
-        end
-        if (ftype == 0) n_good++;
-        else if (ftype == 1) begin n_badcrc++; if (dlen > 16) n_long++; end
-        else if (ftype == 2) n_badstp++;
-        else if (ftype == 3) n_badend++;
-        else n_zlen++;
-        if (ftype == 0 || ftype == 2) begin
-          // ---- predict tx_mem after rx_done ----
-          // v2.5.1 FIXED: exact copy, no OOB-mask clobber of tx_mem[0..3]
-          for (int k = 0; k < 16; k++) exp_mem[k] = sh_buf[k+2];
-          // echo data length: v2.5.1 -- LEN=8 now sends 0 payload bytes
-          // (W6-3 fixed); len_q==0 still sends tx_mem[8..15] after the
-          // 8 HDR bytes (16 data bytes)
-          edat = (dlen == 0) ? 16 : dlen;
-          enf  = edat + 7;
-          ce = 32'hFFFFFFFF;
-          for (int i = 0; i < edat; i++)
-            for (int j = 0; j < 8; j++) ce = crc32(ce, exp_mem[i][j]);
-          ce = ~ce;
-          // ---- receive echo (bounded wait + center sampling) ----
-          wt = 0;
-          while (tx !== 1'b0 && wt < 20000) begin @(posedge clk); wt++; end
-          if (wt >= 20000) begin
-            errors++;
-            $display("ERROR: CRV echo timeout t=%0d tstate=%0d ta_cnt=%0d",
-                     t, dut_tstate, dut.ta_cnt);
+        if (synced[p]) begin
+          e = sfront(1 - p);
+          spop(1 - p);
+          if (got !== e) begin
+            if (!dirty[p]) fail($sformatf("end %0d: word %h, expected %h", p, got, e));
+            synced[p] = 0;
           end else begin
-            repeat (59) @(posedge clk); @(negedge clk);   // center of bit0
-            for (int i = 0; i < enf; i++) begin
-              rcv[i] = 8'h00;
-              for (int j = 0; j < 8; j++) begin
-                rb = tx; rcv[i] = {rb, rcv[i][7:1]};
-                if (!(i == enf-1 && j == 7)) begin
-                  // exactly one 40-clk bit cell: 40 posedges + negedge from
-                  // a negedge reference (39 would drift -0.5 clk per bit)
-                  repeat (40) @(posedge clk); @(negedge clk);
-                end
-              end
-            end
-            // rcv[0]: v2.5.1 FIXED (was W6-2) — T_IDLE now loads tx_shift
-            // with STP, so the first wire byte is STP, not the stale shift
-            // register (was deterministically 8'h00).
-            if (rcv[0] !== STP || rcv[1] !== dlen[7:0] ||
-                rcv[enf-1] !== END_B) begin
-              errors++;
-              $display("ERROR: CRV echo frame t=%0d stp=%h len=%h(exp=%0d) end=%h",
-                       t, rcv[0], rcv[1], dlen, rcv[enf-1]);
-            end
-            for (int i = 0; i < edat; i++) begin
-              if (rcv[2+i] !== exp_mem[i]) begin
-                errors++;
-                $display("ERROR: CRV echo data t=%0d i=%0d got=%h exp=%h",
-                         t, i, rcv[2+i], exp_mem[i]);
-              end
-            end
-            for (int k = 0; k < 4; k++) begin
-              if (rcv[2+edat+k] !== ((ce >> (8*k)) & 8'hFF)) begin
-                errors++;
-                $display("ERROR: CRV echo crc t=%0d k=%0d got=%h",
-                         t, k, rcv[2+edat+k]);
-              end
-            end
-          end
-          if (ftype == 2 && dut.rx_err !== 1'b1) begin
-            // proves the STP-mismatch arm executed (line-cov artifact region)
-            errors++;
-            $display("ERROR: CRV rx_err not set after bad STP t=%0d", t);
-          end
-          repeat (200) @(posedge clk);            // inter-frame gap
-        end else begin
-          // no echo: verify the sticky rx_err flag is raised
-          repeat (400) @(posedge clk);
-          if (dut.rx_err !== 1'b1) begin
-            errors++;
-            $display("ERROR: CRV rx_err not set t=%0d ftype=%0d", t, ftype);
+            nrx[p]++;
+            if (rx_eop[p]) npkt[p]++;
           end
         end
       end
-      $display("CRV: 127 frames (good=%0d bad_stp=%0d bad_crc=%0d long=%0d bad_end=%0d zero_len=%0d) shadow-err+=%0d",
-               n_good, n_badstp, n_badcrc, n_long, n_badend, n_zlen, errors - ecount);
     end
-`endif
+
+  // ---------------- helpers ----------------
+  task automatic wait_clk(input int n);
+    repeat (n) @(negedge clk);
+  endtask
+  task automatic wait_lock(input int p, input int n_mf = 12);
+    int t;
+    t = 0;
+    while (!sync_lock[p] && t < n_mf * MCLK) begin @(negedge clk); t++; end
+    if (!sync_lock[p]) fail($sformatf("end %0d: no lock", p));
+  endtask
+  // B's line: dirty while the channel misbehaves, clean once relocked and
+  // two whole metaframes are through
+  task automatic clean_b;
+    wait_lock(1);
+    wait_clk(2 * MCLK);
+    dirty[1] = 0;
+  endtask
+  // B loses the lock after a change of the line
+  task automatic lost_b;
+    int t;
+    t = 0;
+    while (sync_lock[1] && t < 6 * MCLK) begin @(negedge clk); t++; end
+    if (sync_lock[1]) fail("B kept the lock");
+  endtask
+  function automatic bit b_prot;
+    return u_b.rpos > 2 && u_b.rpos != MF - 1;
+  endfunction
+  // flip n line bits into B from word bit idx (1 = framing bit 65, 66 - k =
+  // payload bit k) of the next word for which cond holds
+  task automatic flip_bits(input int idx, input int n);
+    flip = 1; wait_clk(n); flip = 0;
+  endtask
+  task automatic at_bit(input int idx);
+    while (u_b.rc != 7'(idx - 1)) @(negedge clk);
+  endtask
+  task automatic flip_pos(input int pos, input int idx, input int n = 1);
+    at_bit(idx);
+    while (pos >= 0 ? u_b.rpos != pos : !b_prot()) begin @(negedge clk); at_bit(idx); end
+    flip_bits(idx, n);
+  endtask
+  task automatic do_reset;
+    @(negedge clk);
+    rst_n = 0;
+    wait_clk(3);
+    rst_n = 1;
+  endtask
+
+  initial begin
+    wait_clk(3);
+    rst_n = 1;
+    // ---- lock both ends; traffic: short packets, gaps, long packets
+    wait_lock(0); wait_lock(1);
+    wait_clk(2 * MCLK);
+    if (peer_status[0] !== 2'b11 || peer_status[1] !== 2'b11)
+      fail($sformatf("peer status %b %b after lock", peer_status[0], peer_status[1]));
+    gap_pct = 30;
+    wait_clk(3 * MCLK);
+    len_max = 40; gap_pct = 0;
+    wait_clk(3 * MCLK);
+    gap_pct = 95; len_max = 3;
+    wait_clk(3 * MCLK);
+    gap_pct = 10; len_max = 12;
+    wait_clk(2 * MCLK);
+    // flow control: held still, it arrives at the other end
+    fc_hold = 1; tx_fc[0] = 16'hA5C3; tx_fc[1] = 16'h3C5A;
+    wait_clk(MCLK);
+    if (rx_fc[1] !== 16'hA5C3 || rx_fc[0] !== 16'h3C5A) fail($sformatf("flow control %h %h", rx_fc[1], rx_fc[0]));
+    fc_hold = 0;
+    if (npkt[0] == 0 || npkt[1] == 0) fail("no packets through");
+
+    // ---- payload flips in protocol words, skip and diagnostic words: CRC
+    // errors, the lock holds
+    dirty[1] = 1;
+    for (int i = 0; i < 12; i++) begin
+      flip_pos(i % 4 == 0 ? (i % 8 == 0 ? 2 : MF - 1) : -1, 4 + $urandom % 62);
+      wait_clk(MCLK / 3);
+    end
+    if (!sync_lock[1]) fail("lock lost over payload errors");
+    wait_clk(2 * MCLK);
+    dirty[1] = 0;
+
+    // ---- protocol errors; A idle first
+    dirty[1] = 1;
+    hold = 1;
+    wait_clk(2 * MCLK);
+    flip_pos(-1, 1, 2);                         // idle control -> data word outside a burst
+    wait_clk(3 * WCLK);
+    flip_pos(-1, 66 - 60);                      // EOP in an idle control word
+    wait_clk(3 * WCLK);
+    flip_pos(-1, 66 - 63);                      // bit 63: a framing layer word
+    wait_clk(3 * WCLK);
+    flip_pos(-1, 1);                            // invalid framing
+    wait_clk(3 * WCLK);
+    hold = 0;
+    // SOP flipped in control words inside long packets and between packets
+    len_max = 30; gap_pct = 0;
+    for (int i = 0; i < 16; i++) begin
+      at_bit(5);
+      while (!(u_b.rf1 && !u_b.rf0 && b_prot() && (i < 8 ? u_b.r_inpkt && u_b.rh_v : !u_b.r_inpkt)))
+        begin @(negedge clk); at_bit(5); end
+      flip_bits(5, 1);
+      wait_clk(5 * WCLK);
+      if (i == 7) begin len_max = 1; gap_pct = 60; end
+    end
+    if (!sync_lock[1]) fail("lock lost over protocol errors");
+    gap_pct = 10; len_max = 12;
+    wait_clk(2 * MCLK);
+    dirty[1] = 0;
+
+    // ---- framing errors: a few per window (counter reset), then 16 in a row
+    dirty[1] = 1;
+    for (int w = 0; w < 3; w++)
+      for (int i = 0; i < 5; i++) begin
+        flip_pos(-1, 2);
+        wait_clk(WCLK * (2 + $urandom % 10));
+      end
+    if (!word_lock[1]) fail("word lock lost below the error threshold");
+    while (!(u_b.rc == 7'd0 && u_b.wcnt == 6'd0)) @(negedge clk);
+    for (int i = 0; i < 16; i++) begin
+      at_bit(2);
+      if (i == 15 && !word_lock[1]) fail("unlocked before the 16th framing error");
+      flip_bits(2, 1);
+    end
+    wait_clk(200);
+    if (word_lock[1]) fail("still locked after 16 framing errors");
+    clean_b();
+
+    // ---- sync words hit: 3 in a row keep the lock, 4 drop it; while
+    // testing one drops the test
+    dirty[1] = 1;
+    for (int i = 0; i < 3; i++) flip_pos(0, 30);
+    wait_clk(2 * MCLK);
+    if (!sync_lock[1]) fail("lock lost after 3 sync words");
+    for (int i = 0; i < 4; i++) flip_pos(0, 30);
+    wait_clk(WCLK);
+    if (sync_lock[1]) fail("still locked after 4 sync words");
+    while (u_b.ms != 2'd1) @(negedge clk);
+    flip_pos(0, 30);
+    clean_b();
+    // ---- scrambler state words hit: 2 in a row keep the lock, 3 drop it
+    dirty[1] = 1;
+    flip_pos(1, 40);                            // the state field
+    flip_pos(1, 1, 2);                          // the framing bits: a data word
+    wait_clk(2 * MCLK);
+    if (!sync_lock[1]) fail("lock lost after 2 scrambler state words");
+    for (int i = 0; i < 3; i++) flip_pos(1, 40);
+    wait_clk(WCLK);
+    if (sync_lock[1]) fail("still locked after 3 scrambler state words");
+    clean_b();
+
+    // ---- the line slides by bits and by whole words
+    len_max = 30; gap_pct = 0;
+    for (int s = 1; s < 67; s += 9) begin
+      dirty[1] = 1;
+      dly = (dly + s) % 800;
+      lost_b();
+      clean_b();
+    end
+    // whole words: the word lock holds, the scrambler state words are out
+    // of place
+    for (int i = 0; i < 3; i++) begin
+      dirty[1] = 1;
+      dly = dly + WCLK * (1 + i) < 1024 ? dly + WCLK * (1 + i) : dly - WCLK * (1 + i);
+      lost_b();
+      if (!word_lock[1]) fail("word lock lost over a word shift");
+      clean_b();
+    end
+    len_max = 12; gap_pct = 10;
+    wait_clk(3 * MCLK);
+    if (nrx[1] < 100) fail("too few clean words through");
+
+    // ---- reset while locked
+    do_reset();
+    dirty = 0;
+    wait_lock(0); wait_lock(1);
+    wait_clk(3 * MCLK);
 
     if (errors == 0) $display("TEST PASSED: Interlaken_v1_2");
-    else             $display("TEST FAILED: %0d errors", errors);
-`ifdef VERILATOR
-    begin
-      int visited;
-      visited = 0;
-      for (int s = 0; s < 4; s++) visited += fsm_seen_t[s];
-      for (int s = 0; s < 2; s++) visited += fsm_seen_r[s];
-      $display("FSM_COV: %0d/%0d", visited, Interlaken_v1_2_FSM_TOTAL);
-      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
-    end
-`endif
+    else $display("TEST FAILED: Interlaken_v1_2 (%0d errors)", errors);
     $finish;
   end
 
-`ifdef VERILATOR
-  // chunked timeout guard: a single long-pending #delay event corrupts the
-  // 5.006 --timing delay heap once many short-delay resumptions interleave;
-  // chunked delays keep all heap entries short-lived (see docs/COVERAGE.md)
   initial begin
-    repeat (200000) #1000;   // 200 ms in 1-us chunks
-    $display("TIMEOUT"); $finish;
+    #150ms;
+    $display("TEST FAILED: Interlaken_v1_2 (timeout)");
+    $finish;
   end
-`else
-  initial begin #10_000_000; $display("TIMEOUT"); $finish; end
-`endif
 endmodule

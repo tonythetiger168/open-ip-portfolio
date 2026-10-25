@@ -1,0 +1,111 @@
+{
+  "title": "CPRI v8.0 REC link-layer slice: 8b/10b both ways, hyperframe sync (HUNT, ALIGN, SYNC) on the peer's K28.5, L1 inband rate and version negotiation, vendor byte, uplink IQ buffered for the CPU",
+  "code": "0x4350",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "CORE",
+      "kind": "bus",
+      "wen": "cpu_we",
+      "waddr": "cpu_addr",
+      "wdata": "cpu_wdata",
+      "ren": "cpu_re",
+      "raddr": "cpu_addr",
+      "rdata": "cpu_rdata",
+      "words": [
+        {
+          "name": "CFG0",
+          "w": 0,
+          "r": 0,
+          "desc": "{pointer p[7:4], line rate[3:0]} sent in the L1 inband stream; the rate is negotiated against the peer's (reset 0x2A)"
+        },
+        {
+          "name": "CFG1",
+          "w": 1,
+          "r": 1,
+          "desc": "bits [3:0]: local protocol version, sent in the L1 inband stream and negotiated (reset 0x04)"
+        },
+        {
+          "name": "CFG2",
+          "w": 2,
+          "r": 2,
+          "desc": "vendor byte, sent in control word #4 of each hyperframe (reset 0xC9)"
+        },
+        {
+          "name": "CFG3",
+          "w": 3,
+          "r": 3,
+          "desc": "spare configuration byte, no effect on the link (reset 0)"
+        },
+        {
+          "name": "CFG4",
+          "w": 4,
+          "r": 4,
+          "desc": "spare configuration byte, no effect on the link (reset 0)"
+        },
+        {
+          "name": "CFG5",
+          "w": 5,
+          "r": 5,
+          "desc": "spare configuration byte, no effect on the link (reset 0)"
+        },
+        {
+          "name": "CFG6",
+          "w": 6,
+          "r": 6,
+          "desc": "spare configuration byte, no effect on the link (reset 0)"
+        },
+        {
+          "name": "CFG7",
+          "w": 7,
+          "r": 7,
+          "desc": "spare configuration byte, no effect on the link (reset 0)"
+        },
+        {
+          "name": "LINK",
+          "r": 8,
+          "desc": "[1:0] sync state (0 HUNT, 1 ALIGN, 2 SYNC), [2] L1 inband negotiation received, [4:3] hyperframes missed in a row, [11:6] IQ words buffered, [15:12] peer protocol version, [23:16] IQ words dropped with the buffer full (saturates at 255)"
+        },
+        {
+          "name": "NEG",
+          "r": 9,
+          "desc": "[3:0] negotiated protocol version, [7:4] negotiated line rate (the smaller of ours and the peer's)"
+        },
+        {
+          "name": "IQ",
+          "r": 10,
+          "desc": "oldest buffered IQ word {I[15:0], Q[15:0]}; reading it pops the word when one is buffered"
+        },
+        {
+          "name": "IQ_COUNT",
+          "r": 11,
+          "desc": "IQ words buffered (0..32)"
+        },
+        {
+          "name": "VENDOR",
+          "r": 12,
+          "desc": "vendor byte received from the peer"
+        },
+        {
+          "name": "EVENTS",
+          "w": 13,
+          "r": 13,
+          "desc": "[0] loss of sync, [1] code violation; sticky, write 1 to clear (a violation in the same clock wins)"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "LINK_EVENT",
+      "port": "irq",
+      "desc": "EVENTS has a bit set (loss of sync or a code violation); set on every clock until EVENTS is cleared, so clear EVENTS first"
+    }
+  ],
+  "notes": [
+    "rx_sym and tx_sym are the line pins, one 10-bit 8b/10b symbol per PCLK; they pass through unchanged. The transmitter runs from reset: K28.5 and the sync bytes at each hyperframe start, the L1 inband stream, the vendor byte and a fixed IQ pattern.",
+    "A hyperframe here is 64 basic frames of 16 bytes (the standard has 256). Two commas one hyperframe apart give SYNC; four hyperframes in a row without the peer's comma give loss of sync.",
+    "Core registers take whole words: a write with PSTRB != 4'hF gets PSLVERR and is dropped. Only bits [7:0] of CFG0..CFG7 are stored."
+  ]
+}

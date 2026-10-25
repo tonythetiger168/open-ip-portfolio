@@ -1,31 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
 // Self-checking testbench for CPRI_v8_0__eCPRI_over_CPR__top -- CPRI master.
-// TB plays the RE (slave) peer: full 8b/10b encode/decode, hyperframe-aligned
-// K28.5 reply after the master comma (sync handshake), L1 inband version/rate
-// negotiation slow stream, IQ byte stream with per-byte logging, plus
-// loss-of-sync and code-violation injection.
-// Checks: reset / sync handshake / hyperframe boundary (comma gap == 1024,
-// 0x50 stuff bytes, TX IQ pattern) / IQ capture buffer compare / L1
-// negotiation in both directions / loss-of-sync -> irq + resync recovery /
-// code violation -> irq / irq clear.
+// The TB plays the RE (slave) peer with its own table-driven 8b/10b encoder
+// (RD- tables + complement rules, D.x.A7, K28 at both disparities).
+// Covered: every transmitted symbol checked against the expected
+// hyperframe (K28.5, 0x50 stuff bytes, L1 slow stream with version / rate /
+// check byte, vendor byte, IQ pattern) including its running disparity;
+// sync handshake (HUNT -> ALIGN -> SYNC), stray comma and missing comma
+// during ALIGN, IQ capture into the 32-word buffer with pops, simultaneous
+// push / pop, overflow count saturation, L1 negotiation (good, bad check
+// byte, restart), loss of sync after 4 missed commas (and staying in sync
+// after 3), code violations (invalid code group, wrong disparity) with the
+// sticky irq and its clear, the configuration registers, reset mid-sync.
 `timescale 1ns/1ps
 module CPRI_v8_0__eCPRI_over_CPR__tb;
-  localparam int DW = 32, AW = 32;
   localparam logic [7:0] K28_5 = 8'hBC;
-  localparam logic [3:0] PEER_VER  = 4'd3;
-  localparam logic [3:0] PEER_RATE = 4'd5;
 
   logic clk = 0, rst_n = 0;
-  logic [9:0]  rx_sym;
+  logic [9:0]  rx_sym = 10'h0;
   logic [9:0]  tx_sym;
-  logic        cpu_we, cpu_re;
-  logic [3:0]  cpu_addr;
-  logic [31:0] cpu_wdata, cpu_rdata;
+  logic        cpu_we = 0, cpu_re = 0;
+  logic [3:0]  cpu_addr = 0;
+  logic [31:0] cpu_wdata = 0, cpu_rdata;
   logic        irq;
 
   int errors = 0;
 
-  CPRI_v8_0__eCPRI_over_CPR__top #(.DW(DW), .AW(AW)) dut (
+  CPRI_v8_0__eCPRI_over_CPR__top dut (
     .clk(clk), .rst_n(rst_n),
     .rx_sym(rx_sym), .tx_sym(tx_sym),
     .cpu_we(cpu_we), .cpu_re(cpu_re), .cpu_addr(cpu_addr),
@@ -34,624 +34,439 @@ module CPRI_v8_0__eCPRI_over_CPR__tb;
 
   always #5 clk = ~clk;
 
-`ifdef VERILATOR
-  // =====================================================================
-  // v2.5 CRV instrumentation (tool build only; iverilog path unchanged)
-  // FSM probed: dut.sync_st (ST_HUNT/ST_ALIGN/ST_SYNC), 3 states.
-  // =====================================================================
-  localparam int CPRI_FSM_TOTAL = 3;
-  logic [2:0] fsm_seen = '0;          // visited-state bitmap
-  wire  [1:0] dut_state = dut.sync_st;
-
-  int sva_total = 0, sva_fail = 0;
-  // counted immediate assertion: every evaluation is one check
-  task automatic sva_check(input bit cond, input string name);
-    begin
-      sva_total++;
-      if (!cond) begin
-        sva_fail++;
-        errors = errors + 1;
-        $display("SVA_FAIL: %s @%0t", name, $time);
-      end
-    end
+  task automatic check(input logic cond, input string msg);
+    if (!cond) begin errors++; $display("ERROR: %s (time %0t)", msg, $time); end
   endtask
 
-  // FSM coverage: sample DUT state register on both edges (scheduler
-  // failure mode #3 mitigation: dual-edge probe tolerates lost wakeups)
-  always @(posedge clk or negedge clk) fsm_seen[dut_state] <= 1'b1;
-
-  // output-invariant assertion suite (level/comb checks, negedge-sampled
-  // so all NBA updates are settled; no history-dependent properties)
-  logic rst_n_q = 1'b1;
-  always @(negedge clk) begin
-    if (!rst_n) begin
-      // A1: outputs quiescent during reset (one cycle for regs to init)
-      if (!rst_n_q)
-        sva_check(dut_state == 2'd0 && dut.iq_cnt == 6'd0 && irq === 1'b0,
-                  "A1 reset: HUNT + empty buffer + no irq");
-    end else begin
-      // A2: state register holds a legal encoding (3 of 4 used)
-      sva_check(dut_state <= 2'd2, "A2 sync_st legal");
-      // A3: irq output is exactly the OR of the two sticky sources
-      sva_check(irq === (dut.irq_los | dut.irq_cv), "A3 irq == los|cv");
-      // A4: IQ occupancy bounded by the 32-entry buffer
-      sva_check(dut.iq_cnt <= 6'd32, "A4 iq_cnt <= 32");
-      // A5: loss-of-sync miss counter bounded (declares LOS at 4)
-      sva_check(dut.miss_cnt <= 3'd4, "A5 miss_cnt <= 4");
-    end
-    rst_n_q <= rst_n;
-  end
-`endif
-
   // ------------------------------------------------------------------
-  // 8b/10b model (independent copy of the line code)
+  // reference 8b/10b encoder: {abcdei} / {fghj}, RD- column + complement
   // ------------------------------------------------------------------
-  function automatic logic is_bal6(input logic [5:0] c);
-    logic [2:0] n;
-    begin
-      n = {2'b00, c[0]} + {2'b00, c[1]} + {2'b00, c[2]}
-        + {2'b00, c[3]} + {2'b00, c[4]} + {2'b00, c[5]};
-      is_bal6 = (n == 3'd3);
-    end
+  // 5b/6b and 3b/4b codes in the RD- column
+  function automatic logic [5:0] t6(input int y);
+    case (y)
+      0: t6 = 6'b100111;
+      1: t6 = 6'b011101;
+      2: t6 = 6'b101101;
+      3: t6 = 6'b110001;
+      4: t6 = 6'b110101;
+      5: t6 = 6'b101001;
+      6: t6 = 6'b011001;
+      7: t6 = 6'b111000;
+      8: t6 = 6'b111001;
+      9: t6 = 6'b100101;
+      10: t6 = 6'b010101;
+      11: t6 = 6'b110100;
+      12: t6 = 6'b001101;
+      13: t6 = 6'b101100;
+      14: t6 = 6'b011100;
+      15: t6 = 6'b010111;
+      16: t6 = 6'b011011;
+      17: t6 = 6'b100011;
+      18: t6 = 6'b010011;
+      19: t6 = 6'b110010;
+      20: t6 = 6'b001011;
+      21: t6 = 6'b101010;
+      22: t6 = 6'b011010;
+      23: t6 = 6'b111010;
+      24: t6 = 6'b110011;
+      25: t6 = 6'b100110;
+      26: t6 = 6'b010110;
+      27: t6 = 6'b110110;
+      28: t6 = 6'b001110;
+      29: t6 = 6'b101110;
+      30: t6 = 6'b011110;
+      31: t6 = 6'b101011;
+      default: t6 = 6'b000000;
+    endcase
+  endfunction
+  function automatic logic [3:0] t4(input int x);
+    case (x)
+      0: t4 = 4'b1011;
+      1: t4 = 4'b1001;
+      2: t4 = 4'b0101;
+      3: t4 = 4'b1100;
+      4: t4 = 4'b1101;
+      5: t4 = 4'b1010;
+      6: t4 = 4'b0110;
+      7: t4 = 4'b1110;
+      default: t4 = 4'b0000;
+    endcase
+  endfunction
+  function automatic int ones(input logic [9:0] v);
+    ones = 0;
+    for (int i = 0; i < 10; i++) ones += v[i];
   endfunction
 
-  function automatic logic is_bal4(input logic [3:0] c);
-    logic [2:0] n;
-    begin
-      n = {2'b00, c[0]} + {2'b00, c[1]} + {2'b00, c[2]} + {2'b00, c[3]};
-      is_bal4 = (n == 3'd2);
-    end
-  endfunction
-
-  function automatic logic [10:0] enc8b10b(input logic [7:0] d,
-                                           input logic       k,
-                                           input logic       rd);
+  // returns {rd_out, symbol}
+  function automatic logic [10:0] enc(input logic [7:0] d, input logic k, input logic rd);
     logic [5:0] c6;
     logic [3:0] c4;
-    logic       rd1;
-    begin
-      if (k) c6 = rd ? 6'b110000 : 6'b001111;
-      else
-        case (d[4:0])
-          5'd0 : c6 = rd ? 6'b011000 : 6'b100111;
-          5'd1 : c6 = rd ? 6'b100010 : 6'b011101;
-          5'd2 : c6 = rd ? 6'b010010 : 6'b101101;
-          5'd3 : c6 = 6'b110001;
-          5'd4 : c6 = rd ? 6'b001010 : 6'b110101;
-          5'd5 : c6 = 6'b101001;
-          5'd6 : c6 = 6'b011001;
-          5'd7 : c6 = rd ? 6'b000111 : 6'b111000;
-          5'd8 : c6 = rd ? 6'b000110 : 6'b111001;
-          5'd9 : c6 = 6'b100101;
-          5'd10: c6 = 6'b010101;
-          5'd11: c6 = 6'b110100;
-          5'd12: c6 = 6'b001101;
-          5'd13: c6 = 6'b101100;
-          5'd14: c6 = 6'b011100;
-          5'd15: c6 = rd ? 6'b101000 : 6'b010111;
-          5'd16: c6 = rd ? 6'b100100 : 6'b011011;
-          5'd17: c6 = 6'b100011;
-          5'd18: c6 = 6'b010011;
-          5'd19: c6 = 6'b110010;
-          5'd20: c6 = 6'b001011;
-          5'd21: c6 = 6'b101010;
-          5'd22: c6 = 6'b011010;
-          5'd23: c6 = rd ? 6'b000101 : 6'b111010;
-          5'd24: c6 = rd ? 6'b001100 : 6'b110011;
-          5'd25: c6 = 6'b100110;
-          5'd26: c6 = 6'b010110;
-          5'd27: c6 = rd ? 6'b001001 : 6'b110110;
-          5'd28: c6 = 6'b001110;
-          5'd29: c6 = rd ? 6'b010001 : 6'b101110;
-          5'd30: c6 = rd ? 6'b100001 : 6'b011110;
-          default: c6 = rd ? 6'b010100 : 6'b101011;
-        endcase
-      rd1 = rd ^ ~is_bal6(c6);
-      if (k && (d[7:5] == 3'd7)) c4 = rd1 ? 4'b1000 : 4'b0111;
-      else
-        case (d[7:5])
-          3'd0 : c4 = rd1 ? 4'b0100 : 4'b1011;
-          3'd1 : c4 = 4'b1001;
-          3'd2 : c4 = 4'b0101;
-          3'd3 : c4 = rd1 ? 4'b0011 : 4'b1100;
-          3'd4 : c4 = rd1 ? 4'b0010 : 4'b1101;
-          3'd5 : c4 = 4'b1010;
-          3'd6 : c4 = 4'b0110;
-          default: c4 = rd1 ? 4'b0001 : 4'b1110;
-        endcase
-      enc8b10b = {rd1 ^ ~is_bal4(c4), c6, c4};
-    end
-  endfunction
-
-  function automatic logic [9:0] dec8b10b(input logic [9:0] s);
-    logic [5:0] c6;
-    logic [3:0] c4;
-    logic       v6, v4, kk;
-    logic [4:0] y;
-    logic [2:0] x;
-    begin
-      c6 = s[9:4];
-      c4 = s[3:0];
-      v6 = 1'b1; kk = 1'b0; y = 5'd0;
-      case (c6)
-        6'b100111, 6'b011000: y = 5'd0;
-        6'b011101, 6'b100010: y = 5'd1;
-        6'b101101, 6'b010010: y = 5'd2;
-        6'b110001:            y = 5'd3;
-        6'b110101, 6'b001010: y = 5'd4;
-        6'b101001:            y = 5'd5;
-        6'b011001:            y = 5'd6;
-        6'b111000, 6'b000111: y = 5'd7;
-        6'b111001, 6'b000110: y = 5'd8;
-        6'b100101:            y = 5'd9;
-        6'b010101:            y = 5'd10;
-        6'b110100:            y = 5'd11;
-        6'b001101:            y = 5'd12;
-        6'b101100:            y = 5'd13;
-        6'b011100:            y = 5'd14;
-        6'b010111, 6'b101000: y = 5'd15;
-        6'b011011, 6'b100100: y = 5'd16;
-        6'b100011:            y = 5'd17;
-        6'b010011:            y = 5'd18;
-        6'b110010:            y = 5'd19;
-        6'b001011:            y = 5'd20;
-        6'b101010:            y = 5'd21;
-        6'b011010:            y = 5'd22;
-        6'b111010, 6'b000101: y = 5'd23;
-        6'b110011, 6'b001100: y = 5'd24;
-        6'b100110:            y = 5'd25;
-        6'b010110:            y = 5'd26;
-        6'b110110, 6'b001001: y = 5'd27;
-        6'b001110:            y = 5'd28;
-        6'b001111, 6'b110000: begin y = 5'd28; kk = 1'b1; end
-        6'b101110, 6'b010001: y = 5'd29;
-        6'b011110, 6'b100001: y = 5'd30;
-        6'b101011, 6'b010100: y = 5'd31;
-        default:              v6 = 1'b0;
-      endcase
-      v4 = 1'b1; x = 3'd0;
-      case (c4)
-        4'b1011, 4'b0100:                   x = 3'd0;
-        4'b1001:                            x = 3'd1;
-        4'b0101:                            x = 3'd2;
-        4'b1100, 4'b0011:                   x = 3'd3;
-        4'b1101, 4'b0010:                   x = 3'd4;
-        4'b1010:                            x = 3'd5;
-        4'b0110:                            x = 3'd6;
-        4'b1110, 4'b0001, 4'b0111, 4'b1000: x = 3'd7;
-        default:                            v4 = 1'b0;
-      endcase
-      dec8b10b = {v6 & v4, kk, x, y};
-    end
-  endfunction
-
-  // ------------------------------------------------------------------
-  // peer (RE) model: hyperframe stream replied after master comma
-  // ------------------------------------------------------------------
-  bit         peer_on;
-  int         los_skip;      // remaining hyperframes with comma suppressed
-  bit         cv_inject;     // inject one invalid code group at wcnt 500
-  logic       peer_rd;
-  int         peer_wcnt;     // 0..1023 position inside peer hyperframe
-  int         peer_hf;       // hyperframe counter since peer start
-  int         peer_hfi;      // 0..15 L1 slow-stream position
-  int         iqsent;
-  int         iq_base;       // iqsent value at DUT sync entry
-  logic [7:0] iq_log [0:8191];
-  logic [7:0] pb_b;
-  logic       pb_isk;
-
-  function automatic logic [7:0] peer_l1(input int hfi);
-    begin
-      case (hfi)
-        0      : peer_l1 = 8'h5A;
-        1      : peer_l1 = {4'h0, PEER_VER};
-        2      : peer_l1 = {4'd1, PEER_RATE};        // {pointer p, rate}
-        15     : peer_l1 = {4'h0, PEER_VER} ^ {4'd1, PEER_RATE} ^ 8'hA5;
-        default: peer_l1 = 8'h00;
-      endcase
-    end
-  endfunction
-
-  function automatic logic [7:0] iq_pat(input int i);
-    begin
-      iq_pat = ((i * 53) + 17) & 8'hFF;
-    end
-  endfunction
-
-  initial begin
-    peer_on   = 0;
-    los_skip  = 0;
-    cv_inject = 0;
-    peer_rd   = 0;
-    peer_wcnt = 0;
-    peer_hf   = 0;
-    peer_hfi  = 0;
-    iqsent    = 0;
-    iq_base   = -1;
-    rx_sym    = 10'h0;
-  end
-
-  // peer stream driver (one symbol per clock, driven on negedge)
-  always @(negedge clk) begin
-    if (peer_on) begin
-      pb_b   = 8'h00;
-      pb_isk = 1'b0;
-      if ((peer_wcnt & 15) == 0) begin
-        if ((peer_wcnt >> 4) == 0) begin
-          if (los_skip == 0) begin pb_isk = 1'b1; pb_b = K28_5; end
-        end else if ((peer_wcnt >> 4) == 1) pb_b = peer_l1(peer_hfi);
-        else if ((peer_wcnt >> 4) == 4) pb_b = 8'h5C;          // vendor byte
-      end else if ((peer_wcnt >> 4) == 0 && (peer_wcnt & 15) <= 2) begin
-        pb_b = 8'h50;                                          // sync stuff
-      end else begin
-        pb_b = iq_pat(iqsent);                                 // IQ byte
-        iq_log[iqsent & 8191] = pb_b;
-        if (peer_hf == 2 && peer_wcnt == 3 && iq_base < 0)
-          iq_base = iqsent;      // DUT enters SYNC at 3rd peer comma
-        iqsent = iqsent + 1;
-      end
-      if (cv_inject && peer_wcnt == 500) begin
-        rx_sym    = 10'b00_0000_0000;   // invalid code group
-        cv_inject = 0;
-      end else begin
-        {peer_rd, rx_sym} = enc8b10b(pb_b, pb_isk, peer_rd);
-      end
-      if (peer_wcnt == 1023) begin
-        peer_wcnt = 0;
-        peer_hf   = peer_hf + 1;
-        peer_hfi  = (peer_hfi + 1) & 15;
-        if (los_skip > 0) los_skip = los_skip - 1;
-      end else begin
-        peer_wcnt = peer_wcnt + 1;
-      end
+    logic       r;
+    int         y, x;
+    y = d[4:0]; x = d[7:5];
+    if (k) begin                                      // K28.x: RD+ = complement
+      c6 = 6'b001111;
+      c4 = (x == 0) ? 4'b0100 : (x == 1) ? 4'b1001 : (x == 2) ? 4'b0101 : (x == 3) ? 4'b0011 :
+           (x == 4) ? 4'b0010 : (x == 5) ? 4'b1010 : (x == 6) ? 4'b0110 : 4'b1000;
+      if (rd) begin c6 = ~c6; c4 = ~c4; end
+      enc = {(ones({c6, c4}) == 5) ? rd : ~rd, c6, c4};
     end else begin
-      {peer_rd, rx_sym} = enc8b10b(8'h00, 1'b0, peer_rd);      // idle D0.0
+      c6 = t6(y);
+      if (rd && (ones({4'h0, c6}) != 3 || c6 == 6'b111000)) c6 = ~c6;
+      r = (ones({4'h0, c6}) == 3) ? rd : ~rd;
+      if (x == 7 && ((!r && (y == 17 || y == 18 || y == 20)) ||
+                     (r && (y == 11 || y == 13 || y == 14)))) c4 = r ? 4'b1000 : 4'b0111;
+      else begin
+        c4 = t4(x);
+        if (r && (ones({6'h0, c4}) != 2 || x == 3)) c4 = ~c4;
+      end
+      if (ones({6'h0, c4}) != 2) r = ~r;
+      enc = {r, c6, c4};
     end
-  end
+  endfunction
 
   // ------------------------------------------------------------------
-  // master line monitor: comma gaps, stuff bytes, L1 stream, IQ pattern
+  // cpu port
   // ------------------------------------------------------------------
-  int         cyc;
-  int         m_phase;       // expected position of the symbol being sampled
-  int         last_comma;
-  int         first_comma;
-  int         ngaps;
-  int         comma_gaps [0:7];
-  int         ml1_n;
-  logic [7:0] ml1 [0:63];
-  logic [9:0] dec;
-  bit         iqpat_checked;
+  logic [7:0] cfgm [0:7];          // model of the config registers
 
-  initial begin
-    cyc = 0; m_phase = -1; last_comma = -1; first_comma = -1;
-    ngaps = 0; ml1_n = 0; iqpat_checked = 0;
-  end
+  task automatic cpu_wr(input logic [3:0] a, input logic [31:0] d);
+    @(negedge clk);
+    cpu_we = 1; cpu_addr = a; cpu_wdata = d;
+    @(negedge clk);
+    cpu_we = 0;
+  endtask
+  task automatic cpu_rd(input logic [3:0] a, output logic [31:0] d, input logic pop);
+    @(negedge clk);
+    cpu_re = pop; cpu_addr = a;
+    #1 d = cpu_rdata;
+    @(negedge clk);
+    cpu_re = 0;
+  endtask
+
+  // ------------------------------------------------------------------
+  // master TX monitor: every symbol against the expected hyperframe
+  // ------------------------------------------------------------------
+  int         tpos = 0;            // position of the symbol produced at this edge
+  int         thfi = 0;
+  logic       trd = 0;
+  logic [9:0] exp_sym;
+  logic       exp_ok = 0;
+
+  function automatic logic [7:0] m_l1(input int hfi);
+    case (hfi)
+      0:  m_l1 = 8'h5A;
+      1:  m_l1 = {4'h0, cfgm[1][3:0]};
+      2:  m_l1 = cfgm[0];
+      15: m_l1 = cfgm[0] ^ {4'h0, cfgm[1][3:0]} ^ 8'hA5;
+      default: m_l1 = 8'h00;
+    endcase
+  endfunction
 
   always @(posedge clk) begin
-    cyc = cyc + 1;
-    dec = dec8b10b(tx_sym);
-    if (dec[9] && dec[8] && dec[7:0] == K28_5) begin
-      if (first_comma < 0) first_comma = cyc;
-      if (last_comma >= 0 && ngaps < 8) begin
-        comma_gaps[ngaps] = cyc - last_comma;
-        ngaps = ngaps + 1;
-      end
-      last_comma = cyc;
-      m_phase = 1;
+    logic [7:0] b;
+    logic       k;
+    int         bf, w;
+    if (!rst_n) begin
+      tpos = 0; thfi = 0; trd = 0; exp_ok = 0;
+      cfgm[0] = 8'h2A; cfgm[1] = 8'h04; cfgm[2] = 8'hC9;
+      for (int i = 3; i < 8; i++) cfgm[i] = 8'h00;
     end else begin
-      if (m_phase == 1 || m_phase == 2) begin
-        if (!(dec[9] && !dec[8] && dec[7:0] == 8'h50)) begin
-          errors = errors + 1;
-          $display("ERROR: CPRI sync stuff byte @pos %0d = %h exp 50",
-                   m_phase, dec[7:0]);
-        end
-      end
-      if (m_phase == 16 && ml1_n < 64) begin
-        if (dec[9] && !dec[8]) begin
-          ml1[ml1_n] = dec[7:0];
-          ml1_n = ml1_n + 1;
-        end
-      end
-      if (m_phase == 20 && !iqpat_checked) begin
-        // basic frame #1 word #4: TX IQ pattern = {bf[3:0],wpos} = 8'h14
-        iqpat_checked = 1;
-        if (!(dec[9] && !dec[8] && dec[7:0] == 8'h14)) begin
-          errors = errors + 1;
-          $display("ERROR: CPRI tx IQ pattern = %h exp 14", dec[7:0]);
-        end
-      end
-      if (m_phase > 0) m_phase = (m_phase == 1023) ? 0 : m_phase + 1;
+      bf = tpos / 16; w = tpos % 16; k = 0;
+      if (w == 0) begin
+        if (bf == 0) begin k = 1; b = K28_5; end
+        else if (bf == 1) b = m_l1(thfi);
+        else if (bf == 4) b = cfgm[2];
+        else b = 8'h00;
+      end else if (bf == 0 && w <= 2) b = 8'h50;
+      else b = {4'(bf), 4'(w)};
+      {trd, exp_sym} = enc(b, k, trd);
+      exp_ok = 1;
+      if (tpos == 1023) begin tpos = 0; thfi = (thfi + 1) % 16; end
+      else tpos++;
+      if (cpu_we && cpu_addr < 8) cfgm[cpu_addr] = cpu_wdata[7:0];
     end
   end
+  always @(negedge clk) if (rst_n && exp_ok) check(tx_sym === exp_sym, "TX symbol");
 
   // ------------------------------------------------------------------
-  // cpu port helpers
+  // RE peer stream (one symbol per clock, driven on negedge)
   // ------------------------------------------------------------------
-  task automatic cpu_wr(input logic [3:0] a, input logic [31:0] d);
-    begin
-      @(negedge clk);
-      cpu_we = 1; cpu_addr = a; cpu_wdata = d;
-      @(negedge clk);
-      cpu_we = 0;
-    end
+  logic       peer_on = 0;
+  int         pw = 0, phf = 0, phfi = 0;  // position, hyperframe count, L1 index
+  logic       prd = 0;
+  int         skip_comma = 0;             // hyperframes with the comma suppressed
+  int         stray_at = -1;              // position of an extra comma
+  int         bad_at = -1;                // position of an invalid code group
+  int         disp_at = -1;               // position of the next wrong-disparity symbol
+  int         disp_n = 0;                 // wrong-disparity symbols still to send
+  int         disp_k = 0;
+  logic       pop_full = 0, pop_off = 0;  // pop in the clock a word is pushed
+  int         pp_idx = -1;
+  logic [3:0] p_ver = 4'd3, p_rate = 4'd5, p_vhi = 4'd0, p_ptr = 4'd1;
+  logic [7:0] p_chk_x = 8'h00;            // XOR into the check byte (0 = good)
+  logic       p_som2 = 0;                 // a second SOM in the middle of a sequence
+  logic       bad_clr = 0, clr_off = 0;   // clear the cv flag in the bad symbol's clock
+  logic [7:0] p_vendor = 8'h5C;
+  int         iq_n = 0;
+  logic [7:0] iq_log [0:65535];
+  int         iq_base = -1;
+  logic       log_iq = 0;
+
+  function automatic logic [7:0] p_l1(input int hfi);
+    case (hfi)
+      0:  p_l1 = 8'h5A;
+      1:  p_l1 = {p_vhi, p_ver};
+      2:  p_l1 = {p_ptr, p_rate};
+      7:  p_l1 = p_som2 ? 8'h5A : 8'h00;
+      15: p_l1 = {p_vhi, p_ver} ^ {p_ptr, p_rate} ^ 8'hA5 ^ p_chk_x;
+      default: p_l1 = 8'h00;
+    endcase
+  endfunction
+
+  always @(negedge clk) begin
+    logic [7:0] b;
+    logic       k, r2;
+    logic [9:0] s2;
+    if (clr_off) begin cpu_we = 0; clr_off = 0; end
+    if (pop_off) begin cpu_re = 0; pop_off = 0; end
+    if (peer_on) begin
+      b = 8'h00; k = 0;
+      if (pw % 16 == 0) begin
+        if (pw == 0) begin
+          if (skip_comma == 0) begin k = 1; b = K28_5; end
+          else skip_comma--;
+        end else if (pw == 16) b = p_l1(phfi);
+        else if (pw == 64) b = p_vendor;
+      end else if (pw < 3) b = 8'h50;
+      else begin
+        b = 8'($urandom);
+        if (log_iq) begin
+          if (pop_full && iq_n % 4 == 3) begin
+            cpu_re = 1; cpu_addr = 4'd10; pop_full = 0; pop_off = 1; pp_idx = iq_n - 3;
+          end
+          iq_log[iq_n % 65536] = b; iq_n++;
+        end
+      end
+      if (pw == stray_at) begin k = 1; b = K28_5; stray_at = -1; end
+      if (pw == bad_at) begin
+        rx_sym = 10'b1111110000; bad_at = -1;
+        if (bad_clr) begin
+          cpu_we = 1; cpu_addr = 4'd13; cpu_wdata = 32'h2; bad_clr = 0; clr_off = 1;
+        end
+      end else if (pw == disp_at && disp_n > 0) begin
+        // D0.0 / D3.3 / D7.1 / D3.0 encoded for the wrong disparity
+        {r2, s2} = enc((disp_k % 4 == 0) ? 8'h00 : (disp_k % 4 == 1) ? 8'h63 :
+                       (disp_k % 4 == 2) ? 8'h27 : 8'h03, 1'b0, ~prd);
+        rx_sym = s2;
+        // the receiver follows the symbol's own sub-block disparities
+        prd = (ones({6'h0, s2[3:0]}) == 3) ? 1'b1 : (ones({6'h0, s2[3:0]}) == 1) ? 1'b0 :
+              (ones({4'h0, s2[9:4]}) == 4) ? 1'b1 : (ones({4'h0, s2[9:4]}) == 2) ? 1'b0 : prd;
+        disp_k++; disp_n--; disp_at = disp_at + 7;
+      end else
+        {prd, rx_sym} = enc(b, k, prd);
+      if (pw == 1023) begin
+        pw = 0; phf++; phfi = (phfi + 1) % 16;
+      end else pw++;
+    end else
+      {prd, rx_sym} = enc(8'h00, 1'b0, prd);       // idle D0.0
+  end
+
+  // return just after the clock edge that samples the symbol before p
+  task automatic wait_pos(input int p);
+    @(posedge clk); #1;
+    while (pw != p) begin @(posedge clk); #1; end
   endtask
 
-  task automatic cpu_rd(input logic [3:0] a, output logic [31:0] d);
-    begin
-      @(negedge clk);
-      cpu_re = 1; cpu_addr = a;
-      #1 d = cpu_rdata;
-      @(negedge clk);
-      cpu_re = 0;
-    end
-  endtask
-
-  task automatic wait_state(input logic [1:0] st, input int maxc);
-    int n;
+  task automatic st_is(input logic [1:0] st, input string msg);
     logic [31:0] r;
-    begin
-      n = 0; r = 32'hFFFF_FFFF;
-      while (r[1:0] !== st && n < maxc) begin
-        cpu_rd(4'd8, r);
-        n = n + 1;
-      end
-      if (r[1:0] !== st) begin
-        errors = errors + 1;
-        $display("ERROR: CPRI timeout waiting sync state %0d (got %b)", st, r[1:0]);
-      end
+    cpu_rd(4'd8, r, 0);
+    check(r[1:0] == st, msg);
+  endtask
+
+  // pop n IQ words and compare with the logged bytes
+  task automatic pop_check(input int n);
+    logic [31:0] r;
+    int          i;
+    for (int j = 0; j < n; j++) begin
+      i = iq_base;
+      cpu_rd(4'd10, r, 1);
+      check(r == {iq_log[i % 65536], iq_log[(i + 1) % 65536], iq_log[(i + 2) % 65536],
+                  iq_log[(i + 3) % 65536]}, "IQ word");
+      iq_base += 4;
     end
   endtask
 
-  // ------------------------------------------------------------------
-  // TIMEOUT guard
-  // ------------------------------------------------------------------
-`ifdef VERILATOR
-  // chunked timeout guard
-  initial begin
-    repeat (4000) #1000;
-    $display("ERROR: CPRI TB TIMEOUT");
-    $display("TEST FAILED: %0d errors", errors + 1);
-    $finish;
-  end
-`else
-  initial begin
-    #3000000;
-    $display("ERROR: CPRI TB TIMEOUT");
-    $display("TEST FAILED: %0d errors", errors + 1);
-    $finish;
-  end
-`endif
+  // peer start at a hyperframe boundary; sync reached at the third comma
+  task automatic bring_up;
+    pw = 0; phfi = 0;
+    peer_on = 1;
+    wait_pos(1); st_is(2'd1, "ALIGN after the first comma");
+    wait_pos(0); wait_pos(1); st_is(2'd1, "still ALIGN after the second comma");
+    wait_pos(0);
+    log_iq = 1; iq_n = 0; iq_base = 0;
+    wait_pos(1); st_is(2'd2, "SYNC after the third comma");
+  endtask
 
   // ------------------------------------------------------------------
-  // main test sequence
+  // stimulus
   // ------------------------------------------------------------------
-  logic [31:0] rd, exp;
-  int          i, k, found;
+  logic [31:0] r;
+  int          n;
 
   initial begin
-    cpu_we = 0; cpu_re = 0; cpu_addr = 0; cpu_wdata = 0;
-    repeat (4) @(negedge clk);
+    repeat (3) @(negedge clk);
+    check(irq == 0, "reset irq");
     rst_n = 1;
-    repeat (4) @(negedge clk);
 
-    // CHECK 1: reset state (HUNT, empty IQ buffer, no irq)
-    cpu_rd(4'd8, rd);
-    if (rd[1:0] !== 2'b00) begin
-      errors++; $display("ERROR: CPRI state after reset = %b exp HUNT", rd[1:0]);
+    // ---- configuration registers: every bit both ways ----
+    for (int a = 0; a < 8; a++) begin
+      cpu_wr(4'(a), 32'hFFFF_FFFF); cpu_rd(4'(a), r, 0); check(r == 32'hFF, "cfg write ones");
+      cpu_wr(4'(a), 32'h0000_0000); cpu_rd(4'(a), r, 0); check(r == 32'h00, "cfg write zeros");
     end
-    if (rd[11:6] !== 6'd0) begin
-      errors++; $display("ERROR: CPRI iq_cnt after reset = %0d exp 0", rd[11:6]);
-    end
-    if (irq !== 1'b0) begin
-      errors++; $display("ERROR: CPRI irq asserted after reset");
-    end
+    cpu_wr(4'd0, 32'h2A); cpu_wr(4'd1, 32'h04); cpu_wr(4'd2, 32'hC9);
+    cpu_wr(4'd14, 32'hFFFF_FFFF);                     // unmapped
+    cpu_rd(4'd14, r, 0); check(r == 0, "unmapped read");
+    cpu_rd(4'd15, r, 0); check(r == 0, "unmapped read 15");
+    cpu_rd(4'd11, r, 0); check(r == 0, "IQ buffer empty");
+    cpu_rd(4'd10, r, 1);                              // pop on empty: no effect
+    cpu_rd(4'd11, r, 0); check(r == 0, "pop on empty");
+    st_is(2'd0, "HUNT");
 
-    // CHECK 2: sync handshake -- master sends K28.5, peer replies
-    k = cyc;
-    wait (first_comma >= 0);
-    if (first_comma - k > 1100) begin
-      errors++;
-      $display("ERROR: CPRI master comma late by %0d clocks", first_comma - k);
-    end
-    peer_on = 1;                 // RE replies with hyperframe-aligned K28.5
-    wait_state(2'b10, 4000);     // SYNC
+    // ---- ALIGN: stray comma re-aligns, then a missed comma -> HUNT ----
+    pw = 0; peer_on = 1;
+    wait_pos(1); st_is(2'd1, "ALIGN");
+    stray_at = 300;
+    wait_pos(301); st_is(2'd1, "ALIGN after the stray comma");
+    // the expected comma is now 1024 after position 300; suppress the next
+    // hyperframe comma so that no comma arrives at all
+    skip_comma = 1;
+    repeat (1030) @(negedge clk);
+    st_is(2'd0, "back to HUNT when the comma is missing");
+    peer_on = 0;
+    repeat (20) @(negedge clk);
 
-    // CHECK 3: hyperframe boundary -- comma gap exactly 1024 symbols
-    wait (ngaps >= 4);
-    for (i = 0; i < 4; i++) begin
-      if (comma_gaps[i] !== 1024) begin
-        errors++;
-        $display("ERROR: CPRI comma gap[%0d] = %0d exp 1024", i, comma_gaps[i]);
-      end
+    // ---- sync bring-up, IQ capture ----
+    bring_up;
+    // pop as words arrive (some pops coincide with a push)
+    for (int j = 0; j < 60; j++) begin
+      cpu_rd(4'd11, r, 0);
+      if (r != 0) pop_check(1);
     end
-
-    // CHECK 4: peer -> master L1 inband negotiation (16-hyperframe stream)
-    wait (peer_hf >= 34);
-    cpu_rd(4'd8, rd);
-    if (rd[2] !== 1'b1) begin
-      errors++; $display("ERROR: CPRI l1_done not set after 34 hyperframes");
-    end
-    if (rd[15:12] !== PEER_VER) begin
-      errors++; $display("ERROR: CPRI peer_ver = %0d exp %0d", rd[15:12], PEER_VER);
-    end
-    cpu_rd(4'd9, rd);
-    if (rd[3:0] !== 4'd3) begin
-      errors++; $display("ERROR: CPRI neg_ver = %0d exp 3", rd[3:0]);
-    end
-    if (rd[7:4] !== 4'd5) begin
-      errors++; $display("ERROR: CPRI neg_rate = %0d exp 5", rd[7:4]);
-    end
-    cpu_rd(4'd12, rd);
-    if (rd[7:0] !== 8'h5C) begin
-      errors++; $display("ERROR: CPRI vendor byte = %h exp 5C", rd[7:0]);
-    end
-
-    // CHECK 5: master -> peer L1 slow-stream byte-by-byte compare
-    wait (ml1_n >= 40);
-    found = -1;
-    for (i = 0; i < 25; i++)
-      if (ml1[i] == 8'h5A && found < 0) found = i;
-    if (found < 0) begin
-      errors++; $display("ERROR: CPRI master L1 stream has no start mark 5A");
-    end else begin
-      for (k = 0; k < 16; k++) begin
-        case (k)
-          0      : exp = 32'h5A;
-          1      : exp = 32'h04;             // local version 4
-          2      : exp = 32'h2A;             // {pointer p=2, rate=10}
-          15     : exp = 32'h8B;             // check byte 2A^04^A5
-          default: exp = 32'h00;
-        endcase
-        if ({24'h0, ml1[found + k]} !== exp) begin
-          errors++;
-          $display("ERROR: CPRI master L1[%0d] = %h exp %h", k, ml1[found+k], exp[7:0]);
-        end
-      end
-    end
-
-    // CHECK 6: IQ capture -- pop 16 {I,Q} samples and compare with the
-    // byte stream the peer put on the line
-    if (iq_base < 0) begin
-      errors++; $display("ERROR: CPRI iq_base not captured (no sync entry?)");
-    end
-    rd = 0; k = 0;
-    while (rd[5:0] !== 6'd32 && k < 2000) begin
-      cpu_rd(4'd11, rd);
-      k = k + 1;
-    end
-    if (rd[5:0] !== 6'd32) begin
-      errors++; $display("ERROR: CPRI iq_cnt = %0d exp 32 (full)", rd[5:0]);
-    end
-    for (k = 0; k < 16; k++) begin
-      cpu_rd(4'd10, rd);
-      exp = {iq_log[(iq_base + 4*k + 0) & 8191],
-             iq_log[(iq_base + 4*k + 1) & 8191],
-             iq_log[(iq_base + 4*k + 2) & 8191],
-             iq_log[(iq_base + 4*k + 3) & 8191]};
-      if (rd !== exp) begin
-        errors++;
-        $display("ERROR: CPRI iq[%0d] = %h exp %h", k, rd, exp);
-      end
-    end
-
-    // CHECK 7: code-violation injection -> irq, then irq clear
-    cv_inject = 1;
-    wait (cv_inject == 0);
-    repeat (4) @(negedge clk);
-    if (irq !== 1'b1) begin
-      errors++; $display("ERROR: CPRI no irq after code violation");
-    end
-    cpu_rd(4'd13, rd);
-    if (rd[1] !== 1'b1) begin
-      errors++; $display("ERROR: CPRI irq_cv status bit not set");
-    end
-    cpu_wr(4'd13, 32'h2);
+    // stop popping: the buffer fills, further words are dropped and counted
+    repeat (300) @(negedge clk);
+    cpu_rd(4'd11, r, 0); check(r == 32, "IQ buffer full");
+    cpu_rd(4'd8, r, 0);  check(r[23:16] > 0, "overflow counted");
+    // pop in the very clock a word completes: the word is kept
+    pop_full = 1;
+    while (pop_full || pop_off) @(negedge clk);
     repeat (2) @(negedge clk);
-    if (irq !== 1'b0) begin
-      errors++; $display("ERROR: CPRI irq_cv not cleared");
-    end
+    cpu_rd(4'd11, r, 0); check(r == 32, "buffer still full after pop + push");
+    iq_base += 4;                                    // the popped oldest word
+    pop_check(31);                                   // the oldest words survive
+    iq_base = pp_idx;
+    pop_check(1);                                    // then the word pushed with the pop
 
-    // CHECK 8: loss of sync -- suppress 5 peer commas, DUT must declare
-    // LOS after 4 consecutive missed hyperframes, then re-sync on resume
-    los_skip = 5;
-    wait_state(2'b00, 9000);                 // HUNT
-    if (irq !== 1'b1) begin
-      errors++; $display("ERROR: CPRI no irq after loss of sync");
-    end
-    cpu_rd(4'd13, rd);
-    if (rd[0] !== 1'b1) begin
-      errors++; $display("ERROR: CPRI irq_los status bit not set");
-    end
-    wait_state(2'b10, 9000);                 // recovered to SYNC
-    cpu_wr(4'd13, 32'h1);
-    repeat (2) @(negedge clk);
-    if (irq !== 1'b0) begin
-      errors++; $display("ERROR: CPRI irq_los not cleared");
-    end
+    // ---- L1 negotiation: good sequence ----
+    wait_pos(0);
+    while (phfi != 0) wait_pos(0);
+    repeat (16) wait_pos(0);
+    wait_pos(20);
+    cpu_rd(4'd8, r, 0); check(r[2] == 1 && r[15:12] == 4'd3, "L1 done, peer version");
+    cpu_rd(4'd9, r, 0); check(r == {24'h0, 4'd5, 4'd3}, "negotiated rate / version");
+    cpu_wr(4'd1, 32'h02); cpu_wr(4'd0, 32'h12);
+    cpu_rd(4'd9, r, 0); check(r == {24'h0, 4'd2, 4'd2}, "local lower");
+    cpu_rd(4'd12, r, 0); check(r == 8'h5C, "peer vendor byte");
+    // all-ones / all-zeros peer fields, then a bad check byte
+    p_ver = 4'hF; p_rate = 4'hF; p_vendor = 8'hA3; p_vhi = 4'hF; p_ptr = 4'hF;
+    cpu_wr(4'd1, 32'h0F); cpu_wr(4'd0, 32'hFF); cpu_wr(4'd2, 32'h00);
+    repeat (17) wait_pos(0);
+    wait_pos(20);
+    cpu_rd(4'd8, r, 0); check(r[15:12] == 4'hF, "peer version F");
+    cpu_rd(4'd9, r, 0); check(r == 8'hFF, "negotiated F / F");
+    cpu_rd(4'd12, r, 0); check(r == 8'hA3, "peer vendor A3");
+    p_ver = 4'h0; p_rate = 4'h0; p_chk_x = 8'h01; p_vhi = 4'h0; p_ptr = 4'h0;
+    repeat (17) wait_pos(0);
+    wait_pos(20);
+    cpu_rd(4'd8, r, 0); check(r[15:12] == 4'hF, "bad check byte ignored");
+    p_chk_x = 8'h80;
+    repeat (17) wait_pos(0);
+    wait_pos(20);
+    cpu_rd(4'd8, r, 0); check(r[15:12] == 4'hF, "check byte bit 7 wrong: ignored");
+    p_chk_x = 8'h00; p_som2 = 1;                     // SOM restarts the sequence at hfi 7
+    repeat (17) wait_pos(0);
+    wait_pos(20);
+    cpu_rd(4'd8, r, 0); check(r[15:12] == 4'hF, "restarted sequence not complete");
+    p_som2 = 0;
+    repeat (17) wait_pos(0);
+    wait_pos(20);
+    cpu_rd(4'd8, r, 0); check(r[15:12] == 4'h0, "peer version 0");
+    cpu_wr(4'd1, 32'h04); cpu_wr(4'd0, 32'h2A); cpu_wr(4'd2, 32'hC9);
 
-`ifdef VERILATOR
-    // ---- v2.5 CRV random phase (directed tests above untouched) ----
-    // Random stimulus: (b) 80 random config-register write+readback txns,
-    // (c) 30 random status/reserved reads, (d) 8 random code-violation
-    // injections with sticky-irq set/clear. All cpu transactions self-checked.
-    // (The peer IQ stream stays the deterministic iq_pat: the TB's iq_log is
-    // an 8192-entry circular model, so only a 256-periodic stream aliases
-    // correctly across wraps -- a $urandom stream cannot be self-checked by
-    // CHECK 6. The config-register randomisation below varies the L1/vendor
-    // bytes the DUT transmits instead.)
-    begin : crv_phase
-      int n_cfg = 0, n_rd = 0, n_cv = 0;
-      logic [3:0]  a_v;
-      logic [31:0] w_v;
-      logic [31:0] rr;
-      // (b) random config writes + readback (cfg[0..7] hold the low byte).
-      // Full 32-bit random wdata toggles every cpu_wdata input bit; the DUT
-      // stores only cpu_wdata[7:0], so readback is checked against w_v[7:0].
-      for (int t = 0; t < 80; t++) begin
-        a_v = $urandom_range(7, 0);
-        w_v = $urandom;
-        cpu_wr(a_v, w_v);
-        cpu_rd(a_v, rr);
-        n_cfg++;
-        if (rr !== {24'h0, w_v[7:0]}) begin
-          errors++; $display("ERROR: CRV cfg[%0d] rd %h exp %02h", a_v, rr, w_v[7:0]);
-        end
-      end
-      // (c) random status / vendor / reserved reads (read-mux coverage)
-      for (int t = 0; t < 30; t++) begin
-        a_v = $urandom_range(15, 8);
-        cpu_rd(a_v, rr);
-        n_rd++;
-        if (a_v >= 4'd14 && rr !== 32'h0) begin
-          errors++; $display("ERROR: CRV reserved addr %0d rd %h exp 0", a_v, rr);
-        end
-        if (^rr === 1'bx) begin
-          errors++; $display("ERROR: CRV X on read addr %0d", a_v);
-        end
-      end
-      // (d2) random iq-buffer reads (addr 10) toggle the wide read-mux bits
-      for (int t = 0; t < 24; t++) begin
-        cpu_rd(4'd10, rr);
-        n_rd++;
-        if (^rr === 1'bx) begin
-          errors++; $display("ERROR: CRV X on iq read t=%0d", t);
-        end
-      end
-      // (d) random code-violation injections -> irq_cv set, then clear
-      for (int t = 0; t < 8; t++) begin
-        cv_inject = 1;
-        wait (cv_inject == 0);
-        repeat (4) @(negedge clk);
-        if (irq !== 1'b1) begin
-          errors++; $display("ERROR: CRV no irq on code violation t=%0d", t);
-        end
-        cpu_rd(4'd13, rr);
-        if (rr[1] !== 1'b1) begin
-          errors++; $display("ERROR: CRV irq_cv status not set t=%0d", t);
-        end
-        cpu_wr(4'd13, 32'h2);
-        repeat (2) @(negedge clk);
-        n_cv++;
-      end
-      $display("CRV: cfg=%0d rd=%0d cv=%0d (total %0d txns)",
-               n_cfg, n_rd, n_cv, n_cfg + n_rd + n_cv);
+    // ---- code violations: invalid code group, wrong disparity; irq clear ----
+    check(irq == 0, "no irq yet");
+    bad_at = 500; wait_pos(502);
+    check(irq == 1, "code violation irq");
+    cpu_rd(4'd13, r, 0); check(r == 2, "cv flag");
+    cpu_wr(4'd13, 32'h1); check(irq == 1, "clearing los leaves cv");
+    cpu_wr(4'd13, 32'h2); check(irq == 0, "cv cleared");
+    // wrong-disparity symbols, one at a time with the flag cleared between
+    for (int k = 0; k < 20; k++) begin
+      wait_pos(100 + 40 * k);
+      disp_n = 1; disp_at = 105 + 40 * k;
+      wait_pos(108 + 40 * k);
+      check(irq == 1 && disp_n == 0, "disparity error irq");
+      cpu_wr(4'd13, 32'h2); check(irq == 0, "cv cleared after a disparity error");
     end
-`endif
+    wait_pos(890); disp_n = 1; disp_at = 895; wait_pos(898);
+    // clear in the same clock as a new violation: set wins
+    wait_pos(900);
+    bad_clr = 1; bad_at = 902;
+    wait_pos(905); check(irq == 1, "violation set wins over clear");
+    cpu_wr(4'd13, 32'h3); check(irq == 0, "cleared");
+    st_is(2'd2, "still in sync after violations");
+
+    // ---- 3 missed commas: stays in sync; 4: loss of sync ----
+    wait_pos(500);
+    skip_comma = 3;
+    repeat (4) wait_pos(0);
+    wait_pos(5);
+    st_is(2'd2, "3 missed commas tolerated");
+    check(irq == 0, "no loss of sync");
+    wait_pos(500);
+    skip_comma = 4;
+    repeat (4) wait_pos(0);
+    wait_pos(5);
+    st_is(2'd0, "loss of sync after 4 missed commas");
+    check(irq == 1, "loss of sync irq");
+    cpu_rd(4'd13, r, 0); check(r == 1, "los flag");
+    cpu_wr(4'd13, 32'h1); check(irq == 0, "los cleared");
+    // HUNT again; resync
+    peer_on = 0; log_iq = 0;
+    repeat (50) @(negedge clk);
+    // pop what was left in the buffer
+    cpu_rd(4'd11, r, 0);
+    n = r;
+    for (int j = 0; j < n; j++) cpu_rd(4'd10, r, 1);
+    bring_up;
+    repeat (300) @(negedge clk);
+    pop_check(4);
+
+    // ---- reset mid-sync ----
+    rst_n = 0; @(negedge clk);
+    check(irq == 0, "reset clears irq");
+    rst_n = 1; peer_on = 0; log_iq = 0;
+    repeat (20) @(negedge clk);
+    st_is(2'd0, "HUNT after reset");
+    cpu_rd(4'd11, r, 0); check(r == 0, "buffer empty after reset");
 
     if (errors == 0) $display("TEST PASSED: CPRI_v8_0__eCPRI_over_CPR_");
     else             $display("TEST FAILED: %0d errors", errors);
-`ifdef VERILATOR
-    begin
-      int visited;
-      visited = 0;
-      for (int s = 0; s < CPRI_FSM_TOTAL; s++) visited += fsm_seen[s];
-      $display("FSM_COV: %0d/%0d", visited, CPRI_FSM_TOTAL);
-      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
-    end
-`endif
     $finish;
   end
 
+  initial begin
+    #20000000;
+    $display("TEST FAILED: TIMEOUT"); $finish;
+  end
 endmodule

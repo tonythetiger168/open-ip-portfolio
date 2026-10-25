@@ -1,5 +1,5 @@
 # CCIX Cache Coherent Interconnect synthesis script -- Yosys (open-source flow)
-read_verilog -sv ../rtl/CCIX_Cache_Coherent_Interconnect_top.sv 
+read_verilog -sv ../rtl/CCIX_Cache_Coherent_Interconnect_top.sv
 hierarchy -check -top CCIX_Cache_Coherent_Interconnect_top
 proc; opt; fsm; opt; memory; opt
 techmap; opt

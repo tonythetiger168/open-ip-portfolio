@@ -1,0 +1,41 @@
+{
+  "title": "LIN 2.2A node (commander and responder)",
+  "code": "0x4C49",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "100ms",
+  "regs": [
+    {"name": "CFG", "kind": "rw", "desc": "Bit timing (static while the bus is in use)",
+     "fields": [{"port": "cfg_bit", "reset": "2604", "desc": "nominal bit time in clocks, at least 16 (2604: 19200 bit/s at 50 MHz)"},
+                {"port": "cfg_autobaud", "reset": "0", "desc": "1 = measure the bit time of each frame on its sync byte (responder without a crystal)"}]},
+    {"name": "HDR", "kind": "stream_in", "data": "hdr_id", "valid": "hdr_valid", "ready": "hdr_ready",
+     "desc": "Commander: writing an ID sends a header (break, sync, protected ID)",
+     "fdesc": {"hdr_id": "frame identifier 0..63"}},
+    {"name": "PID", "kind": "stream_out", "data": "pid_id", "valid": "pid_valid",
+     "desc": "Header seen on the bus (own headers included); reading frees it",
+     "fdesc": {"pid_id": "frame identifier"}},
+    {"name": "RSP", "kind": "stream_in", "data": ["rsp_data", "rsp_len", "rsp_pub", "rsp_enh"],
+     "valid": "rsp_valid", "ready": "rsp_ready",
+     "desc": "This node's role in the next response, taken once a header has been seen; writing RSP2 commits it. Not written before the response starts: the frame is ignored",
+     "fdesc": {"rsp_data": "data to publish, byte 0 in bits 7:0 (sent first)", "rsp_len": "data bytes - 1",
+               "rsp_pub": "1 = publish rsp_data, 0 = subscribe", "rsp_enh": "1 = enhanced checksum (IDs 60..63 always classic)"}},
+    {"name": "RX", "kind": "stream_out", "data": ["rx_data", "rx_id", "rx_len"], "valid": "rx_valid",
+     "desc": "Subscribed response received with a good checksum; reading RX2 frees it",
+     "fdesc": {"rx_data": "data bytes, byte 0 in bits 7:0, unused bytes 0", "rx_id": "frame identifier", "rx_len": "data bytes - 1"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Bit time in use",
+     "fields": [{"port": "bit_time", "desc": "bit time of the current frame in clocks (measured with auto-baud)"}]}
+  ],
+  "irqs": [
+    {"name": "SENT", "port": "tx_done", "desc": "a published response was sent completely"},
+    {"name": "ERR_BIT", "port": "err_bit", "desc": "a sent bit read back wrong; the node stopped sending"},
+    {"name": "ERR_SYNC", "port": "err_sync", "desc": "break delimiter too long, or sync byte wrong or off-rate"},
+    {"name": "ERR_PARITY", "port": "err_parity", "desc": "protected ID parity error"},
+    {"name": "ERR_FRAME", "port": "err_frame", "desc": "dominant stop bit in the PID or the response"},
+    {"name": "ERR_CHK", "port": "err_chk", "desc": "response checksum error"},
+    {"name": "ERR_TIMEOUT", "port": "err_timeout", "desc": "subscribed response incomplete after 1.4 x its nominal length"}
+  ],
+  "notes": [
+    "A commander writes HDR and also acts on its own header: it reads PID and writes RSP like any responder.",
+    "RSP can be written ahead: it is held (FLAGS.RSP_FULL) and taken by the next header."
+  ]
+}

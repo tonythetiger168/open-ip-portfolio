@@ -1,266 +1,230 @@
 // SPDX-License-Identifier: Apache-2.0
-// Self-checking testbench: TB acts as MIPI DBI (Display Bus Interface) master -- SystemVerilog
+// ============================================================================
+// Self-checking testbench for MIPI_DBI__Display_Bus_Interface__top v2.0
+//  * A display model decodes the pins of every interface type on its own:
+//    Type A (latch on E falling, drive while E high with R/WX = 1), Type B
+//    (latch on WRX rising, drive while RDX low), Type C options 1 / 3
+//    (sample SDA on SCL rising, drive read bits from SCL falling, dummy
+//    clocks before the first read). Every transfer is checked against the
+//    op the host issued (D/CX, direction, data, bus width), read data
+//    against what the display drove.
+//  * Pin checks: CSX low through every transfer and high after op_last;
+//    Type A / B data and D/CX stable while the strobe is active; one
+//    strobe at a time; SDA released during reads.
+//  * Scenarios: random transactions on every type, bus width and phase
+//    length (0 and 15 included), every dummy count, back-to-back ops and
+//    idle gaps, a configuration change between transactions, reset in the
+//    middle of a transfer.
+// ============================================================================
 `timescale 1ns/1ps
 module MIPI_DBI__Display_Bus_Interface__tb;
   logic clk = 0, rst_n = 0;
-  tri1  sdata;
-  logic sclk = 0;
-  logic m_oe = 0, m_val = 1;
-  logic [7:0] rx_byte, rx_addr;
-  logic [7:0] tx_byte = 8'hC2;   // v2.5.1: LSB=0 locks the read-LSB fix
-  logic rx_valid, busy;
-  logic rx_seen = 0;
-  int errors = 0;
-
-  MIPI_DBI__Display_Bus_Interface__top #(.RFFE_ADDR(2'b01)) dut (
-    .clk(clk), .rst_n(rst_n), .sdata(sdata), .sclk(sclk),
-    .rx_byte(rx_byte), .rx_addr(rx_addr), .rx_valid(rx_valid),
-    .tx_byte(tx_byte), .busy(busy), .irq());
-
   always #5 clk = ~clk;
-  assign sdata = m_oe ? m_val : 1'bz;
-  always @(posedge clk) if (rx_valid) rx_seen <= 1'b1;
 
-  task automatic rbit(input logic b);
-    begin m_oe = 1; m_val = b; #300; sclk = 1; #600; sclk = 0; #300; end
-  endtask
-  task automatic rrelease_bit(output logic b);
-    begin m_oe = 0; #300; sclk = 1; #300; b = sdata; #300; sclk = 0; #300; end
-  endtask
-  task automatic rssc;
-    begin m_oe = 0; m_val = 1; sclk = 1; #300;   // SCLK high first
-          m_oe = 1; m_val = 0; #300;             // SDATA falls while SCLK high
-          sclk = 0; #300;
-          m_oe = 0; #300; end
-  endtask
+  int errors = 0;
+  function automatic void fail(input string m);
+    errors++;
+    if (errors < 40) $display("ERROR: %s @%0t", m, $time);
+  endfunction
 
-  task automatic rffe_write(input logic [1:0] sa, input logic [4:0] ad,
-                            input logic [7:0] data);
-    begin
-      rssc;
-      rbit(sa[1]); rbit(sa[0]); rbit(1'b0);       // PC=0 write
-      for (int i = 4; i >= 0; i--) rbit(ad[i]);
-      for (int i = 7; i >= 0; i--) rbit(data[i]);
-      rbit(1'b1);                                  // bus park
-      m_oe = 0; #600;
+  logic [1:0]  cfg_type = 1, cfg_dummy = 0;
+  logic        cfg_w16 = 0;
+  logic [3:0]  cfg_tw = 1, cfg_tr = 2;
+  logic        op_valid = 0, op_dc = 0, op_rd = 0, op_last = 0;
+  logic [15:0] op_data = 0;
+  wire         op_ready, rd_valid, busy, csx, dcx, wrx, rdx, d_oe, scl, sda_o, sda_oe;
+  wire  [15:0] rd_data, d_o;
+  logic [15:0] d_i = 0;
+  logic        sda_i = 0;
+
+  MIPI_DBI__Display_Bus_Interface__top dut (.*);
+
+  // ---------------- host ----------------
+  // expected transfers: {last, w16, rd, dc, data}
+  logic [19:0] xq [0:4095];
+  int          xh = 0, xt = 0;
+  logic [15:0] rq [0:4095];              // read data the display drove
+  int          rh = 0, rt = 0, n_ops = 0, n_rd = 0;
+  bit          took = 0;
+  always @(posedge clk) took <= op_valid && op_ready;
+  task automatic op(input bit dc, input bit rd, input bit last, input logic [15:0] d, input int gap);
+    repeat (gap) @(negedge clk);
+    op_valid = 1; op_dc = dc; op_rd = rd; op_last = last; op_data = d;
+    @(negedge clk);
+    while (!took) @(negedge clk);
+    xq[xt % 4096] = {last, cfg_w16 && !cfg_type[1], rd, dc, d}; xt++;
+    n_ops++;
+    op_valid = 0; op_dc = $urandom; op_rd = $urandom; op_last = $urandom; op_data = $urandom;
+  endtask
+  always @(negedge clk) if (rst_n && rd_valid) begin
+    if (rh == rt) fail("read data with no read");
+    else begin
+      if (rd_data !== rq[rh % 4096]) fail($sformatf("read data %h, expected %h", rd_data, rq[rh % 4096]));
+      rh++; n_rd++;
     end
-  endtask
-
-  task automatic rffe_read(input logic [1:0] sa, input logic [4:0] ad,
-                           output logic [7:0] data);
-    logic b;
-    begin
-      rssc;
-      rbit(sa[1]); rbit(sa[0]); rbit(1'b1);       // PC=1 read
-      for (int i = 4; i >= 0; i--) rbit(ad[i]);
-      for (int i = 7; i >= 0; i--) begin
-        rrelease_bit(b);
-        data[i] = b;
-      end
-      rbit(1'b1);
-      m_oe = 0; #600;
-    end
-  endtask
-
-`ifdef VERILATOR
-  // =====================================================================
-  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
-  // Tool notes (Verilator 5.006): no native FSM/SVA coverage and
-  // randomize() ignores constraint blocks -> procedural constraints
-  // ($urandom_range + rejection sampling), TB FSM probe, immediate
-  // assertions.
-  // =====================================================================
-  localparam int DBI_FSM_TOTAL = 4;  // ST_IDLE..ST_PARK (rtl enum)
-  logic [3:0] fsm_seen = '0;          // visited-state bitmap
-  wire  [1:0] dut_state = dut.state;  // hierarchical FSM probe
-  wire        dut_sdoe  = dut.sd_oe;
-
-  int sva_total = 0, sva_fail = 0;
-  // counted immediate assertion: every evaluation is one check
-  task automatic sva_check(input bit cond, input string name);
-    begin
-      sva_total++;
-      if (!cond) begin
-        sva_fail++;
-        errors++;
-        $display("SVA_FAIL: %s @%0t", name, $time);
-      end
-    end
-  endtask
-
-  // FSM coverage: sample DUT state register every clock
-  always @(posedge clk) fsm_seen[dut_state] <= 1'b1;
-
-  // output-invariant assertion suite (sampled coherently pre-NBA)
-  logic [7:0] rx_byte_q = '0;
-  logic       rx_valid_q = 0;
-  int         rx_cnt = 0;             // scoreboard: rx_valid pulse count
-  always @(posedge clk) begin
-    if (rx_valid) rx_cnt <= rx_cnt + 1;
-    if (!rst_n) begin
-      // A1: outputs quiescent during reset
-      sva_check(busy === 1'b0 && rx_valid === 1'b0 && dut_sdoe === 1'b0,
-                "A1 reset: outputs quiescent");
-    end else begin
-      // A2: state register holds a legal enum encoding
-      sva_check(dut_state <= 2'd3, "A2 state encoding legal");
-      // A3: busy exactly mirrors non-IDLE state
-      sva_check(busy === (dut_state != 2'd0), "A3 busy mirrors state");
-      // A4: rx_valid is a single-cycle pulse
-      sva_check(!(rx_valid && rx_valid_q), "A4 rx_valid single-cycle pulse");
-      // A5: slave drives SDATA only in the DATA phase (and the PARK entry
-      // holding the last read bit -- v2.5.1 fix holds sd_oe into ST_PARK)
-      sva_check(!dut_sdoe || (dut_state == 2'd2) || (dut_state == 2'd3),
-                "A5 SDATA drive only in DATA/PARK");
-      // A6: rx_byte changes only on the cycle rx_valid is high
-      sva_check((rx_byte === rx_byte_q) || rx_valid, "A6 rx_byte stable");
-      // A7: rx_valid only mid-transaction (byte completes under busy)
-      sva_check(!rx_valid || busy, "A7 rx_valid implies busy");
-    end
-    rx_byte_q  <= rx_byte;
-    rx_valid_q <= rx_valid;
   end
 
-  // ---- inlined bit-level macros for the random phase ------------------
-  // (same Verilator 5.006 scheduler rationale as the I2C pilot: chained
-  // timing-task coroutines can lose wakeups after ~2k awaits, so the
-  // random phase runs as ONE coroutine with plain #awaits only)
-  `define DBI_M_BIT(b) \
-    m_oe = 1; m_val = (b); #300; sclk = 1; #600; sclk = 0; #300;
-  `define DBI_M_RBIT(b) \
-    m_oe = 0; #300; sclk = 1; #300; b = sdata; #300; sclk = 0; #300;
-  `define DBI_M_SSC \
-    m_oe = 0; m_val = 1; sclk = 1; #300; \
-    m_oe = 1; m_val = 0; #300; \
-    sclk = 0; #300; \
-    m_oe = 0; #300;
-`endif
-
-  logic [7:0] rb;
-  initial begin
-    rst_n = 0; repeat(10) @(posedge clk);
-    rst_n = 1; repeat(10) @(posedge clk);
-
-    rffe_write(2'b01, 5'h03, 8'h5A);
-    repeat(5) @(posedge clk);
-    if (!rx_seen) begin errors++; $display("ERROR: MIPI DBI (Display Bus Interface) rx_valid never pulsed"); end
-    if (rx_byte !== 8'h5A) begin errors++; $display("ERROR: MIPI DBI (Display Bus Interface) rx=%h exp=5A", rx_byte); end
-    if (rx_addr !== 5'h03) begin errors++; $display("ERROR: MIPI DBI (Display Bus Interface) rx_addr=%h exp=03", rx_addr); end
-
-    rffe_read (2'b01, 5'h03, rb);
-    if (rb !== 8'hC2) begin errors++; $display("ERROR: MIPI DBI (Display Bus Interface) read got=%h exp=C2", rb); end
-
-`ifdef VERILATOR
-    // ---- v2.5 CRV random phase (directed tests above untouched) ----
-    // 130 randomized transactions: ~45% register write (rx_byte/rx_addr
-    // compared, rx_valid pulse counted), ~45% register read (must return
-    // tx_byte), ~10% wrong slave address (must be ignored). Random data
-    // hits 0x00/0xFF boundaries; wrong addresses are rejection-sampled.
-    // Fully inlined via the macros above (single coroutine, plain #awaits).
-    begin : crv_phase
-      int n_wr = 0, n_rd = 0, n_wa = 0;
-      int roll, rx_cnt_before;
-      logic [1:0] sa;
-      logic [4:0] ad;
-      logic [7:0] v, rd_c, bb;
-      for (int t = 0; t < 130; t++) begin
-        roll = $urandom_range(0, 9);
-        // boundary-biased data: 0x00/0xFF injected with p=2/16
-        roll = $urandom_range(0, 15);
-        v    = (roll == 0) ? 8'h00 : (roll == 1) ? 8'hFF
-                                                 : 8'($urandom_range(0, 255));
-        ad   = 5'($urandom_range(0, 31));
-        roll = $urandom_range(0, 9);
-        if (roll < 4) begin
-          // ---- random write to our slave address ----
-          n_wr++;
-          rx_cnt_before = rx_cnt;
-          `DBI_M_SSC
-          `DBI_M_BIT(1'b0) `DBI_M_BIT(1'b1) `DBI_M_BIT(1'b0)  // SA=01, PC=0
-          for (int i = 4; i >= 0; i--) begin bb = ad[i]; `DBI_M_BIT(bb) end
-          for (int i = 7; i >= 0; i--) begin bb = v[i];  `DBI_M_BIT(bb) end
-          `DBI_M_BIT(1'b1)                                       // bus park
-          m_oe = 0; #600;
-          repeat (4) @(posedge clk);
-          if (rx_cnt != rx_cnt_before + 1) begin
-            errors++; $display("ERROR: CRV write no rx_valid (ad=%h v=%h)", ad, v);
-          end
-          if (rx_byte !== v) begin
-            errors++; $display("ERROR: CRV rx_byte=%h exp=%h", rx_byte, v);
-          end
-          if (rx_addr !== {3'b000, ad}) begin
-            errors++; $display("ERROR: CRV rx_addr=%h exp=%h", rx_addr, ad);
-          end
-        end else if (roll < 9) begin
-          // ---- random read: DUT must return tx_byte ----
-          n_rd++;
-          tx_byte = v;
-          `DBI_M_SSC
-          `DBI_M_BIT(1'b0) `DBI_M_BIT(1'b1) `DBI_M_BIT(1'b1)  // SA=01, PC=1
-          for (int i = 4; i >= 0; i--) begin bb = ad[i]; `DBI_M_BIT(bb) end
-          for (int i = 7; i >= 0; i--) begin `DBI_M_RBIT(bb) rd_c[i] = bb; end
-          `DBI_M_BIT(1'b1)                                       // bus park
-          m_oe = 0; #600;
-          // v2.5.1: read-LSB bug fixed -- tx_byte[0] is now driven on the
-          // last read bit, so the full byte compares (was: rd_c[0]
-          // excluded, LSB always read back as the tri1 pull-up).
-          if (rd_c !== v) begin
-            errors++; $display("ERROR: CRV read got=%h exp=%h", rd_c, v);
-          end
-        end else begin
-          // ---- wrong slave address: must be ignored ----
-          n_wa++;
-          sa = 2'($urandom_range(0, 3));
-          if (sa == 2'b01) sa = 2'b10;           // rejection sampling
-          rx_cnt_before = rx_cnt;
-          `DBI_M_SSC
-          `DBI_M_BIT(sa[1]) `DBI_M_BIT(sa[0]) `DBI_M_BIT(1'b0)
-          for (int i = 4; i >= 0; i--) begin bb = ad[i]; `DBI_M_BIT(bb) end
-          for (int i = 7; i >= 0; i--) begin bb = v[i];  `DBI_M_BIT(bb) end
-          `DBI_M_BIT(1'b1)
-          m_oe = 0; #600;
-          repeat (4) @(posedge clk);
-          if (rx_cnt != rx_cnt_before) begin
-            errors++; $display("ERROR: CRV wrong addr %b captured", sa);
-          end
-          if (busy) begin
-            errors++; $display("ERROR: CRV busy stuck after wrong-addr frame");
-          end
+  // ---------------- display model ----------------
+  logic        p_csx, p_wrx, p_rdx, p_scl;
+  logic [15:0] p_d;
+  logic        p_dcx;
+  int          c_bits, c_dum, c_d0, c_fall;  // Type C: bits seen, dummy left / total, SCL falls
+  logic [8:0]  c_sh;
+  logic [7:0]  c_rb;                        // byte being read
+  bit          c_rd_prev, c_rx, in_x, saw_last;
+  int          n_x = 0;
+  function automatic logic [19:0] head; return xq[xh % 4096]; endfunction
+  // a transfer ended with data dat
+  task automatic done(input bit dc, input bit rd, input logic [15:0] dat);
+    logic [19:0] h;
+    h = head();
+    if (xh == xt) fail("transfer with no op");
+    else begin
+      if (h[17] != rd || h[16] != dc) fail($sformatf("transfer rd %0d dc %0d, op %h", rd, dc, h));
+      if (!rd && dat !== (h[18] ? h[15:0] : {8'd0, h[7:0]})) fail($sformatf("write %h, op %h", dat, h));
+      saw_last = h[19];
+      xh++; n_x++;
+    end
+  endtask
+  function automatic bit rd_now;
+    logic [19:0] h;
+    h = head();
+    return xh != xt && h[17];
+  endfunction
+  logic [15:0] r_val;
+  always @(negedge clk) if (!rst_n) begin
+    p_csx = 1; p_wrx = 1; p_rdx = 1; p_scl = 0; p_d = 0; p_dcx = 1; c_bits = 0; c_dum = 0; c_sh = 0;
+    c_rb = 0; c_rd_prev = 0; c_rx = 0; c_d0 = 0; c_fall = 0; saw_last = 0; d_i = 0; sda_i = 0; in_x = 0;
+  end else begin
+    // CSX framing
+    if (!csx && p_csx) begin c_rd_prev = 0; if (in_x) fail("CSX fell twice"); end
+    if (csx && !p_csx && !saw_last) fail("CSX rose before op_last");
+    if (!csx && saw_last && !busy) fail("CSX low after op_last");
+    if (csx && p_csx) saw_last = 0;
+    case (cfg_type)
+      2'd0: begin                           // Type A: wrx = R/WX, rdx = E
+        if (rdx && !p_rdx && !csx) begin
+          if (wrx) begin r_val = $urandom; rq[rt % 4096] = cfg_w16 ? r_val : {8'd0, r_val[7:0]}; rt++; d_i = r_val; end
+          if (d_oe == wrx) fail("bus driven by both or neither");
+        end
+        if (rdx && (wrx != p_wrx || dcx != p_dcx || (!wrx && d_o != p_d))) fail("R/WX, D/CX or data changed while E high");
+        if (!rdx && p_rdx && !p_csx) begin
+          done(p_dcx, p_wrx, cfg_w16 ? p_d : {8'd0, p_d[7:0]});
+          d_i = $urandom;
         end
       end
-      $display("CRV: 130 txns (wr=%0d rd=%0d wrong_addr=%0d)", n_wr, n_rd, n_wa);
-    end
-  `undef DBI_M_BIT
-  `undef DBI_M_RBIT
-  `undef DBI_M_SSC
-`endif
+      2'd1: begin                           // Type B
+        if (!wrx && !rdx) fail("WRX and RDX low together");
+        if (((!wrx && p_wrx) || (!rdx && p_rdx)) && csx) fail("strobe with CSX high");
+        if ((!wrx && p_wrx) || (!rdx && p_rdx)) begin
+          if (d_oe != !wrx) fail("bus direction wrong for the strobe");
+        end
+        if (!rdx && p_rdx) begin r_val = $urandom; rq[rt % 4096] = cfg_w16 ? r_val : {8'd0, r_val[7:0]}; rt++; d_i = r_val; end
+        if ((!wrx || !rdx) && (dcx != p_dcx || (!wrx && d_o != p_d))) fail("D/CX or data changed during the strobe");
+        if (wrx && !p_wrx && !p_csx) done(p_dcx, 0, cfg_w16 ? p_d : {8'd0, p_d[7:0]});
+        if (rdx && !p_rdx && !p_csx) begin done(p_dcx, 1, 0); d_i = $urandom; end
+      end
+      default: begin                        // Type C
+        if (wrx !== 1'b1 || rdx !== 1'b1 || d_oe) fail("parallel pins active in Type C");
+        if (scl && !p_scl) begin
+          if (csx) fail("SCL with CSX high");
+          if (rd_now()) begin
+            if (sda_oe) fail("host drives SDA in a read");
+            if (c_dum > 0) c_dum--;
+            else begin
+              c_bits++;
+              if (c_bits == 8) begin
+                rq[rt % 4096] = {8'd0, c_rb}; rt++;
+                done(dcx, 1, 0); c_bits = 0; c_rd_prev = 1; c_rx = 0;
+              end
+            end
+          end else begin
+            if (!sda_oe) fail("SDA not driven in a write");
+            c_sh = {c_sh[7:0], sda_o}; c_bits++;
+            if (c_bits == (cfg_type == 2'd2 ? 9 : 8)) begin
+              done(cfg_type == 2'd2 ? c_sh[8] : dcx, 0, {8'd0, c_sh[7:0]});
+              c_bits = 0; c_rd_prev = 0;
+            end
+          end
+        end
+        // read bits change on SCL falling: after fall f the next rising edge
+        // is dummy f + 1 or data bit f - dummies
+        if (!scl && p_scl && c_rx) begin
+          c_fall++;
+          sda_i = c_fall < c_d0 ? 1'($urandom) : c_rb[7 - (c_fall - c_d0)];
+        end
+      end
+    endcase
+    p_csx = csx; p_wrx = wrx; p_rdx = rdx; p_scl = scl; p_d = d_o; p_dcx = dcx;
+  end
+  // Type C read start: when a read op is taken, set up the dummy clocks and
+  // the first bit
+  logic op_rd_q, csx_q;
+  always @(posedge clk) begin op_rd_q <= op_rd; csx_q <= csx; end
+  always @(negedge clk) if (rst_n && took && cfg_type[1] && op_rd_q) begin
+    c_d0 = (!c_rd_prev || csx_q) ? int'(cfg_dummy) : 0;
+    c_dum = c_d0; c_fall = 0; c_rx = 1;
+    c_rb = $urandom; c_bits = 0;
+    sda_i = c_d0 > 0 ? 1'($urandom) : c_rb[7];
+  end
 
-    if (errors == 0) $display("TEST PASSED: MIPI DBI (Display Bus Interface)");
-    else             $display("TEST FAILED: %0d errors", errors);
-`ifdef VERILATOR
-    begin
-      int visited;
-      visited = 0;
-      for (int s = 0; s < DBI_FSM_TOTAL; s++) visited += fsm_seen[s];
-      $display("FSM_COV: %0d/%0d", visited, DBI_FSM_TOTAL);
-      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
+  // ---------------- scenarios ----------------
+  task automatic cycles(input int n); repeat (n) @(negedge clk); endtask
+  task automatic drain;
+    int g;
+    g = 0;
+    while ((busy || xh != xt || rh != rt) && g < 20000) begin @(negedge clk); g++; end
+    if (g >= 20000) fail($sformatf("did not drain (%0d transfers, %0d reads left)", xt - xh, rt - rh));
+    cycles(3);
+  endtask
+  // a random transaction: a command, then parameters or reads
+  task automatic txn(input int n, input int gapmax);
+    bit rd;
+    op(0, 0, n == 0, $urandom, $urandom % (gapmax + 1));
+    rd = $urandom % 2;
+    for (int i = 0; i < n; i++)
+      op(1, rd && ($urandom % 4 != 0), i == n - 1, $urandom, $urandom % (gapmax + 1));
+  endtask
+
+  initial begin
+    #22 rst_n = 1;
+    cycles(5);
+    for (int t = 0; t < 4; t++) begin
+      cfg_type = t;
+      for (int w = 0; w < 2; w++) begin
+        cfg_w16 = w;
+        for (int k = 0; k < 4; k++) begin
+          cfg_tw = k == 0 ? 0 : (k == 3 ? 15 : $urandom % 4);
+          cfg_tr = k == 1 ? 0 : (k == 2 ? 15 : $urandom % 4);
+          cfg_dummy = k;
+          for (int i = 0; i < 6; i++) txn($urandom % 6, i < 3 ? 0 : 6);
+          drain();
+        end
+      end
+      // transactions that start with a read, after one that ended with a read
+      if (t >= 2) begin
+        cfg_dummy = 2;
+        op(0, 0, 0, 16'h0A, 0); op(1, 1, 1, 0, 0);
+        op(1, 1, 0, 0, 0); op(1, 1, 1, 0, 3);
+        drain();
+      end
+      // all-ones and all-zeros data
+      op(0, 0, 0, 16'hFFFF, 0); op(1, 0, 0, 16'h0000, 0); op(1, 0, 1, 16'hFFFF, 0);
+      drain();
     end
-`endif
+    // reset in the middle of a transfer
+    cfg_type = 1; cfg_tw = 5;
+    fork op(0, 0, 0, 16'h2C, 0); join_none
+    cycles(6);
+    rst_n = 0; cycles(2);
+    disable fork;
+    op_valid = 0; xh = xt; rh = rt;
+    rst_n = 1; cycles(3);
+    cfg_type = 3; txn(3, 2); drain();
+    $display("ops %0d transfers %0d reads %0d", n_ops, n_x, n_rd);
+    if (errors == 0) $display("TEST PASSED: MIPI_DBI");
+    else $display("TEST FAILED: MIPI_DBI (%0d errors)", errors);
     $finish;
   end
-
-`ifdef VERILATOR
-  // Chunked timeout: with Verilator 5.006 a single long-pending #delay
-  // event corrupts the --timing delay heap once many short-delay
-  // resumptions interleave with it (processes lose wakeups and the long
-  // event fires early). 1-us chunks keep all heap entries short-lived.
-  initial begin
-    repeat (20000) #1000;   // 20 ms in 1-us chunks
-    $display("TIMEOUT"); $finish;
-  end
-`else
-  initial begin
-    #3_000_000; $display("TIMEOUT"); $finish;
-  end
-`endif
+  initial begin #20ms; $display("TEST FAILED: MIPI_DBI (timeout)"); $finish; end
 endmodule

@@ -1,0 +1,39 @@
+{
+  "title": "USB4-style transport layer adapter: transport layer packets with HEC-protected headers, HEC delineation with single-bit correction, two tunneled paths with HopID routing, credit-based flow control per path",
+  "code": "0x5534",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "80ms",
+  "regs": [
+    {"name": "CTRL", "kind": "rw", "desc": "Link and path control",
+     "fields": [{"port": "link_up", "reset": "0", "desc": "the logical layer is up: Idle packets, then credit grants; clearing it returns delineation to HUNT and restarts credit counts (a packet cut by it is sent again)"},
+                {"port": "path_en", "reset": "0", "desc": "paths enabled (bit p: path p sends, accepts its ingress HopID and grants credit)"}]},
+    {"name": "HOP0", "kind": "rw", "desc": "Path 0 HopIDs (change them only while the path is disabled)",
+     "fields": [{"port": "hop_tx0", "reset": "0", "desc": "egress HopID: put in path 0's packets, and matched against credit grants"},
+                {"port": "hop_rx0", "reset": "0", "desc": "ingress HopID: packets with it go to path 0"}]},
+    {"name": "HOP1", "kind": "rw", "desc": "Path 1 HopIDs (change them only while the path is disabled)",
+     "fields": [{"port": "hop_tx1", "reset": "0", "desc": "egress HopID of path 1"},
+                {"port": "hop_rx1", "reset": "0", "desc": "ingress HopID of path 1"}]},
+    {"name": "TX", "kind": "stream_in", "data": ["tx_data", "tx_last", "tx_path"], "valid": "tx_valid", "ready": "tx_ready",
+     "desc": "Packet byte to send on a path; one write per byte, LAST on the final byte (a packet is cut after MAXL = 32 bytes). Each path has one packet buffer: bytes are taken while the PATH's buffer is free, and the buffer frees once the packet went out (the partner must have granted credit). The two paths' bytes may be interleaved",
+     "fdesc": {"tx_data": "byte", "tx_last": "last byte of the packet", "tx_path": "path"}},
+    {"name": "RX", "kind": "stream_out", "data": ["rx_data", "rx_last", "rx_path"], "valid": "rx_valid", "ready": "rx_ready",
+     "desc": "Received packet byte (head of the core's receive buffers, packets in arrival order); reading it pops it. A credit grant is sent once a packet is read out",
+     "fdesc": {"rx_data": "byte", "rx_last": "last byte of the packet", "rx_path": "the path it came in on"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Link state",
+     "fields": [{"port": "sync", "desc": "receive delineation in SYNC"},
+                {"port": "path_up", "desc": "bit p: a credit grant arrived for path p"}]}
+  ],
+  "irqs": [
+    {"name": "HEC_FIX", "port": "ev_hec_fix", "desc": "a header with a single-bit error was corrected"},
+    {"name": "ERR_HEC", "port": "ev_hec_bad", "desc": "a header HEC error in SYNC that could not be corrected: delineation back to HUNT"},
+    {"name": "ERR_PROTO", "port": "ev_proto", "desc": "a HopID 0 packet with an unknown PDF or length, or a credit grant with reserved bits set, for no enabled path or over RXB credits ahead"},
+    {"name": "ERR_HOP", "port": "ev_hop", "desc": "a packet for a HopID of no enabled path: skipped"},
+    {"name": "ERR_LEN", "port": "ev_len", "desc": "a data packet with length 0 or over MAXL: skipped"},
+    {"name": "ERR_OVERFLOW", "port": "ev_overflow", "desc": "a data packet for a path whose RXB buffers are full: dropped"}
+  ],
+  "notes": [
+    "tx_sym and rx_sym are the transport layer byte streams (one byte per clock each way while link_up); they pass through unchanged.",
+    "The core parameters MAXL (32), RXB (2 buffers per path), DELTA (4) and REFRESH (128) keep their defaults."
+  ]
+}

@@ -171,6 +171,33 @@ module SPI_tb;
     end
 `endif
 
+    // two bytes under one CSn; tx_q reloaded during the first byte (the
+    // new value shifts out from the next bit on)
+    wr(4'd0, 8'hF0);
+    csn = 1'b0;
+    for (int i = 0; i < 16; i++) begin
+      mosi = (i < 8) ? 1'b1 : 1'b0;
+      if (i == 4) wr(4'd0, 8'h0F);
+      #40 sclk = 1'b1;
+      #40 sclk = 1'b0;
+    end
+    csn = 1'b1;
+    #80;
+    rd(4'd0, got);
+    if (got !== 8'h00) begin errors++; $display("ERROR: SPI 2-byte frame rx=%h exp=00", got); end
+    // SCLK toggling while deselected is ignored
+    for (int i = 0; i < 3; i++) begin #40 sclk = 1'b1; #40 sclk = 1'b0; end
+    rd(4'd0, got);
+    if (got !== 8'h00) begin errors++; $display("ERROR: SPI deselected SCLK shifted rx=%h", got); end
+    // reset in the middle of a byte
+    csn = 1'b0;
+    for (int i = 0; i < 3; i++) begin mosi = 1'b1; #40 sclk = 1'b1; #40 sclk = 1'b0; end
+    @(negedge clk) rst_n = 1'b0;
+    #1;
+    if (dut.irq !== 1'b0 || dut.rdata !== 8'h00) begin errors++; $display("ERROR: SPI not idle in reset"); end
+    csn = 1'b1;
+    @(negedge clk) rst_n = 1'b1;
+
     if (errors == 0) $display("TEST PASSED: SPI");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR

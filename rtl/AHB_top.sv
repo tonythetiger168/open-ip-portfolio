@@ -135,7 +135,7 @@ module AHB_top #(
   assign irq = (state == S_NORM) && valid_q && err_q;
 
   // hsize: word transfers assumed; hsize[2:0] retained for interface fidelity
-  wire unused = &{1'b0, hsize, HTRANS_IDLE, HTRANS_BUSY, HTRANS_NONSEQ,
+  wire _unused = &{1'b0, hsize, HTRANS_IDLE, HTRANS_BUSY, HTRANS_NONSEQ,
                   HTRANS_SEQ, addr_q[AW-1:12], 1'b0};
 
 endmodule
