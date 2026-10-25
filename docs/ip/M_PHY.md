@@ -31,12 +31,7 @@ At G1 a byte takes 10 clocks: TX must be written, and RX read, at that rate (RX 
 | `tb/cov/M_PHY_sva.sv`, `tb/cov/M_PHY_apb_sva.sv` | coverage checkers (core, wrapper) |
 | `scripts/apb/specs/M_PHY.json` | register spec the wrapper, TB, checker and this page are generated from |
 
-```
-make -f Makefile.M_PHY sim syn            # core test + synthesis (Icarus, Yosys)
-make -f Makefile.M_PHY apb                # wrapper test + synthesis
-bash scripts/cov/run_cov.sh M_PHY          # core coverage (Verilator)
-bash scripts/cov/run_cov.sh M_PHY_apb      # wrapper coverage
-```
+How to run the tests and the coverage flow: see [Running and verifying](#running-and-verifying).
 
 ## Parameters
 
@@ -172,6 +167,42 @@ A bit is set while its source is active, stays set until written with 1, and a s
 7. To receive on RX: wait for IRQ RX_AVAIL or FLAGS.RX_AVAIL (bit 1), then read RX (0x020). Reading the last word frees the register for the next beat; write 1 to IRQ_STATUS.RX_AVAIL (bit 3) to clear it. Read each beat before the next arrives, or it is dropped and RX_OVF is set.
 8. Read STATUS (0x024) for the core's live `hibern8`, `rx_locked`, `rx_hibern`; it needs no clearing.
 9. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
+
+## Running and verifying
+
+All commands run from the repository root. Icarus Verilog 12 and Yosys 0.33 are enough for steps 1 to 3; step 4 also needs Verilator 5.052 and pyslang (see [README, Setup](../../README.md#setup)).
+
+| Step | Command | Pass when | Output |
+|---|---|---|---|
+| 1. Core test | `make -f Makefile.M_PHY sim` | a `TEST PASSED` line, no `ERROR` | console |
+| 2. Core synthesis | `make -f Makefile.M_PHY syn` | Yosys ends without `ERROR`; `stat` prints the cell count | `work/M_PHY_top.json` |
+| 3. APB wrapper test + synthesis | `make -f Makefile.M_PHY apb` | `TEST PASSED: M_PHY_apb`, then Yosys without `ERROR` | console, `work/M_PHY_apb.json` |
+| 4. Coverage (core, wrapper) | `bash scripts/cov/run_cov.sh M_PHY`<br>`bash scripts/cov/run_cov.sh M_PHY_apb` | `RESULT: CLOSED` (all five metrics 100%) | `work/cov/M_PHY/score.json`, `work/cov/M_PHY_apb/score.json` |
+
+Expected end of a step 4 run:
+
+```
+===== M_PHY =====
+TEST: PASSED   SVA_FAILURES: 0
+LINE ... TOGGLE ... FSM ... SVA ... FUNCTIONAL  (each n/n, 100.0%)
+RESULT: CLOSED
+```
+
+**Core test** (`tb/M_PHY_tb.sv`): drives `M_PHY_top` through its own ports against a protocol peer or model and checks every result itself; any mismatch prints `ERROR`, and `TEST PASSED` is printed only when there were none.
+
+**APB wrapper test** (`tb/M_PHY_apb_tb.sv`), in this order:
+
+1. Reset values of every register, ID included.
+2. Writes to read-only registers are ignored.
+3. Each RW register: all ones, all zeros, then 16 random writes with every PSTRB byte-lane pattern, read back each time.
+4. Unmapped and misaligned addresses, reads and writes: PSLVERR, read data 0, no side effect on other registers.
+5. Back-to-back transfers with no idle cycle.
+6. IP traffic through the registers only (`tb/apb/M_PHY_apb_func.svh`): the programming sequence above, every interrupt bit set, enabled and cleared, stream FULL/AVAIL/OVF cases (100% wrapper toggle coverage confirms each bit moved).
+7. PRESETN asserted mid-run: `irq` and PRDATA go to 0, registers return to reset values.
+
+**Checkers** (`tb/cov/M_PHY_sva.sv`, `tb/cov/M_PHY_apb_sva.sv`): SVA protocol and APB assertions plus covergroups, bound in by the coverage flow. An assertion failure prints `SVA_FAIL` and fails the run even when the test itself passed.
+
+Whole portfolio: `bash scripts/ci_regression.sh` runs steps 1 to 3 for every IP (what CI runs), and `bash scripts/cov/run_all.sh 4` runs step 4 for every IP.
 
 ## Verification
 
