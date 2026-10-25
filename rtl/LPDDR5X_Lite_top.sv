@@ -98,7 +98,11 @@ module LPDDR5X_Lite_top #(
   logic [127:0] mem [0:BANKS*ROWS*LINES-1];
   // a DRAM keeps its data through rst_n; zero it once for deterministic
   // simulation
+  // sim-only clear; yosys (SYNTHESIS) would unroll it into one assignment per
+  // line, which takes tens of minutes and GBs for no netlist change
+`ifndef SYNTHESIS
   initial for (int i = 0; i < BANKS*ROWS*LINES; i++) mem[i] = '0;
+`endif
 
   // ---------------- per-bank state ----------------
   logic [BANKS-1:0]       bank_open;
