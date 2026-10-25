@@ -93,9 +93,8 @@ module GDDR7_Lite_top #(
   // 8 entries x ROWS rows x LINES lines x 128 bits (raw data, both modes)
   logic [127:0] mem [0:BANKS*ROWS*LINES-1];
   // a DRAM keeps its data through rst_n; zero it once for deterministic
-  // simulation
-  // sim-only clear; yosys (SYNTHESIS) would unroll it into one assignment per
-  // line, which takes tens of minutes and GBs for no netlist change
+  // simulation (not in synthesis: the array is an SRAM macro there, and
+  // yosys unrolling this loop takes minutes and gigabytes)
 `ifndef SYNTHESIS
   initial for (int i = 0; i < BANKS*ROWS*LINES; i++) mem[i] = '0;
 `endif

@@ -1,53 +1,61 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-# CI regression: run sim + syn (+ apb) for every Makefile.<PROTOCOL>.
-# Protocols run in parallel (JOBS, default: CPU count), each in its own
-# scratch copy of the tree, since every Makefile builds ./simv in the
-# current directory. Logs land in work/ci_{sim,syn,apb}_<P>.log.
-# Exits non-zero if any protocol fails. Prints a summary table at the end.
-#   bash scripts/ci_regression.sh [JOBS] [PROTOCOL...]
+# CI regression: run sim + syn (and apb, where the Makefile has it) for every
+# Makefile.<PROTOCOL>. Protocols run in parallel (JOBS, default: CPU count),
+# each in its own directory under work/ci/ that links the repository's
+# files, so each run has a private ./simv and work/. Exits non-zero if any
+# protocol fails. Prints a summary table at the end.
+#   bash scripts/ci_regression.sh [JOBS]
 set -u
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
 JOBS="${1:-$(nproc)}"
-[ $# -gt 0 ] && shift
 
-mkdir -p work
-SCR=$(mktemp -d)
-trap 'rm -rf "$SCR"' EXIT
+rm -rf work/ci; mkdir -p work/ci
 
-if [ $# -gt 0 ]; then protos="$*"
-else protos=$(ls Makefile.* | sed 's/^Makefile\.//' | grep -vx common); fi
-
-run_one() {
-  proto=$1; d="$SCR/$proto"
-  mkdir -p "$d"
-  cp -r "$ROOT/rtl" "$ROOT/tb" "$ROOT/syn" "$ROOT/scripts" "$ROOT/Makefile.$proto" "$d/"
-  cd "$d" || exit 1
+one() {   # one <PROTOCOL>: writes work/ci_{sim,syn,apb}_<P>.log and work/ci/<P>.res
+  proto=$1; mk=Makefile.$proto; d=$ROOT/work/ci/$proto
+  mkdir -p "$d/work"
+  for f in "$ROOT"/*; do
+    b=$(basename "$f")
+    case "$b" in work|simv*|*.vcd) ;; *) ln -s "$f" "$d/$b" ;; esac   # not build outputs
+  done
+  cd "$d"
   r=""
-  if make -f "Makefile.$proto" sim >"$ROOT/work/ci_sim_${proto}.log" 2>&1 \
-     && grep -q "TEST PASSED" "$ROOT/work/ci_sim_${proto}.log"; then r="$r sim:ok"; else r="$r sim:FAIL"; fi
-  if make -f "Makefile.$proto" syn >"$ROOT/work/ci_syn_${proto}.log" 2>&1 \
-     && ! grep -q "ERROR" "$ROOT/work/ci_syn_${proto}.log"; then r="$r syn:ok"; else r="$r syn:FAIL"; fi
-  if grep -q '^apb:' "Makefile.$proto"; then   # APB register wrapper: sim + syn
-    if make -f "Makefile.$proto" apb >"$ROOT/work/ci_apb_${proto}.log" 2>&1 \
-       && grep -q "TEST PASSED" "$ROOT/work/ci_apb_${proto}.log" \
-       && ! grep -q "ERROR" "$ROOT/work/ci_apb_${proto}.log"; then r="$r apb:ok"; else r="$r apb:FAIL"; fi
+  if make -f "$mk" sim >"$ROOT/work/ci_sim_${proto}.log" 2>&1 && grep -q "TEST PASSED" "$ROOT/work/ci_sim_${proto}.log"; then
+    r="$r sim:ok"; else r="$r sim:FAIL"; fi
+  if make -f "$mk" syn >"$ROOT/work/ci_syn_${proto}.log" 2>&1 && ! grep -q "ERROR" "$ROOT/work/ci_syn_${proto}.log"; then
+    r="$r syn:ok"; else r="$r syn:FAIL"; fi
+  if grep -q '^apb:' "$mk"; then   # APB register wrapper: sim + syn
+    if make -f "$mk" apb >"$ROOT/work/ci_apb_${proto}.log" 2>&1 && grep -q "TEST PASSED" "$ROOT/work/ci_apb_${proto}.log" \
+       && ! grep -q "ERROR" "$ROOT/work/ci_apb_${proto}.log"; then
+      r="$r apb:ok"; else r="$r apb:FAIL"; fi
   fi
+  echo "$r" > "$ROOT/work/ci/$proto.res"
   cd "$ROOT"; rm -rf "$d"
-  echo "$proto$r"
 }
-export -f run_one
-export ROOT SCR
+export -f one; export ROOT
 
-printf '%s\n' $protos | xargs -P "$JOBS" -I{} bash -c 'run_one {}' | sort > work/ci_results.txt
+ls Makefile.* | sed 's/^Makefile\.//' | grep -vx common | xargs -P "$JOBS" -I{} bash -c 'one {}'
 
-cnt() { grep -c " $1:$2" work/ci_results.txt; }
-failed=$(awk '{for (i = 2; i <= NF; i++) if ($i ~ /FAIL/) { split($i, a, ":"); printf " %s:%s", a[1], $1 }}' work/ci_results.txt)
+pass_sim=0; fail_sim=0; pass_syn=0; fail_syn=0; pass_apb=0; fail_apb=0
+failed=""
+for res in work/ci/*.res; do
+  proto=$(basename "$res" .res)
+  for t in $(cat "$res"); do
+    k=${t%%:*}; v=${t#*:}
+    if [ "$v" = ok ]; then eval "pass_$k=\$((pass_$k+1))"
+    else eval "fail_$k=\$((fail_$k+1))"; failed="$failed $k:$proto"; fi
+  done
+done
+n_mk=$(ls Makefile.* | grep -vc 'Makefile\.common$')
+n_res=$(ls work/ci/*.res 2>/dev/null | wc -l)
+[ "$n_res" -eq "$n_mk" ] || { failed="$failed missing:$((n_mk - n_res))"; fail_sim=$((fail_sim + n_mk - n_res)); }
+
 echo "=================================================="
-echo "SIM: $(cnt sim ok) passed, $(cnt sim FAIL) failed"
-echo "SYN: $(cnt syn ok) passed, $(cnt syn FAIL) failed"
-echo "APB: $(cnt apb ok) passed, $(cnt apb FAIL) failed"
+echo "SIM: $pass_sim passed, $fail_sim failed"
+echo "SYN: $pass_syn passed, $fail_syn failed"
+echo "APB: $pass_apb passed, $fail_apb failed"
 [ -n "$failed" ] && echo "FAILED:$failed"
 echo "=================================================="
-[ -z "$failed" ] && [ "$(wc -l < work/ci_results.txt)" -eq "$(printf '%s\n' $protos | wc -l)" ]
+[ "$fail_sim" -eq 0 ] && [ "$fail_syn" -eq 0 ] && [ "$fail_apb" -eq 0 ]
