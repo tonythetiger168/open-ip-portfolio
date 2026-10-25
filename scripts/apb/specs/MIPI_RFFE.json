@@ -1,0 +1,14 @@
+{
+  "title": "MIPI RFFE slave (USID 5): register 0 write, register write / read, extended write / read with auto-increment over a 32 x 8 register file, broadcast writes, parity checks",
+  "code": "0x5266",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [],
+  "irqs": [
+    {"name": "PROTO", "port": "irq", "desc": "a sequence was aborted: command, address or data parity error, or an unsupported command. Held in the core until the next SSC, so the bit is set again on every clock until then"}
+  ],
+  "notes": [
+    "sclk (in) and sdata (bidirectional, needs a weak keeper to 0) are the RFFE bus; they pass through unchanged. PCLK oversamples the bus: SCLK phases must last at least four PCLK clocks.",
+    "The register file is reached over the RFFE bus only; the registers report its protocol errors."
+  ]
+}

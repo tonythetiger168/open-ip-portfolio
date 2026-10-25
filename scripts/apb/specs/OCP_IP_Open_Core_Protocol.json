@@ -1,0 +1,54 @@
+{
+  "title": "OCP-IP master: software transactions (single words and INCR bursts of up to 8, posted writes) issued on an OCP master port with SCmdAccept backpressure and a 64-clock accept timeout",
+  "code": "0x4F50",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "REQ",
+      "kind": "stream_in",
+      "data": [
+        "req_addr",
+        "req_wdata",
+        "req_rw",
+        "req_posted",
+        "req_len"
+      ],
+      "valid": "req_valid",
+      "ready": "req_ready",
+      "desc": "Transaction descriptor, then the further data words of a write burst; writing REQ2 commits it",
+      "fdesc": {
+        "req_addr": "byte address (MAddr)",
+        "req_wdata": "write data: the first word with the descriptor, then one word per commit",
+        "req_rw": "1 = write, 0 = read",
+        "req_posted": "1 = posted write (WRNP, no response from the slave)",
+        "req_len": "burst length 1 to 8 (0 is 1; above 8 is clamped to 8 and sets ERR)"
+      }
+    },
+    {
+      "name": "RESP",
+      "kind": "stream_out",
+      "data": [
+        "resp_rdata",
+        "resp_err"
+      ],
+      "valid": "resp_valid",
+      "desc": "One beat per read data beat, per write completion and per posted write or timeout; reading RESP1 frees it",
+      "fdesc": {
+        "resp_rdata": "read data (0 for writes)",
+        "resp_err": "1 = SResp FAIL / ERR, or no SCmdAccept for 64 clocks"
+      }
+    }
+  ],
+  "irqs": [
+    {
+      "name": "ERR",
+      "port": "irq",
+      "desc": "a burst length above 8, an SResp FAIL / ERR, or an accept timeout; the core holds this until reset, so the bit cannot be cleared before then"
+    }
+  ],
+  "notes": [
+    "MCmd, MAddr, MData, MByteEn, MBurstLength, MBurstSeq, SCmdAccept, SResp, SData and SRespLast are the OCP master pins; they pass through unchanged.",
+    "RESP holds one beat: a read burst's beats are kept only when the slave spaces them at least as far apart as software reads RESP; a beat arriving while RESP is full is dropped (RESP_OVF)."
+  ]
+}

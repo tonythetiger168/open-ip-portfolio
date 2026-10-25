@@ -13,12 +13,11 @@
 //     the retimed outputs silent and resets the packet parser
 //   * NRZI decode + bit unstuffing on receive; NRZI encode + bit stuffing
 //     on transmit; CRC8 (poly 0x07, init 0xFF) protects control packets
-// IP design implementation v1.0 -- Apache-2.0
+//   * irq (sticky until rst_n): SE1 on the line, bit-stuff error, a
+//     truncated or over-long control packet, or a CRC8 mismatch
+// IP design implementation v1.1 -- Apache-2.0
 // ============================================================================
-module eUSB2_top #(
-  parameter int DW = 32,        // data width (framework contract)
-  parameter int AW = 32         // address width (framework contract)
-)(
+module eUSB2_top (
   input  logic clk,
   input  logic rst_n,
   input  logic edp,             // eD+ single-ended input
@@ -109,12 +108,13 @@ module eUSB2_top #(
   logic [2:0] ones_cnt;     // consecutive 1-bits (stuffing)
   logic       stuff_p;      // next bit must be a stuffed 0
   logic [2:0] bit_cnt;
-  logic [7:0] byte_shift;
+  logic [6:0] byte_shift;   // the 7 most recent bits
   logic [1:0] byte_pos;     // 0:PID 1:CMD 2:WDATA/CRC 3:CRC
   logic       is_ctrl;
   logic       is_write;
   logic       crc_done;
-  logic [7:0] cmd_q;
+  logic       too_long;     // a byte arrived after the control CRC
+  logic [2:0] cmd_addr;
   logic [7:0] wdata_q;
   logic [7:0] crc_run;
   logic [7:0] crc_q;
@@ -130,7 +130,7 @@ module eUSB2_top #(
   assign bit_valid = (line == LN_J || line == LN_K) &&
                      (prev_line == LN_J || prev_line == LN_K);
   assign bit_val   = (line == prev_line);   // NRZI: no transition = 1
-  assign byte_val  = {bit_val, byte_shift[7:1]};
+  assign byte_val  = {bit_val, byte_shift};
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -140,12 +140,13 @@ module eUSB2_top #(
       ones_cnt   <= 3'd0;
       stuff_p    <= 1'b0;
       bit_cnt    <= 3'd0;
-      byte_shift <= 8'd0;
+      byte_shift <= 7'd0;
       byte_pos   <= 2'd0;
       is_ctrl    <= 1'b0;
       is_write   <= 1'b0;
       crc_done   <= 1'b0;
-      cmd_q      <= 8'd0;
+      too_long   <= 1'b0;
+      cmd_addr   <= 3'd0;
       wdata_q    <= 8'd0;
       crc_run    <= 8'd0;
       crc_q      <= 8'd0;
@@ -180,15 +181,18 @@ module eUSB2_top #(
         if (pstate == P_RUN) begin
           // EOP: validate and execute control packet
           if (is_ctrl) begin
-            if (!crc_done) begin
-              irq <= 1'b1;                 // truncated control packet
+            if (!crc_done || too_long) begin
+              irq <= 1'b1;                 // truncated / over-long packet
             end else if (crc_q != crc_run) begin
               irq <= 1'b1;                 // CRC mismatch: packet ignored
             end else if (is_write) begin
-              regfile[cmd_q[6:4]] <= wdata_q;
-            end else if (!resp_req) begin
+              regfile[cmd_addr] <= wdata_q;
+            end else begin
+              // a response (<= 46 cells) always ends before a second read
+              // request (>= 35 cells) can queue behind the next one, so a
+              // single request slot never overflows
               resp_req  <= 1'b1;           // schedule read response
-              resp_addr <= cmd_q[6:4];
+              resp_addr <= cmd_addr;
             end
           end
         end
@@ -215,6 +219,8 @@ module eUSB2_top #(
                 ones_cnt <= 3'd0;
                 stuff_p  <= 1'b0;
                 crc_done <= 1'b0;
+                too_long <= 1'b0;
+                is_ctrl  <= 1'b0;
               end
               sync_zeros <= 3'd0;
             end
@@ -228,7 +234,7 @@ module eUSB2_top #(
                 pstate <= P_IDLE;
               end
             end else begin
-              byte_shift <= byte_val;
+              byte_shift <= byte_val[7:1];
               if (bit_val) begin
                 if (ones_cnt == 3'd5)
                   stuff_p <= 1'b1;
@@ -245,28 +251,28 @@ module eUSB2_top #(
                   end
                   2'd1: begin              // CMD {rnw,addr[2:0],4'b0}
                     if (is_ctrl) begin
-                      cmd_q    <= byte_val;
+                      cmd_addr <= byte_val[6:4];
                       is_write <= ~byte_val[7];
                       crc_run  <= crc8_b(8'hFF, byte_val);
                       crc_done <= 1'b0;
                       byte_pos <= 2'd2;
                     end
                   end
+                  // byte_pos only advances past 1 for control packets
                   2'd2: begin
-                    if (is_ctrl) begin
-                      if (is_write) begin  // WDATA
-                        wdata_q  <= byte_val;
-                        crc_run  <= crc8_b(crc_run, byte_val);
-                        byte_pos <= 2'd3;
-                      end else begin       // CRC of read request
-                        crc_q    <= byte_val;
-                        crc_done <= 1'b1;
-                        byte_pos <= 2'd3;
-                      end
+                    if (is_write) begin    // WDATA
+                      wdata_q  <= byte_val;
+                      crc_run  <= crc8_b(crc_run, byte_val);
+                    end else begin         // CRC of read request
+                      crc_q    <= byte_val;
+                      crc_done <= 1'b1;
                     end
+                    byte_pos <= 2'd3;
                   end
                   default: begin
-                    if (is_ctrl && is_write && !crc_done) begin
+                    if (crc_done) begin
+                      too_long <= 1'b1;
+                    end else begin
                       crc_q    <= byte_val;  // CRC of write request
                       crc_done <= 1'b1;
                     end
@@ -363,6 +369,8 @@ module eUSB2_top #(
             r_dm    <= ~r_dm;
             r_stuff <= 1'b0;
             r_ones  <= 3'd0;
+            // a run of six 1s that ends the CRC is stuffed before the EOP
+            if (r_byte_cnt == 2'd0 && r_bit_cnt == 3'd0) rstate <= R_EOP0;
           end else begin
             if (!cur_byte[r_bit_cnt]) begin
               r_dp   <= ~r_dp;           // 0-bit: toggle
@@ -379,7 +387,7 @@ module eUSB2_top #(
                 r_crc <= crc8_b(r_crc, cur_byte);   // cmd echo
               if (r_byte_cnt == 2'd2)
                 r_crc <= crc8_b(r_crc, cur_byte);   // data
-              if (r_byte_cnt == 2'd3)
+              if (r_byte_cnt == 2'd3 && !(r_ones == 3'd5 && cur_byte[7]))
                 rstate <= R_EOP0;
               r_byte_cnt <= r_byte_cnt + 2'd1;
             end else begin

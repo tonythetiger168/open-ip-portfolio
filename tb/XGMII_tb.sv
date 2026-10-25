@@ -24,7 +24,8 @@ module XGMII_tb;
   assign rxd    = txd;
 `ifdef VERILATOR
   logic       rxc_ovr = 1'b0;          // CRV error-injection knob (control col)
-  assign rxc = rxc_ovr ? 4'hF : txc;
+  logic [3:0] rxc_force = 4'h0;        // directed: mark extra lanes as control
+  assign rxc = rxc_ovr ? 4'hF : (txc | rxc_force);
 `else
   assign rxc    = txc;
 `endif
@@ -38,7 +39,7 @@ module XGMII_tb;
   // =====================================================================
   localparam int XGMII_FSM_TOTAL = 2;  // TX serializer: 0=idle, 1=active (txen_q)
   logic [1:0] fsm_seen = '0;
-  wire        dut_txen = dut.txen_q;   // hierarchical FSM probe
+  wire        dut_txen = (dut.txc != 4'hF); // TX column state: idle / data
 
   int sva_total = 0, sva_fail = 0;
   // counted immediate assertion: every evaluation is one check
@@ -65,8 +66,9 @@ module XGMII_tb;
       if (rst_cyc > 0) sva_check(count === 5'd0, "A1 reset: count cleared");
       rst_cyc++;
     end else begin
-      // A2: data beat (txc==0) exactly when the TX serializer is active
-      sva_check((txc === 4'h0) == (dut_txen === 1'b1), "A2 txc matches txen");
+      // A2: control lanes carry the idle character
+      for (int l = 0; l < 4; l++)
+        if (txc[l]) sva_check(txd[8*l +: 8] === 8'h07, "A2 control lanes idle");
       // A3: rx count steps by at most 4 per clk (one word, mod-32 wrap)
       sva_check(((count - count_q) & 5'h1F) <= 5'd4, "A3 count steps <=4");
       // A4: irq only while reading a non-empty rx queue
@@ -179,7 +181,7 @@ module XGMII_tb;
           n_drop++;
           for (int i = 0; i < 4; i++) wr($urandom_range(0, 255));
           rxc_ovr = 1'b1;          // armed before the word's beat
-          #220 rxc_ovr = 1'b0;     // covers worst-case TX start + one beat
+          #400 rxc_ovr = 1'b0;     // covers worst-case FIFO latency + one beat
           repeat(6) @(posedge clk);
           if (count !== (exp_cnt % 32)) begin
             errors++;
@@ -190,6 +192,88 @@ module XGMII_tb;
       end
       $display("CRV: %0d bursts (%0d full-depth, %0d wrong-addr, %0d word-drop), %0d bytes",
                n_burst, n_full, n_wa, n_drop, exp_cnt);
+    end
+`endif
+
+`ifdef VERILATOR
+    // ---- end-of-frame partial columns, lane compaction, overflow, reset ----
+    begin
+      int c0;
+      logic [7:0] fb [0:5];
+      for (int i = 0; i < 6; i++) fb[i] = 8'hA0 + i[7:0];
+      // frames of 1, 2 and 3 bytes: each flushes a padded partial column
+      // (four rounds, so every column slot holds every partial length)
+      for (int r = 0; r < 12; r++) begin
+        int n;
+        n = 1 + (r % 3);
+        c0 = count;
+        for (int i = 0; i < n; i++) wr(fb[i]);
+        wr_a(4'd1, 8'h00);
+        wr_a(4'd1, 8'h00);                 // second EOF: packer empty, no-op
+        repeat (80) @(posedge clk);
+        if (count !== 5'(c0 + n)) begin
+          errors++; $display("ERROR: XGMII %0d-byte frame: count=%0d exp=%0d", n, count, 5'(c0 + n));
+        end
+        for (int i = 0; i < n; i++) begin
+          rd(5'(c0 + i) % 16, got);
+          if (got !== fb[i]) begin errors++; $display("ERROR: XGMII frame byte %0d got=%h", i, got); end
+        end
+      end
+      // sparse data lanes on RX (control lanes in the middle of a column)
+      for (int p = 0; p < 4; p++) begin
+        logic [3:0] f;
+        logic [7:0] w [0:3];
+        int k;
+        f = (p == 0) ? 4'b1010 : (p == 1) ? 4'b0101 : (p == 2) ? 4'b1001 : 4'b0110;
+        c0 = count;
+        for (int i = 0; i < 4; i++) begin w[i] = 8'h40 + 8'(p * 4 + i); wr(w[i]); end
+        rxc_force = f;
+        repeat (80) @(posedge clk);
+        rxc_force = 4'h0;
+        k = 0;
+        for (int i = 0; i < 4; i++) if (!f[i]) begin
+          rd(5'(c0 + k) % 16, got);
+          if (got !== w[i]) begin errors++; $display("ERROR: XGMII sparse %b lane %0d got=%h", f, i, got); end
+          k++;
+        end
+        if (count !== 5'(c0 + k)) begin errors++; $display("ERROR: XGMII sparse %b count", f); end
+      end
+      // overflow: 40 back-to-back bytes (10 columns) into a 4-column FIFO,
+      // then end-of-frame writes while it is still full (held, not lost)
+      c0 = count;
+      begin
+        bit eof_done;
+        eof_done = 0;
+        for (int i = 0; i < 40; i++) begin
+          @(negedge clk); wen <= 1'b1; waddr <= 4'd0; wdata <= 8'hC0 + i[7:0];
+          if (!eof_done && dut.tx_full === 1'b1 && dut.pk_n != 2'd0) begin
+            waddr <= 4'd1; eof_done = 1;   // end of frame while full: held
+          end
+        end
+        @(negedge clk); wen <= 1'b0;
+      end
+      repeat (200) @(posedge clk);
+      wr_a(4'd1, 8'h00);                   // flush what the packer still holds
+      repeat (80) @(posedge clk);
+      // fewer than 40 bytes arrive (the ring wraps; contents are checked
+      // by the checker's TX/RX models)
+      if (5'(count - c0) == 0) begin
+        errors++; $display("ERROR: XGMII overflow: %0d bytes received (mod 32)", 5'(count - c0));
+      end
+      // back-to-back columns: 16 bytes with a short gap
+      for (int i = 0; i < 16; i++) wr(8'h11 * i[7:0]);
+      repeat (100) @(posedge clk);
+      // reset with a column queued and bytes in the packer
+      for (int i = 0; i < 6; i++) begin
+        @(negedge clk); wen <= 1'b1; waddr <= 4'd0; wdata <= 8'h5A;
+      end
+      @(negedge clk); wen <= 1'b0; rst_n = 1'b0;
+      @(negedge clk);
+      if (count !== 5'd0 || txc !== 4'hF) begin errors++; $display("ERROR: XGMII not idle in reset"); end
+      rst_n = 1'b1;
+      wr_a(4'd1, 8'h00);
+      repeat (80) @(posedge clk);
+      if (count !== 5'd0) begin errors++; $display("ERROR: XGMII sent queued bytes after reset"); end
     end
 `endif
 

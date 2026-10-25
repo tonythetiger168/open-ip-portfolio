@@ -1,0 +1,30 @@
+{
+  "title": "AMBA CXS stream port: packets of 32-bit words in 4-word flits with START / END control, credit flow control, ACTIVEREQ / ACTIVEACK link activation and deactivation",
+  "code": "0x4353",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "40ms",
+  "regs": [
+    {"name": "CTRL", "kind": "rw", "desc": "Link control",
+     "fields": [{"port": "tx_en", "reset": "0", "desc": "activate the transmit side (cleared: deactivate at the next packet boundary)"},
+                {"port": "rx_en", "reset": "0", "desc": "accept the peer's activation (cleared: DEACTHINT)"}]},
+    {"name": "TX", "kind": "stream_in", "data": ["tx_data", "tx_last", "tx_err"], "valid": "tx_valid", "ready": "tx_ready",
+     "desc": "Packet word to send; writing TX1 sends it (the core takes it when the flit being filled has room)",
+     "fdesc": {"tx_data": "word", "tx_last": "last word of the packet", "tx_err": "with tx_last: the packet ends with END_ERROR"}},
+    {"name": "RX", "kind": "stream_out", "data": ["rx_data", "rx_last", "rx_err"], "valid": "rx_valid", "ready": "rx_ready",
+     "desc": "Received packet word; reading RX1 pops it. While RX is not read the flit buffers fill and no credit is granted",
+     "fdesc": {"rx_data": "word", "rx_last": "last word of the packet", "rx_err": "with rx_last: END_ERROR, or a packet cut by a bad flit"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Link state",
+     "fields": [{"port": "tx_link", "desc": "transmit side: 0 STOP, 1 ACTIVATE, 2 RUN, 3 DEACTIVATE"},
+                {"port": "rx_link", "desc": "receive side: 0 STOP, 2 RUN, 3 DEACTIVATE"},
+                {"port": "tx_credits", "desc": "credits held"}]}
+  ],
+  "irqs": [
+    {"name": "CRD", "port": "ev_crd", "desc": "a flit without a credit, a credit returned beyond those granted, or a grant past 15 credits"},
+    {"name": "CNTL", "port": "ev_cntl", "desc": "a flit with bad START / END or no word used was dropped"}
+  ],
+  "notes": [
+    "cxs_tx_* and cxs_rx_* are the CXS transmit and receive interfaces; they pass through unchanged.",
+    "The core parameter RXF (4) keeps its default."
+  ]
+}

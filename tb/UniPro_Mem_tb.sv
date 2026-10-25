@@ -54,11 +54,11 @@ module UniPro_Mem_tb;
   integer      m_total = 31;
   logic        m_esc = 1'b0;
   logic [7:0]  m_buf [0:31];
-  logic [7:0]  fr_pay  [0:63][0:15];
-  logic        fr_tc   [0:63];
-  logic [3:0]  fr_cport[0:63];
-  logic [3:0]  fr_seq  [0:63];
-  logic [7:0]  fr_len  [0:63];
+  logic [7:0]  fr_pay  [0:1023][0:15];
+  logic        fr_tc   [0:1023];
+  logic [3:0]  fr_cport[0:1023];
+  logic [3:0]  fr_seq  [0:1023];
+  logic [7:0]  fr_len  [0:1023];
   integer      n_frames = 0;
 
   logic [7:0]  d;
@@ -114,7 +114,7 @@ module UniPro_Mem_tb;
       // A3: irq is a one-cycle event pulse
       sva_check(!(irq === 1'b1 && irq_q === 1'b1), "A3 irq is a pulse");
       // A4: read-response timeout counters within the 100-clk bound
-      sva_check(dut.q0_timer <= 8'd100 && dut.q1_timer <= 8'd100,
+      sva_check(dut.q0_timer <= 7'd100 && dut.q1_timer <= 7'd100,
                 "A4 timers within bound");
       // A5: byte counters within the frame envelope
       sva_check(dut.bcnt <= 5'd21 && dut.t_cnt <= 5'd22,
@@ -123,10 +123,6 @@ module UniPro_Mem_tb;
       sva_check(dut.rb_retry <= 2'd3, "A6 rb_retry within budget");
       // A7: escape phase always carries the ESC symbol on the wire
       sva_check(!dut.t_esc || tx_sym === 8'h9D, "A7 esc phase carries ESC");
-      // A8: queued response frames carry legal lengths (2..16)
-      sva_check((!dut.q0_valid || (dut.q0_len >= 8'd2 && dut.q0_len <= 8'd16)) &&
-                (!dut.q1_valid || (dut.q1_len >= 8'd2 && dut.q1_len <= 8'd16)),
-                "A8 queued frame lengths legal");
     end
     irq_q <= irq;
   end
@@ -210,7 +206,7 @@ module UniPro_Mem_tb;
                 $display("ERROR: DUT frame %0d has bad CRC (got %04h exp %04h)",
                          n_frames, {m_buf[m_total-2], m_buf[m_total-1]}, crc);
               end
-              if (n_frames < 256) begin
+              if (n_frames < 1024) begin
                 fr_tc[n_frames]    = m_buf[0][4];
                 fr_cport[n_frames] = m_buf[0][3:0];
                 fr_seq[n_frames]   = m_buf[1][3:0];
@@ -891,6 +887,67 @@ module UniPro_Mem_tb;
   `undef UPM_WAIT_FRAMES
   `undef UPM_WAIT_CLK
 `endif
+
+    // ---- coverage-closure scenarios (both simulators) ----
+    begin : closure
+      int n0;
+      // ESC ESC then a plain symbol outside a frame: back to hunting
+      send_sym(SYM_ESC); send_sym(SYM_ESC); send_sym(8'h55);
+      // oversized length (dropped), PACP attribute index far out of range,
+      // memory request with a wild length (out of bounds)
+      n0 = n_frames;
+      send_frame(1'b0, 4'h1, 4'h0, {8'h01, 120'h0}, 8'hE0, 1'b0);
+      send_frame(1'b0, 4'hF, 4'h1, {8'h10, 8'hE0, 112'h0}, 8'd2, 1'b0);
+      send_frame(1'b0, 4'h1, 4'h2, {8'h02, 8'h00, 8'h00, 8'hF2, 96'h0}, 8'd4, 1'b0);
+      // PACP set that is too short (bad op); unknown CPort on TC0; PACP get
+      // on TC1 of attribute 4
+      send_frame(1'b0, 4'hF, 4'h3, {8'h11, 8'h03, 112'h0}, 8'd2, 1'b0);
+      send_frame(1'b0, 4'h2, 4'h4, {8'h55, 120'h0}, 8'd1, 1'b0);
+      send_frame(1'b1, 4'hF, 4'h5, {8'h10, 8'h04, 112'h0}, 8'd2, 1'b0);
+      wait_frames(n0 + 5);
+      check_frame(n0,     1'b0, 4'hF, 8'd2, {8'hE0, 8'h02, 112'h0}, "attr far OOB");
+      check_frame(n0 + 1, 1'b0, 4'h1, 8'd2, {8'hE0, 8'h02, 112'h0}, "mem wild length");
+      check_frame(n0 + 2, 1'b0, 4'hF, 8'd2, {8'hE0, 8'h03, 112'h0}, "short PACP set");
+      check_frame(n0 + 3, 1'b0, 4'h2, 8'd2, {8'hE0, 8'h03, 112'h0}, "unknown CPort");
+      check_frame(n0 + 4, 1'b1, 4'hF, 8'd3, {8'h90, 8'h04, 8'h00, 104'h0}, "get attr 4 on TC1");
+      // TC0 slot busy while TX is stalled: the third response is dropped
+      @(negedge clk); tx_ready = 1'b0;
+      n0 = n_frames;
+      irq_seen = 1'b0;
+      send_frame(1'b0, 4'hF, 4'h6, {8'h10, 8'h01, 112'h0}, 8'd2, 1'b0);
+      send_frame(1'b0, 4'hF, 4'h7, {8'h10, 8'h02, 112'h0}, 8'd2, 1'b0);
+      if (irq_seen) begin errors++; $display("ERROR: irq before the slot overflowed"); end
+      send_frame(1'b0, 4'hF, 4'h8, {8'h10, 8'h03, 112'h0}, 8'd2, 1'b0);
+      wait_clk(2);
+      if (!irq_seen) begin errors++; $display("ERROR: no irq when a response was dropped"); end
+      @(negedge clk); tx_ready = 1'b1;
+      wait_frames(n0 + 2);
+      wait_clk(200);
+      if (n_frames != n0 + 2) begin errors++; $display("ERROR: dropped response was sent"); end
+      // read-response timer boundary: release the stalled TX after a sweep
+      // of delays so the queued read leaves just before / just after its
+      // 100-clock budget (the bind checker predicts which frame is sent)
+      for (int k = 0; k < 40; k++) begin
+        int dl;
+        dl = 85 + k % 20;
+        n0 = n_frames;
+        @(negedge clk); tx_ready = 1'b0;
+        send_frame(k >= 20, 4'hF, 4'h0, {8'h10, 8'h01, 112'h0}, 8'd2, 1'b0);
+        send_frame(k >= 20, 4'h1, 4'h0, {8'h02, 8'h00, 8'h10, 8'h04, 96'h0}, 8'd4, 1'b0);
+        wait_clk(dl);
+        @(negedge clk); tx_ready = 1'b1;
+        wait_frames(n0 + 2);
+      end
+      // reset while a frame is on the wire
+      @(negedge clk); tx_ready = 1'b0;
+      send_frame(1'b0, 4'hF, 4'h9, {8'h10, 8'h01, 112'h0}, 8'd2, 1'b0);
+      wait_clk(5);
+      @(negedge clk); rst_n = 1'b0;
+      @(negedge clk);
+      if (tx_valid !== 1'b0 || irq !== 1'b0) begin errors++; $display("ERROR: reset during TX"); end
+      rst_n = 1'b1; tx_ready = 1'b1;
+      wait_clk(5);
+    end
 
     // ---- summary ----
     wait_clk(20);

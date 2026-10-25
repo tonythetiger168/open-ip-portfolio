@@ -1,42 +1,39 @@
 // SPDX-License-Identifier: Apache-2.0
 // ============================================================================
-// MIPI C-PHY trio (3-wire, 3-level) symbol-transmitter with loopback decoder
+// MIPI C-PHY trio (3-wire, 3-level) HS transmitter with same-trio decoder
 // Implementation scope:
-//   * Trio wires a/b/c, each carrying one of three levels {low,mid,high},
-//     simplified to a 2-bit per wire encoding (00=low, 01=mid, 10=high).
-//     One symbol per clk cycle (real C-PHY maps ~2.28 bits/symbol at wire
-//     rate; the clocked simplification is documented).
-//   * Legal wire states: the five permutations of {low,mid,high} used as
-//     data states S0..S4 (every symbol has three mutually distinct wire
-//     levels). The sixth physical permutation X is reserved as the
-//     collision marker described below. Idle/stop = all wires mid, which
-//     never collides with a data symbol.
-//   * 16-bit -> 7 symbol mapping (custom table, per task allowance; the TB
-//     uses the identical table):
-//       digits   : d_i = (v / 5**i) mod 5, i = 0..6 (5**7 = 78125 > 65535)
-//       rotation : k_i = (d_i + i) mod 5         (position-dependent)
-//       symbol_i : S[k_i], except when S[k_i] would equal the previous
-//                  transmitted symbol -- then the reserved marker X is sent
-//                  and the receiver recovers k_i = index(previous symbol).
-//     This guarantees adjacent symbols always differ on the trio (a hard
-//     C-PHY requirement) while keeping the mapping bijective. Note: with
-//     only 5 legal states a change-constrained 16->7 mapping is
-//     information-theoretically impossible (5*4^6 < 2^16); real C-PHY
-//     therefore uses 6 states. Here the 6th state appears only as the
-//     collision marker, documented simplification.
-//   * Packet format: idle (mid,mid,mid) -> 7-symbol sync word
-//     {S1,S3,S0,S2,S4,S1,X} (simplified; real C-PHY uses the "4444443"
-//     sync sequence) -> 7 symbols per 16-bit payload word -> stop.
-//   * RX decodes the same trio (TB loopback): sync match, symbol-to-digit
-//     de-rotation, word reassembly. Protocol violations (illegal wire
-//     state, adjacent identical symbols, bad sync, mid-word stop) raise
-//     sticky irq.
-// IP design implementation v1.0 -- Apache-2.0
+//   * Trio wires A/B/C each drive one of three levels {low, mid, high},
+//     encoded 2 bits per wire (00 = low, 01 = mid, 10 = high). One symbol
+//     per clk (the wire-rate clocking is abstracted).
+//   * The six C-PHY wire states, as {A, B, C}:
+//       +x = (H,L,M)  -x = (L,H,M)  +y = (M,H,L)  -y = (M,L,H)
+//       +z = (L,M,H)  -z = (H,M,L)
+//     Idle (LP stop) is shown as all wires mid.
+//   * Every symbol is a state transition, 3 bits {Flip, Rotation,
+//     Polarity}, so consecutive states always differ and the receiver
+//     recovers timing from every unit interval:
+//       Flip = 1      (symbol 4): same wire pair, opposite polarity
+//       Flip = 0, Rotation = 1  : x -> y -> z -> x (clockwise)
+//       Flip = 0, Rotation = 0  : x -> z -> y -> x (counter-clockwise)
+//                 Polarity = 1  : opposite polarity, 0: same polarity
+//     Symbols 5..7 do not exist.
+//   * Burst: the TX enters HS on +x, sends the sync word 3444443, then 7
+//     symbols per 16-bit word, then the post-amble 4444444, and returns to
+//     idle. The 16-bit -> 7-symbol mapper here is base 5, least
+//     significant digit first (symbol i = (v / 5^i) mod 5); it is
+//     bijective but it is not the mapping table of the MIPI specification.
+//     The post-amble decodes to 78124, which no 16-bit word can produce,
+//     so the receiver tells it apart from data.
+//   * RX decodes the trio: burst entry on +x, sync check, transition to
+//     symbol, words, post-amble, then a clean return to idle (rx_done).
+//     Sticky irq on: a burst not entering on +x, a wrong sync symbol, an
+//     invalid wire state, a missing transition, a 7-symbol group above
+//     65535 that is not the post-amble, a stop inside a word or without a
+//     post-amble, or anything but 4 after the post-amble. After an error
+//     the receiver waits for idle.
+// IP design implementation v1.1 -- Apache-2.0
 // ============================================================================
-module C_PHY_top #(
-  parameter int DW = 32,        // retained framework parameter (data width)
-  parameter int AW = 32         // retained framework parameter (address width)
-)(
+module C_PHY_top (
   input  logic        clk,
   input  logic        rst_n,
   output logic        irq,        // sticky protocol-error flag (RX decoder)
@@ -47,7 +44,7 @@ module C_PHY_top #(
   input  logic        tx_valid,
   output logic        tx_ready,
   input  logic        tx_last,    // marks the final word of the packet
-  output logic        tx_done,    // pulse: packet finished, trio back to idle
+  output logic        tx_done,    // pulse: burst finished, trio back to idle
 
   // ---- trio TX pads ----
   output logic [1:0]  t_a,
@@ -60,113 +57,103 @@ module C_PHY_top #(
   input  logic [1:0]  r_c,
 
   // ---- RX decode outputs ----
-  output logic        rx_active,  // packet decode in progress
+  output logic        rx_active,  // burst decode in progress
   output logic [15:0] rx_data,
   output logic        rx_valid,
-  output logic        rx_done     // pulse: clean stop observed
+  output logic        rx_done     // pulse: post-amble and clean stop seen
 );
 
   // ------------------------------------------------------------------
-  // line levels and wire states
+  // wire states: index {pair[1:0], polarity}; pair 0 = x, 1 = y, 2 = z
   // ------------------------------------------------------------------
-  localparam logic [1:0] LVL_L = 2'b00;
-  localparam logic [1:0] LVL_M = 2'b01;
-  localparam logic [1:0] LVL_H = 2'b10;
+  localparam logic [1:0] L = 2'b00, M = 2'b01, H = 2'b10;
+  localparam logic [2:0] S_PX = 3'd0, S_MID = 3'd6, S_BAD = 3'd7;
 
-  // wire states as {a,b,c}
-  localparam logic [5:0] ST_S0 = {LVL_L, LVL_M, LVL_H}; // (L,M,H)
-  localparam logic [5:0] ST_S1 = {LVL_L, LVL_H, LVL_M}; // (L,H,M)
-  localparam logic [5:0] ST_S2 = {LVL_M, LVL_L, LVL_H}; // (M,L,H)
-  localparam logic [5:0] ST_S3 = {LVL_M, LVL_H, LVL_L}; // (M,H,L)
-  localparam logic [5:0] ST_S4 = {LVL_H, LVL_L, LVL_M}; // (H,L,M)
-  localparam logic [5:0] ST_X  = {LVL_H, LVL_M, LVL_L}; // (H,M,L) marker
-  localparam logic [5:0] ST_MID = {LVL_M, LVL_M, LVL_M}; // idle/stop
-
-  // sync word: S1 S3 S0 S2 S4 S1 X  (adjacent symbols all differ)
-  function automatic logic [5:0] sync_sym(input int i);
-    case (i)
-      0: sync_sym = ST_S1;
-      1: sync_sym = ST_S3;
-      2: sync_sym = ST_S0;
-      3: sync_sym = ST_S2;
-      4: sync_sym = ST_S4;
-      5: sync_sym = ST_S1;
-      default: sync_sym = ST_X;
-    endcase
-  endfunction
-
-  // data state table S0..S4
-  function automatic logic [5:0] state_abc(input logic [2:0] k);
-    case (k)
-      3'd0: state_abc = ST_S0;
-      3'd1: state_abc = ST_S1;
-      3'd2: state_abc = ST_S2;
-      3'd3: state_abc = ST_S3;
-      default: state_abc = ST_S4;
-    endcase
-  endfunction
-
-  // inverse table: wire state -> index 0..4, 5 = X marker, 6 = illegal,
-  // 7 = all-mid (idle/stop, not a data symbol)
-  function automatic logic [2:0] idx_of(input logic [5:0] s);
+  function automatic logic [5:0] wires(input logic [2:0] s);
     case (s)
-      ST_S0:  idx_of = 3'd0;
-      ST_S1:  idx_of = 3'd1;
-      ST_S2:  idx_of = 3'd2;
-      ST_S3:  idx_of = 3'd3;
-      ST_S4:  idx_of = 3'd4;
-      ST_X:   idx_of = 3'd5;
-      ST_MID: idx_of = 3'd7;
-      default: idx_of = 3'd6;
+      3'd0: wires = {H, L, M};   // +x
+      3'd1: wires = {L, H, M};   // -x
+      3'd2: wires = {M, H, L};   // +y
+      3'd3: wires = {M, L, H};   // -y
+      3'd4: wires = {L, M, H};   // +z
+      3'd5: wires = {H, M, L};   // -z
+      default: wires = {M, M, M};
     endcase
+  endfunction
+
+  function automatic logic [2:0] state_of(input logic [5:0] w);
+    case (w)
+      {H, L, M}: state_of = 3'd0;
+      {L, H, M}: state_of = 3'd1;
+      {M, H, L}: state_of = 3'd2;
+      {M, L, H}: state_of = 3'd3;
+      {L, M, H}: state_of = 3'd4;
+      {H, M, L}: state_of = 3'd5;
+      {M, M, M}: state_of = S_MID;
+      default:   state_of = S_BAD;
+    endcase
+  endfunction
+
+  function automatic logic [1:0] pair_cw(input logic [1:0] p);
+    pair_cw = (p == 2'd2) ? 2'd0 : p + 2'd1;
+  endfunction
+
+  // next wire state for symbol s (0..4)
+  function automatic logic [2:0] next_state(input logic [2:0] st, input logic [2:0] s);
+    if (s[2]) next_state = {st[2:1], ~st[0]};
+    else      next_state = {s[1] ? pair_cw(st[2:1]) : pair_cw(pair_cw(st[2:1])), st[0] ^ s[0]};
+  endfunction
+
+  // symbol carried by the transition prev -> cur (cur != prev, both valid)
+  function automatic logic [2:0] symbol_of(input logic [2:0] prev, input logic [2:0] cur);
+    if (cur[2:1] == prev[2:1]) symbol_of = 3'd4;
+    else symbol_of = {1'b0, cur[2:1] == pair_cw(prev[2:1]), cur[0] ^ prev[0]};
+  endfunction
+
+  // sync word 3444443
+  function automatic logic [2:0] sync_sym(input logic [2:0] i);
+    sync_sym = (i == 3'd0 || i == 3'd6) ? 3'd3 : 3'd4;
   endfunction
 
   // 5**i for i = 0..6
-  function automatic logic [15:0] pow5(input logic [2:0] i);
+  function automatic logic [16:0] pow5(input logic [2:0] i);
     case (i)
-      3'd0: pow5 = 16'd1;
-      3'd1: pow5 = 16'd5;
-      3'd2: pow5 = 16'd25;
-      3'd3: pow5 = 16'd125;
-      3'd4: pow5 = 16'd625;
-      3'd5: pow5 = 16'd3125;
-      default: pow5 = 16'd15625;
+      3'd0: pow5 = 17'd1;
+      3'd1: pow5 = 17'd5;
+      3'd2: pow5 = 17'd25;
+      3'd3: pow5 = 17'd125;
+      3'd4: pow5 = 17'd625;
+      3'd5: pow5 = 17'd3125;
+      default: pow5 = 17'd15625;
     endcase
   endfunction
 
+  localparam logic [16:0] POST_VAL = 17'd78124;   // 4444444
+
   // ------------------------------------------------------------------
-  // TX FSM
+  // TX
   // ------------------------------------------------------------------
-  typedef enum logic [1:0] {T_IDLE, T_SYNC, T_DATA, T_STOP} tstate_t;
-  tstate_t    tstate;
-  logic [2:0] spos;               // sync position 0..6
-  logic [2:0] sym_cnt;            // symbol position inside word 0..6
+  typedef enum logic [2:0] {T_IDLE, T_SYNC, T_DATA, T_POST, T_END} tstate_t;
+  tstate_t     tstate;
+  logic [2:0]  tcnt;              // symbol position 0..6
   logic [15:0] r_val;             // residual value (divided by 5 per symbol)
-  logic [5:0] prev_sym;           // previously transmitted wire state
-  logic       cur_last;
-  logic       buf_valid;
+  logic [2:0]  tx_st;             // state on the wires (S_MID = idle)
+  logic        cur_last;
+  logic        buf_valid;
   logic [15:0] buf_data;
-  logic       buf_last;
+  logic        buf_last;
 
   assign tx_ready = ~buf_valid;
+  assign {t_a, t_b, t_c} = wires(tx_st);
 
-  // current data symbol (combinational): digit, rotation, collision rule
-  wire [15:0] tx_d16  = r_val % 16'd5;
-  wire [2:0]  tx_d    = tx_d16[2:0];
-  wire [3:0]  tx_sum  = {1'b0, tx_d} + {1'b0, sym_cnt};
-  wire [2:0]  tx_k    = (tx_sum >= 4'd10) ? tx_sum[2:0] - 3'd2  // -10 mod 8 ok
-                      : (tx_sum >= 4'd5)  ? tx_sum[2:0] - 3'd5
-                                          : tx_sum[2:0];
-  wire [5:0]  tx_cand = state_abc(tx_k);
-  wire [5:0]  tx_sym  = (tx_cand == prev_sym) ? ST_X : tx_cand;
+  wire [2:0]  tx_dig = 3'(r_val % 16'd5);
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       tstate    <= T_IDLE;
-      spos      <= 3'd0;
-      sym_cnt   <= 3'd0;
+      tcnt      <= 3'd0;
       r_val     <= 16'd0;
-      prev_sym  <= ST_MID;
+      tx_st     <= S_MID;
       cur_last  <= 1'b0;
       buf_valid <= 1'b0;
       buf_data  <= 16'd0;
@@ -182,98 +169,74 @@ module C_PHY_top #(
       end
 
       case (tstate)
-        T_IDLE: begin
-          if (buf_valid) begin
-            tstate <= T_SYNC;
-            spos   <= 3'd0;
-          end
+        T_IDLE: if (buf_valid) begin          // HS entry on +x
+          tstate <= T_SYNC;
+          tcnt   <= 3'd0;
+          tx_st  <= S_PX;
         end
         T_SYNC: begin
-          prev_sym <= sync_sym(spos);
-          if (spos == 3'd6) begin
-            tstate  <= T_DATA;
-            sym_cnt <= 3'd0;
-            // first payload word was waiting in the buffer
-            r_val     <= buf_data;
+          tx_st <= next_state(tx_st, sync_sym(tcnt));
+          tcnt  <= tcnt + 3'd1;
+          if (tcnt == 3'd6) begin
+            tstate    <= T_DATA;
+            tcnt      <= 3'd0;
+            r_val     <= buf_data;            // first word is waiting
             cur_last  <= buf_last;
             buf_valid <= 1'b0;
-          end else begin
-            spos <= spos + 3'd1;
           end
         end
         T_DATA: begin
-          prev_sym <= tx_sym;
-          r_val    <= r_val / 16'd5;
-          if (sym_cnt == 3'd6) begin
-            sym_cnt <= 3'd0;
-            if (cur_last) begin
-              tstate  <= T_STOP;      // final word done -> stop
-              tx_done <= 1'b1;
-            end else if (buf_valid) begin
-              r_val     <= buf_data;  // next word, symbols continue
+          tx_st <= next_state(tx_st, tx_dig);
+          r_val <= r_val / 16'd5;
+          tcnt  <= tcnt + 3'd1;
+          if (tcnt == 3'd6) begin
+            tcnt <= 3'd0;
+            if (!cur_last && buf_valid) begin
+              r_val     <= buf_data;          // next word, symbols continue
               cur_last  <= buf_last;
               buf_valid <= 1'b0;
-            end else begin
-              tstate  <= T_STOP;      // host underrun -> clean stop
-              tx_done <= 1'b1;
-            end
-          end else begin
-            sym_cnt <= sym_cnt + 3'd1;
+            end else tstate <= T_POST;        // last word or host underrun
           end
         end
-        T_STOP: begin
-          tstate   <= T_IDLE;
-          prev_sym <= ST_MID;
+        T_POST: begin
+          tx_st <= next_state(tx_st, 3'd4);
+          tcnt  <= tcnt + 3'd1;
+          if (tcnt == 3'd6) tstate <= T_END;
+        end
+        T_END: begin                          // back to idle
+          tx_st   <= S_MID;
+          tx_done <= 1'b1;
+          tstate  <= T_IDLE;
         end
         default: tstate <= T_IDLE;
       endcase
     end
   end
 
-  // TX trio drivers
-  always_comb begin
-    {t_a, t_b, t_c} = ST_MID;
-    case (tstate)
-      T_SYNC: {t_a, t_b, t_c} = sync_sym(spos);
-      T_DATA: {t_a, t_b, t_c} = tx_sym;
-      default: ;
-    endcase
-  end
-
   // ------------------------------------------------------------------
-  // RX decoder (same-trio loopback)
+  // RX decoder
   // ------------------------------------------------------------------
-  typedef enum logic [1:0] {R_IDLE, R_SYNC, R_DATA, R_ERR} rstate_t;
-  rstate_t    rstate;
-  logic [2:0] r_spos;
-  logic [2:0] r_sym_cnt;
-  logic [5:0] r_prev;
-  logic [31:0] r_acc;
-  logic       err_sticky;
+  typedef enum logic [2:0] {R_IDLE, R_SYNC, R_DATA, R_POST, R_ERR} rstate_t;
+  rstate_t     rstate;
+  logic [2:0]  rcnt;
+  logic [2:0]  r_prev;
+  logic [16:0] r_acc;
+  logic        err_sticky;
 
-  wire [5:0] rw     = {r_a, r_b, r_c};
-  wire [2:0] r_idx  = idx_of(rw);
-  wire [2:0] pidx   = idx_of(r_prev);
-
-  // recovered rotation index: X means "candidate equaled previous symbol"
-  wire [2:0] r_k    = (r_idx == 3'd5) ? pidx : r_idx;
-  // de-rotation: d = (k - sym_cnt) mod 5
-  wire [2:0] r_m    = (r_sym_cnt >= 3'd5) ? r_sym_cnt - 3'd5 : r_sym_cnt;
-  wire [3:0] r_dtmp = {1'b0, r_k} + 4'd5 - {1'b0, r_m};
-  wire [2:0] r_dig  = (r_dtmp >= 4'd5) ? r_dtmp[2:0] - 3'd5 : r_dtmp[2:0];
-  wire [31:0] r_word = (r_sym_cnt == 3'd0) ? ({16'd0, r_dig} * pow5(3'd0))
-                                           : (r_acc + {29'd0, r_dig} * pow5(r_sym_cnt));
+  wire  [2:0]  r_st   = state_of({r_a, r_b, r_c});
+  wire         r_tran = (r_st < S_MID) && (r_st != r_prev);   // valid UI
+  wire  [2:0]  r_sym  = symbol_of(r_prev, r_st);
+  wire  [16:0] r_word = ((rcnt == 3'd0) ? 17'd0 : r_acc) + 17'(r_sym) * pow5(rcnt);
 
   assign irq       = err_sticky;
-  assign rx_active = (rstate == R_SYNC) | (rstate == R_DATA);
+  assign rx_active = (rstate == R_SYNC) || (rstate == R_DATA) || (rstate == R_POST);
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       rstate     <= R_IDLE;
-      r_spos     <= 3'd0;
-      r_sym_cnt  <= 3'd0;
-      r_prev     <= ST_MID;
-      r_acc      <= 32'd0;
+      rcnt       <= 3'd0;
+      r_prev     <= S_MID;
+      r_acc      <= 17'd0;
       err_sticky <= 1'b0;
       rx_data    <= 16'd0;
       rx_valid   <= 1'b0;
@@ -282,62 +245,43 @@ module C_PHY_top #(
       rx_valid <= 1'b0;
       rx_done  <= 1'b0;
       if (irq_clear) err_sticky <= 1'b0;
+      r_prev <= r_st;
 
       case (rstate)
         R_IDLE: begin
-          if (rw != ST_MID) begin
-            if (rw == sync_sym(0)) begin
-              rstate <= R_SYNC;
-              r_spos <= 3'd1;
-              r_prev <= rw;
-            end else begin
-              err_sticky <= 1'b1;      // packet not starting with sync
-              rstate     <= R_ERR;
-            end
+          rcnt <= 3'd0;
+          if (r_st != S_MID) begin
+            if (r_st == S_PX) rstate <= R_SYNC;
+            else begin err_sticky <= 1'b1; rstate <= R_ERR; end
           end
         end
         R_SYNC: begin
-          if (rw == sync_sym(r_spos)) begin
-            r_prev <= rw;
-            if (r_spos == 3'd6) begin
-              rstate    <= R_DATA;
-              r_sym_cnt <= 3'd0;
-            end else begin
-              r_spos <= r_spos + 3'd1;
-            end
+          if (!r_tran || r_sym != sync_sym(rcnt)) begin
+            err_sticky <= 1'b1; rstate <= R_ERR;
           end else begin
-            err_sticky <= 1'b1;        // sync word mismatch
-            rstate     <= R_ERR;
+            rcnt <= rcnt + 3'd1;
+            if (rcnt == 3'd6) begin rstate <= R_DATA; rcnt <= 3'd0; end
           end
         end
         R_DATA: begin
-          if (r_idx == 3'd7) begin     // all-mid: stop
-            if (r_sym_cnt == 3'd0) begin
-              rstate  <= R_IDLE;       // clean word-boundary stop
-              rx_done <= 1'b1;
-            end else begin
-              err_sticky <= 1'b1;      // mid-word stop
-              rstate     <= R_ERR;
-            end
-          end else if (r_idx == 3'd6) begin
-            err_sticky <= 1'b1;        // illegal wire state (wires not distinct)
-            rstate     <= R_ERR;
-          end else if (rw == r_prev) begin
-            err_sticky <= 1'b1;        // adjacent identical symbols
-            rstate     <= R_ERR;
+          if (!r_tran) begin                     // stop, bad state, no change
+            err_sticky <= 1'b1; rstate <= R_ERR;
           end else begin
-            r_acc  <= r_word;
-            r_prev <= rw;
-            if (r_sym_cnt == 3'd6) begin
-              r_sym_cnt <= 3'd0;
-              rx_data   <= r_word[15:0];
-              rx_valid  <= 1'b1;
-            end else begin
-              r_sym_cnt <= r_sym_cnt + 3'd1;
+            r_acc <= r_word;
+            rcnt  <= rcnt + 3'd1;
+            if (rcnt == 3'd6) begin
+              rcnt <= 3'd0;
+              if (r_word == POST_VAL) rstate <= R_POST;
+              else if (r_word[16]) begin err_sticky <= 1'b1; rstate <= R_ERR; end
+              else begin rx_data <= r_word[15:0]; rx_valid <= 1'b1; end
             end
           end
         end
-        R_ERR: if (r_idx == 3'd7) rstate <= R_IDLE;  // resync on idle
+        R_POST: begin                            // extra 4s, then idle
+          if (r_st == S_MID) begin rx_done <= 1'b1; rstate <= R_IDLE; end
+          else if (!r_tran || r_sym != 3'd4) begin err_sticky <= 1'b1; rstate <= R_ERR; end
+        end
+        R_ERR: if (r_st == S_MID) rstate <= R_IDLE;
         default: rstate <= R_IDLE;
       endcase
     end

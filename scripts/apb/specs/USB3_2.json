@@ -1,0 +1,35 @@
+{
+  "title": "USB 3.2-style link layer: header packets with CRC-16 and link control word, data packet payloads with CRC-32, link commands (LGOOD, LCRD, LRTY, LBAD), header sequence numbers, retry buffer, credits and the pending/credit timers, on an 8b/10b-like symbol interface",
+  "code": "0x5533",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "80ms",
+  "regs": [
+    {"name": "CTRL", "kind": "rw", "desc": "Link control",
+     "fields": [{"port": "link_up", "reset": "0", "desc": "physical link up (U0): starts the advertisement; clearing it drops the link (receive state and credits reset; unacknowledged packets are kept and sent again)"}]},
+    {"name": "TX", "kind": "stream_in", "data": ["tx_data", "tx_last"], "valid": "tx_valid", "ready": "tx_ready",
+     "desc": "Packet byte to send; one write per byte, LAST on the final byte. Bytes 0-11 are the header (byte 0 bits 4:0 = 01000 makes it a data packet, whose bytes 12 on are its payload); a packet is cut after 12 + MAXD = 44 bytes. The core takes bytes while one of its TXN = 4 retry buffers is free, link up or not",
+     "fdesc": {"tx_data": "byte", "tx_last": "last byte of the packet"}},
+    {"name": "RX", "kind": "stream_out", "data": ["rx_data", "rx_last", "rx_err"], "valid": "rx_valid", "ready": "rx_ready",
+     "desc": "Received packet byte (head of the core's receive buffers); reading it pops it. Headers are delivered as 12 bytes, a data packet's payload after its header; a data packet whose payload failed is delivered as its header with ERR set. A credit is returned as each packet is read",
+     "fdesc": {"rx_data": "byte", "rx_last": "last byte of the packet", "rx_err": "the packet's payload failed (bad CRC-32, aborted with EDB, framing, too long): only its header is delivered"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Link state",
+     "fields": [{"port": "ll_up", "desc": "link layer up (advertisement received)"}]}
+  ],
+  "irqs": [
+    {"name": "RECOVERY", "port": "recovery", "desc": "the link needs recovery (sequence error, protocol error, a third LBAD in a row, or a timer expired): the core stops until CTRL.LINK_UP is cleared and set again"},
+    {"name": "ERR_HP", "port": "ev_hp_bad", "desc": "a header packet failed (CRC-16, link control word CRC-5, or a K symbol inside): an LBAD is sent and headers are ignored until LRTY"},
+    {"name": "ERR_SEQ", "port": "ev_seq", "desc": "a header packet with the wrong sequence number"},
+    {"name": "ERR_LC", "port": "ev_lc_bad", "desc": "a link command with both copies failing their CRC-5"},
+    {"name": "ERR_DPP", "port": "ev_dpp_bad", "desc": "a data packet payload failed (CRC-32, EDB, framing, too long)"},
+    {"name": "ERR_FRAME", "port": "ev_frame", "desc": "a framing error (K symbol out of place, broken ordered set)"},
+    {"name": "ERR_PROTO", "port": "ev_proto", "desc": "a link command out of place: an LGOOD out of order, an LCRD with the wrong letter or too many, an LBAD with nothing sent"},
+    {"name": "ERR_OVERFLOW", "port": "ev_overflow", "desc": "a good header packet with no free receive buffer: dropped, not acknowledged"},
+    {"name": "LBAD", "port": "ev_lbad", "desc": "an LBAD was received: unacknowledged packets are sent again"},
+    {"name": "TIMEOUT", "port": "ev_timeout", "desc": "PENDING_HP_TIMER or CREDIT_HP_TIMER expired"}
+  ],
+  "notes": [
+    "tx_sym / tx_k and rx_sym / rx_k are the symbol interface (one 8-bit symbol per clock, K flag for SHP FB, SDP 5C, END FD, EDB 7C, SLC DC, EPF F7); they pass through unchanged.",
+    "The core parameters MAXD (32), TXN (4 retry buffers), RXN (4 receive buffers), PEND_TO (400) and CRED_TO (2000) keep their defaults."
+  ]
+}

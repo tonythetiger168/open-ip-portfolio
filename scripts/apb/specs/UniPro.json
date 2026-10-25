@@ -1,0 +1,72 @@
+{
+  "title": "MIPI UniPro data link layer: 8-bit serial symbols, COF / ESC_DL framing, CRC-16, data frames with ACK / NAC, resend on timeout, TC0 / TC1 priority queues, PACP GET / SET of 16 attributes, a CPort 0 message buffer",
+  "code": "0x5550",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "40ms",
+  "regs": [
+    {
+      "name": "CORE",
+      "kind": "bus",
+      "wen": "cpu_we",
+      "waddr": "cpu_addr",
+      "wdata": "cpu_wdata",
+      "ren": "cpu_re",
+      "raddr": "cpu_addr",
+      "rdata": "cpu_rdata",
+      "words": [
+        {
+          "name": "TC0",
+          "w": 0,
+          "desc": "push one 32-bit payload onto the TC0 transmit queue (8 entries; a push to a full queue is dropped with ERR)"
+        },
+        {
+          "name": "TC1",
+          "w": 1,
+          "desc": "push one 32-bit payload onto the TC1 transmit queue (strict priority over TC0)"
+        },
+        {
+          "name": "PACP_SET",
+          "w": 2,
+          "desc": "PACP SET request to the peer: [15:8] value, [3:0] attribute index"
+        },
+        {
+          "name": "PACP_GET",
+          "w": 3,
+          "desc": "PACP GET request to the peer: [3:0] attribute index"
+        },
+        {
+          "name": "CPORT",
+          "w": 4,
+          "desc": "[3:0] destination CPort of the following pushes"
+        },
+        {
+          "name": "MSG",
+          "r": 4,
+          "desc": "[7:0] next message-buffer byte (CPort 0 payloads, 32 bytes); the read pops it"
+        },
+        {
+          "name": "STATUS",
+          "r": 5,
+          "desc": "{pacp_cnf, pacp_rsp_valid, tx busy, PACP request pending, data frame outstanding, resends[1:0], control FIFO count[2:0], rx expected seq[3:0], tx seq[3:0], msg count[5:0], TC1 count[3:0], TC0 count[3:0]}"
+        },
+        {
+          "name": "PACP",
+          "r": 6,
+          "desc": "{pacp_cnf, pacp_rsp_valid, GET response value[7:0]}; the read clears both flags"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "ERR",
+      "port": "irq",
+      "desc": "received CRC / length error or framing error, message buffer overflow, control FIFO overflow, resend budget exhausted, or a push to a full queue"
+    }
+  ],
+  "notes": [
+    "rx_bit / tx_bit (start + 8 data bits LSB first + stop, idle 1, one bit per PCLK) pass through unchanged.",
+    "The core's CPU port is mapped one word per register; a write with PSTRB != 4'hF to a writable word is dropped with PSLVERR."
+  ]
+}

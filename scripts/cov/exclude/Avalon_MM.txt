@@ -1,0 +1,1 @@
+LINE \| default : state <= AV_IDLE; # defensive default: unused state encoding 2'b11

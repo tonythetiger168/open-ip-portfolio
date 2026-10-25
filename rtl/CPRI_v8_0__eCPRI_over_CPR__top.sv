@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // ============================================================================
 // CPRI v8.0 (eCPRI over CPR) -- CPRI master (REC) link-layer slice
-//   - full 8b/10b encode/decode: all D0.0..D31.7 + K28.x, running disparity
+//   - full 8b/10b encode/decode: all D0.0..D31.7 (with the D.x.A7 alternate)
+//     + K28.x, running disparity on both directions; a received symbol that
+//     is not a code group or has the wrong disparity is a code violation
 //     (symbol = {a,b,c,d,e,i,f,g,h,j}, 'a' transmitted first, 1 symbol/clk)
 //   - basic frame = 1 control word + 15 IQ words (16 bytes)
 //   - hyperframe = 64 basic frames (simplified from 256 -- educational slice)
@@ -12,16 +14,14 @@
 //     stream carrying rate / pointer-p / protocol-version negotiation),
 //     #4 vendor byte
 //   - IQ data: peer 16-bit I/Q interleaved byte stream packed into 32x32
-//     buffer as {I[15:0],Q[15:0]} words, cpu port pop
+//     buffer as {I[15:0],Q[15:0]} words, cpu port pop; words arriving with
+//     the buffer full are dropped and counted (saturating at 255)
 //   - 8x8 rate config registers (cpu port)
 //   - loss of sync: 4 consecutive hyperframes without peer K28.5 at the
 //     expected position -> resync (HUNT) + irq
-// IP design implementation v1.0 -- Apache-2.0
+// IP design implementation v1.1 -- Apache-2.0
 // ============================================================================
-module CPRI_v8_0__eCPRI_over_CPR__top #(
-  parameter int DW = 32,             // cpu data width
-  parameter int AW = 32              // kept for framework compatibility
-)(
+module CPRI_v8_0__eCPRI_over_CPR__top (
   input  logic        clk,
   input  logic        rst_n,
   // CPRI line, one 10-bit 8b/10b symbol per clock
@@ -31,8 +31,8 @@ module CPRI_v8_0__eCPRI_over_CPR__top #(
   input  logic        cpu_we,
   input  logic        cpu_re,
   input  logic [3:0]  cpu_addr,
-  input  logic [DW-1:0] cpu_wdata,
-  output logic [DW-1:0] cpu_rdata,
+  input  logic [31:0] cpu_wdata,
+  output logic [31:0] cpu_rdata,
   output logic        irq
 );
 
@@ -63,7 +63,7 @@ module CPRI_v8_0__eCPRI_over_CPR__top #(
   endfunction
 
   // ------------------------------------------------------------------
-  // 8b/10b encoder. rd: 0 = RD-, 1 = RD+.
+  // 8b/10b encoder. rd: 0 = RD-, 1 = RD+. k selects K28.5.
   // returns {new_rd, sym[9:0]} with sym[9:4]={a..i}, sym[3:0]={f,g,h,j}
   // ------------------------------------------------------------------
   function automatic logic [10:0] enc8b10b(input logic [7:0] d,
@@ -73,10 +73,9 @@ module CPRI_v8_0__eCPRI_over_CPR__top #(
     logic [3:0] c4;
     logic       rd1;
     begin
-      if (k) begin
-        c6 = rd ? 6'b110000 : 6'b001111;              // K28 (only K supported)
-      end else begin
-        case (d[4:0])                                  // 5b/6b, EDCBA
+      // data 5b/6b, EDCBA (a K symbol is handled at the end)
+      begin
+        case (d[4:0])
           5'd0 : c6 = rd ? 6'b011000 : 6'b100111;
           5'd1 : c6 = rd ? 6'b100010 : 6'b011101;
           5'd2 : c6 = rd ? 6'b010010 : 6'b101101;
@@ -112,8 +111,11 @@ module CPRI_v8_0__eCPRI_over_CPR__top #(
         endcase
       end
       rd1 = rd ^ ~is_bal6(c6);
-      if (k && (d[7:5] == 3'd7)) begin
-        c4 = rd1 ? 4'b1000 : 4'b0111;                  // Kx.7 alternate
+      if (d[7:5] == 3'd7 && ((!rd1 && (d[4:0] == 5'd17 || d[4:0] == 5'd18 ||
+                                       d[4:0] == 5'd20)) ||
+                             (rd1 && (d[4:0] == 5'd11 || d[4:0] == 5'd13 ||
+                                      d[4:0] == 5'd14)))) begin
+        c4 = rd1 ? 4'b1000 : 4'b0111;                  // D.x.A7 alternate
       end else begin
         case (d[7:5])                                  // 3b/4b, HGF
           3'd0 : c4 = rd1 ? 4'b0100 : 4'b1011;
@@ -127,6 +129,8 @@ module CPRI_v8_0__eCPRI_over_CPR__top #(
         endcase
       end
       enc8b10b = {rd1 ^ ~is_bal4(c4), c6, c4};
+      // K28.5, the only control symbol this master sends (d is ignored)
+      if (k) enc8b10b = rd ? {1'b0, 10'b110000_0101} : {1'b1, 10'b001111_1010};
     end
   endfunction
 
@@ -181,6 +185,9 @@ module CPRI_v8_0__eCPRI_over_CPR__top #(
         6'b101011, 6'b010100: y = 5'd31;
         default:              v6 = 1'b0;
       endcase
+      // K28.1/.2/.5/.6 at RD+ (6b 110000) carry the inverted balanced 4b code
+      // (inverting 1100 / 0011 of K28.3 gives the same x = 3)
+      if (c6 == 6'b110000 && is_bal4(c4)) c4 = ~c4;
       v4 = 1'b1; x = 3'd0;
       case (c4)
         4'b1011, 4'b0100:                 x = 3'd0;
@@ -198,6 +205,29 @@ module CPRI_v8_0__eCPRI_over_CPR__top #(
   endfunction
 
   // ------------------------------------------------------------------
+  // running disparity check of a received symbol at disparity rd
+  // (0 = RD-, 1 = RD+). returns {ok, rd after the symbol}
+  // ------------------------------------------------------------------
+  function automatic logic [1:0] rd_check(input logic [9:0] s, input logic rd);
+    logic [2:0] n6, n4;
+    logic       ok, rdm, rdo;
+    n6 = 3'(s[9]) + 3'(s[8]) + 3'(s[7]) + 3'(s[6]) + 3'(s[5]) + 3'(s[4]);
+    n4 = 3'(s[3]) + 3'(s[2]) + 3'(s[1]) + 3'(s[0]);
+    ok = 1'b1;
+    rdm = rd;
+    if (n6 == 3'd4) begin ok = !rd; rdm = 1'b1; end           // positive block
+    else if (n6 == 3'd2) begin ok = rd; rdm = 1'b0; end       // negative block
+    else if (s[9:4] == 6'b111000) ok = !rd;                   // D.7 at RD-
+    else if (s[9:4] == 6'b000111) ok = rd;                    // D.7 at RD+
+    rdo = rdm;
+    if (n4 == 3'd3) begin ok = ok && !rdm; rdo = 1'b1; end
+    else if (n4 == 3'd1) begin ok = ok && rdm; rdo = 1'b0; end
+    else if (s[3:0] == 4'b1100) ok = ok && !rdm;               // D.x.3 at RD-
+    else if (s[3:0] == 4'b0011) ok = ok && rdm;                // D.x.3 at RD+
+    rd_check = {ok, rdo};
+  endfunction
+
+  // ------------------------------------------------------------------
   // registers
   // ------------------------------------------------------------------
   logic [7:0]  cfg [0:7];        // rate config: 0={ptr_p,rate},1=version,2=vendor
@@ -209,11 +239,11 @@ module CPRI_v8_0__eCPRI_over_CPR__top #(
   logic [7:0]  tx_byte, l1_tx_byte;
   logic        tx_is_k;
   // rx path
-  logic        rx_v, rx_k;
+  logic        rx_v, rx_k, rx_cg, rx_dok, rx_rd, rx_rd_n;
   logic [7:0]  rx_d;
   logic [9:0]  rx_wcnt;          // position inside peer hyperframe (0..1023)
-  logic [1:0]  align_cnt;
-  logic [2:0]  miss_cnt;
+  logic        align_cnt;        // one aligned comma seen
+  logic [1:0]  miss_cnt;
   // L1 inband slow stream (16 hyperframes)
   logic [3:0]  l1_cnt;
   logic [7:0]  l1_b1, l1_b2;
@@ -270,7 +300,7 @@ module CPRI_v8_0__eCPRI_over_CPR__top #(
       tx_wpos <= 4'd0;
       tx_hfi  <= 4'd0;
       tx_rd   <= 1'b0;
-      tx_sym  <= {6'b100111, 4'b1011};                       // D0.0 @ RD-
+      tx_sym  <= {6'b100111, 4'b0100};                       // D0.0 @ RD-
     end else begin
       {tx_rd, tx_sym} <= enc8b10b(tx_byte, tx_is_k, tx_rd);
       if (tx_wpos == 4'd15) begin
@@ -290,7 +320,9 @@ module CPRI_v8_0__eCPRI_over_CPR__top #(
   // ------------------------------------------------------------------
   // RX decode (combinational) + position helpers
   // ------------------------------------------------------------------
-  assign {rx_v, rx_k, rx_d} = dec8b10b(rx_sym);
+  assign {rx_cg, rx_k, rx_d} = dec8b10b(rx_sym);
+  assign {rx_dok, rx_rd_n}   = rd_check(rx_sym, rx_rd);
+  assign rx_v = rx_cg && rx_dok;               // code group with the right disparity
   // IQ positions: any word > 0, except the two sync stuff bytes of frame #0
   assign iq_pos = (rx_wcnt[3:0] != 4'd0) &&
                   !((rx_wcnt[9:4] == 6'd0) && (rx_wcnt[3:0] <= 4'd2));
@@ -305,9 +337,10 @@ module CPRI_v8_0__eCPRI_over_CPR__top #(
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       sync_st   <= ST_HUNT;
+      rx_rd     <= 1'b0;
       rx_wcnt   <= 10'd0;
-      align_cnt <= 2'd0;
-      miss_cnt  <= 3'd0;
+      align_cnt <= 1'b0;
+      miss_cnt  <= 2'd0;
       l1_cnt    <= 4'd0;
       l1_b1     <= 8'd0;
       l1_b2     <= 8'd0;
@@ -341,6 +374,7 @@ module CPRI_v8_0__eCPRI_over_CPR__top #(
           if (cpu_wdata[1]) irq_cv  <= 1'b0;
         end
       end
+      rx_rd <= rx_rd_n;
       // code violation is sticky (set wins over simultaneous clear)
       if (!rx_v) irq_cv <= 1'b1;
       // IQ buffer pop/pointers
@@ -352,8 +386,8 @@ module CPRI_v8_0__eCPRI_over_CPR__top #(
           if (rx_v && rx_k && (rx_d == K28_5)) begin
             sync_st   <= ST_ALIGN;
             rx_wcnt   <= 10'd1;
-            align_cnt <= 2'd0;
-            miss_cnt  <= 3'd0;
+            align_cnt <= 1'b0;
+            miss_cnt  <= 2'd0;
           end
         end
         // -------------------------------------------------- ALIGN
@@ -362,23 +396,23 @@ module CPRI_v8_0__eCPRI_over_CPR__top #(
             if (rx_wcnt == 10'd0) begin
               // comma exactly one hyperframe after the previous one
               rx_wcnt <= 10'd1;
-              if (align_cnt == 2'd1) begin
+              if (align_cnt) begin
                 sync_st   <= ST_SYNC;
-                align_cnt <= 2'd0;
+                align_cnt <= 1'b0;
                 iq_bcnt   <= 2'd0;
                 l1_cnt    <= 4'd0;
               end else begin
-                align_cnt <= align_cnt + 2'd1;
+                align_cnt <= 1'b1;
               end
             end else begin
               // stray comma: re-align phase to it
               rx_wcnt   <= 10'd1;
-              align_cnt <= 2'd0;
+              align_cnt <= 1'b0;
             end
           end else if (rx_wcnt == 10'd0) begin
             // expected comma position passed without a comma
             sync_st   <= ST_HUNT;
-            align_cnt <= 2'd0;
+            align_cnt <= 1'b0;
           end else begin
             rx_wcnt <= (rx_wcnt == 10'd1023) ? 10'd0 : rx_wcnt + 10'd1;
           end
@@ -387,17 +421,17 @@ module CPRI_v8_0__eCPRI_over_CPR__top #(
         default: begin
           if (rx_wcnt == 10'd0) begin
             if (rx_v && rx_k && (rx_d == K28_5)) begin
-              miss_cnt <= 3'd0;
-            end else if (miss_cnt == 3'd3) begin
+              miss_cnt <= 2'd0;
+            end else if (miss_cnt == 2'd3) begin
               // 4 consecutive hyperframes without peer K28.5: loss of sync
               sync_st  <= ST_HUNT;
-              miss_cnt <= 3'd0;
+              miss_cnt <= 2'd0;
               irq_los  <= 1'b1;
               iq_bcnt  <= 2'd0;
               l1_cnt   <= 4'd0;
               l1_done  <= 1'b0;
             end else begin
-              miss_cnt <= miss_cnt + 3'd1;
+              miss_cnt <= miss_cnt + 2'd1;
             end
           end
           rx_wcnt <= (rx_wcnt == 10'd1023) ? 10'd0 : rx_wcnt + 10'd1;
@@ -435,7 +469,8 @@ module CPRI_v8_0__eCPRI_over_CPR__top #(
                   iq_mem[iq_wptr] <= {iq_shift, rx_d};
                   iq_wptr         <= iq_wptr + 5'd1;
                 end else begin
-                  ovf_cnt <= ovf_cnt + 8'd1;   // drop, no irq (status only)
+                  if (ovf_cnt != 8'hFF)
+                    ovf_cnt <= ovf_cnt + 8'd1; // drop, no irq (status only)
                 end
               end
             endcase
@@ -463,7 +498,7 @@ module CPRI_v8_0__eCPRI_over_CPR__top #(
       cpu_rdata = {24'h0, cfg[cpu_addr[2:0]]};
     end else begin
       case (cpu_addr)
-        4'd8   : cpu_rdata = {8'h0, ovf_cnt, peer_ver, iq_cnt, miss_cnt,
+        4'd8   : cpu_rdata = {8'h0, ovf_cnt, peer_ver, iq_cnt, 1'b0, miss_cnt,
                               l1_done, sync_st};
         4'd9   : cpu_rdata = {24'h0, neg_rate, neg_ver};
         4'd10  : cpu_rdata = iq_mem[iq_rptr];
@@ -476,5 +511,8 @@ module CPRI_v8_0__eCPRI_over_CPR__top #(
   end
 
   assign irq = irq_los | irq_cv;
+
+  // registers are 8 bits wide on the 32-bit cpu bus
+  wire _unused = &{1'b0, cpu_wdata[31:8]};
 
 endmodule

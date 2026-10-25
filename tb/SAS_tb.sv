@@ -1,17 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // ============================================================================
-// Self-checking loopback testbench for SAS_top -- SystemVerilog
-// OOB completion -> register write/read loopback compare -> CRC error
-// injection (1 payload bit flip) -> post-error link recovery.
-// -- Apache-2.0
+// Self-checking testbench for SAS_top. The line normally loops tx back to
+// rx (the initiator talks to its own target side); the TB can corrupt
+// single bits of the loopback or take the line over to inject its own
+// frames (as another SAS device), and a monitor decodes every frame the
+// DUT transmits (SOF hunt, header, payload, CRC32, EOF all checked).
+// Covered: OOB with a missed COMINIT in both idle windows, write / read
+// verify transactions with the counters wrapping, bit flips anywhere in a
+// frame, injected writes / read requests from other addresses (read
+// response addressed back), bad CRC, bad EOF, oversize and maximum length,
+// a write without payload, out-of-range register, unknown type, empty read
+// response, mismatching read responses (value or source), write and read
+// timeouts, a response queued while a frame is on the wire, reset
+// mid-frame.
 // ============================================================================
 `timescale 1ns/1ps
 module SAS_tb;
   logic clk = 0, rst_n = 0, refclk = 0;
   logic tx_n, tx_p, rx_n, rx_p, irq;
-  logic corrupt = 1'b0;          // 1-clk loopback bit flip (error injection)
+  logic corrupt = 0;             // flip the looped-back bit
+  logic inj_en = 0, inj_bit = 0; // TB drives the line
   int   errors = 0;
-  int   irq_cnt = 0;
 
   SAS_top dut (
     .clk(clk), .rst_n(rst_n),
@@ -20,329 +29,259 @@ module SAS_tb;
     .refclk(refclk), .irq(irq)
   );
 
+  // second initiator at half the bit rate on its own loopback; blk2 cuts
+  // its line to force both sequencer timeouts
+  logic tx2_n, tx2_p, irq2, blk2 = 0;
+  wire  rx2_p = tx2_p && !blk2;
+  SAS_top #(.BIT_CLKS(2)) dut2 (
+    .clk(clk), .rst_n(rst_n),
+    .tx_n(tx2_n), .tx_p(tx2_p),
+    .rx_n(!rx2_p), .rx_p(rx2_p),
+    .refclk(refclk), .irq(irq2)
+  );
+
   always #5 clk    = ~clk;
   always #3 refclk = ~refclk;
 
-  // direct loopback with injectable corruption on rx_p
-  assign rx_p = tx_p ^ corrupt;
-  assign rx_n = tx_n;
+  assign rx_p = inj_en ? inj_bit : (tx_p ^ corrupt);
+  assign rx_n = ~rx_p;
 
-  always @(posedge clk) if (rst_n && irq) irq_cnt++;
+  localparam logic [31:0] ALIGN = 32'h7B4A4ABC, SOF = 32'hA5A50001, EOF = 32'hA5A50002;
 
-`ifdef VERILATOR
-  // =====================================================================
-  // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
-  // =====================================================================
-  // FSM probe: oob(5) + tx(6) + rx(5) + sequencer(6) = 22 states
-  localparam int SAS_FSM_TOTAL = 22;
-  logic [21:0] fsm_seen = '0;
-  always @(posedge clk) begin
-    if (dut.oob_state < 5) fsm_seen[dut.oob_state]        <= 1'b1;
-    if (dut.tx_state  < 6) fsm_seen[5  + dut.tx_state]    <= 1'b1;
-    if (dut.rx_state  < 5) fsm_seen[11 + dut.rx_state]    <= 1'b1;
-    if (dut.sq_state  < 6) fsm_seen[16 + dut.sq_state]    <= 1'b1;
-  end
-
-  int sva_total = 0, sva_fail = 0;
-  task automatic sva_check(input bit cond, input string name);
-    begin
-      sva_total++;
-      if (!cond) begin
-        sva_fail++;
-        errors++;
-        $display("SVA_FAIL: %s @%0t", name, $time);
-      end
-    end
+  task automatic check(input bit c, input string m);
+    if (!c) begin errors++; $display("ERROR: %s (t=%0t)", m, $time); end
   endtask
 
-  // output-invariant assertion suite (sampled at posedge, pre-NBA coherent)
-  int  rst_cyc = 0;
-  logic pulse_q = 1'b0, phy_q = 1'b0;
-  always @(posedge clk) begin
-    if (!rst_n) begin
-      // A1: line idle and link down in reset
-      if (rst_cyc > 0)
-        sva_check((tx_p === 1'b0) && (dut.phy_ready === 1'b0) &&
-                  (irq === 1'b0), "A1 reset: idle/down");
-      rst_cyc++;
-    end else begin
-      // A2: complementary differential drive
-      sva_check(tx_n === ~tx_p, "A2 tx_n == ~tx_p");
-      // A3: irq is exactly the registered error-pulse OR
-      sva_check(irq === pulse_q, "A3 irq is registered err pulse");
-      // A4: phy_ready is sticky once the link is up
-      if (phy_q) sva_check(dut.phy_ready === 1'b1, "A4 phy_ready sticky");
-      // A5: FSM state encodings in range
-      sva_check((dut.oob_state < 5) && (dut.tx_state < 6) &&
-                (dut.rx_state < 5) && (dut.sq_state < 6),
-                "A5 FSM encodings valid");
-      // A6: write data always follows the initiator sequence pattern
-      if (dut.wr_evt)
-        sva_check(((dut.wr_data - 32'h5A5A_0000) % 32'h0001_0101) === 32'd0,
-                  "A6 wr_data sequence pattern");
-    end
-    pulse_q <= dut.crc_err_pulse | dut.proto_err_pulse | dut.tmo_err_pulse;
-    phy_q   <= dut.phy_ready;
-  end
-
-  // generalized CRV bit-flip injection: one random bit of any frame dword
-  // in HDR/PAY/CRC/EOF (SOF excluded: dropping SOF only causes a link
-  // timeout, exercised separately by the directed SQ_TMO path)
-  logic        crv_armed = 1'b0, crv_fired = 1'b0;
-  logic [5:0]  crv_bit = 6'd0;
-  logic [1:0]  crv_dw  = 2'd0;    // target dword index after SOF
-  logic [1:0]  dw_cnt  = 2'd0;
-  logic [1:0]  crv_skip = 2'd0;   // frames to skip after arming
-  logic        in_frame = 1'b0;
-  logic [2:0]  txs_q = 3'd0;      // state edge detect (negedge domain)
-
-  // error-class counters (diagnostics + CRV self-check)
-  int ce_n = 0, pe_n = 0, te_n = 0, dbg_n = 0;
-  int ft_w = 0, ft_rd = 0, ft_rs = 0, ft_x = 0;
-  always @(posedge clk) begin
-    if (rst_n && dut.crc_err_pulse)   ce_n++;
-    if (rst_n && dut.proto_err_pulse) pe_n++;
-    if (rst_n && dut.tmo_err_pulse)   te_n++;
-  end
-`endif
-
-  // -------- scoreboard model of the DUT initiator sequencer -----------------
-  // txn n writes reg[n % 16] with 32'h5A5A_0000 + n*32'h0001_0101
-  function automatic logic [31:0] exp_data(input int n);
-    return 32'h5A5A_0000 + n * 32'h0001_0101;
+  function automatic logic [31:0] crc32_dw(input logic [31:0] crc, input logic [31:0] dw);
+    logic [31:0] c;
+    c = crc;
+    for (int b = 3; b >= 0; b--)
+      for (int i = 0; i < 8; i++)
+        c = (c[0] ^ dw[b * 8 + i]) ? (c >> 1) ^ 32'hEDB88320 : (c >> 1);
+    return c;
   endfunction
 
-  int  wr_evt_cnt = 0;
-  logic inj_started = 1'b0;      // stop exact model checks once injecting
+  int irqs = 0;
+  always @(posedge clk) if (irq) irqs++;
+
+  // ------------------------------------------------------------------
+  // monitor of the DUT's frames (once the PHY is ready)
+  // ------------------------------------------------------------------
+  logic [31:0] m_win;
+  logic [31:0] m_dw [0:31];
+  int          m_bits = -1, m_n = 0;
+  logic [31:0] mon_hdr [0:1023], mon_pay [0:1023];
+  int          mon_cnt = 0;
   always @(posedge clk) begin
-    if (rst_n && dut.wr_evt && !inj_started) begin
-      if (dut.wr_data !== exp_data(wr_evt_cnt)) begin
-        errors++;
-        $display("ERROR: write txn %0d data got=%h exp=%h",
-                 wr_evt_cnt, dut.wr_data, exp_data(wr_evt_cnt));
+    logic [31:0] c;
+    int len;
+    if (!rst_n || !dut.phy_ready) begin m_bits = -1; m_win = 0; end
+    else begin
+      check(tx_n == !tx_p, "tx_n is ~tx_p");
+      m_win = {m_win[30:0], tx_p};
+      if (m_bits < 0) begin
+        if (m_win == SOF) begin m_bits = 0; m_n = 0; end
+        else if (m_win != ALIGN && m_win != {ALIGN[30:0], ALIGN[31]}) ;
+      end else begin
+        m_bits++;
+        if (m_bits % 32 == 0) begin
+          m_dw[m_n] = m_win; m_n++;
+          len = m_dw[0][31:24];
+          if (m_n == len + 3) begin
+            c = 32'hFFFF_FFFF;
+            for (int i = 0; i <= len; i++) c = crc32_dw(c, m_dw[i]);
+            check(m_dw[len + 1] == ~c, "DUT frame CRC");
+            check(m_dw[len + 2] == EOF, "DUT frame EOF");
+            check(m_dw[0][7:4] == 0, "DUT frame source");
+            mon_hdr[mon_cnt % 1024] = m_dw[0];
+            mon_pay[mon_cnt % 1024] = m_dw[1];
+            mon_cnt++;
+            m_bits = -1;
+          end
+        end
       end
-      if (dut.wr_addr !== (wr_evt_cnt % 16)) begin
-        errors++;
-        $display("ERROR: write txn %0d addr got=%0d exp=%0d",
-                 wr_evt_cnt, dut.wr_addr, wr_evt_cnt % 16);
-      end
-      wr_evt_cnt++;
     end
   end
 
-  // -------- CRC error injection: flip 1 payload bit of a write frame --------
-  logic       armed = 1'b0, inj_fired = 1'b0;
-  logic [3:0]  inj_addr = 4'd0;
-  logic [31:0] inj_old  = 32'd0;
-  always @(negedge clk) begin
-    corrupt <= 1'b0;
-`ifdef VERILATOR
-    // frame-tracked injection: count in-frame dwords from SOF, fire on the
-    // crv_dw-th dword (0=HDR, 1=PAY/CRC, 2=CRC/EOF, 3=EOF of len-1 frames)
-    if (crv_armed) begin
-      txs_q <= dut.tx_state;
-      if ((dut.tx_state == 1 /*TS_SOF*/) && (txs_q != 1)) begin
-        if (crv_skip == 2'd0) begin
-          in_frame <= 1'b1; dw_cnt <= 2'd0; // next dword (HDR) is index 0
-        end else crv_skip <= crv_skip - 2'd1;
-      end else if (dut.tx_state == 0 /*TS_ALIGN*/) begin
-        in_frame <= 1'b0;
-      end else if (in_frame && (dut.tx_bit_cnt == 6'd31)) begin
-        dw_cnt <= dw_cnt + 2'd1;            // dword completes -> next index
-      end
-      if (in_frame && (dut.tx_state >= 2) && (dw_cnt == crv_dw) &&
-          (dut.tx_bit_cnt == crv_bit)) begin
-        corrupt   <= 1'b1;     // corrupts the bit sampled next posedge
-        crv_armed <= 1'b0;
-        crv_fired <= 1'b1;
-        case (dut.f_type)
-          8'h01:   ft_w++;
-          8'h02:   ft_rd++;
-          8'h83:   ft_rs++;
-          default: ft_x++;
-        endcase
-      end
-    end else begin
-      in_frame <= 1'b0;
-    end
-`endif
-    if (armed && dut.tx_pay_active && dut.cur_is_write &&
-        (dut.tx_bit_cnt == 6'd10)) begin
-      corrupt   <= 1'b1;         // corrupts the bit sampled next posedge
-      armed     <= 1'b0;
-      inj_fired <= 1'b1;
-      inj_addr  <= dut.f_dst[3:0];
-      inj_old   <= dut.regs[dut.f_dst[3:0]];
-    end
-  end
+  // ------------------------------------------------------------------
+  // injection on the line
+  // ------------------------------------------------------------------
+  task automatic drive_dw(input logic [31:0] d);
+    for (int i = 31; i >= 0; i--) begin @(negedge clk); inj_bit = d[i]; end
+  endtask
 
-  int t;
-  int ok_before;
-  int irq_before;
+  // mode: 0 good, 1 bad CRC, 2 bad EOF; npay dwords sent (len field given)
+  task automatic inject(input logic [7:0] len, type_, dst, src, input int npay,
+                        input logic [31:0] p0, input int mode, input bit rel = 1,
+                        input int flush = 20);
+    logic [31:0] h, c, p;
+    @(negedge clk); inj_en = 1;
+    for (int i = 0; i < flush; i++) drive_dw(ALIGN);   // flush the receiver
+    h = {len, type_, dst, src};
+    c = crc32_dw(32'hFFFF_FFFF, h);
+    drive_dw(SOF); drive_dw(h);
+    for (int i = 0; i < npay; i++) begin
+      p = (i == 0) ? p0 : $urandom;
+      c = crc32_dw(c, p); drive_dw(p);
+    end
+    if (len <= 16) begin
+      drive_dw(mode == 1 ? c : ~c);
+      drive_dw(mode == 2 ? SOF : EOF);
+    end
+    drive_dw(ALIGN); drive_dw(ALIGN);
+    if (rel) begin @(negedge clk); inj_en = 0; end
+  endtask
 
-  initial begin
-    // (a) reset / initial state
-    rst_n = 0; repeat (10) @(posedge clk);
-    if (irq !== 1'b0) begin
-      errors++; $display("ERROR: irq high during reset");
-    end
-    if (tx_p !== 1'b0) begin
-      errors++; $display("ERROR: tx_p not idle during reset");
-    end
-    if (dut.phy_ready !== 1'b0) begin
-      errors++; $display("ERROR: phy_ready high right after reset");
-    end
+  task automatic wait_ok(input int n, input string what);
+    int t, o;
+    o = dut.ok_cnt; t = 0;
+    while (8'(dut.ok_cnt - o) < n && t < 3000 * n) begin @(posedge clk); t++; end
+    check(8'(dut.ok_cnt - o) >= n, {what, ": verified transactions"});
+  endtask
+
+  task automatic wait_sq(input int st);
+    int t = 0;
+    while (dut.sq_state != st && t < 5000) begin @(posedge clk); t++; end
+  endtask
+
+  task automatic expect_irq(input int i0, input string what);
+    repeat (3) @(posedge clk);
+    check(irqs > i0, {what, ": irq"});
+  endtask
+
+  task automatic do_reset();
+    @(negedge clk); rst_n = 0; inj_en = 0; corrupt = 0;
+    repeat (3) @(negedge clk);
+    check(!tx_p && tx_n && !irq && !dut.phy_ready, "reset state");
     rst_n = 1;
+  endtask
 
-    // (a2) OOB handshake must complete -> PHY READY
-    t = 0;
-    while (!dut.phy_ready && t < 3000) begin @(posedge clk); t++; end
-    if (!dut.phy_ready) begin
-      errors++; $display("ERROR: OOB sequence did not reach PHY READY");
-    end else begin
-      $display("INFO: OOB complete, PHY READY after %0d clks", t);
-    end
-    if (irq_cnt != 0) begin
-      errors++; $display("ERROR: irq during OOB/link bring-up");
-    end
+  int i0, m0, k;
+  logic [31:0] v;
+  initial begin
+    do_reset;
 
-    // (b) >= 4 successful register write + read-verify loopback transactions
-    t = 0;
-    while (dut.ok_cnt < 4 && t < 8000) begin @(posedge clk); t++; end
-    if (dut.ok_cnt < 4) begin
-      errors++; $display("ERROR: fewer than 4 verified write/read transactions");
-    end
-    if (wr_evt_cnt < 4) begin
-      errors++; $display("ERROR: fewer than 4 write events observed (%0d)",
-                         wr_evt_cnt);
-    end
-    // read back register file and compare against model (txns 0..3 -> addr 0..3)
-    for (int a = 0; a < 4; a++) begin
-      if (dut.regs[a] !== exp_data(a)) begin
-        errors++;
-        $display("ERROR: regfile[%0d] got=%h exp=%h", a, dut.regs[a], exp_data(a));
-      end
-    end
-    $display("INFO: %0d write/read loopback transactions verified", dut.ok_cnt);
+    // ---- OOB: COMINIT missed once in each idle window ----
+    inj_en = 1; inj_bit = 0;                       // line dead
+    while (dut.oob_state != 1) @(posedge clk);     // CR idle: nothing seen
+    while (dut.oob_state != 0) @(posedge clk);     // back to COMRESET burst
+    inj_en = 0;
+    while (dut.oob_state != 2) @(posedge clk);     // CI burst: not heard
+    inj_en = 1;
+    while (dut.oob_state != 3) @(posedge clk);     // CI idle: nothing seen
+    while (dut.oob_state != 2) @(posedge clk);     // CI burst again
+    inj_en = 0;
+    while (!dut.phy_ready) @(posedge clk);
+    check(irqs == 0, "no irq during OOB");
 
-    // (c) CRC error injection on the next write frame payload
-    inj_started = 1'b1;
-    armed       = 1'b1;
-    irq_before  = irq_cnt;
-    ok_before   = dut.ok_cnt;
-    t = 0;
-    while (!inj_fired && t < 4000) begin @(posedge clk); t++; end
-    if (!inj_fired) begin
-      errors++; $display("ERROR: injection window never occurred");
-    end
-    // DUT must flag the corrupted frame
-    t = 0;
-    while (irq_cnt == irq_before && t < 600) begin @(posedge clk); t++; end
-    if (irq_cnt == irq_before) begin
-      errors++; $display("ERROR: no irq after CRC error injection");
-    end
-    if (dut.crc_err_cnt < 1) begin
-      errors++; $display("ERROR: crc_err_cnt did not increment");
-    end
-    repeat (60) @(posedge clk);
-    // corrupted write must have been discarded: register not polluted
-    if (dut.regs[inj_addr] !== inj_old) begin
-      errors++;
-      $display("ERROR: regfile[%0d] polluted by bad-CRC frame: got=%h exp=%h",
-               inj_addr, dut.regs[inj_addr], inj_old);
-    end
+    // ---- clean loopback transactions ----
+    wait_ok(20, "clean");
+    check(dut.mm_cnt == 0 && irqs == 0, "clean: no mismatch / irq");
+    check(mon_cnt > 50, "frames decoded");
 
-    // (d) link must keep working after the error
-    t = 0;
-    while (dut.ok_cnt < ok_before + 2 && t < 8000) begin @(posedge clk); t++; end
-    if (dut.ok_cnt < ok_before + 2) begin
-      errors++; $display("ERROR: link did not recover after CRC error");
+    // ---- single bit flips anywhere in the traffic ----
+    for (int n = 0; n < 60; n++) begin
+      repeat ($urandom_range(200, 900)) @(negedge clk);
+      corrupt = 1; @(negedge clk); corrupt = 0;
     end
-    // the stale read-back of the dropped write must be caught by the verifier
-    if (dut.mm_cnt < 1) begin
-      errors++; $display("ERROR: read-verify mismatch of dropped write not caught");
-    end
-    $display("INFO: post-error link alive, ok_cnt=%0d mm_cnt=%0d crc_err=%0d",
-             dut.ok_cnt, dut.mm_cnt, dut.crc_err_cnt);
+    wait_ok(4, "after bit flips");
 
-`ifdef VERILATOR
-    // ---- v2.5 CRV random phase (directed tests above untouched) ----
-    // 120 randomized error-injection transactions: the DUT initiator runs
-    // its write/read-verify sequence over the loopback link; each iteration
-    // flips one random bit (position 0..31) of a random frame dword
-    // (HDR/PAY/CRC/EOF of a write, read-request or read-response frame).
-    // Checks per iteration: injection fired, DUT flagged the bad frame
-    // (irq from crc/proto error), and the link stayed alive (a subsequent
-    // transaction completed, ok or caught-mismatch).
-    begin : crv_phase
-      int n_inj = 0, n_irq = 0, n_alive = 0;
-      int okmm_before, ce_before;
-      int t2;
-      for (int i = 0; i < 120; i++) begin
-        crv_bit     = $urandom_range(0, 31);
-        crv_dw      = $urandom_range(0, 3);
-        crv_skip    = $urandom_range(0, 2);
-        irq_before  = irq_cnt;
-        ce_before   = dut.crc_err_cnt;
-        okmm_before = dut.ok_cnt + dut.mm_cnt;
-        crv_fired   = 1'b0;
-        crv_armed   = 1'b1;
-        t2 = 0;
-        while (!crv_fired && t2 < 4000) begin @(posedge clk); t2++; end
-        crv_armed = 1'b0;
-        if (!crv_fired) begin
-          errors++; $display("ERROR: CRV %0d injection window never occurred", i);
-          continue;
-        end
-        n_inj++;
-        // DUT must flag the corrupted frame
-        t2 = 0;
-        while (irq_cnt == irq_before && t2 < 3000) begin @(posedge clk); t2++; end
-        if (irq_cnt == irq_before) begin
-          errors++; $display("ERROR: CRV %0d no irq after bit-flip injection", i);
-        end else n_irq++;
-        // link must stay alive: a later transaction completes
-        t2 = 0;
-        while ((dut.ok_cnt + dut.mm_cnt) == okmm_before && t2 < 8000) begin
-          @(posedge clk); t2++;
-        end
-        if ((dut.ok_cnt + dut.mm_cnt) == okmm_before) begin
-          errors++; $display("ERROR: CRV %0d link stuck after injection", i);
-        end else n_alive++;
-      end
-      $display("CRV: %0d bit-flip injections, %0d flagged, %0d link-alive, crc_err_cnt=%0d",
-               n_inj, n_irq, n_alive, dut.crc_err_cnt);
-      $display("CRV: error classes crc=%0d proto=%0d tmo=%0d; frames wr=%0d rdreq=%0d rdrsp=%0d x=%0d", ce_n, pe_n, te_n, ft_w, ft_rd, ft_rs, ft_x);
+    // ---- injected frames from another device ----
+    i0 = irqs;
+    v = $urandom;
+    inject(8'd1, 8'h01, 8'd9, 8'h77, 1, v, 0);
+    repeat (5) @(posedge clk);
+    check(dut.regs[9] == v, "injected write");
+    m0 = mon_cnt;
+    inject(8'd0, 8'h02, 8'd9, 8'hC4, 0, 0, 0, 0);  // read request from 0xC4
+    repeat (40) drive_dw(ALIGN);                   // response goes out on tx
+    inj_en = 0;
+    k = m0;
+    while (k < mon_cnt && mon_hdr[k % 1024] != {8'd1, 8'h83, 8'hC4, 8'h09}) k++;
+    check(k < mon_cnt && mon_pay[k % 1024] == v, "read response to the requester");
+    for (int n = 0; n < 40; n++) begin             // random sources / registers
+      inject(8'd0, 8'h02, 8'($urandom % 16), 8'($urandom), 0, 0, 0);
+      inject(8'd1, 8'h01, 8'($urandom % 16), 8'($urandom), 1, $urandom, 0);
     end
-`endif
+    i0 = irqs; inject(8'd2, 8'h01, 8'd3, 8'h22, 2, $urandom, 1);  expect_irq(i0, "bad CRC");
+    i0 = irqs; inject(8'd1, 8'h01, 8'd3, 8'h22, 1, $urandom, 2);  expect_irq(i0, "bad EOF");
+    i0 = irqs; inject(8'd17, 8'h01, 8'd3, 8'h22, 0, 0, 0);        expect_irq(i0, "oversize");
+    i0 = irqs; inject(8'hFF, 8'hFF, 8'hFF, 8'hFF, 0, 0, 0);       expect_irq(i0, "oversize 2");
+    i0 = irqs; inject(8'd0, 8'h01, 8'd3, 8'h22, 0, 0, 0);         expect_irq(i0, "write without payload");
+    i0 = irqs; inject(8'd1, 8'h01, 8'd16, 8'h22, 1, $urandom, 0); expect_irq(i0, "write register 16");
+    i0 = irqs; inject(8'd0, 8'h02, 8'hF0, 8'h22, 0, 0, 0);        expect_irq(i0, "read register F0");
+    i0 = irqs; inject(8'd0, 8'h83, 8'd3, 8'h22, 0, 0, 0);         expect_irq(i0, "empty read response");
+    i0 = irqs; inject(8'd1, 8'h7C, 8'd3, 8'h22, 1, $urandom, 0);  expect_irq(i0, "unknown type");
+    v = $urandom;
+    i0 = irqs; inject(8'd16, 8'h01, 8'd12, 8'h5A, 16, v, 0);
+    repeat (5) @(posedge clk);
+    check(dut.regs[12] == v, "16-dword write");
+    for (int n = 0; n < 30; n++)                   // random header fields
+      inject(8'($urandom % 3), 8'($urandom), 8'($urandom), 8'($urandom), $urandom % 3, $urandom, 0);
+    wait_ok(3, "after injections");
+
+    // ---- read responses that do not match (value, then source) ----
+    m0 = dut.mm_cnt;
+    for (int n = 0; n < 258; n++) begin
+      wait_sq(4);                                  // SQ_RD_WAIT
+      if (n % 2)      inject(8'd1, 8'h83, 8'h01, {4'h0, dut.sq_addr}, 1, ~dut.sq_wdata, 0, 1, 0);
+      else if (n < 8) inject(8'd1, 8'h83, 8'h01, {4'($urandom | 1), dut.sq_addr}, 1, dut.sq_wdata, 0, 1, 0);
+      else            inject(8'd1, 8'h83, 8'h01, {4'h0, dut.sq_addr + 4'd1}, 1, dut.sq_wdata, 0, 1, 0);
+    end
+    check(8'(dut.mm_cnt - m0) == 8'(258), "mismatches counted");
+
+    // ---- timeouts: line dead while waiting ----
+    i0 = irqs;
+    wait_sq(2); inj_en = 1; inj_bit = 0;           // SQ_WR_WAIT
+    wait_sq(3); inj_en = 0;
+    repeat (3) @(posedge clk);
+    check(irqs > i0, "write timeout irq");
+    i0 = irqs;
+    wait_sq(4); inj_en = 1; inj_bit = 0;           // SQ_RD_WAIT
+    wait_sq(5); inj_en = 0;
+    repeat (3) @(posedge clk);
+    check(irqs > i0, "read timeout irq");
+
+    // ---- a read response queued while a frame is on the wire ----
+    wait_sq(1);                                    // SQ_WR: write about to go
+    while (dut.tx_state != 1) @(posedge clk);      // SOF on the wire
+    fork
+      inject(8'd0, 8'h02, 8'd4, 8'h99, 0, 0, 0, 0);
+    join
+    repeat (60) drive_dw(ALIGN);
+    inj_en = 0;
+
+    // ---- the half-rate initiator: clean, then both timeouts ----
+    check(dut2.ok_cnt > 20 && dut2.mm_cnt == 0, "half-rate initiator verified");
+    while (dut2.sq_state != 2) @(posedge clk);
+    blk2 = 1;
+    while (dut2.sq_state != 3) @(posedge clk);
+    blk2 = 0;
+    while (dut2.sq_state != 4) @(posedge clk);
+    blk2 = 1;
+    while (dut2.sq_state != 5) @(posedge clk);
+    blk2 = 0;
+    i0 = dut2.ok_cnt;
+    repeat (20000) @(posedge clk);
+    check(dut2.ok_cnt != i0, "half-rate initiator recovered");
+
+    // ---- the verified-transaction counter wraps ----
+    wait_ok(130, "counter wrap");
+    wait_ok(130, "counter wrap 2");
+
+    // ---- reset in the middle of a frame ----
+    while (dut.tx_state != 3) @(posedge clk);
+    do_reset;
+    while (!dut.phy_ready) @(posedge clk);
+    wait_ok(3, "after reset");
 
     if (errors == 0) $display("TEST PASSED: SAS");
     else             $display("TEST FAILED: %0d errors", errors);
-`ifdef VERILATOR
-    begin
-      int visited;
-      visited = 0;
-      for (int s = 0; s < SAS_FSM_TOTAL; s++) visited += fsm_seen[s];
-      $display("FSM_COV: %0d/%0d", visited, SAS_FSM_TOTAL);
-      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
-    end
-`endif
     $finish;
   end
 
-`ifdef VERILATOR
-  // Chunked timeout: Verilator 5.006 corrupts the --timing delay heap on a
-  // single long-pending #delay once many short-delay resumptions interleave.
   initial begin
-    repeat (30000) #1000;   // 30 ms in 1-us chunks
-    $display("TIMEOUT");
-    $finish;
+    repeat (2000) #1000000;
+    $display("TEST FAILED: TIMEOUT"); $finish;
   end
-`else
-  initial begin
-    #2000000;
-    $display("TIMEOUT");
-    $finish;
-  end
-`endif
 endmodule

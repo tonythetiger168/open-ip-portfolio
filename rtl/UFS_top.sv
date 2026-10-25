@@ -2,7 +2,7 @@
 // ============================================================================
 // UFS protocol Open IP -- UFS host: simplified UniPro frame link + UPIU
 // command transactions (TEST UNIT READY / READ10 / WRITE10 on a serial lane)
-// Open IP design implementation v2.4
+// Open IP design implementation v2.5
 // -- Apache-2.0
 // ============================================================================
 // Simplifications (per SPEC.md section 2.4):
@@ -19,12 +19,18 @@
 //  * RESPONSE UPIU (type 8'h81): payload[0] = {sense[15:0], status[15:0]}
 //      READ10 data follows in a DATA UPIU (type 8'h02)
 //  * LUN0 medium: internal 256 x 32-bit storage array.
+//  * One command at a time: a COMMAND UPIU that completes while the
+//    previous response (or its DATA UPIU) is still owed or on the wire is
+//    dropped with irq, so a transmitting frame is never overwritten.
+//  * LUN0 only: a command for another LUN gets CHECK CONDITION /
+//    ILLEGAL REQUEST. WRITE10 needs the CDB transfer length to equal the
+//    inline data dword count.
+//  * Frames of other UPIU types are ignored.
 //  * irq pulses one clk on: CRC mismatch, unknown opcode, len > 8, bad EOF,
-//    malformed CDB or out-of-range LBA/transfer length.
+//    malformed CDB, bad LUN, out-of-range LBA/transfer length or a command
+//    while busy.
 // ============================================================================
 module UFS_top #(
-  parameter int DW = 32,       // data width (port contract, unused internally)
-  parameter int AW = 32,       // address width (port contract, unused internally)
   parameter int BIT_CLKS = 1   // clk cycles per serial bit (bit-rate divider)
 )(
   input  logic clk,
@@ -75,7 +81,7 @@ module UFS_top #(
   // BIT_CLKS=1 keeps the legacy 1-bit-per-clk behavior (bit_tick constant 1).
   localparam int BCW = (BIT_CLKS <= 1) ? 1 : $clog2(BIT_CLKS);
   logic [BCW-1:0] bd_cnt;
-  wire bit_tick = (BIT_CLKS <= 1) || (bd_cnt == BIT_CLKS-1);
+  wire bit_tick = (BIT_CLKS <= 1) || (bd_cnt == BCW'(BIT_CLKS-1));
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n)          bd_cnt <= '0;
     else if (bit_tick)   bd_cnt <= '0;
@@ -85,8 +91,8 @@ module UFS_top #(
   typedef enum logic [1:0] {LP_PWR_ON, LP_TX_TRAIN, LP_WAIT_RSP, LP_LINKUP} lp_e;
   lp_e        lp_state;
   logic [4:0]  tr_bit;    // bit counter inside one training dword
-  logic [3:0]  tr_rep;    // training dword repetition counter
-  logic [31:0] tr_shift;  // rx shift register for training detection
+  logic [2:0]  tr_rep;    // training dword repetition counter
+  logic [30:0] tr_shift;  // rx shift register for training detection
   logic [4:0]  tr_gap;    // countdown to the expected 2nd training dword
   logic        tr_arm;    // first training dword seen
   logic [TRW-1:0] tr_timer;  // power-on delay / wait-response timeout
@@ -110,7 +116,7 @@ module UFS_top #(
         if (bit_tick) begin
         if (tr_bit == 5'd31) begin
           tr_bit <= '0;
-          if (tr_rep == 4'd7) begin
+          if (tr_rep == 3'd7) begin
             lp_state <= LP_WAIT_RSP; tr_timer <= '0; tr_arm <= 1'b0;
           end else tr_rep <= tr_rep + 1'b1;
         end else tr_bit <= tr_bit + 1'b1;
@@ -118,14 +124,14 @@ module UFS_top #(
       end
       LP_WAIT_RSP: begin                     // detect peer training response
         if (bit_tick) begin
-        tr_shift <= {tr_shift[30:0], rx_p};
+        tr_shift <= {tr_shift[29:0], rx_p};
         if (!tr_arm) begin                   // sliding-window search, 1st dword
-          if ({tr_shift[30:0], rx_p} == TRAIN) begin
+          if ({tr_shift, rx_p} == TRAIN) begin
             tr_arm <= 1'b1; tr_gap <= '0;
           end
         end else if (tr_gap == 5'd31) begin  // aligned check, 2nd dword
           tr_arm <= 1'b0;
-          if ({tr_shift[30:0], rx_p} == TRAIN) lp_state <= LP_LINKUP;
+          if ({tr_shift, rx_p} == TRAIN) lp_state <= LP_LINKUP;
         end else tr_gap <= tr_gap + 1'b1;
         end // bit_tick
         if (tr_timer == TR_TMO[TRW-1:0]) begin  // no response: retrain
@@ -134,7 +140,6 @@ module UFS_top #(
         end else tr_timer <= tr_timer + 1'b1;
       end
       LP_LINKUP: ;                           // link steady state
-      default:   lp_state <= LP_PWR_ON;
     endcase
   end
 
@@ -145,8 +150,8 @@ module UFS_top #(
   rx_e rx_state;
   tx_e tx_state;
   logic [4:0]  rx_bit;
-  logic [31:0] rx_shift;
-  logic [3:0]  rx_cnt;
+  logic [30:0] rx_shift;
+  logic [2:0]  rx_cnt;
   logic [7:0]  hdr_type, hdr_tt, hdr_lun, hdr_len;
   logic [31:0] pay_buf [0:7];
   logic [31:0] crc_rx;
@@ -160,15 +165,17 @@ module UFS_top #(
   logic        tx_ser, tx_req;
   logic        rd_pend;                      // DATA UPIU owed after RESPONSE
   logic [7:0]  rd_lba;
+  logic [7:0]  rd_tt;                        // task tag of the owed DATA UPIU
   logic [3:0]  rd_n;
 
   // combinational temporaries (blocking-assigned inside the clocked process)
   logic [31:0] rxw;                          // just-completed rx dword
   logic [31:0] txw;                          // dword currently being serialized
-  logic [15:0] r_status, r_sense;
+  logic        r_bad;                        // CHECK CONDITION / ILLEGAL REQUEST
   logic        do_resp;
   logic [7:0]  n_xfer;
   logic        lba_ok;
+  wire         tx_busy = (tx_state == TX_RUN) || tx_req || rd_pend;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -177,15 +184,15 @@ module UFS_top #(
       crc_rx <= '0; irq <= 1'b0;
       tx_state <= TX_IDLE; tx_idx <= '0; tx_bit <= '0; crc_tx <= '0;
       tx_ser <= 1'b1; tx_req <= 1'b0; tx_total <= '0;
-      rd_pend <= 1'b0; rd_lba <= '0; rd_n <= '0;
+      rd_pend <= 1'b0; rd_lba <= '0; rd_n <= '0; rd_tt <= '0;
     end else begin
-      rxw = {rx_shift[30:0], rx_p};
+      rxw = {rx_shift, rx_p};
       irq <= 1'b0;                                   // irq is a 1-clk pulse
       if (tx_req && (tx_state == TX_RUN)) tx_req <= 1'b0;
 
       // -------------------- RX frame decoder --------------------
       if (link_up && bit_tick) begin
-        rx_shift <= rxw;
+        rx_shift <= rxw[30:0];
         if ((rx_state == RX_HDR) || (rx_state == RX_PAY))
           crc_rx <= crc_step(crc_rx, rx_p);
         case (rx_state)
@@ -210,7 +217,7 @@ module UFS_top #(
                 end
                 RX_PAY: begin
                   pay_buf[rx_cnt] <= rxw;
-                  if ({4'b0, rx_cnt} == (hdr_len - 8'd1)) rx_state <= RX_CRC;
+                  if ({5'b0, rx_cnt} == (hdr_len - 8'd1)) rx_state <= RX_CRC;
                   else rx_cnt <= rx_cnt + 1'b1;
                 end
                 RX_CRC: begin
@@ -221,12 +228,15 @@ module UFS_top #(
                 RX_EOF: begin
                   rx_state <= RX_SOF;
                   if (rxw != EOFR) irq <= 1'b1;      // framing violation
+                  else if (hdr_type == T_CMD && tx_busy) irq <= 1'b1;  // busy: drop
                   else if (hdr_type == T_CMD) begin
                     // ---------- COMMAND UPIU dispatch ----------
-                    r_status = ST_GOOD; r_sense = SENSE_NONE;
+                    r_bad    = 1'b0;
                     do_resp  = 1'b1;    n_xfer = 8'd0; lba_ok = 1'b0;
                     if (hdr_len < 8'd4) begin
                       irq <= 1'b1; do_resp = 1'b0;   // malformed CDB: drop
+                    end else if (hdr_lun != 8'd0) begin
+                      r_bad = 1'b1; irq <= 1'b1;
                     end else begin
                       case (pay_buf[0][31:24])
                         OP_TUR: ;                    // nothing to do -> GOOD
@@ -234,12 +244,13 @@ module UFS_top #(
                           n_xfer = hdr_len - 8'd4;   // inline data dword count
                           lba_ok = ({8'h0, pay_buf[0][23:0]} + {24'h0, n_xfer})
                                    <= 32'd256;
-                          if ((hdr_len >= 8'd5) && lba_ok) begin
+                          if ((hdr_len >= 8'd5) && lba_ok &&
+                              (pay_buf[1][31:24] == n_xfer)) begin
                             for (int i = 0; i < 4; i++)
                               if (i < n_xfer)
-                                storage[pay_buf[0][7:0] + i] <= pay_buf[4+i];
+                                storage[8'(pay_buf[0][7:0] + i)] <= pay_buf[4+i];
                           end else begin
-                            r_status = ST_CHECK; r_sense = SENSE_ILL; irq <= 1'b1;
+                            r_bad = 1'b1; irq <= 1'b1;
                           end
                         end
                         OP_R10: begin
@@ -249,20 +260,21 @@ module UFS_top #(
                           if ((n_xfer >= 8'd1) && (n_xfer <= 8'd8) && lba_ok) begin
                             rd_pend <= 1'b1;
                             rd_lba  <= pay_buf[0][7:0];
+                            rd_tt   <= hdr_tt;
                             rd_n    <= n_xfer[3:0];
                           end else begin
-                            r_status = ST_CHECK; r_sense = SENSE_ILL; irq <= 1'b1;
+                            r_bad = 1'b1; irq <= 1'b1;
                           end
                         end
                         default: begin               // unknown opcode
-                          r_status = ST_CHECK; r_sense = SENSE_ILL; irq <= 1'b1;
+                          r_bad = 1'b1; irq <= 1'b1;
                         end
                       endcase
                     end
                     if (do_resp) begin               // build RESPONSE UPIU
                       tx_buf[0] <= SOF;
                       tx_buf[1] <= {T_RESP, hdr_tt, hdr_lun, 8'd1};
-                      tx_buf[2] <= {r_sense, r_status};
+                      tx_buf[2] <= r_bad ? {SENSE_ILL, ST_CHECK} : {SENSE_NONE, ST_GOOD};
                       tx_buf[4] <= EOFR;             // dword3 = live CRC slot
                       tx_total  <= 4'd5;
                       tx_req    <= 1'b1;
@@ -297,10 +309,10 @@ module UFS_top #(
             if (tx_idx == (tx_total - 4'd1)) begin
               if (rd_pend) begin                     // chain DATA UPIU
                 tx_buf[0] <= SOF;
-                tx_buf[1] <= {T_DATA, hdr_tt, hdr_lun, 4'h0, rd_n};
+                tx_buf[1] <= {T_DATA, rd_tt, 8'h00, 4'h0, rd_n};
                 for (int i = 0; i < 8; i++)
                   if (i < rd_n)
-                    tx_buf[2+i] <= storage[rd_lba + i];
+                    tx_buf[2+i] <= storage[8'(rd_lba + i)];
                 tx_buf[rd_n + 4'd3] <= EOFR;         // dword rd_n+2 = live CRC
                 tx_total <= rd_n + 4'd4;
                 tx_idx   <= '0;
@@ -312,7 +324,6 @@ module UFS_top #(
             end else tx_idx <= tx_idx + 1'b1;
           end else tx_bit <= tx_bit + 1'b1;
         end
-        default: tx_state <= TX_IDLE;
       endcase
       end // bit_tick
     end
@@ -325,5 +336,7 @@ module UFS_top #(
     else                            tx_p = 1'b1;     // line idle
   end
   assign tx_n = ~tx_p;
+
+  wire _unused = &{1'b0, refclk, rx_n};
 
 endmodule

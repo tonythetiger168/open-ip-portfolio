@@ -267,6 +267,55 @@ module AHB_tb;
     // fast-region word @0x40 must still hold BUSY-test data
     pipe_read4(32'h0040, 32'hB050_0001, 32'hB050_0002, 32'h0, 32'h0);
 
+    // selected IDLE and unselected NONSEQ: neither may start a transfer
+    @(negedge clk);
+    hsel = 1; htrans = 2'b00; hwrite = 1; haddr = 32'h10; #1;
+    @(negedge clk);
+    hsel = 0; htrans = 2'b10; hwrite = 1; haddr = 32'h10; hwdata = 32'hBAD0_0010; #1;
+    chk(hreadyout === 1'b1 && hresp === 1'b0, "idle/unsel: slave must stay ready");
+    @(negedge clk);
+    htrans = 2'b00; hwdata = 32'hBAD0_0011; #1;
+    chk(hreadyout === 1'b1, "idle/unsel: no data phase");
+    pipe_read4(32'h0010, 32'h0, 32'h0, 32'h0, 32'h0);
+
+    // slow write with the next (read) address held through the wait cycle
+    @(negedge clk);
+    hsel = 1; hwrite = 1; htrans = 2'b10; haddr = 32'h408; #1;
+    @(negedge clk);              // wait cycle; next address presented and held
+    hwrite = 0; htrans = 2'b10; haddr = 32'h00C; hwdata = 32'h5106_0408; #1;
+    chk(hreadyout === 1'b0, "slow+pipe: wait cycle expected");
+    @(negedge clk); #1;          // slow write completes, read 0x00C captured
+    chk(hreadyout === 1'b1 && hresp === 1'b0, "slow+pipe: completion");
+    @(negedge clk);              // read data phase
+    htrans = 2'b00; hsel = 0; #1;
+    chk(hreadyout === 1'b1 && hrdata === 32'hDEAD_0004, "slow+pipe: read after slow write");
+
+    // ERROR response with the next (read) address captured on cycle 2
+    @(negedge clk);
+    hsel = 1; hwrite = 0; htrans = 2'b10; haddr = 32'h800; #1;
+    @(negedge clk);              // ERROR cycle 1, next address presented
+    haddr = 32'h008; #1;
+    chk(hresp === 1'b1 && hreadyout === 1'b0, "err+pipe: cycle1");
+    @(negedge clk); #1;          // ERROR cycle 2: captures read 0x008
+    chk(hresp === 1'b1 && hreadyout === 1'b1, "err+pipe: cycle2");
+    @(negedge clk);
+    htrans = 2'b00; hsel = 0; #1;
+    chk(hresp === 1'b0 && hrdata === 32'h5106_0408, "err+pipe: read after ERROR");
+
+    // reset while a slow transfer waits: outputs quiet, register file cleared
+    @(negedge clk);
+    hsel = 1; hwrite = 1; htrans = 2'b10; haddr = 32'h400; #1;
+    @(negedge clk);
+    htrans = 2'b00; hsel = 0; hwdata = 32'hBAD0_0400; #1;
+    chk(hreadyout === 1'b0, "reset-in-wait: wait cycle expected");
+    @(negedge clk);
+    rst_n = 0; #1;
+    chk(hreadyout === 1'b1 && hresp === 1'b0 && irq === 1'b0 && hrdata === '0,
+        "reset-in-wait: outputs quiescent");
+    @(negedge clk);
+    rst_n = 1;
+    pipe_read4(32'h0000, 32'h0, 32'h0, 32'h0, 32'h0);
+
     bus_idle(2);
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ------

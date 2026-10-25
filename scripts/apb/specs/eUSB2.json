@@ -1,0 +1,18 @@
+{
+  "title": "eUSB2 repeater: eD+ / eD- retimed onto USB2 dp / dm, control packets (PID C3, NRZI, bit stuffing, CRC8) writing and reading an 8 x 8 register file with read responses sent on dp / dm, and squelch detection on long SE0",
+  "code": "0x6555",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "pins": ["squelch"],
+  "regs": [
+    {"name": "STATUS", "kind": "ro", "desc": "Line state",
+     "fields": [{"port": "squelch", "desc": "signal loss: SE0 longer than the squelch threshold (cleared by J); same as the squelch pin"}]}
+  ],
+  "irqs": [
+    {"name": "ERR", "port": "irq", "desc": "SE1 on the line, bit-stuff error, truncated or over-long control packet, or CRC8 mismatch. Sticky in the core until PRESETN, so the bit is set again on every clock"}
+  ],
+  "notes": [
+    "edp / edm (eUSB2 line in, one bit cell per PCLK), dp / dm (retimed USB2 line out) and squelch pass through unchanged.",
+    "The 8 x 8 register file (squelch threshold, termination, scratch) is reached through control packets on the line only."
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "title": "SAS-4 initiator link layer: OOB bring-up, 128b/130b-style blocks (sync header + scrambled payload), block lock and loss of sync, SOF / header / payload / CRC-32 / EOF frames, and a built-in write / read-verify sequencer over a 16 x 32-bit register file",
+  "code": "0x5334",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "40ms",
+  "pins": ["link_up"],
+  "regs": [
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Link state",
+      "fields": [
+        {"port": "link_up", "desc": "OOB done and the link is up (cleared by a loss of sync, which restarts OOB)"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "ERR", "port": "irq", "desc": "CRC error, protocol violation (control block out of place, missing EOF, length above 8, bad register address, unknown type), sequencer timeout, read-verify mismatch, or loss of sync"}
+  ],
+  "notes": [
+    "tx_p / tx_n (serial out, 1 bit per PCLK), rx_p / rx_n (serial in; only rx_p is sampled) and link_up pass through unchanged. The initiator runs on its own after reset and verifies its own traffic against a reflecting link partner.",
+    "The scrambler is simplified to x^16 + x^5 + 1 (SAS-4 uses x^58 + x^39 + 1)."
+  ]
+}

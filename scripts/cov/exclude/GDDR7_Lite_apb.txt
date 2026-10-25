@@ -1,0 +1,4 @@
+# GDDR7_Lite_apb: core pin bits that are constant (see scripts/cov/exclude/GDDR7_Lite.txt), seen at the wrapper's pass-through ports.
+TOGGLE \.addr\[(9|12|13)\]: # always 0: rows are 9 bits and the column is {line, 4'h0}; addr[10] is the all-bank PRE flag, addr[11] the channel
+TOGGLE \.trace_cmd\[3\]: # always 0: commands 0..4; the port keeps the 4-bit width of the original interface
+TOGGLE \.trace_addr\[([0-9]|1[01]|2[1-9]|3[01])\]: # always 0: trace_addr is {11'h0, row, 12'h0}

@@ -1,0 +1,9 @@
+# HBM3E_Lite: unreachable branches under the TB configuration and pin bits
+# that are constant by the command format.
+LINE if:HBM3E_Lite_top \| if \(pbref_pend\[ref_rot\] && !\(pbref_ack && eng_bank == ref_rot\)\) ref_overrun # unreachable unless an entry falls due again before it is served: one rotation is 32 x tREFI = 4800 clocks in the TB, and a due entry is served at the next idle engine clock (one operation, about 100 clocks)
+LINE else:HBM3E_Lite_top \| if \(rp_done\[eng_bank\] && rc_done\[eng_bank\] && rrd_done\) # unreachable: an entry is closed only by the PRE of a row conflict (which goes on through ENG_PRE_WAIT), by a refresh PRE (whose REF and tRFC_PB follow) or by a PREA (whose REF and tRFC follow), all longer than tRP, tRC and tRRD
+LINE case:HBM3E_Lite_top \| default: eng <= ENG_IDLE; # unused 5-bit encodings of the 17-state engine enum
+TOGGLE HBM3E_Lite_top\.ref_overrun: # unreachable, as the overrun line above
+TOGGLE HBM3E_Lite_top\.addr\[9\]: # always 0: rows are 9 bits (addr[8:0]) and the column is {line, 4'h0}; addr[10] is the all-entry flag, addr[13:11] the pseudo-channel
+TOGGLE HBM3E_Lite_top\.trace_cmd\[3\]: # always 0: trace codes 0..6
+TOGGLE HBM3E_Lite_top\.trace_addr\[([5-9]|1[01]|2[1-9]|3[01])\]: # always 0: trace_addr is {11'h0, row, 12'h0}, or the entry (5 bits) for a per-entry REF

@@ -1,0 +1,19 @@
+{
+  "title": "I2S slave transmitter and receiver: 16-bit samples, left and right channels, Philips timing (MSB one BCLK after LRCK)",
+  "code": "0x4932",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {"name": "CORE", "kind": "bus", "wen": "wen", "waddr": "waddr", "wdata": "wdata", "ren": "ren", "raddr": "raddr", "rdata": "rdata",
+     "words": [{"name": "TX_LEFT", "w": 0, "desc": "Left sample sent in each left slot (write-only)"},
+               {"name": "TX_RIGHT", "w": 1, "desc": "Right sample sent in each right slot (write-only)"},
+               {"name": "RX_LEFT", "r": 0, "desc": "Last left sample received"},
+               {"name": "RX_RIGHT", "r": 1, "desc": "Last right sample received"}]}
+  ],
+  "irqs": [
+    {"name": "FRAME", "port": "irq", "desc": "LRCK changed (a channel slot started)"}
+  ],
+  "notes": [
+    "bclk, lrck, sdin and sdout are the I2S pins; they pass through unchanged. BCLK and LRCK are sampled on clk: each BCLK phase must last at least two clocks."
+  ]
+}

@@ -1,337 +1,431 @@
 // SPDX-License-Identifier: Apache-2.0
-// CXL TB: host sends flit frame, device echoes, host verifies payload.
+// CXL_top testbench: a host model drives M2S Req and RwD with random
+// opcodes, meta fields, SnpTypes, tags, addresses (in and out of the HDM
+// range), byte enables and poison, with gaps, while S2M NDR and DRS are
+// read with random back-pressure.
+//  - a reference memory (data, meta state, poison) predicts every response:
+//    the host keeps at most one transaction on a line outstanding, so the
+//    device's order between the channels cannot change a result; each
+//    response must match an outstanding tag of the right kind, exactly once
+//  - event pulses are counted against the requests that must raise them
+//  - a conflict phase sends overlapping transactions to two lines (only
+//    tags are checked, then the reference is taken from the device), a
+//    stall phase fills the Req FIFO with the responses held, the HDM base
+//    moves (including across the top of the address space), and a reset
+//    lands with traffic in flight
+// The bound checker (tb/cov/CXL_sva.sv) checks every output on every clock
+// against its own model, which also fixes the arbitration order.
 `timescale 1ns/1ps
 module CXL_tb;
-  localparam int BIT = 400;
-  localparam int HB  = 8;
-  localparam logic [7:0] STP = 8'h5C, END_B = 8'h5D;
+  localparam int LINES = 16, RQD = 4;
   logic clk = 0, rst_n = 0;
-  logic host_val = 1'b1, host_oe = 1'b0;
-  tri1  rx, tx;
-  int errors = 0;
-
-  CXL_top #(.BAUD_DIV(20)) dut (
-    .clk(clk), .rst_n(rst_n), .refclk(clk), .rx(rx), .tx(tx), .busy(), .irq());
   always #5 clk = ~clk;
-  assign rx = host_oe ? host_val : tx;
+  int errors = 0;
+  task automatic fail(input string s);
+    errors++;
+    $display("ERROR: %s @%0t", s, $time);
+  endtask
 
-  function automatic logic [31:0] crc32(input logic [31:0] c, input logic b);
-    logic fb; begin fb=c[0]^b; crc32=c>>1; if(fb) crc32=crc32^32'hEDB88320; end
+  logic [15:0] hdm_base = 0;
+  logic        req_valid = 0, rwd_valid = 0, rwd_poison = 0, ndr_ready = 0, drs_ready = 0;
+  logic [3:0]  req_opcode = 0, rwd_opcode = 0;
+  logic [1:0]  req_meta_field = 0, req_meta_value = 0, rwd_meta_field = 0, rwd_meta_value = 0;
+  logic [2:0]  req_snp_type = 0, rwd_snp_type = 0;
+  logic [15:0] req_tag = 0, req_addr = 0, rwd_tag = 0, rwd_addr = 0;
+  logic [63:0] rwd_data = 0;
+  logic [7:0]  rwd_be = 0;
+  wire         req_ready, rwd_ready, ndr_valid, drs_valid, drs_poison, drs_last;
+  wire  [1:0]  ndr_opcode, ndr_meta_value, ndr_devload, drs_meta_value, drs_devload;
+  wire  [15:0] ndr_tag, drs_tag;
+  wire  [63:0] drs_data;
+  wire         ev_range, ev_opcode, ev_proto, ev_poison;
+
+  CXL_top #(.LINES(LINES), .RQD(RQD)) dut (.*);
+
+  // ---------------- reference ----------------
+  logic [511:0] rm [0:LINES-1];
+  logic [1:0]   rmt [0:LINES-1];
+  bit           rps [0:LINES-1];
+  int           busy [0:LINES-1];
+  // outstanding responses: kind 1 NDR, 2 DRS; chk 0: tag and kind only
+  int           e_tag [$], e_kind [$], e_ln [$];
+  logic [1:0]   e_op [$], e_mv [$];
+  bit           e_po [$], e_chk [$];
+  logic [511:0] e_line [$];
+  bit           tag_used [0:65535];
+  int           x_range = 0, x_opcode = 0, x_proto = 0, x_poison = 0;     // expected
+  int           n_range = 0, n_opcode = 0, n_proto = 0, n_poison = 0;     // seen
+  int           n_ndr = 0, n_drs = 0;
+  bit           hz = 0;                        // conflict phase
+  int           hz_lines = 2;
+  int           rmode = 0;                     // response back-pressure
+  int           gap_max = 4, p_out = 10;       // gaps, % out of range
+  int           f_off = -100, f_po = -1;       // forced line offset, poison (directed)
+  bit           stop = 0;
+
+  task automatic ref_clear();
+    for (int l = 0; l < LINES; l++) begin rm[l] = '0; rmt[l] = 2'b00; rps[l] = 0; busy[l] = 0; end
+  endtask
+  task automatic ref_from_dut();
+    for (int l = 0; l < LINES; l++) begin
+      for (int b = 0; b < 8; b++) rm[l][64 * b +: 64] = dut.mem[l * 8 + b];
+      rmt[l] = dut.meta[l]; rps[l] = dut.pois[l];
+    end
+  endtask
+  task automatic exp_clear();
+    e_tag.delete(); e_kind.delete(); e_ln.delete(); e_op.delete(); e_mv.delete(); e_po.delete();
+    e_chk.delete(); e_line.delete();
+    for (int t = 0; t < 65536; t++) tag_used[t] = 0;
+    for (int l = 0; l < LINES; l++) busy[l] = 0;
+  endtask
+  task automatic exp_add(input int tag, input int kind, input int ln, input logic [1:0] op, input logic [1:0] mv,
+                         input bit po, input logic [511:0] line);
+    e_tag.push_back(tag); e_kind.push_back(kind); e_ln.push_back(ln); e_op.push_back(op); e_mv.push_back(mv);
+    e_po.push_back(po); e_line.push_back(line); e_chk.push_back(!hz);
+    tag_used[tag] = 1;
+    if (ln >= 0) busy[ln]++;
+  endtask
+  function automatic int exp_find(input int tag, input int kind);
+    for (int i = 0; i < e_tag.size(); i++) if (e_tag[i] == tag && e_kind[i] == kind) return i;
+    return -1;
+  endfunction
+  task automatic exp_del(input int i);
+    tag_used[e_tag[i]] = 0;
+    if (e_ln[i] >= 0) busy[e_ln[i]]--;
+    e_tag.delete(i); e_kind.delete(i); e_ln.delete(i); e_op.delete(i); e_mv.delete(i); e_po.delete(i);
+    e_chk.delete(i); e_line.delete(i);
+  endtask
+  function automatic logic [15:0] new_tag();
+    logic [15:0] t;
+    t = $urandom;
+    while (tag_used[t]) t = $urandom;
+    return t;
   endfunction
 
-  logic [7:0] hdr [0:7];
-  logic [7:0] pl  [0:7];
-  task automatic send_tlp(input int plen);
-    logic [31:0] c; logic [7:0] fb;
-    begin
-      host_oe = 1; host_val = 1'b0; #(BIT);
-      fb = STP; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
-      fb = HB + plen; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
-      c = 32'hFFFFFFFF;
-      for (int i=0;i<HB;i++) begin
-        fb = hdr[i];
-        for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; #(BIT); end
-      end
-      for (int i=0;i<plen;i++) begin
-        fb = pl[i];
-        for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; #(BIT); end
-      end
-      c = ~c;
-      for (int i=0;i<32;i++) begin host_val=c[0]; c=c>>1; #(BIT); end
-      fb = END_B; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
-      host_oe = 0;
-    end
-  endtask
-
-  logic b; logic [7:0] sh;
-  task automatic recv_tlp(output int plen);
-    begin
-      plen = 0; sh = 0;
-      wait (tx === 1'b0);
-      #(BIT + BIT/2);
-      for (int i=0;i<8;i++) begin b=tx; sh={b,sh[7:1]}; #(BIT); end
-      sh = 0;
-      for (int i=0;i<8;i++) begin b=tx; sh={b,sh[7:1]}; if(i==7) plen = sh - HB; #(BIT); end
-      for (int i=0;i<HB+plen;i++) begin
-        sh = 0;
-        for (int j=0;j<8;j++) begin
-          b = tx; sh = {b, sh[7:1]};
-          if (j == 7) begin
-            if (i < HB) hdr[i] = sh;
-            else        pl[i-HB] = sh;
-          end
-          #(BIT);
-        end
-      end
-      #(BIT*40);
-    end
-  endtask
-
-`ifdef VERILATOR
-  // =====================================================================
-  // v2.5 CRV instrumentation (tool build only; iverilog path unchanged)
-  // FSMs probed: dut.tstate (T_IDLE/T_PKT/T_END) + dut.rstate
-  // (R_IDLE/R_BYTE), 5 states total.
-  // =====================================================================
-  localparam int CXL_FSM_TOTAL = 5;   // 3 TX + 2 RX states
-  logic [3:0] fsm_seen_t = '0;        // visited TX-state bitmap
-  logic [1:0] fsm_seen_r = '0;        // visited RX-state bitmap
-  wire  [1:0] dut_tstate = dut.tstate;
-  wire  [1:0] dut_rstate = dut.rstate;
-
-  int sva_total = 0, sva_fail = 0;
-  // counted immediate assertion: every evaluation is one check
-  task automatic sva_check(input bit cond, input string name);
-    begin
-      sva_total++;
-      if (!cond) begin
-        sva_fail++;
-        errors++;
-        $display("SVA_FAIL: %s @%0t", name, $time);
-      end
-    end
-  endtask
-
-  // FSM coverage: sample DUT state registers on both edges (scheduler
-  // failure mode #3 mitigation: dual-edge probe tolerates lost wakeups)
-  always @(posedge clk or negedge clk) begin
-    fsm_seen_t[dut_tstate] <= 1'b1;
-    fsm_seen_r[dut_rstate] <= 1'b1;
-  end
-
-  // output-invariant assertion suite (level/comb checks, negedge-sampled
-  // so all NBA updates are settled; no history-dependent properties)
-  logic rst_n_q = 1'b1;
-  always @(negedge clk) begin
-    if (!rst_n) begin
-      // A1: outputs quiescent during reset (one cycle for regs to init)
-      if (!rst_n_q)
-        sva_check(dut.busy === 1'b0 && dut.irq === 1'b0,
-                  "A1 reset: outputs quiescent");
+  // an address: a free line in range (any of the first hz_lines in the
+  // conflict phase), or out of range; ln = -1 out of range
+  task automatic pick_addr(input bit need_free, output logic [15:0] a, output int ln);
+    if (f_off != -100) begin
+      ln = f_off >= 0 && f_off < LINES ? f_off : -1;
+      while (need_free && ln >= 0 && busy[ln] != 0) @(negedge clk);
+      a = hdm_base + 16'(f_off);
+    end else if ($urandom % 100 < p_out) begin
+      a = hdm_base + 16'(LINES) + 16'($urandom % (65536 - LINES));
+      ln = -1;
     end else begin
-      // A2: busy exactly reflects non-idle of either FSM
-      sva_check(dut.busy === ((dut_rstate != 2'd0) || (dut_tstate != 2'd0)),
-                "A2 busy == FSMs non-idle");
-      // A3: irq mirrors the rx_done pulse
-      sva_check(dut.irq === dut.rx_done, "A3 irq == rx_done");
-      // A4: TX FSM never takes the unused 2'd3 encoding
-      sva_check(dut_tstate !== 2'd3, "A4 tstate legal encoding");
-      // A5: RX FSM never takes the unused 2'd2/2'd3 encodings
-      sva_check(dut_rstate <= 2'd1, "A5 rstate legal encoding");
-      // A6: TX-arm countdown never exceeds its programmed value
-      sva_check(dut.ta_cnt <= 4'd6, "A6 ta_cnt <= 6");
-      // A7: field sequencer never takes unused encodings 6/7
-      sva_check(dut.tfld <= 3'd5, "A7 tfld legal encoding");
-      // A8: when the DUT releases the line the tri1 pullup holds it high
-      sva_check(dut.oe_q || (tx === 1'b1), "A8 released line pulled high");
+      if (hz) ln = $urandom % hz_lines;
+      else begin
+        ln = $urandom % LINES;
+        while (need_free && busy[ln] != 0 && !stop) begin
+          @(negedge clk);
+          ln = $urandom % LINES;
+        end
+      end
+      a = hdm_base + 16'(ln);
     end
-    rst_n_q <= rst_n;
+  endtask
+  function automatic logic [1:0] rnd_mf();
+    int r;
+    r = $urandom % 100;
+    return r < 45 ? 2'b00 : r < 90 ? 2'b11 : r < 95 ? 2'b01 : 2'b10;
+  endfunction
+  function automatic logic [2:0] rnd_snp();
+    return $urandom % 100 < 6 ? 3'(4 + $urandom % 4) : 3'($urandom % 4);
+  endfunction
+
+  // ---------------- M2S Req ----------------
+  task automatic send_req(input logic [3:0] op);
+    logic [1:0]  mf, mv, emf, old;
+    logic [2:0]  snp;
+    logic [15:0] a, tag;
+    int          ln;
+    bit          need;
+    mf = rnd_mf(); mv = $urandom; snp = rnd_snp(); tag = new_tag();
+    need = op == 4'd0 || op == 4'd1 || op == 4'd2 || op == 4'd9 || op == 4'd10;
+    pick_addr(need, a, ln);
+    emf = mf == 2'b01 || mf == 2'b10 || snp[2] ? 2'b11 : mf;
+    if (mf == 2'b01 || mf == 2'b10 || snp[2]) x_proto++;
+    old = ln >= 0 ? rmt[ln] : 2'b00;
+    case (op)
+      4'd1, 4'd2: begin
+        exp_add(tag, 2, ln, 2'd0, old, ln < 0 || rps[ln], ln >= 0 ? rm[ln] : 512'd0);
+        if (ln >= 0 && rps[ln] && !hz) x_poison++;
+        if (ln >= 0 && op == 4'd1 && emf == 2'b00) rmt[ln] = mv;
+      end
+      4'd0, 4'd9, 4'd10: begin
+        exp_add(tag, 1, ln, op != 4'd10 && emf == 2'b00 ? (mv == 2'b11 ? 2'd1 : mv == 2'b10 ? 2'd2 : 2'd0) : 2'd0,
+                old, 0, 512'd0);
+        if (ln >= 0 && emf == 2'b00) rmt[ln] = mv;
+      end
+      4'd8: ;
+      default: x_opcode++;
+    endcase
+    if (need && ln < 0) x_range++;
+    req_valid = 1; req_opcode = op; req_meta_field = mf; req_meta_value = mv; req_snp_type = snp;
+    req_tag = tag; req_addr = a;
+    @(posedge clk);
+    while (!req_ready) @(posedge clk);
+    @(negedge clk);
+    req_valid = 0;
+    req_opcode = $urandom; req_tag = $urandom; req_addr = $urandom;
+  endtask
+  function automatic logic [3:0] rnd_req_op();
+    int r, k;
+    r = $urandom % 100;
+    k = $urandom % 10;                         // unsupported: 3..7, 11..15
+    return r < 30 ? 4'd1 : r < 40 ? 4'd2 : r < 55 ? 4'd0 : r < 65 ? 4'd9 : r < 78 ? 4'd10 : r < 88 ? 4'd8 :
+           k < 5 ? 4'(3 + k) : 4'(6 + k);
+  endfunction
+
+  // ---------------- M2S RwD ----------------
+  task automatic send_rwd(input logic [3:0] op);
+    logic [1:0]   mf, mv, emf, old;
+    logic [2:0]   snp;
+    logic [15:0]  a, tag;
+    logic [63:0]  d [0:7];
+    logic [7:0]   be [0:7];
+    logic [511:0] nl;
+    int           ln, bm;
+    bit           po;
+    mf = rnd_mf(); mv = $urandom; snp = rnd_snp(); tag = new_tag(); po = f_po >= 0 ? f_po[0] : $urandom % 100 < 15;
+    pick_addr(op == 4'd1 || op == 4'd2, a, ln);
+    emf = mf == 2'b01 || mf == 2'b10 || snp[2] ? 2'b11 : mf;
+    if (mf == 2'b01 || mf == 2'b10 || snp[2]) x_proto++;
+    bm = $urandom % 6;                         // byte enables: 0 none, 1 all, else random
+    for (int b = 0; b < 8; b++) begin
+      d[b] = {$urandom, $urandom};
+      be[b] = bm == 0 ? 8'h00 : bm == 1 ? 8'hFF : 8'($urandom);
+    end
+    if (op == 4'd1 || op == 4'd2) begin
+      old = ln >= 0 ? rmt[ln] : 2'b00;
+      exp_add(tag, 1, ln, 2'd0, old, 0, 512'd0);
+      if (ln < 0) x_range++;
+      else begin
+        nl = rm[ln];
+        for (int b = 0; b < 8; b++)
+          for (int k = 0; k < 8; k++)
+            if (op == 4'd1 || be[b][k]) nl[64 * b + 8 * k +: 8] = d[b][8 * k +: 8];
+        rm[ln] = nl;
+        rps[ln] = po || op == 4'd2 && rps[ln];
+        if (emf == 2'b00) rmt[ln] = mv;
+      end
+    end else x_opcode++;
+    for (int b = 0; b < 8; b++) begin
+      rwd_valid = 1; rwd_data = d[b]; rwd_be = be[b];
+      if (b == 0 || $urandom % 2) begin
+        rwd_opcode = op; rwd_meta_field = mf; rwd_meta_value = mv; rwd_snp_type = snp; rwd_tag = tag;
+        rwd_addr = a; rwd_poison = po;
+      end else begin
+        // only beat 0's header counts
+        rwd_opcode = $urandom; rwd_meta_field = $urandom; rwd_meta_value = $urandom; rwd_snp_type = $urandom;
+        rwd_tag = $urandom; rwd_addr = $urandom; rwd_poison = $urandom;
+      end
+      @(posedge clk);
+      while (!rwd_ready) @(posedge clk);
+      @(negedge clk);
+      rwd_valid = 0;
+      if ($urandom % 4 == 0) repeat ($urandom % 3) @(negedge clk);
+    end
+  endtask
+  function automatic logic [3:0] rnd_rwd_op();
+    int r;
+    r = $urandom % 100;
+    return r < 45 ? 4'd1 : r < 90 ? 4'd2 : r < 93 ? 4'd0 : 4'(3 + $urandom % 13);
+  endfunction
+
+  task automatic req_driver(input int n);
+    for (int i = 0; i < n && !stop; i++) begin
+      send_req(rnd_req_op());
+      if ($urandom % 3 == 0) repeat ($urandom % (gap_max + 1)) @(negedge clk);
+    end
+  endtask
+  task automatic rwd_driver(input int n);
+    for (int i = 0; i < n && !stop; i++) begin
+      send_rwd(rnd_rwd_op());
+      if ($urandom % 3 == 0) repeat ($urandom % (gap_max + 1)) @(negedge clk);
+    end
+  endtask
+
+  // ---------------- S2M ----------------
+  always @(negedge clk) begin
+    case (rmode)
+      0: begin ndr_ready = 1; drs_ready = 1; end
+      1: begin ndr_ready = $urandom % 2; drs_ready = $urandom % 2; end
+      2: begin ndr_ready = $urandom % 6 == 0; drs_ready = $urandom % 6 == 0; end
+      3: begin ndr_ready = $urandom % 4 != 0; drs_ready = $urandom % 4 != 0; end
+      default: begin ndr_ready = 0; drs_ready = 0; end
+    endcase
   end
-`endif
+  int     d_beat = 0, d_idx = -1;
+  logic [15:0] d_tag = 0;
+  logic [511:0] d_ln = 0;
+  always @(posedge clk or negedge rst_n)
+    if (!rst_n) begin
+      d_beat = 0; d_idx = -1;
+    end else begin
+      n_range += ev_range; n_opcode += ev_opcode; n_proto += ev_proto; n_poison += ev_poison;
+      if (ndr_valid && ndr_ready) begin : b_ndr
+        int i;
+        i = exp_find(ndr_tag, 1);
+        n_ndr++;
+        if (i < 0) fail($sformatf("NDR tag %h not outstanding", ndr_tag));
+        else begin
+          if (e_chk[i] && (ndr_opcode != e_op[i] || ndr_meta_value != e_mv[i]))
+            fail($sformatf("NDR tag %h: opcode %0d meta %b, expected %0d %b", ndr_tag, ndr_opcode, ndr_meta_value,
+                           e_op[i], e_mv[i]));
+          exp_del(i);
+        end
+      end
+      if (drs_valid && drs_ready) begin
+        if (d_beat == 0) d_tag = drs_tag;
+        d_idx = exp_find(d_tag, 2);         // other responses may have moved it
+        if (d_beat == 0) begin
+          if (d_idx < 0) fail($sformatf("DRS tag %h not outstanding", drs_tag));
+          else if (e_chk[d_idx] && (drs_meta_value != e_mv[d_idx] || drs_poison != e_po[d_idx]))
+            fail($sformatf("DRS tag %h: meta %b poison %0d, expected %b %0d", drs_tag, drs_meta_value, drs_poison,
+                           e_mv[d_idx], e_po[d_idx]));
+        end
+        if (d_idx >= 0) d_ln = e_line[d_idx];   // (Icarus: no part-select of a queue element)
+        if (d_idx >= 0 && e_chk[d_idx] && drs_data != d_ln[64 * d_beat +: 64])
+          fail($sformatf("DRS tag %h beat %0d: %h, expected %h", drs_tag, d_beat, drs_data, d_ln[64 * d_beat +: 64]));
+        if (drs_tag != d_tag) fail("DRS tag changed within the message");
+        if (drs_last != (d_beat == 7)) fail($sformatf("DRS last on beat %0d", d_beat));
+        d_beat = (d_beat + 1) % 8;
+        if (d_beat == 0) begin
+          if (d_idx >= 0) exp_del(d_idx);
+          n_drs++;
+          d_idx = -1;
+        end
+      end
+    end
 
-  int rlen;
+  task automatic wait_clk(input int n);
+    repeat (n) @(negedge clk);
+  endtask
+  // wait for every response, then compare the event counts
+  task automatic drain(input string ph);
+    int t;
+    t = 0;
+    while (e_tag.size() != 0 && t < 5000) begin @(negedge clk); t++; end
+    if (e_tag.size() != 0) fail($sformatf("%s: %0d responses missing", ph, e_tag.size()));
+    wait_clk(4);
+    if (n_range != x_range || n_opcode != x_opcode || n_proto != x_proto || !hz && n_poison != x_poison)
+      fail($sformatf("%s: events range %0d/%0d opcode %0d/%0d proto %0d/%0d poison %0d/%0d", ph, n_range, x_range,
+                     n_opcode, x_opcode, n_proto, x_proto, n_poison, x_poison));
+    x_range = 0; x_opcode = 0; x_proto = 0; x_poison = 0;
+    n_range = 0; n_opcode = 0; n_proto = 0; n_poison = 0;
+    if (hz) ref_from_dut();
+  endtask
+  task automatic traffic(input int nq, input int nw, input string ph);
+    fork
+      req_driver(nq);
+      rwd_driver(nw);
+    join
+    drain(ph);
+  endtask
+
   initial begin
-    for (int i=0;i<8;i++) begin hdr[i] = 8'h10 + i; pl[i] = 8'hA0 + i * 8'h11; end
-    rst_n = 0; repeat(10) @(posedge clk);
-    rst_n = 1; repeat(20) @(posedge clk);
-    send_tlp(4);
-    recv_tlp(rlen);
-    if (rlen !== 4) begin errors++; $display("ERROR: CXL plen got=%0d exp=4", rlen); end
-    for (int i=0;i<4;i++) begin
-      if (pl[i] !== 8'hA0 + i * 8'h11) begin
-        errors++; $display("ERROR: CXL pl[%0d] got=%h exp=%h", i, pl[i], 8'hA0 + i*8'h11);
+    ref_clear();
+    exp_clear();
+    hdm_base = 16'hAAA7;
+    wait_clk(3);
+    rst_n = 1;
+    wait_clk(3);
+    // reads of the reset memory
+    for (int l = 0; l < LINES; l++) begin
+      p_out = 0;
+      send_req(4'd2);
+    end
+    drain("reset memory");
+    // random traffic, each back-pressure mode, moving base
+    for (int m = 0; m < 5; m++) begin
+      rmode = m == 4 ? 3 : m;
+      gap_max = m == 1 ? 0 : 4;
+      p_out = m == 2 ? 30 : 10;
+      traffic(150, 100, $sformatf("traffic %0d", m));
+      hdm_base = m == 0 ? 16'hFFF8 : m == 1 ? 16'h0000 : m == 2 ? 16'hFFFF - 16'(LINES) + 1 : 16'h5557;
+    end
+    // every line poisoned, read, cleared
+    for (int l = 0; l < LINES; l++) begin
+      f_off = l;
+      f_po = 1; send_rwd(4'd1);
+      send_req(4'd1);
+      f_po = 0; send_rwd(4'd1);
+    end
+    f_po = -1;
+    drain("poison sweep");
+    // the range edges
+    for (int i = 0; i < 4; i++) begin
+      f_off = i == 0 ? -1 : i == 1 ? LINES : i == 2 ? 0 : LINES - 1;
+      send_rwd(4'd1);
+      send_req(4'd1);
+      send_req(4'd0);
+      send_rwd(4'd2);
+      send_req(4'd2);
+    end
+    f_off = -100;
+    drain("range edges");
+    // conflicts on two lines
+    hz = 1;
+    for (int m = 0; m < 3; m++) begin
+      rmode = m;
+      hz_lines = m == 2 ? 1 : 2;
+      p_out = 5;
+      traffic(80, 60, "conflict");
+    end
+    hz = 0;
+    // a full Req FIFO with the responses held
+    rmode = 4;
+    p_out = 0;
+    fork
+      begin
+        for (int i = 0; i < RQD + 3; i++) send_req(i % 2 ? 4'd1 : 4'd0);
       end
-    end
-    if (dut.rx_err !== 1'b0) begin errors++; $display("ERROR: CXL rx_err set"); end
-
-`ifdef VERILATOR
-    // ---- v2.5 CRV random phase (directed tests above untouched) ----
-    // 114 randomized frames: 100 good (random LEN 8..16 / all-zero /
-    // all-one content), 8 bad-CRC + 2 long (LEN=17/18, toggle buf_mem[22:23]
-    // via the RX store path, bad CRC so no echo), 2 bad-STP (echo still
-    // expected, rx_done is not gated by rx_err), 2 bad-END (no echo).
-    // Fully inlined (no timing-task coroutine chains): one coroutine with
-    // plain awaits dodges the 5.006 timing-scheduler corruption; all waits
-    // are bounded.
-    // RTL-bug handling (recorded in docs/coverage/W6_REST.md, NOT fixed):
-    // the echo copy `for (i=2;i<=21;i++) tx_mem[i-2] <= buf_mem[i]` writes
-    // tx_mem[16..19] out of bounds; iverilog drops the OOB writes, Verilator
-    // masks the index so buf_mem[18..21] clobber tx_mem[0..3]. The shadow
-    // model below predicts the masked behaviour exactly.
-    begin : crv_phase
-      int n_good = 0, n_badcrc = 0, n_badstp = 0, n_badend = 0, n_long = 0, n_zlen = 0;
-      int lenb, dlen, edat, enf, ftype, nf, wt, ecount;
-      logic [7:0] sh_buf [0:23];   // model of dut.buf_mem (RX store port)
-      logic [7:0] exp_mem [0:15];  // predicted dut.tx_mem after rx_done
-      logic [7:0] fbytes [0:31];
-      logic [7:0] rcv    [0:31];
-      logic [7:0] shv;
-      logic [31:0] c32, ce;
-      logic        rb;
-      for (int i = 0; i < 24; i++) sh_buf[i] = 8'h00;
-      ecount = errors;
-      repeat (400) @(posedge clk);          // settle after directed phase
-      for (int t = 0; t < 127; t++) begin
-        // ---- frame class selection ----
-        if (t < 100) begin
-          ftype = 0;                              // good frame
-          lenb  = 8 + $urandom_range(0, 8);       // v2.5.1: full LEN 8..16
-                                                  // (LEN=8 overrun fixed, W6-3)
-          if (t == 10) lenb = 8;                  // deterministic LEN=8 lock
-        end else if (t < 102) begin
-          ftype = 2;                              // bad STP -> echo anyway
-          lenb  = 8 + $urandom_range(0, 8);
-        end else if (t < 110) begin
-          ftype = 1;                              // bad CRC -> no echo
-          lenb  = 8 + $urandom_range(0, 8);
-        end else if (t < 122) begin
-          ftype = 1;                              // long frames, bad CRC
-          lenb  = 17 + ((t - 110) % 2);           // LEN 17 / 18 (buf_mem[22:23])
-        end else if (t < 124) begin
-          ftype = 3;                              // bad END -> no echo
-          lenb  = 8 + $urandom_range(0, 8);
-        end else begin
-          ftype = 5;                              // LEN byte with bits[7:6]
-          lenb  = (t == 124) ? 8'h40 : (t == 125) ? 8'h80 : 8'hC0;  // len_q=0
-        end
-        dlen = lenb & 8'h3F;                      // len_q the DUT extracts
-        // ---- content ----
-        for (int i = 0; i < 25; i++) fbytes[i] = 8'h00;
-        for (int i = 0; i < dlen; i++)
-          fbytes[2+i] = $urandom_range(0, 255);
-        if (ftype == 0 && t % 17 == 0)
-          for (int i = 0; i < dlen; i++) fbytes[2+i] = 8'h00;     // all-zero
-        if (ftype == 0 && t % 19 == 0)
-          for (int i = 0; i < dlen; i++) fbytes[2+i] = 8'hFF;     // all-one
-        fbytes[0] = (ftype == 2) ? (STP ^ 8'hA5) : STP;
-        fbytes[1] = lenb[7:0];
-        c32 = 32'hFFFFFFFF;
-        for (int i = 0; i < dlen; i++)
-          for (int j = 0; j < 8; j++) c32 = crc32(c32, fbytes[2+i][j]);
-        c32 = ~c32;
-        if (ftype == 1) c32 = c32 ^ 32'h0000_0001;                // corrupt
-        for (int k = 0; k < 4; k++) fbytes[2+dlen+k] = (c32 >> (8*k)) & 8'hFF;
-        fbytes[dlen+6] = (ftype == 3) ? (END_B ^ 8'hFF) : END_B;
-        nf = dlen + 7;
-        // ---- send (clock-counted bit cells: 40 clks/bit, no #delays) ----
-        host_oe = 1; host_val = 1'b0; repeat (40) @(posedge clk); // start bit
-        for (int i = 0; i < nf; i++) begin
-          shv = fbytes[i];
-          for (int j = 0; j < 8; j++) begin
-            host_val = shv[0]; shv = {1'b0, shv[7:1]};
-            repeat (40) @(posedge clk);
-          end
-        end
-        host_oe = 0;
-        // ---- shadow buf_mem update (DUT stores every received byte) ----
-        sh_buf[1] = lenb[7:0];
-        for (int i = 0; i < dlen + 4; i++) sh_buf[2+i] = fbytes[2+i];
-        if (ftype == 0) n_good++;
-        else if (ftype == 1) begin n_badcrc++; if (dlen > 16) n_long++; end
-        else if (ftype == 2) n_badstp++;
-        else if (ftype == 3) n_badend++;
-        else n_zlen++;
-        if (ftype == 0 || ftype == 2 || ftype == 5) begin
-          // ---- predict tx_mem after rx_done ----
-          // v2.5.1 FIXED: exact copy, no OOB-mask clobber of tx_mem[0..3]
-          for (int k = 0; k < 16; k++) exp_mem[k] = sh_buf[k+2];
-          // echo data length: v2.5.1 -- LEN=8 now sends 0 payload bytes
-          // (W6-3 fixed); len_q==0 still sends tx_mem[8..15] after the
-          // 8 HDR bytes (16 data bytes)
-          edat = (dlen == 0) ? 16 : dlen;
-          enf  = edat + 7;
-          ce = 32'hFFFFFFFF;
-          for (int i = 0; i < edat; i++)
-            for (int j = 0; j < 8; j++) ce = crc32(ce, exp_mem[i][j]);
-          ce = ~ce;
-          // ---- receive echo (bounded wait + center sampling) ----
-          wt = 0;
-          while (tx !== 1'b0 && wt < 20000) begin @(posedge clk); wt++; end
-          if (wt >= 20000) begin
-            errors++;
-            $display("ERROR: CRV echo timeout t=%0d tstate=%0d ta_cnt=%0d",
-                     t, dut_tstate, dut.ta_cnt);
-          end else begin
-            repeat (59) @(posedge clk); @(negedge clk);   // center of bit0
-            for (int i = 0; i < enf; i++) begin
-              rcv[i] = 8'h00;
-              for (int j = 0; j < 8; j++) begin
-                rb = tx; rcv[i] = {rb, rcv[i][7:1]};
-                if (!(i == enf-1 && j == 7)) begin
-                  // exactly one 40-clk bit cell: 40 posedges + negedge from
-                  // a negedge reference (39 would drift -0.5 clk per bit)
-                  repeat (40) @(posedge clk); @(negedge clk);
-                end
-              end
-            end
-            // rcv[0]: v2.5.1 FIXED (was W6-2) — T_IDLE now loads tx_shift
-            // with STP, so the first wire byte is STP, not the stale shift
-            // register (was deterministically 8'h00).
-            if (rcv[0] !== STP || rcv[1] !== dlen[7:0] ||
-                rcv[enf-1] !== END_B) begin
-              errors++;
-              $display("ERROR: CRV echo frame t=%0d stp=%h len=%h(exp=%0d) end=%h",
-                       t, rcv[0], rcv[1], dlen, rcv[enf-1]);
-            end
-            for (int i = 0; i < edat; i++) begin
-              if (rcv[2+i] !== exp_mem[i]) begin
-                errors++;
-                $display("ERROR: CRV echo data t=%0d i=%0d got=%h exp=%h",
-                         t, i, rcv[2+i], exp_mem[i]);
-              end
-            end
-            for (int k = 0; k < 4; k++) begin
-              if (rcv[2+edat+k] !== ((ce >> (8*k)) & 8'hFF)) begin
-                errors++;
-                $display("ERROR: CRV echo crc t=%0d k=%0d got=%h",
-                         t, k, rcv[2+edat+k]);
-              end
-            end
-          end
-          if (ftype == 2 && dut.rx_err !== 1'b1) begin
-            // proves the STP-mismatch arm executed (line-cov artifact region)
-            errors++;
-            $display("ERROR: CRV rx_err not set after bad STP t=%0d", t);
-          end
-          repeat (200) @(posedge clk);            // inter-frame gap
-        end else begin
-          // no echo: verify the sticky rx_err flag is raised
-          repeat (400) @(posedge clk);
-          if (dut.rx_err !== 1'b1) begin
-            errors++;
-            $display("ERROR: CRV rx_err not set t=%0d ftype=%0d", t, ftype);
-          end
-        end
+      begin
+        send_rwd(4'd1);
+        send_rwd(4'd3);
       end
-      $display("CRV: 127 frames (good=%0d bad_stp=%0d bad_crc=%0d long=%0d bad_end=%0d zero_len=%0d) shadow-err+=%0d",
-               n_good, n_badstp, n_badcrc, n_long, n_badend, n_zlen, errors - ecount);
-    end
-`endif
+      begin
+        wait_clk(60);
+        rmode = 3;
+      end
+    join
+    drain("stall");
+    // a reset with traffic in flight
+    rmode = 1;
+    fork
+      begin
+        req_driver(200);
+      end
+      begin
+        rwd_driver(200);
+      end
+      begin
+        wait_clk(150);
+        // mid-message on the clock before as well
+        while (!(drs_valid && !drs_last && d_beat != 0)) @(negedge clk);
+        stop = 1;
+        rst_n = 0;
+      end
+    join
+    exp_clear();
+    ref_clear();
+    wait_clk(3);
+    rst_n = 1;
+    stop = 0;
+    x_range = 0; x_opcode = 0; x_proto = 0; x_poison = 0;
+    n_range = 0; n_opcode = 0; n_proto = 0; n_poison = 0;
+    rmode = 0;
+    traffic(60, 40, "after reset");
 
-    if (errors == 0) $display("TEST PASSED: CXL");
-    else             $display("TEST FAILED: %0d errors", errors);
-`ifdef VERILATOR
-    begin
-      int visited;
-      visited = 0;
-      for (int s = 0; s < 4; s++) visited += fsm_seen_t[s];
-      for (int s = 0; s < 2; s++) visited += fsm_seen_r[s];
-      $display("FSM_COV: %0d/%0d", visited, CXL_FSM_TOTAL);
-      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
-    end
-`endif
+    if (errors == 0) $display("TEST PASSED: CXL (%0d NDR, %0d DRS)", n_ndr, n_drs);
+    else $display("TEST FAILED: CXL (%0d errors)", errors);
     $finish;
   end
 
-`ifdef VERILATOR
-  // chunked timeout guard: a single long-pending #delay event corrupts the
-  // 5.006 --timing delay heap once many short-delay resumptions interleave;
-  // chunked delays keep all heap entries short-lived (see docs/COVERAGE.md)
   initial begin
-    repeat (200000) #1000;   // 200 ms in 1-us chunks
-    $display("TIMEOUT"); $finish;
+    #20ms;
+    $display("TEST FAILED: CXL (timeout, %0d responses outstanding)", e_tag.size());
+    $finish;
   end
-`else
-  initial begin #10_000_000; $display("TIMEOUT"); $finish; end
-`endif
 endmodule

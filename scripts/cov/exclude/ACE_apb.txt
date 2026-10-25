@@ -1,0 +1,3 @@
+TOGGLE \.bresp\[0\]: # constant 0: the slave only returns OKAY (00) or SLVERR (10)
+TOGGLE \.rresp\[0\]: # constant 0: the slave only returns OKAY (00) or SLVERR (10)
+TOGGLE \.crresp\[1\]: # constant 0: crresp Error bit, the model has no snoop error source

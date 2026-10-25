@@ -1,0 +1,19 @@
+{
+  "title": "GPIO bank: 8 bidirectional pins with per-pin output enable and input readback",
+  "code": "0x4750",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {"name": "OE", "kind": "rw", "desc": "Output enables",
+     "fields": [{"port": "gpio_oe", "reset": "0", "desc": "1: pin driven from OUT; 0: pin is an input"}]},
+    {"name": "CORE", "kind": "bus", "wen": "wen", "waddr": "waddr", "wdata": "wdata", "ren": "ren", "raddr": "raddr", "rdata": "rdata",
+     "words": [{"name": "OUT", "w": 0, "r": 1, "desc": "Output values (driven on pins whose OE bit is set)"},
+               {"name": "IN", "r": 0, "desc": "Pin levels, sampled one clock earlier"}]}
+  ],
+  "irqs": [
+    {"name": "HIGH", "port": "irq", "desc": "a pin was sampled high"}
+  ],
+  "notes": [
+    "gpio is the pin bank; it passes through unchanged."
+  ]
+}

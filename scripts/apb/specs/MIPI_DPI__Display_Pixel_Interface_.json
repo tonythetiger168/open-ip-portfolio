@@ -1,0 +1,39 @@
+{
+  "title": "MIPI DPI transmitter: programmable parallel RGB video timing (front porch, sync, back porch, active in both directions), 1 pixel per clock, 24 or 18-bit colour",
+  "code": "0x4449",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "100ms",
+  "regs": [
+    {
+      "name": "REGS",
+      "kind": "bus",
+      "wen": "reg_wr",
+      "waddr": "reg_addr",
+      "wdata": "reg_wdata",
+      "raddr": "reg_addr",
+      "rdata": "reg_rdata",
+      "words": [
+        {"name": "HFP", "w": 0, "r": 0, "desc": "[15:0] horizontal front porch, pixels (reset 0)"},
+        {"name": "HSW", "w": 1, "r": 1, "desc": "[15:0] hsync width, pixels"},
+        {"name": "HBP", "w": 2, "r": 2, "desc": "[15:0] horizontal back porch, pixels"},
+        {"name": "HACT", "w": 3, "r": 3, "desc": "[15:0] active pixels per line"},
+        {"name": "VFP", "w": 4, "r": 4, "desc": "[15:0] vertical front porch, lines"},
+        {"name": "VSW", "w": 5, "r": 5, "desc": "[15:0] vsync width, lines"},
+        {"name": "VBP", "w": 6, "r": 6, "desc": "[15:0] vertical back porch, lines"},
+        {"name": "VACT", "w": 7, "r": 7, "desc": "[15:0] active lines"},
+        {"name": "CTRL", "w": 8, "r": 8, "desc": "[0] enable, [1] shutdown (outputs low, position held), [2] 18-bit colour (2 LSBs of each channel cleared). Enabling with a timing register at 0 or a total above 65536 is refused (CFG_ERR)"},
+        {"name": "FRAME", "r": 9, "desc": "[15:0] frames sent (wraps; also on the frame_cnt pins)"},
+        {"name": "HCNT", "r": 10, "desc": "[15:0] current pixel in the line (0 while disabled)"},
+        {"name": "VCNT", "r": 11, "desc": "[15:0] current line in the frame"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "CFG_ERR", "port": "irq", "desc": "an enable was refused (invalid timing); level in the core until the next accepted CTRL write, so the bit is set again on every clock until then"}
+  ],
+  "notes": [
+    "pclk (= PCLK), hsync / vsync (active high), de, rgb[23:0], the pixel[23:0] input (sampled in the active region) and frame_cnt[15:0] pass through unchanged.",
+    "Each core register takes bits [15:0] of a whole-word write. Frame order: front porch, sync, back porch, active, horizontally and vertically. Timing registers may change while running; a counter already past a new total wraps at once."
+  ]
+}

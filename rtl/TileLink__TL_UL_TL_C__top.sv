@@ -46,8 +46,6 @@ module TileLink__TL_UL_TL_C__top #(
   localparam logic [2:0] OP_PUTFULL    = 3'd0;
   localparam logic [2:0] OP_PUTPARTIAL = 3'd1;
   localparam logic [2:0] OP_GET        = 3'd4;
-  localparam logic [2:0] RSP_ACCESSACK     = 3'd0;
-  localparam logic [2:0] RSP_ACCESSACKDATA = 3'd1;
 
   logic [DW-1:0] mem [0:DEPTH-1];
 
@@ -55,7 +53,7 @@ module TileLink__TL_UL_TL_C__top #(
   tls_t state;
 
   // captured request / response registers
-  logic [2:0]  d_opcode_q;
+  logic        d_opcode_q;    // 0 AccessAck, 1 AccessAckData
   logic [2:0]  d_size_q;
   logic [7:0]  d_source_q;
   logic [31:0] d_data_q;
@@ -70,13 +68,14 @@ module TileLink__TL_UL_TL_C__top #(
   // mask/size consistency : full mask for Get & PutFull, non-zero for PutPartial
   wire mask_ok = (a_opcode == OP_PUTPARTIAL) ? (a_mask != 4'h0)
                                              : (a_mask == 4'hF);
-  wire req_err = ~(op_ok & size_ok & alg_ok & rng_ok & mask_ok);
+  wire param_ok = (a_param == 3'd0);              // reserved in TL-UL
+  wire req_err = ~(op_ok & size_ok & alg_ok & rng_ok & mask_ok & param_ok);
 
   wire accept = a_valid & a_ready;
 
   assign a_ready  = (state == S_IDLE) || (state == S_RESP && d_ready);
   assign d_valid  = (state == S_RESP);
-  assign d_opcode = d_opcode_q;
+  assign d_opcode = {2'b00, d_opcode_q};
   assign d_size   = d_size_q;
   assign d_source = d_source_q;
   assign d_data   = d_data_q;
@@ -88,7 +87,7 @@ module TileLink__TL_UL_TL_C__top #(
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       state      <= S_IDLE;
-      d_opcode_q <= RSP_ACCESSACK;
+      d_opcode_q <= 1'b0;
       d_size_q   <= 3'd0;
       d_source_q <= 8'd0;
       d_data_q   <= 32'd0;
@@ -98,11 +97,10 @@ module TileLink__TL_UL_TL_C__top #(
       case (state)
         S_IDLE : if (accept) state <= S_RESP;
         S_RESP : if (d_ready && !accept) state <= S_IDLE;
-        default: state <= S_IDLE;
-      endcase
+      endcase   // 1-bit enum, both encodings listed
 
       if (accept) begin
-        d_opcode_q <= (a_opcode == OP_GET) ? RSP_ACCESSACKDATA : RSP_ACCESSACK;
+        d_opcode_q <= (a_opcode == OP_GET);   // AccessAckData : AccessAck
         d_size_q   <= a_size;
         d_source_q <= a_source;                       // source echo
         d_error_q  <= req_err;

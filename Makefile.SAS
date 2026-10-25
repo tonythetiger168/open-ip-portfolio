@@ -20,6 +20,11 @@ sim_bitclks:
 syn:
 	cd work && $(SYN) ../syn/$(S)_yosys.ys
 
+apb:
+	$(SIM) $(VFLAGS) -I tb -o simv_apb rtl/$(S)_top.sv $(DEPS) rtl/$(S)_apb.sv tb/$(S)_apb_tb.sv
+	./simv_apb
+	cd work && $(SYN) ../syn/$(S)_apb_yosys.ys
+
 clean:
-	rm -f simv *.vcd work/*.json work/*_netlist.v
-.PHONY: all sim syn clean
+	rm -f simv simv_apb *.vcd work/*.json work/*_netlist.v
+.PHONY: all sim syn apb clean

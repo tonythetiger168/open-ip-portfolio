@@ -186,7 +186,7 @@ module RGMII_tb;
           b = $urandom_range(0, 255);
           wr(b);
           ctl_ovr = 1'b1;          // armed before the byte's first edge
-          #220 ctl_ovr = 1'b0;     // covers worst-case TX start + whole byte
+          #400 ctl_ovr = 1'b0;     // covers worst-case FIFO latency + whole byte
           repeat(6) @(posedge clk);
           if (count !== (exp_cnt % 32)) begin
             errors++;
@@ -199,6 +199,76 @@ module RGMII_tb;
                n_burst, n_full, n_wa, n_drop, exp_cnt);
     end
 `endif
+
+    // TX FIFO overflow: 12 back-to-back host writes outrun the tx_clk drain,
+    // the FIFO fills and later writes are dropped (no corruption of the rest)
+    begin
+      int c0;
+      c0 = count;
+      for (int i = 0; i < 12; i++) begin
+        @(negedge clk); wen <= 1'b1; waddr <= 4'd0; wdata <= 8'hE0 + i[7:0];
+      end
+      @(negedge clk); wen <= 1'b0;
+      repeat (200) @(posedge clk);
+      if (5'(count - c0) == 0 || 5'(count - c0) >= 12) begin
+        errors++; $display("ERROR: RGMII overflow: %0d bytes received", 5'(count - c0));
+      end
+      for (int i = 0; i < 8; i++) begin
+        rd(5'(c0 + i) % 16, got);
+        if (got !== 8'hE0 + i[7:0]) begin
+          errors++; $display("ERROR: RGMII overflow byte %0d got=%h", i, got);
+        end
+      end
+    end
+    // write-spacing sweep: two bytes d clk cycles apart, so the second one
+    // reaches tx_clk right as the FIFO drains (short idle gaps on tx_ctl)
+    for (int d = 0; d < 24; d++) begin
+      @(negedge clk); wen <= 1'b1; waddr <= 4'd0; wdata <= 8'h30 + d[7:0];
+      @(negedge clk); wen <= 1'b0;
+      repeat (d) @(negedge clk);
+      wen <= 1'b1; wdata <= 8'h60 + d[7:0];
+      @(negedge clk); wen <= 1'b0;
+      repeat (60) @(posedge clk);
+    end
+`ifdef VERILATOR
+    // rx_ctl lost for the low nibble (and, below, for the high nibble only):
+    // the byte is discarded and the next byte still lands intact
+    begin
+      int c0;
+      c0 = count;
+      wr(8'hA5);
+      wait (tx_ctl === 1'b1);
+      @(negedge tx_clk); #20 ctl_ovr = 1'b1;
+      @(posedge tx_clk); #20 ctl_ovr = 1'b0;
+      repeat (40) @(posedge clk);
+      if (count !== 5'(c0)) begin errors++; $display("ERROR: RGMII half byte stored"); end
+    end
+    begin
+      int c0;
+      c0 = count;
+      wr(8'h3C);
+      wait (tx_ctl === 1'b1);
+      #20 ctl_ovr = 1'b1;
+      @(negedge tx_clk); #20 ctl_ovr = 1'b0;
+      repeat (40) @(posedge clk);
+      wr(8'hC3);
+      repeat (80) @(posedge clk);
+      rd(5'(c0) % 16, got);
+      if (count !== 5'(c0 + 1) || got !== 8'hC3) begin
+        errors++; $display("ERROR: RGMII realign after lost high nibble: count=%0d got=%h", count, got);
+      end
+    end
+`endif
+    // reset with bytes still queued for transmission
+    for (int i = 0; i < 4; i++) begin
+      @(negedge clk); wen <= 1'b1; waddr <= 4'd0; wdata <= 8'h5A;
+    end
+    @(negedge clk); wen <= 1'b0; rst_n = 1'b0;
+    @(negedge clk);
+    if (count !== 5'd0 || tx_ctl !== 1'b0) begin errors++; $display("ERROR: RGMII not idle in reset"); end
+    rst_n = 1'b1;
+    repeat (40) @(posedge clk);
+    if (count !== 5'd0) begin errors++; $display("ERROR: RGMII sent queued bytes after reset"); end
 
     if (errors == 0) $display("TEST PASSED: RGMII");
     else             $display("TEST FAILED: %0d errors", errors);

@@ -1,0 +1,126 @@
+{
+  "title": "RGMII MAC-side interface: a TX byte FIFO into the tx_clk domain sent as DDR nibbles, an RX capture ring of DDR nibble pairs sampled from rx_clk",
+  "code": "0x5247",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "RX capture count",
+      "fields": [
+        {
+          "port": "count",
+          "desc": "bytes captured (wraps at 32); entry count mod 16 is written next"
+        }
+      ]
+    },
+    {
+      "name": "CORE",
+      "kind": "bus",
+      "wen": "wen",
+      "waddr": "waddr",
+      "wdata": "wdata",
+      "ren": "ren",
+      "raddr": "raddr",
+      "rdata": "rdata",
+      "words": [
+        {
+          "name": "TX",
+          "w": 0,
+          "desc": "Byte to send (dropped while the 8-entry TX FIFO is full) (write-only)"
+        },
+        {
+          "name": "RX0",
+          "r": 0,
+          "desc": "RX capture ring entry 0"
+        },
+        {
+          "name": "RX1",
+          "r": 1,
+          "desc": "RX capture ring entry 1"
+        },
+        {
+          "name": "RX2",
+          "r": 2,
+          "desc": "RX capture ring entry 2"
+        },
+        {
+          "name": "RX3",
+          "r": 3,
+          "desc": "RX capture ring entry 3"
+        },
+        {
+          "name": "RX4",
+          "r": 4,
+          "desc": "RX capture ring entry 4"
+        },
+        {
+          "name": "RX5",
+          "r": 5,
+          "desc": "RX capture ring entry 5"
+        },
+        {
+          "name": "RX6",
+          "r": 6,
+          "desc": "RX capture ring entry 6"
+        },
+        {
+          "name": "RX7",
+          "r": 7,
+          "desc": "RX capture ring entry 7"
+        },
+        {
+          "name": "RX8",
+          "r": 8,
+          "desc": "RX capture ring entry 8"
+        },
+        {
+          "name": "RX9",
+          "r": 9,
+          "desc": "RX capture ring entry 9"
+        },
+        {
+          "name": "RX10",
+          "r": 10,
+          "desc": "RX capture ring entry 10"
+        },
+        {
+          "name": "RX11",
+          "r": 11,
+          "desc": "RX capture ring entry 11"
+        },
+        {
+          "name": "RX12",
+          "r": 12,
+          "desc": "RX capture ring entry 12"
+        },
+        {
+          "name": "RX13",
+          "r": 13,
+          "desc": "RX capture ring entry 13"
+        },
+        {
+          "name": "RX14",
+          "r": 14,
+          "desc": "RX capture ring entry 14"
+        },
+        {
+          "name": "RX15",
+          "r": 15,
+          "desc": "RX capture ring entry 15"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "READ",
+      "port": "irq",
+      "desc": "a ring entry was read after at least one byte was captured"
+    }
+  ],
+  "notes": [
+    "txd, tx_ctl, tx_clk, rxd, rx_ctl and rx_clk are the RGMII pins; they pass through unchanged. txd carries a byte's high nibble while tx_clk is high and its low nibble while it is low. rx_clk is sampled on clk (each phase at least two clocks): the high nibble is taken at its falling edge and the low nibble at the next rising edge, and the byte is kept only when rx_ctl was high for both. tx_clk is its own clock domain."
+  ]
+}

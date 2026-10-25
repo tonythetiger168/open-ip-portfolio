@@ -1,0 +1,18 @@
+{
+  "title": "MDIO PHY management target (IEEE 802.3 Clause 22) at PHY address 0x0C: 32 registers written and read over MDC / MDIO, register 0 preset to 0x1140",
+  "code": "0x4D44",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [],
+  "irqs": [
+    {
+      "name": "FRAME",
+      "port": "irq",
+      "desc": "a management frame (to any PHY address) has been fully received"
+    }
+  ],
+  "notes": [
+    "mdio (open drain: the target pulls it low for the turnaround and read data) and mdc are the management pins; they pass through unchanged. The PHY registers are reached only over MDIO; the APB registers report frame completion. MDC is sampled on PCLK, so each MDC phase must last at least three PCLK clocks.",
+    "A frame starts at ST (0 then 1) after at least one idle 1 (preamble suppression is accepted). Writes to another PHY address are ignored and reads of another address are not answered."
+  ]
+}

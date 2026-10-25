@@ -1,337 +1,268 @@
 // SPDX-License-Identifier: Apache-2.0
-// JESD204C TB: host sends flit frame, device echoes, host verifies payload.
+// JESD204C_top testbench: two link ends A and B cross-connected. The line
+// A -> B runs through a TB channel with a variable bit delay (bits added or
+// dropped, whole blocks dropped or repeated) and bit flips.
+//  - host drivers give random blocks (with gaps: underruns) and random
+//    commands; a monitor records every block each transmitter sends
+//  - receive scoreboards: from the first block after a lock, every block
+//    must be the next one sent (data, multiblock and extended multiblock
+//    start), every multiblock its command, and no CRC error unless the
+//    channel corrupted something
+//  - alignment: slides at every bit offset, invalid headers below and at
+//    the unlock threshold, multiblock and extended multiblock errors from
+//    dropped / repeated blocks and from cfg_e differing between the ends
+// The bound checker (tb/cov/JESD204C_sva.sv) checks every output of both
+// ends on every clock.
 `timescale 1ns/1ps
 module JESD204C_tb;
-  localparam int BIT = 400;
-  localparam int HB  = 8;
-  localparam logic [7:0] STP = 8'hFB, END_B = 8'hFD;
   logic clk = 0, rst_n = 0;
-  logic host_val = 1'b1, host_oe = 1'b0;
-  tri1  rx, tx;
-  int errors = 0;
-
-  JESD204C_top #(.BAUD_DIV(20)) dut (
-    .clk(clk), .rst_n(rst_n), .refclk(clk), .rx(rx), .tx(tx), .busy(), .irq());
   always #5 clk = ~clk;
-  assign rx = host_oe ? host_val : tx;
+  int errors = 0;
+  task automatic fail(input string s);
+    errors++;
+    $display("ERROR: %s @%0t", s, $time);
+  endtask
 
-  function automatic logic [31:0] crc32(input logic [31:0] c, input logic b);
-    logic fb; begin fb=c[0]^b; crc32=c>>1; if(fb) crc32=crc32^32'hEDB88320; end
+  // ---------------- ends: index 0 = A, 1 = B ----------------
+  logic [1:0]       tx_valid = 0;
+  logic [1:0][63:0] tx_data = 0;
+  logic [1:0][6:0]  tx_cmd = 0;
+  logic [1:0][3:0]  cfg_e = 0;
+  wire  [1:0]       tx_ready, tx_mb_start, tx_underrun, rx_valid, rx_mb_start, rx_emb_start, rx_mb_valid;
+  wire  [1:0]       rx_crc_err, sh_lock, emb_lock, err_sh, err_emb;
+  wire  [1:0][63:0] rx_data;
+  wire  [1:0][6:0]  rx_cmd;
+  wire              a_tx, b_tx;
+  // channel A -> B
+  logic [511:0]     dl = 0;
+  int               dly = 0;
+  logic             flip = 0;
+  always @(posedge clk) dl <= {dl[510:0], a_tx};
+  wire              b_rx = dl[dly] ^ flip;
+
+  JESD204C_top u_a (.clk(clk), .rst_n(rst_n), .tx_p(a_tx), .rx_p(b_tx), .cfg_e(cfg_e[0]),
+    .tx_valid(tx_valid[0]), .tx_ready(tx_ready[0]), .tx_data(tx_data[0]), .tx_cmd(tx_cmd[0]),
+    .tx_mb_start(tx_mb_start[0]), .tx_underrun(tx_underrun[0]), .rx_valid(rx_valid[0]), .rx_data(rx_data[0]),
+    .rx_mb_start(rx_mb_start[0]), .rx_emb_start(rx_emb_start[0]), .rx_mb_valid(rx_mb_valid[0]), .rx_cmd(rx_cmd[0]),
+    .rx_crc_err(rx_crc_err[0]), .sh_lock(sh_lock[0]), .emb_lock(emb_lock[0]), .err_sh(err_sh[0]), .err_emb(err_emb[0]));
+  JESD204C_top u_b (.clk(clk), .rst_n(rst_n), .tx_p(b_tx), .rx_p(b_rx), .cfg_e(cfg_e[1]),
+    .tx_valid(tx_valid[1]), .tx_ready(tx_ready[1]), .tx_data(tx_data[1]), .tx_cmd(tx_cmd[1]),
+    .tx_mb_start(tx_mb_start[1]), .tx_underrun(tx_underrun[1]), .rx_valid(rx_valid[1]), .rx_data(rx_data[1]),
+    .rx_mb_start(rx_mb_start[1]), .rx_emb_start(rx_emb_start[1]), .rx_mb_valid(rx_mb_valid[1]), .rx_cmd(rx_cmd[1]),
+    .rx_crc_err(rx_crc_err[1]), .sh_lock(sh_lock[1]), .emb_lock(emb_lock[1]), .err_sh(err_sh[1]), .err_emb(err_emb[1]));
+
+  // ---------------- host drivers ----------------
+  int gap_pct = 0;                      // chance of no block offered
+  always @(negedge clk)
+    for (int p = 0; p < 2; p++) begin
+      tx_valid[p] = ($urandom % 100) >= gap_pct;
+      if (!tx_valid[p] || $urandom % 2) tx_data[p] = {$urandom, $urandom};
+    end
+  // a new command at every multiblock start
+  always @(posedge clk) for (int p = 0; p < 2; p++) if (tx_mb_start[p]) tx_cmd[p] <= 7'($urandom);
+
+  // ---------------- what each transmitter sent ----------------
+  // per end: {command of its multiblock, emb start, mb start, data},
+  // recorded as the payload is taken
+  logic [72:0] sent0 [$];
+  logic [72:0] sent1 [$];
+  int          tj [0:1], te [0:1];
+  logic [6:0]  scmd [0:1];
+  initial for (int p = 0; p < 2; p++) begin tj[p] = 0; te[p] = 0; scmd[p] = 0; end
+  function automatic int ssize(input int p);
+    return p == 0 ? sent0.size() : sent1.size();
   endfunction
-
-  logic [7:0] hdr [0:7];
-  logic [7:0] pl  [0:7];
-  task automatic send_tlp(input int plen);
-    logic [31:0] c; logic [7:0] fb;
-    begin
-      host_oe = 1; host_val = 1'b0; #(BIT);
-      fb = STP; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
-      fb = HB + plen; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
-      c = 32'hFFFFFFFF;
-      for (int i=0;i<HB;i++) begin
-        fb = hdr[i];
-        for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; #(BIT); end
-      end
-      for (int i=0;i<plen;i++) begin
-        fb = pl[i];
-        for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; #(BIT); end
-      end
-      c = ~c;
-      for (int i=0;i<32;i++) begin host_val=c[0]; c=c>>1; #(BIT); end
-      fb = END_B; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
-      host_oe = 0;
-    end
+  function automatic logic [72:0] sfront(input int p);
+    return p == 0 ? sent0[0] : sent1[0];
+  endfunction
+  function automatic logic [63:0] sdata(input int p);
+    logic [72:0] e;
+    e = sfront(p);
+    return e[63:0];
+  endfunction
+  task automatic spop(input int p);
+    if (p == 0) void'(sent0.pop_front()); else void'(sent1.pop_front());
   endtask
-
-  logic b; logic [7:0] sh;
-  task automatic recv_tlp(output int plen);
-    begin
-      plen = 0; sh = 0;
-      wait (tx === 1'b0);
-      #(BIT + BIT/2);
-      for (int i=0;i<8;i++) begin b=tx; sh={b,sh[7:1]}; #(BIT); end
-      sh = 0;
-      for (int i=0;i<8;i++) begin b=tx; sh={b,sh[7:1]}; if(i==7) plen = sh - HB; #(BIT); end
-      for (int i=0;i<HB+plen;i++) begin
-        sh = 0;
-        for (int j=0;j<8;j++) begin
-          b = tx; sh = {b, sh[7:1]};
-          if (j == 7) begin
-            if (i < HB) hdr[i] = sh;
-            else        pl[i-HB] = sh;
-          end
-          #(BIT);
-        end
-      end
-      #(BIT*40);
-    end
-  endtask
-
-`ifdef VERILATOR
-  // =====================================================================
-  // v2.5 CRV instrumentation (tool build only; iverilog path unchanged)
-  // FSMs probed: dut.tstate (T_IDLE/T_PKT/T_END) + dut.rstate
-  // (R_IDLE/R_BYTE), 5 states total.
-  // =====================================================================
-  localparam int JESD204C_FSM_TOTAL = 5;   // 3 TX + 2 RX states
-  logic [3:0] fsm_seen_t = '0;        // visited TX-state bitmap
-  logic [1:0] fsm_seen_r = '0;        // visited RX-state bitmap
-  wire  [1:0] dut_tstate = dut.tstate;
-  wire  [1:0] dut_rstate = dut.rstate;
-
-  int sva_total = 0, sva_fail = 0;
-  // counted immediate assertion: every evaluation is one check
-  task automatic sva_check(input bit cond, input string name);
-    begin
-      sva_total++;
-      if (!cond) begin
-        sva_fail++;
-        errors++;
-        $display("SVA_FAIL: %s @%0t", name, $time);
-      end
-    end
-  endtask
-
-  // FSM coverage: sample DUT state registers on both edges (scheduler
-  // failure mode #3 mitigation: dual-edge probe tolerates lost wakeups)
-  always @(posedge clk or negedge clk) begin
-    fsm_seen_t[dut_tstate] <= 1'b1;
-    fsm_seen_r[dut_rstate] <= 1'b1;
-  end
-
-  // output-invariant assertion suite (level/comb checks, negedge-sampled
-  // so all NBA updates are settled; no history-dependent properties)
-  logic rst_n_q = 1'b1;
-  always @(negedge clk) begin
+  always @(posedge clk)
     if (!rst_n) begin
-      // A1: outputs quiescent during reset (one cycle for regs to init)
-      if (!rst_n_q)
-        sva_check(dut.busy === 1'b0 && dut.irq === 1'b0,
-                  "A1 reset: outputs quiescent");
-    end else begin
-      // A2: busy exactly reflects non-idle of either FSM
-      sva_check(dut.busy === ((dut_rstate != 2'd0) || (dut_tstate != 2'd0)),
-                "A2 busy == FSMs non-idle");
-      // A3: irq mirrors the rx_done pulse
-      sva_check(dut.irq === dut.rx_done, "A3 irq == rx_done");
-      // A4: TX FSM never takes the unused 2'd3 encoding
-      sva_check(dut_tstate !== 2'd3, "A4 tstate legal encoding");
-      // A5: RX FSM never takes the unused 2'd2/2'd3 encodings
-      sva_check(dut_rstate <= 2'd1, "A5 rstate legal encoding");
-      // A6: TX-arm countdown never exceeds its programmed value
-      sva_check(dut.ta_cnt <= 4'd6, "A6 ta_cnt <= 6");
-      // A7: field sequencer never takes unused encodings 6/7
-      sva_check(dut.tfld <= 3'd5, "A7 tfld legal encoding");
-      // A8: when the DUT releases the line the tri1 pullup holds it high
-      sva_check(dut.oe_q || (tx === 1'b1), "A8 released line pulled high");
-    end
-    rst_n_q <= rst_n;
-  end
-`endif
+      for (int p = 0; p < 2; p++) begin tj[p] = 0; te[p] = 0; end
+      sent0.delete(); sent1.delete();
+    end else
+      for (int p = 0; p < 2; p++)
+        if (p == 0 ? u_a.tc == 7'd0 : u_b.tc == 7'd0) begin : b_rec
+          logic [72:0] b;
+          if (tj[p] == 0) scmd[p] = tx_cmd[p];
+          b = {scmd[p], tj[p] == 0 && te[p] == 0, tj[p] == 0, tx_valid[p] ? tx_data[p] : 64'd0};
+          if (p == 0) begin sent0.push_back(b); if (sent0.size() > 3000) void'(sent0.pop_front()); end
+          else begin sent1.push_back(b); if (sent1.size() > 3000) void'(sent1.pop_front()); end
+          tj[p] = (tj[p] + 1) % 32;
+        end
+        // the extended multiblock count moves at the end of block 31, with
+        // cfg_e as it is then
+        else if ((p == 0 ? u_a.tc == 7'd65 : u_b.tc == 7'd65) && tj[p] == 0)
+          te[p] = te[p] >= int'(cfg_e[p]) ? 0 : te[p] + 1;
 
-  int rlen;
+  // ---------------- receive scoreboards ----------------
+  // end p receives what end 1-p sent
+  bit   [1:0]  synced = 0, dirty = 0;
+  int          ncrc_ok [0:1];
+  logic [72:0] cur [0:1];
+  initial for (int p = 0; p < 2; p++) begin ncrc_ok[p] = 0; cur[p] = 0; end
+  always @(negedge clk)
+    for (int p = 0; p < 2; p++) begin
+      if (!rst_n || !emb_lock[p] && !rx_valid[p]) synced[p] = 0;
+      if (rx_valid[p]) begin
+        if (!synced[p] && rx_data[p] != 64'd0) begin
+          // the first nonzero block after a lock: find it among those sent
+          while (ssize(1 - p) != 0 && sdata(1 - p) !== rx_data[p]) spop(1 - p);
+          if (ssize(1 - p) != 0) synced[p] = 1;
+          else if (!dirty[p]) fail($sformatf("end %0d: first block %h was never sent", p, rx_data[p]));
+        end
+        if (synced[p]) begin
+          cur[p] = sfront(1 - p);
+          spop(1 - p);
+          if (!dirty[p] && (rx_data[p] !== cur[p][63:0] || rx_mb_start[p] !== cur[p][64] || rx_emb_start[p] !== cur[p][65]))
+            fail($sformatf("end %0d: block %h %b%b, expected %h %b%b", p, rx_data[p], rx_mb_start[p], rx_emb_start[p],
+                           cur[p][63:0], cur[p][64], cur[p][65]));
+          if (ssize(1 - p) == 0) synced[p] = 0;
+        end
+      end
+      if (rx_mb_valid[p] && synced[p]) begin
+        if (!dirty[p] && rx_cmd[p] !== cur[p][72:66]) fail($sformatf("end %0d: command %h, expected %h", p, rx_cmd[p], cur[p][72:66]));
+        if (!dirty[p] && rx_crc_err[p]) fail($sformatf("end %0d: CRC error on a clean line", p));
+        if (!rx_crc_err[p]) ncrc_ok[p]++;
+      end
+    end
+
+  // ---------------- helpers ----------------
+  task automatic wait_clk(input int n);
+    repeat (n) @(negedge clk);
+  endtask
+  task automatic wait_lock(input int p, input int n_mb = 40);
+    int t;
+    t = 0;
+    while (!emb_lock[p] && t < n_mb * 2112) begin @(negedge clk); t++; end
+    if (!emb_lock[p]) fail($sformatf("end %0d: no lock", p));
+  endtask
+  // B's line: dirty while the channel misbehaves, clean once relocked and
+  // two whole multiblocks are through
+  task automatic clean_b;
+    wait_lock(1);
+    wait_clk(3 * 2112);
+    dirty[1] = 0;
+  endtask
+  task automatic clean_both;
+    wait_lock(0); wait_lock(1);
+    wait_clk(3 * 2112);
+    dirty = 0;
+  endtask
+  task automatic flip_at(input int n);
+    wait_clk(n);
+    flip = 1; @(negedge clk); flip = 0;
+  endtask
+  task automatic do_reset;
+    @(negedge clk);
+    rst_n = 0;
+    wait_clk(3);
+    rst_n = 1;
+  endtask
+
   initial begin
-    for (int i=0;i<8;i++) begin hdr[i] = 8'h10 + i; pl[i] = 8'hA0 + i * 8'h11; end
-    rst_n = 0; repeat(10) @(posedge clk);
-    rst_n = 1; repeat(20) @(posedge clk);
-    send_tlp(4);
-    recv_tlp(rlen);
-    if (rlen !== 4) begin errors++; $display("ERROR: JESD204C plen got=%0d exp=4", rlen); end
-    for (int i=0;i<4;i++) begin
-      if (pl[i] !== 8'hA0 + i * 8'h11) begin
-        errors++; $display("ERROR: JESD204C pl[%0d] got=%h exp=%h", i, pl[i], 8'hA0 + i*8'h11);
-      end
+    wait_clk(3);
+    rst_n = 1;
+    // ---- lock both ends, run with gaps, every cfg_e on both ends alike
+    wait_lock(0); wait_lock(1);
+    wait_clk(4 * 2112);
+    gap_pct = 10;
+    for (int e = 0; e < 16; e += 5) begin
+      dirty = 2'b11;
+      cfg_e[0] = e; cfg_e[1] = e;
+      wait_clk(2 * 2112 * (e + 1));
+      dirty = 0;
+      wait_clk(2112 * (e + 2));
+      if (!emb_lock[0] || !emb_lock[1]) fail($sformatf("lock lost at cfg_e %0d", e));
     end
-    if (dut.rx_err !== 1'b0) begin errors++; $display("ERROR: JESD204C rx_err set"); end
+    cfg_e = 0;
+    wait_clk(3 * 2112);
+    gap_pct = 50;
+    wait_clk(2 * 2112);
+    gap_pct = 0;
+    wait_clk(2 * 2112);
 
-`ifdef VERILATOR
-    // ---- v2.5 CRV random phase (directed tests above untouched) ----
-    // 114 randomized frames: 100 good (random LEN 8..16 / all-zero /
-    // all-one content), 8 bad-CRC + 2 long (LEN=17/18, toggle buf_mem[22:23]
-    // via the RX store path, bad CRC so no echo), 2 bad-STP (echo still
-    // expected, rx_done is not gated by rx_err), 2 bad-END (no echo).
-    // Fully inlined (no timing-task coroutine chains): one coroutine with
-    // plain awaits dodges the 5.006 timing-scheduler corruption; all waits
-    // are bounded.
-    // RTL-bug handling (recorded in docs/coverage/W6_REST.md, NOT fixed):
-    // the echo copy `for (i=2;i<=21;i++) tx_mem[i-2] <= buf_mem[i]` writes
-    // tx_mem[16..19] out of bounds; iverilog drops the OOB writes, Verilator
-    // masks the index so buf_mem[18..21] clobber tx_mem[0..3]. The shadow
-    // model below predicts the masked behaviour exactly.
-    begin : crv_phase
-      int n_good = 0, n_badcrc = 0, n_badstp = 0, n_badend = 0, n_long = 0, n_zlen = 0;
-      int lenb, dlen, edat, enf, ftype, nf, wt, ecount;
-      logic [7:0] sh_buf [0:23];   // model of dut.buf_mem (RX store port)
-      logic [7:0] exp_mem [0:15];  // predicted dut.tx_mem after rx_done
-      logic [7:0] fbytes [0:31];
-      logic [7:0] rcv    [0:31];
-      logic [7:0] shv;
-      logic [31:0] c32, ce;
-      logic        rb;
-      for (int i = 0; i < 24; i++) sh_buf[i] = 8'h00;
-      ecount = errors;
-      repeat (400) @(posedge clk);          // settle after directed phase
-      for (int t = 0; t < 127; t++) begin
-        // ---- frame class selection ----
-        if (t < 100) begin
-          ftype = 0;                              // good frame
-          lenb  = 8 + $urandom_range(0, 8);       // v2.5.1: full LEN 8..16
-                                                  // (LEN=8 overrun fixed, W6-3)
-          if (t == 10) lenb = 8;                  // deterministic LEN=8 lock
-        end else if (t < 102) begin
-          ftype = 2;                              // bad STP -> echo anyway
-          lenb  = 8 + $urandom_range(0, 8);
-        end else if (t < 110) begin
-          ftype = 1;                              // bad CRC -> no echo
-          lenb  = 8 + $urandom_range(0, 8);
-        end else if (t < 122) begin
-          ftype = 1;                              // long frames, bad CRC
-          lenb  = 17 + ((t - 110) % 2);           // LEN 17 / 18 (buf_mem[22:23])
-        end else if (t < 124) begin
-          ftype = 3;                              // bad END -> no echo
-          lenb  = 8 + $urandom_range(0, 8);
-        end else begin
-          ftype = 5;                              // LEN byte with bits[7:6]
-          lenb  = (t == 124) ? 8'h40 : (t == 125) ? 8'h80 : 8'hC0;  // len_q=0
-        end
-        dlen = lenb & 8'h3F;                      // len_q the DUT extracts
-        // ---- content ----
-        for (int i = 0; i < 25; i++) fbytes[i] = 8'h00;
-        for (int i = 0; i < dlen; i++)
-          fbytes[2+i] = $urandom_range(0, 255);
-        if (ftype == 0 && t % 17 == 0)
-          for (int i = 0; i < dlen; i++) fbytes[2+i] = 8'h00;     // all-zero
-        if (ftype == 0 && t % 19 == 0)
-          for (int i = 0; i < dlen; i++) fbytes[2+i] = 8'hFF;     // all-one
-        fbytes[0] = (ftype == 2) ? (STP ^ 8'hA5) : STP;
-        fbytes[1] = lenb[7:0];
-        c32 = 32'hFFFFFFFF;
-        for (int i = 0; i < dlen; i++)
-          for (int j = 0; j < 8; j++) c32 = crc32(c32, fbytes[2+i][j]);
-        c32 = ~c32;
-        if (ftype == 1) c32 = c32 ^ 32'h0000_0001;                // corrupt
-        for (int k = 0; k < 4; k++) fbytes[2+dlen+k] = (c32 >> (8*k)) & 8'hFF;
-        fbytes[dlen+6] = (ftype == 3) ? (END_B ^ 8'hFF) : END_B;
-        nf = dlen + 7;
-        // ---- send (clock-counted bit cells: 40 clks/bit, no #delays) ----
-        host_oe = 1; host_val = 1'b0; repeat (40) @(posedge clk); // start bit
-        for (int i = 0; i < nf; i++) begin
-          shv = fbytes[i];
-          for (int j = 0; j < 8; j++) begin
-            host_val = shv[0]; shv = {1'b0, shv[7:1]};
-            repeat (40) @(posedge clk);
-          end
-        end
-        host_oe = 0;
-        // ---- shadow buf_mem update (DUT stores every received byte) ----
-        sh_buf[1] = lenb[7:0];
-        for (int i = 0; i < dlen + 4; i++) sh_buf[2+i] = fbytes[2+i];
-        if (ftype == 0) n_good++;
-        else if (ftype == 1) begin n_badcrc++; if (dlen > 16) n_long++; end
-        else if (ftype == 2) n_badstp++;
-        else if (ftype == 3) n_badend++;
-        else n_zlen++;
-        if (ftype == 0 || ftype == 2 || ftype == 5) begin
-          // ---- predict tx_mem after rx_done ----
-          // v2.5.1 FIXED: exact copy, no OOB-mask clobber of tx_mem[0..3]
-          for (int k = 0; k < 16; k++) exp_mem[k] = sh_buf[k+2];
-          // echo data length: v2.5.1 -- LEN=8 now sends 0 payload bytes
-          // (W6-3 fixed); len_q==0 still sends tx_mem[8..15] after the
-          // 8 HDR bytes (16 data bytes)
-          edat = (dlen == 0) ? 16 : dlen;
-          enf  = edat + 7;
-          ce = 32'hFFFFFFFF;
-          for (int i = 0; i < edat; i++)
-            for (int j = 0; j < 8; j++) ce = crc32(ce, exp_mem[i][j]);
-          ce = ~ce;
-          // ---- receive echo (bounded wait + center sampling) ----
-          wt = 0;
-          while (tx !== 1'b0 && wt < 20000) begin @(posedge clk); wt++; end
-          if (wt >= 20000) begin
-            errors++;
-            $display("ERROR: CRV echo timeout t=%0d tstate=%0d ta_cnt=%0d",
-                     t, dut_tstate, dut.ta_cnt);
-          end else begin
-            repeat (59) @(posedge clk); @(negedge clk);   // center of bit0
-            for (int i = 0; i < enf; i++) begin
-              rcv[i] = 8'h00;
-              for (int j = 0; j < 8; j++) begin
-                rb = tx; rcv[i] = {rb, rcv[i][7:1]};
-                if (!(i == enf-1 && j == 7)) begin
-                  // exactly one 40-clk bit cell: 40 posedges + negedge from
-                  // a negedge reference (39 would drift -0.5 clk per bit)
-                  repeat (40) @(posedge clk); @(negedge clk);
-                end
-              end
-            end
-            // rcv[0]: v2.5.1 FIXED (was W6-2) — T_IDLE now loads tx_shift
-            // with STP, so the first wire byte is STP, not the stale shift
-            // register (was deterministically 8'h00).
-            if (rcv[0] !== STP || rcv[1] !== dlen[7:0] ||
-                rcv[enf-1] !== END_B) begin
-              errors++;
-              $display("ERROR: CRV echo frame t=%0d stp=%h len=%h(exp=%0d) end=%h",
-                       t, rcv[0], rcv[1], dlen, rcv[enf-1]);
-            end
-            for (int i = 0; i < edat; i++) begin
-              if (rcv[2+i] !== exp_mem[i]) begin
-                errors++;
-                $display("ERROR: CRV echo data t=%0d i=%0d got=%h exp=%h",
-                         t, i, rcv[2+i], exp_mem[i]);
-              end
-            end
-            for (int k = 0; k < 4; k++) begin
-              if (rcv[2+edat+k] !== ((ce >> (8*k)) & 8'hFF)) begin
-                errors++;
-                $display("ERROR: CRV echo crc t=%0d k=%0d got=%h",
-                         t, k, rcv[2+edat+k]);
-              end
-            end
-          end
-          if (ftype == 2 && dut.rx_err !== 1'b1) begin
-            // proves the STP-mismatch arm executed (line-cov artifact region)
-            errors++;
-            $display("ERROR: CRV rx_err not set after bad STP t=%0d", t);
-          end
-          repeat (200) @(posedge clk);            // inter-frame gap
-        end else begin
-          // no echo: verify the sticky rx_err flag is raised
-          repeat (400) @(posedge clk);
-          if (dut.rx_err !== 1'b1) begin
-            errors++;
-            $display("ERROR: CRV rx_err not set t=%0d ftype=%0d", t, ftype);
-          end
-        end
-      end
-      $display("CRV: 127 frames (good=%0d bad_stp=%0d bad_crc=%0d long=%0d bad_end=%0d zero_len=%0d) shadow-err+=%0d",
-               n_good, n_badstp, n_badcrc, n_long, n_badend, n_zlen, errors - ecount);
+    // ---- payload bit flips: CRC errors, the lock holds
+    dirty[1] = 1;
+    for (int i = 0; i < 4; i++) begin
+      flip_at(200 + $urandom % 2000);
+      while (!rx_mb_valid[1]) @(negedge clk);
+      while (!rx_mb_valid[1]) @(negedge clk);
+      wait_clk(3);
     end
-`endif
+    if (!emb_lock[1]) fail("lock lost over payload errors");
+    wait_clk(3 * 2112);
+    dirty[1] = 0;
+    // ---- header errors: a few per window (counter reset), then 16 in a row
+    dirty[1] = 1;
+    for (int w = 0; w < 3; w++)
+      for (int i = 0; i < 5; i++) begin
+        while (u_b.rc != 7'd65) @(negedge clk);
+        flip = 1; @(negedge clk); flip = 0;
+        wait_clk(66 * (2 + $urandom % 10));
+      end
+    if (!sh_lock[1]) fail("lock lost below the error threshold");
+    // from the start of a window: 15 invalid headers keep the lock, the 16th drops it
+    while (!(u_b.rc == 7'd65 && u_b.wcnt == 6'd0)) @(negedge clk);
+    for (int i = 0; i < 16; i++) begin
+      while (u_b.rc != 7'd65) @(negedge clk);
+      if (i == 15 && !sh_lock[1]) fail("unlocked before the 16th header error");
+      flip = 1; @(negedge clk); flip = 0;
+    end
+    wait_clk(200);
+    if (sh_lock[1]) fail("still locked after 16 header errors");
+    clean_b();
+    // ---- the line slides by 1..65 bits: B hunts at every offset
+    for (int s = 1; s < 66; s += 7) begin
+      dirty[1] = 1;
+      dly = (dly + s) % 400;
+      clean_b();
+    end
+    // ---- whole blocks dropped and repeated: multiblock alignment errors
+    for (int i = 0; i < 4; i++) begin
+      dirty[1] = 1;
+      while (!(u_b.rc == 7'd30 && u_b.rj == 5'(8 * i + 3))) @(negedge clk);
+      if (i[0]) dly = dly + 66; else dly = dly >= 66 ? dly - 66 : dly + 2 * 66;
+      clean_b();
+    end
+    // ---- cfg_e differs between the ends: EoEMB unexpected / missing
+    dirty = 2'b11;
+    cfg_e[1] = 3;
+    wait_clk(10 * 2112);
+    cfg_e[0] = 3;
+    clean_both();
+    dirty = 2'b11;
+    cfg_e[1] = 0;
+    wait_clk(10 * 2112);
+    cfg_e[1] = 3;
+    clean_both();
+    dirty = 2'b11;
+    cfg_e[0] = 15; cfg_e[1] = 15;
+    wait_clk(34 * 2112);
+    clean_both();
+    wait_clk(34 * 2112);
+    if (ncrc_ok[1] == 0) fail("no clean multiblock seen");
+    // ---- reset while locked
+    do_reset();
+    cfg_e = 0;
+    wait_lock(0); wait_lock(1);
+    wait_clk(4 * 2112);
 
     if (errors == 0) $display("TEST PASSED: JESD204C");
-    else             $display("TEST FAILED: %0d errors", errors);
-`ifdef VERILATOR
-    begin
-      int visited;
-      visited = 0;
-      for (int s = 0; s < 4; s++) visited += fsm_seen_t[s];
-      for (int s = 0; s < 2; s++) visited += fsm_seen_r[s];
-      $display("FSM_COV: %0d/%0d", visited, JESD204C_FSM_TOTAL);
-      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
-    end
-`endif
+    else $display("TEST FAILED: JESD204C (%0d errors)", errors);
     $finish;
   end
 
-`ifdef VERILATOR
-  // chunked timeout guard: a single long-pending #delay event corrupts the
-  // 5.006 --timing delay heap once many short-delay resumptions interleave;
-  // chunked delays keep all heap entries short-lived (see docs/COVERAGE.md)
   initial begin
-    repeat (200000) #1000;   // 200 ms in 1-us chunks
-    $display("TIMEOUT"); $finish;
+    #80ms;
+    $display("TEST FAILED: JESD204C (timeout)");
+    $finish;
   end
-`else
-  initial begin #10_000_000; $display("TIMEOUT"); $finish; end
-`endif
 endmodule
