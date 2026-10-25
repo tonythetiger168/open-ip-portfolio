@@ -1,337 +1,614 @@
 // SPDX-License-Identifier: Apache-2.0
-// UEC TB: host sends flit frame, device echoes, host verifies payload.
+// UEC_top testbench. Part 1: two PDS ends A and B joined by a network
+// model per direction that holds frames back (net_tx_ready), and can drop,
+// duplicate, reorder and delay them, with byte gaps on delivery. Part 2:
+// end A against a TB peer (BFM) that sends any frame and checks A's.
+//  - host writers write packets of 1..MAXP bytes and longer ones that get
+//    cut, with gaps; readers read with random back-pressure (down to none,
+//    so receive buffers run out and packets are NACKed)
+//  - receive scoreboards: every packet written at one end is handed out at
+//    the other exactly once, in any order (RUD), whole; the PDC is closed
+//    and reopened with new start PSNs (across the PSN wrap)
+//  - from the BFM: receive window, cumulative and selective state in ACKs,
+//    duplicates, packets past the window, no buffer (NACK), every frame
+//    error; A's packets, their retransmission on NACK and timeout, ACKs
+//    late, partial, selective and bad, NACKs late and bad
+// The bound checker (tb/cov/UEC_sva.sv) checks every output of both ends
+// on every clock against its own model.
 `timescale 1ns/1ps
 module UEC_tb;
-  localparam int BIT = 400;
-  localparam int HB  = 8;
-  localparam logic [7:0] STP = 8'hFB, END_B = 8'hFD;
+  localparam int MAXP = 16, W = 4, RXB = 2, RTO = 256;
   logic clk = 0, rst_n = 0;
-  logic host_val = 1'b1, host_oe = 1'b0;
-  tri1  rx, tx;
-  int errors = 0;
-
-  UEC_top #(.BAUD_DIV(20)) dut (
-    .clk(clk), .rst_n(rst_n), .refclk(clk), .rx(rx), .tx(tx), .busy(), .irq());
   always #5 clk = ~clk;
-  assign rx = host_oe ? host_val : tx;
+  int errors = 0;
+  task automatic fail(input string s);
+    errors++;
+    $display("ERROR: %s @%0t", s, $time);
+  endtask
 
-  function automatic logic [31:0] crc32(input logic [31:0] c, input logic b);
-    logic fb; begin fb=c[0]^b; crc32=c>>1; if(fb) crc32=crc32^32'hEDB88320; end
+  // ---------------- ends: index 0 = A, 1 = B ----------------
+  logic [1:0]        en = 0, tx_valid = 0, tx_last = 0, rx_ready = 0, ntr = 0, nrv = 0, nrl = 0;
+  logic [1:0][15:0]  spt = 0, spr = 0;
+  logic [1:0][7:0]   tx_data = 0, nrd = 0;
+  wire  [1:0]        tx_ready, rx_valid, rx_last, ntv, ntl;
+  wire  [1:0][7:0]   rx_data, ntd;
+  wire  [1:0][2:0]   outst;
+  wire  [1:0]        ev_rto, ev_nack, ev_dup, ev_nobuf, ev_proto;
+  for (genvar e = 0; e < 2; e++) begin : g_end
+    UEC_top #(.MAXP(MAXP), .W(W), .RXB(RXB), .RTO(RTO)) u (
+      .clk(clk), .rst_n(rst_n), .enable(en[e]), .start_psn_tx(spt[e]), .start_psn_rx(spr[e]),
+      .tx_valid(tx_valid[e]), .tx_ready(tx_ready[e]), .tx_data(tx_data[e]), .tx_last(tx_last[e]),
+      .rx_valid(rx_valid[e]), .rx_ready(rx_ready[e]), .rx_data(rx_data[e]), .rx_last(rx_last[e]),
+      .net_tx_valid(ntv[e]), .net_tx_ready(ntr[e]), .net_tx_data(ntd[e]), .net_tx_last(ntl[e]),
+      .net_rx_valid(nrv[e]), .net_rx_data(nrd[e]), .net_rx_last(nrl[e]), .outstanding(outst[e]),
+      .ev_rto(ev_rto[e]), .ev_nack(ev_nack[e]), .ev_dup(ev_dup[e]), .ev_nobuf(ev_nobuf[e]), .ev_proto(ev_proto[e]));
+  end
+
+  // ---------------- network ----------------
+  // channel d carries end d's frames to end 1 - d (or to the BFM for d = 0
+  // with bfm set). Frames are kept as bytes (cb0 / cb1) and lengths (cl0 /
+  // cl1); Icarus has no arrays of queues.
+  bit         bfm = 0;
+  logic [7:0] cb0 [$], cb1 [$];
+  int         cl0 [$], cl1 [$];
+  logic [7:0] cf [0:1][0:63];                    // frame being captured
+  int         cn [0:1];
+  int         p_drop = 0, p_dup = 0, p_reord = 0, p_hold = 0, p_gap = 0;   // percent
+  int         n_frames [0:1];
+  initial for (int d = 0; d < 2; d++) begin cn[d] = 0; n_frames[d] = 0; end
+  task automatic ch_push(input int d, input int n);
+    for (int i = 0; i < n; i++) if (d == 0) cb0.push_back(cf[d][i]); else cb1.push_back(cf[d][i]);
+    if (d == 0) cl0.push_back(n); else cl1.push_back(n);
+  endtask
+  function automatic int ch_n(input int d);
+    return d == 0 ? cl0.size() : cl1.size();
   endfunction
-
-  logic [7:0] hdr [0:7];
-  logic [7:0] pl  [0:7];
-  task automatic send_tlp(input int plen);
-    logic [31:0] c; logic [7:0] fb;
-    begin
-      host_oe = 1; host_val = 1'b0; #(BIT);
-      fb = STP; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
-      fb = HB + plen; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
-      c = 32'hFFFFFFFF;
-      for (int i=0;i<HB;i++) begin
-        fb = hdr[i];
-        for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; #(BIT); end
-      end
-      for (int i=0;i<plen;i++) begin
-        fb = pl[i];
-        for (int j=0;j<8;j++) begin host_val=fb[0]; c=crc32(c,fb[0]); fb=fb>>1; #(BIT); end
-      end
-      c = ~c;
-      for (int i=0;i<32;i++) begin host_val=c[0]; c=c>>1; #(BIT); end
-      fb = END_B; for (int i=0;i<8;i++) begin host_val=fb[0]; fb=fb>>1; #(BIT); end
-      host_oe = 0;
+  logic [7:0] df [0:1][0:63];                    // frame being delivered
+  // take frame i out of channel d into df (k: keep it there as well)
+  task automatic ch_take(input int d, input int i, input bit k, output int n);
+    int o;
+    o = 0;
+    for (int j = 0; j < i; j++) o += d == 0 ? cl0[j] : cl1[j];
+    n = d == 0 ? cl0[i] : cl1[i];
+    for (int j = 0; j < n; j++) df[d][j] = d == 0 ? cb0[o + j] : cb1[o + j];
+    if (!k) begin
+      for (int j = 0; j < n; j++) if (d == 0) cb0.delete(o); else cb1.delete(o);
+      if (d == 0) cl0.delete(i); else cl1.delete(i);
     end
   endtask
-
-  logic b; logic [7:0] sh;
-  task automatic recv_tlp(output int plen);
-    begin
-      plen = 0; sh = 0;
-      wait (tx === 1'b0);
-      #(BIT + BIT/2);
-      for (int i=0;i<8;i++) begin b=tx; sh={b,sh[7:1]}; #(BIT); end
-      sh = 0;
-      for (int i=0;i<8;i++) begin b=tx; sh={b,sh[7:1]}; if(i==7) plen = sh - HB; #(BIT); end
-      for (int i=0;i<HB+plen;i++) begin
-        sh = 0;
-        for (int j=0;j<8;j++) begin
-          b = tx; sh = {b, sh[7:1]};
-          if (j == 7) begin
-            if (i < HB) hdr[i] = sh;
-            else        pl[i-HB] = sh;
-          end
-          #(BIT);
+  task automatic ch_clear;
+    cb0.delete(); cb1.delete(); cl0.delete(); cl1.delete(); cn[0] = 0; cn[1] = 0;
+  endtask
+  // capture
+  always @(posedge clk)
+    for (int d = 0; d < 2; d++) begin
+      if (!rst_n || !en[d]) cn[d] = 0;
+      else if (ntv[d] && ntr[d]) begin
+        cf[d][cn[d]] = ntd[d];
+        cn[d]++;
+        if (ntl[d]) begin
+          n_frames[d]++;
+          if (d == 0 && bfm) a_frame(cn[d]);
+          else ch_push(d, cn[d]);
+          cn[d] = 0;
         end
       end
-      #(BIT*40);
     end
-  endtask
-
-`ifdef VERILATOR
-  // =====================================================================
-  // v2.5 CRV instrumentation (tool build only; iverilog path unchanged)
-  // FSMs probed: dut.tstate (T_IDLE/T_PKT/T_END) + dut.rstate
-  // (R_IDLE/R_BYTE), 5 states total.
-  // =====================================================================
-  localparam int UEC_FSM_TOTAL = 5;   // 3 TX + 2 RX states
-  logic [3:0] fsm_seen_t = '0;        // visited TX-state bitmap
-  logic [1:0] fsm_seen_r = '0;        // visited RX-state bitmap
-  wire  [1:0] dut_tstate = dut.tstate;
-  wire  [1:0] dut_rstate = dut.rstate;
-
-  int sva_total = 0, sva_fail = 0;
-  // counted immediate assertion: every evaluation is one check
-  task automatic sva_check(input bit cond, input string name);
-    begin
-      sva_total++;
-      if (!cond) begin
-        sva_fail++;
-        errors++;
-        $display("SVA_FAIL: %s @%0t", name, $time);
+  // delivery to end 1 - d: one frame at a time
+  int         dn [0:1], di [0:1];
+  initial for (int d = 0; d < 2; d++) begin dn[d] = 0; di[d] = 0; end
+  int         ntr_force = -1;                   // A's net_tx_ready forced (directed)
+  always @(negedge clk)
+    for (int d = 0; d < 2; d++) begin
+      ntr[d] = d == 0 && ntr_force >= 0 ? ntr_force[0] : $urandom % 100 >= p_hold;
+      if (!(d == 1 && bfm)) begin
+        nrv[1 - d] = 0; nrl[1 - d] = 0;
+        if (dn[d] == 0 && ch_n(d) != 0 && $urandom % 4 != 0) begin : b_next
+          int i, n;
+          bit dup;
+          i = $urandom % 100 < p_reord && ch_n(d) > 1 ? 1 + $urandom % (ch_n(d) > 2 ? 2 : 1) : 0;
+          dup = $urandom % 100 < p_dup;
+          ch_take(d, i, dup, n);
+          if ($urandom % 100 >= p_drop) begin dn[d] = n; di[d] = 0; end
+        end
+        if (dn[d] != 0 && $urandom % 100 >= p_gap) begin
+          nrv[1 - d] = 1; nrd[1 - d] = df[d][di[d]]; nrl[1 - d] = di[d] == dn[d] - 1;
+          di[d]++;
+          if (di[d] == dn[d]) dn[d] = 0;
+        end
       end
     end
+
+  // ---------------- host writers and scoreboards ----------------
+  // packets each end must hand out: {len, bytes} (xp0 / xp1 for end 0 / 1)
+  logic [MAXP*8+4:0] xp0 [$], xp1 [$];
+  logic [7:0]        wb [0:1][0:63];
+  int                wn [0:1], wpos [0:1], wgap [0:1], nrx [0:1], rdy_pct [0:1], gap_max = 6;
+  bit                wen [0:1], wact [0:1], wtk [0:1];
+  logic [MAXP*8-1:0] rp [0:1];
+  int                rn [0:1];
+  initial for (int e = 0; e < 2; e++) begin
+    wn[e] = 0; wpos[e] = 0; wgap[e] = 0; nrx[e] = 0; rdy_pct[e] = 100; wen[e] = 0; wact[e] = 0; wtk[e] = 0;
+    rn[e] = 0; rp[e] = 0;
+  end
+  task automatic xpush(input int e, input logic [MAXP*8+4:0] x);
+    if (e == 0) xp0.push_back(x); else xp1.push_back(x);
+  endtask
+  function automatic int xsize(input int e);
+    return e == 0 ? xp0.size() : xp1.size();
+  endfunction
+  task automatic x_clear;
+    xp0.delete(); xp1.delete();
+  endtask
+  function automatic logic [MAXP*8+4:0] pkt(input int l, input logic [MAXP*8-1:0] d);
+    return {5'(l), d};
+  endfunction
+  // a new unit of writes at end e; the packets end 1 - e (or the BFM) must
+  // get
+  task automatic new_unit(input int e);
+    int s, l;
+    logic [MAXP*8-1:0] d;
+    if ($urandom % 100 < 5) wn[e] = MAXP + 1 + $urandom % 20;
+    else if ($urandom % 4 == 0) wn[e] = 1 + $urandom % 3;
+    else wn[e] = 1 + $urandom % MAXP;
+    for (int i = 0; i < wn[e]; i++) wb[e][i] = $urandom;
+    s = 0;
+    while (s < wn[e]) begin
+      l = wn[e] - s > MAXP ? MAXP : wn[e] - s;
+      d = 0;
+      for (int i = 0; i < l; i++) d[8 * i +: 8] = wb[e][s + i];
+      xpush(1 - e, pkt(l, d));
+      s += l;
+    end
+  endtask
+  always @(posedge clk)
+    for (int e = 0; e < 2; e++) begin
+      if (tx_valid[e] && tx_ready[e] && !(bfm && e == 0)) wtk[e] = 1;
+      if (rx_valid[e] && rx_ready[e]) begin
+        rp[e][8 * rn[e] +: 8] = rx_data[e];
+        rn[e]++;
+        if (rx_last[e]) begin : b_pkt
+          int k;
+          logic [MAXP*8+4:0] x;
+          x = pkt(rn[e], rp[e]);
+          k = -1;
+          for (int i = 0; i < xsize(e) && k < 0; i++) if ((e == 0 ? xp0[i] : xp1[i]) === x) k = i;
+          if (k < 0) fail($sformatf("end %0d: packet of %0d bytes %h never written (or twice)", e, rn[e], rp[e]));
+          else if (e == 0) xp0.delete(k); else xp1.delete(k);
+          nrx[e]++;
+          rn[e] = 0; rp[e] = 0;
+        end
+      end
+      if (!rst_n || !en[e]) begin rn[e] = 0; rp[e] = 0; end
+    end
+  always @(negedge clk)
+    for (int e = 0; e < 2; e++) begin
+      if (wtk[e]) begin
+        wtk[e] = 0; tx_valid[e] = 0; wpos[e]++;
+        if (wpos[e] == wn[e]) begin wpos[e] = 0; wact[e] = 0; wgap[e] = $urandom % (gap_max + 1); end
+      end
+      if (rst_n && !tx_valid[e] && (wen[e] || wact[e])) begin
+        if (wgap[e] > 0) wgap[e]--;
+        else if ($urandom % 8 != 0) begin
+          if (!wact[e]) begin new_unit(e); wact[e] = 1; end
+          tx_valid[e] = 1; tx_data[e] = wb[e][wpos[e]]; tx_last[e] = wpos[e] == wn[e] - 1;
+        end
+      end
+      rx_ready[e] = $urandom % 100 < rdy_pct[e];
+    end
+
+  // ---------------- BFM ----------------
+  // frames to A: a byte queue with frame ends marked {last, byte}
+  logic [8:0] bq [$];
+  int         b_gap = 0, b_wait = 0;
+  always @(negedge clk)
+    if (bfm) begin
+      nrv[0] = 0; nrl[0] = 0;
+      if (b_wait > 0) b_wait--;
+      else if (bq.size() != 0 && $urandom % 100 >= b_gap) begin : b_send
+        logic [8:0] x;
+        x = bq.pop_front();
+        nrv[0] = 1; nrd[0] = x[7:0]; nrl[0] = x[8];
+      end
+    end
+  task automatic bwait;
+    while (bq.size() != 0) @(negedge clk);
+    @(negedge clk);
+  endtask
+  task automatic b_bytes(input int n, input logic [7:0] t);
+    for (int i = 0; i < n; i++) bq.push_back({i == n - 1, i == 0 ? t : 8'($urandom)});
+  endtask
+  // a DATA frame of l bytes; ok: A must hand it out
+  logic [MAXP*8-1:0] b_last_d;
+  task automatic bdata(input logic [15:0] psn, input int l, input bit ok = 1, input int lf = -1);
+    logic [MAXP*8-1:0] d;
+    d = 0;
+    bq.push_back({1'b0, 8'h10}); bq.push_back({1'b0, psn[15:8]}); bq.push_back({1'b0, psn[7:0]});
+    bq.push_back({l == 0, 8'(lf >= 0 ? lf : l)});
+    for (int i = 0; i < l; i++) begin
+      d[8 * i +: 8] = $urandom;
+      bq.push_back({i == l - 1, d[8 * i +: 8]});
+    end
+    b_last_d = d;
+    if (ok) xpush(0, pkt(l, d));
+  endtask
+  task automatic back(input logic [15:0] cack, input logic [7:0] sack = 0);
+    bq.push_back({1'b0, 8'h20}); bq.push_back({1'b0, cack[15:8]}); bq.push_back({1'b0, cack[7:0]});
+    bq.push_back({1'b1, sack});
+  endtask
+  task automatic bnack(input logic [15:0] psn);
+    bq.push_back({1'b0, 8'h30}); bq.push_back({1'b0, psn[15:8]}); bq.push_back({1'b1, psn[7:0]});
+  endtask
+  // A's frames: ACKs (last CACK / SACK), NACKs, DATA (by PSN, checked
+  // against what the host wrote: a_exp, oldest first)
+  logic [15:0] a_cack = 0, a_nack = 0;
+  logic [7:0]  a_sack = 0;
+  int          a_nacks = 0, a_acks = 0, a_data = 0, a_ptr = 0;
+  logic [15:0] a_psn [$];
+  logic [MAXP*8+4:0] a_pk [$];                   // A's packets by PSN from a_base
+  logic [15:0] a_base = 0;
+  task automatic a_frame(input int n);
+    logic [7:0] t;
+    t = cf[0][0];
+    if (t == 8'h20) begin
+      if (n != 4) fail("A: ACK length");
+      a_cack = {cf[0][1], cf[0][2]}; a_sack = cf[0][3]; a_acks++;
+    end else if (t == 8'h30) begin
+      if (n != 3) fail("A: NACK length");
+      a_nack = {cf[0][1], cf[0][2]}; a_nacks++;
+    end else if (t == 8'h10) begin : b_d
+      logic [15:0] p;
+      logic [MAXP*8-1:0] d;
+      int i;
+      p = {cf[0][1], cf[0][2]};
+      i = int'(p - a_base);
+      d = 0;
+      for (int j = 0; j < cf[0][3]; j++) d[8 * j +: 8] = cf[0][4 + j];
+      if (n != 4 + cf[0][3]) fail("A: DATA length");
+      if (i >= a_pk.size()) fail($sformatf("A: DATA PSN %h, %0d written from %h", p, a_pk.size(), a_base));
+      else if (a_pk[i] !== pkt(cf[0][3], d)) fail($sformatf("A: DATA PSN %h: %0d bytes %h, expected %h", p, cf[0][3], d, a_pk[i]));
+      a_psn.push_back(p);
+      a_data++;
+    end else fail($sformatf("A: frame type %h", t));
+  endtask
+  // the host at A writes a packet of l bytes
+  task automatic a_write(input int l);
+    logic [MAXP*8-1:0] d;
+    d = 0;
+    for (int i = 0; i < l; i++) begin
+      d[8 * i +: 8] = $urandom;
+      tx_valid[0] = 1; tx_data[0] = d[8 * i +: 8]; tx_last[0] = i == l - 1;
+      @(posedge clk);
+      while (!tx_ready[0]) @(posedge clk);
+      @(negedge clk);
+      tx_valid[0] = 0; wtk[0] = 0;
+    end
+    a_pk.push_back(pkt(l, d));
+  endtask
+  // a write in the background (Icarus: no fork / join_none in tasks)
+  int bg_n = 0;
+  initial forever begin
+    wait (bg_n != 0);
+    a_write(bg_n);
+    bg_n = 0;
+  end
+  task automatic a_expect(input logic [15:0] p, input int t = 400);
+    int k;
+    k = 0;
+    while (k < t && !(a_psn.size() != 0 && a_psn[0] == p)) begin
+      if (a_psn.size() != 0) void'(a_psn.pop_front());
+      @(negedge clk); k++;
+    end
+    if (k == t) fail($sformatf("A: DATA PSN %h not sent", p));
+    else void'(a_psn.pop_front());
   endtask
 
-  // FSM coverage: sample DUT state registers on both edges (scheduler
-  // failure mode #3 mitigation: dual-edge probe tolerates lost wakeups)
-  always @(posedge clk or negedge clk) begin
-    fsm_seen_t[dut_tstate] <= 1'b1;
-    fsm_seen_r[dut_rstate] <= 1'b1;
+  // ---------------- helpers ----------------
+  task automatic wait_clk(input int n);
+    repeat (n) @(negedge clk);
+  endtask
+  int n_ev [0:4];
+  initial for (int i = 0; i < 5; i++) n_ev[i] = 0;
+  always @(posedge clk) begin
+    n_ev[0] += ev_rto[0] + ev_rto[1]; n_ev[1] += ev_nack[0] + ev_nack[1]; n_ev[2] += ev_dup[0] + ev_dup[1];
+    n_ev[3] += ev_nobuf[0] + ev_nobuf[1]; n_ev[4] += ev_proto[0] + ev_proto[1];
   end
-
-  // output-invariant assertion suite (level/comb checks, negedge-sampled
-  // so all NBA updates are settled; no history-dependent properties)
-  logic rst_n_q = 1'b1;
-  always @(negedge clk) begin
-    if (!rst_n) begin
-      // A1: outputs quiescent during reset (one cycle for regs to init)
-      if (!rst_n_q)
-        sva_check(dut.busy === 1'b0 && dut.irq === 1'b0,
-                  "A1 reset: outputs quiescent");
-    end else begin
-      // A2: busy exactly reflects non-idle of either FSM
-      sva_check(dut.busy === ((dut_rstate != 2'd0) || (dut_tstate != 2'd0)),
-                "A2 busy == FSMs non-idle");
-      // A3: irq mirrors the rx_done pulse
-      sva_check(dut.irq === dut.rx_done, "A3 irq == rx_done");
-      // A4: TX FSM never takes the unused 2'd3 encoding
-      sva_check(dut_tstate !== 2'd3, "A4 tstate legal encoding");
-      // A5: RX FSM never takes the unused 2'd2/2'd3 encodings
-      sva_check(dut_rstate <= 2'd1, "A5 rstate legal encoding");
-      // A6: TX-arm countdown never exceeds its programmed value
-      sva_check(dut.ta_cnt <= 4'd6, "A6 ta_cnt <= 6");
-      // A7: field sequencer never takes unused encodings 6/7
-      sva_check(dut.tfld <= 3'd5, "A7 tfld legal encoding");
-      // A8: when the DUT releases the line the tri1 pullup holds it high
-      sva_check(dut.oe_q || (tx === 1'b1), "A8 released line pulled high");
+  // writing stopped: every packet handed out, nothing outstanding
+  task automatic drain(input string ph, input int n = 60000);
+    int t;
+    wen[0] = 0; wen[1] = 0;
+    t = 0;
+    while ((wact[0] || wact[1] || xsize(0) + xsize(1) != 0 || outst[0] != 0 || outst[1] != 0) && t < n) begin
+      @(negedge clk); t++;
     end
-    rst_n_q <= rst_n;
-  end
-`endif
+    if (t == n) fail($sformatf("%s: %0d / %0d packets missing, outstanding %0d %0d", ph, xsize(0), xsize(1),
+                               outst[0], outst[1]));
+    wait_clk(50);
+  endtask
+  // open the PDC at both ends with PSNs a (A to B) and b (B to A)
+  task automatic open_pdc(input logic [15:0] a, input logic [15:0] b);
+    spt[0] = a; spr[1] = a; spt[1] = b; spr[0] = b;
+    wait_clk(2);
+    en = 2'b11;
+  endtask
+  task automatic close_pdc;
+    wen[0] = 0; wen[1] = 0;
+    while (wact[0] || wact[1]) @(negedge clk);
+    en = 0;
+    wait_clk(2);
+    ch_clear(); dn[0] = 0; dn[1] = 0;
+    x_clear();
+  endtask
+  task automatic traffic(input int n, input string ph);
+    wen[0] = 1; wen[1] = 1;
+    wait_clk(n);
+    drain(ph);
+  endtask
 
-  int rlen;
   initial begin
-    for (int i=0;i<8;i++) begin hdr[i] = 8'h10 + i; pl[i] = 8'hA0 + i * 8'h11; end
-    rst_n = 0; repeat(10) @(posedge clk);
-    rst_n = 1; repeat(20) @(posedge clk);
-    send_tlp(4);
-    recv_tlp(rlen);
-    if (rlen !== 4) begin errors++; $display("ERROR: UEC plen got=%0d exp=4", rlen); end
-    for (int i=0;i<4;i++) begin
-      if (pl[i] !== 8'hA0 + i * 8'h11) begin
-        errors++; $display("ERROR: UEC pl[%0d] got=%h exp=%h", i, pl[i], 8'hA0 + i*8'h11);
-      end
-    end
-    if (dut.rx_err !== 1'b0) begin errors++; $display("ERROR: UEC rx_err set"); end
+    wait_clk(3);
+    rst_n = 1;
+    wait_clk(3);
+    // clean network
+    open_pdc(16'h1234, 16'hFFF0);
+    traffic(3000, "clean");
+    // loss, duplicates, reordering, back-pressure, gaps
+    p_drop = 10; p_dup = 5; p_reord = 20; p_hold = 20; p_gap = 20;
+    traffic(8000, "lossy");
+    // heavy loss: timeouts
+    p_drop = 35; p_dup = 10; p_reord = 40;
+    traffic(6000, "heavy loss");
+    // slow readers: no receive buffer, NACKs
+    p_drop = 0; p_dup = 0; p_reord = 0; p_hold = 0; p_gap = 0;
+    rdy_pct[0] = 3; rdy_pct[1] = 3;
+    wen[0] = 1; wen[1] = 1;
+    wait_clk(3000);
+    rdy_pct[0] = 100; rdy_pct[1] = 100;
+    drain("no buffer");
+    // closed with traffic in flight, opened again across the PSN wrap
+    p_drop = 10; p_reord = 20; p_hold = 10;
+    wen[0] = 1; wen[1] = 1;
+    wait_clk(500);
+    close_pdc();
+    open_pdc(16'hFFFE, 16'h7FFF);
+    traffic(3000, "reopened");
+    close_pdc();
+    open_pdc($urandom, $urandom);
+    p_drop = 20; p_dup = 20; p_reord = 50; p_hold = 30;
+    rdy_pct[0] = 40; rdy_pct[1] = 60;
+    traffic(6000, "mixed");
+    rdy_pct[0] = 100; rdy_pct[1] = 100;
+    p_drop = 0; p_dup = 0; p_reord = 0; p_hold = 0;
+    close_pdc();
 
-`ifdef VERILATOR
-    // ---- v2.5 CRV random phase (directed tests above untouched) ----
-    // 114 randomized frames: 100 good (random LEN 8..16 / all-zero /
-    // all-one content), 8 bad-CRC + 2 long (LEN=17/18, toggle buf_mem[22:23]
-    // via the RX store path, bad CRC so no echo), 2 bad-STP (echo still
-    // expected, rx_done is not gated by rx_err), 2 bad-END (no echo).
-    // Fully inlined (no timing-task coroutine chains): one coroutine with
-    // plain awaits dodges the 5.006 timing-scheduler corruption; all waits
-    // are bounded.
-    // RTL-bug handling (recorded in docs/coverage/W6_REST.md, NOT fixed):
-    // the echo copy `for (i=2;i<=21;i++) tx_mem[i-2] <= buf_mem[i]` writes
-    // tx_mem[16..19] out of bounds; iverilog drops the OOB writes, Verilator
-    // masks the index so buf_mem[18..21] clobber tx_mem[0..3]. The shadow
-    // model below predicts the masked behaviour exactly.
-    begin : crv_phase
-      int n_good = 0, n_badcrc = 0, n_badstp = 0, n_badend = 0, n_long = 0, n_zlen = 0;
-      int lenb, dlen, edat, enf, ftype, nf, wt, ecount;
-      logic [7:0] sh_buf [0:23];   // model of dut.buf_mem (RX store port)
-      logic [7:0] exp_mem [0:15];  // predicted dut.tx_mem after rx_done
-      logic [7:0] fbytes [0:31];
-      logic [7:0] rcv    [0:31];
-      logic [7:0] shv;
-      logic [31:0] c32, ce;
-      logic        rb;
-      for (int i = 0; i < 24; i++) sh_buf[i] = 8'h00;
-      ecount = errors;
-      repeat (400) @(posedge clk);          // settle after directed phase
-      for (int t = 0; t < 127; t++) begin
-        // ---- frame class selection ----
-        if (t < 100) begin
-          ftype = 0;                              // good frame
-          lenb  = 8 + $urandom_range(0, 8);       // v2.5.1: full LEN 8..16
-                                                  // (LEN=8 overrun fixed, W6-3)
-          if (t == 10) lenb = 8;                  // deterministic LEN=8 lock
-        end else if (t < 102) begin
-          ftype = 2;                              // bad STP -> echo anyway
-          lenb  = 8 + $urandom_range(0, 8);
-        end else if (t < 110) begin
-          ftype = 1;                              // bad CRC -> no echo
-          lenb  = 8 + $urandom_range(0, 8);
-        end else if (t < 122) begin
-          ftype = 1;                              // long frames, bad CRC
-          lenb  = 17 + ((t - 110) % 2);           // LEN 17 / 18 (buf_mem[22:23])
-        end else if (t < 124) begin
-          ftype = 3;                              // bad END -> no echo
-          lenb  = 8 + $urandom_range(0, 8);
-        end else begin
-          ftype = 5;                              // LEN byte with bits[7:6]
-          lenb  = (t == 124) ? 8'h40 : (t == 125) ? 8'h80 : 8'hC0;  // len_q=0
-        end
-        dlen = lenb & 8'h3F;                      // len_q the DUT extracts
-        // ---- content ----
-        for (int i = 0; i < 25; i++) fbytes[i] = 8'h00;
-        for (int i = 0; i < dlen; i++)
-          fbytes[2+i] = $urandom_range(0, 255);
-        if (ftype == 0 && t % 17 == 0)
-          for (int i = 0; i < dlen; i++) fbytes[2+i] = 8'h00;     // all-zero
-        if (ftype == 0 && t % 19 == 0)
-          for (int i = 0; i < dlen; i++) fbytes[2+i] = 8'hFF;     // all-one
-        fbytes[0] = (ftype == 2) ? (STP ^ 8'hA5) : STP;
-        fbytes[1] = lenb[7:0];
-        c32 = 32'hFFFFFFFF;
-        for (int i = 0; i < dlen; i++)
-          for (int j = 0; j < 8; j++) c32 = crc32(c32, fbytes[2+i][j]);
-        c32 = ~c32;
-        if (ftype == 1) c32 = c32 ^ 32'h0000_0001;                // corrupt
-        for (int k = 0; k < 4; k++) fbytes[2+dlen+k] = (c32 >> (8*k)) & 8'hFF;
-        fbytes[dlen+6] = (ftype == 3) ? (END_B ^ 8'hFF) : END_B;
-        nf = dlen + 7;
-        // ---- send (clock-counted bit cells: 40 clks/bit, no #delays) ----
-        host_oe = 1; host_val = 1'b0; repeat (40) @(posedge clk); // start bit
-        for (int i = 0; i < nf; i++) begin
-          shv = fbytes[i];
-          for (int j = 0; j < 8; j++) begin
-            host_val = shv[0]; shv = {1'b0, shv[7:1]};
-            repeat (40) @(posedge clk);
-          end
-        end
-        host_oe = 0;
-        // ---- shadow buf_mem update (DUT stores every received byte) ----
-        sh_buf[1] = lenb[7:0];
-        for (int i = 0; i < dlen + 4; i++) sh_buf[2+i] = fbytes[2+i];
-        if (ftype == 0) n_good++;
-        else if (ftype == 1) begin n_badcrc++; if (dlen > 16) n_long++; end
-        else if (ftype == 2) n_badstp++;
-        else if (ftype == 3) n_badend++;
-        else n_zlen++;
-        if (ftype == 0 || ftype == 2 || ftype == 5) begin
-          // ---- predict tx_mem after rx_done ----
-          // v2.5.1 FIXED: exact copy, no OOB-mask clobber of tx_mem[0..3]
-          for (int k = 0; k < 16; k++) exp_mem[k] = sh_buf[k+2];
-          // echo data length: v2.5.1 -- LEN=8 now sends 0 payload bytes
-          // (W6-3 fixed); len_q==0 still sends tx_mem[8..15] after the
-          // 8 HDR bytes (16 data bytes)
-          edat = (dlen == 0) ? 16 : dlen;
-          enf  = edat + 7;
-          ce = 32'hFFFFFFFF;
-          for (int i = 0; i < edat; i++)
-            for (int j = 0; j < 8; j++) ce = crc32(ce, exp_mem[i][j]);
-          ce = ~ce;
-          // ---- receive echo (bounded wait + center sampling) ----
-          wt = 0;
-          while (tx !== 1'b0 && wt < 20000) begin @(posedge clk); wt++; end
-          if (wt >= 20000) begin
-            errors++;
-            $display("ERROR: CRV echo timeout t=%0d tstate=%0d ta_cnt=%0d",
-                     t, dut_tstate, dut.ta_cnt);
-          end else begin
-            repeat (59) @(posedge clk); @(negedge clk);   // center of bit0
-            for (int i = 0; i < enf; i++) begin
-              rcv[i] = 8'h00;
-              for (int j = 0; j < 8; j++) begin
-                rb = tx; rcv[i] = {rb, rcv[i][7:1]};
-                if (!(i == enf-1 && j == 7)) begin
-                  // exactly one 40-clk bit cell: 40 posedges + negedge from
-                  // a negedge reference (39 would drift -0.5 clk per bit)
-                  repeat (40) @(posedge clk); @(negedge clk);
-                end
-              end
-            end
-            // rcv[0]: v2.5.1 FIXED (was W6-2) — T_IDLE now loads tx_shift
-            // with STP, so the first wire byte is STP, not the stale shift
-            // register (was deterministically 8'h00).
-            if (rcv[0] !== STP || rcv[1] !== dlen[7:0] ||
-                rcv[enf-1] !== END_B) begin
-              errors++;
-              $display("ERROR: CRV echo frame t=%0d stp=%h len=%h(exp=%0d) end=%h",
-                       t, rcv[0], rcv[1], dlen, rcv[enf-1]);
-            end
-            for (int i = 0; i < edat; i++) begin
-              if (rcv[2+i] !== exp_mem[i]) begin
-                errors++;
-                $display("ERROR: CRV echo data t=%0d i=%0d got=%h exp=%h",
-                         t, i, rcv[2+i], exp_mem[i]);
-              end
-            end
-            for (int k = 0; k < 4; k++) begin
-              if (rcv[2+edat+k] !== ((ce >> (8*k)) & 8'hFF)) begin
-                errors++;
-                $display("ERROR: CRV echo crc t=%0d k=%0d got=%h",
-                         t, k, rcv[2+edat+k]);
-              end
-            end
-          end
-          if (ftype == 2 && dut.rx_err !== 1'b1) begin
-            // proves the STP-mismatch arm executed (line-cov artifact region)
-            errors++;
-            $display("ERROR: CRV rx_err not set after bad STP t=%0d", t);
-          end
-          repeat (200) @(posedge clk);            // inter-frame gap
-        end else begin
-          // no echo: verify the sticky rx_err flag is raised
-          repeat (400) @(posedge clk);
-          if (dut.rx_err !== 1'b1) begin
-            errors++;
-            $display("ERROR: CRV rx_err not set t=%0d ftype=%0d", t, ftype);
-          end
-        end
-      end
-      $display("CRV: 127 frames (good=%0d bad_stp=%0d bad_crc=%0d long=%0d bad_end=%0d zero_len=%0d) shadow-err+=%0d",
-               n_good, n_badstp, n_badcrc, n_long, n_badend, n_zlen, errors - ecount);
-    end
-`endif
+    // ---- BFM in B's place
+    bfm = 1;
+    b_part();
+    bfm = 0;
+    en = 0;
+    // a reset with traffic in flight
+    open_pdc(16'h0F0F, 16'hF0F0);
+    wen[0] = 1; wen[1] = 1;
+    wait_clk(700);
+    wen[0] = 0; wen[1] = 0;
+    rst_n = 0;
+    wait_clk(3);
+    ch_clear(); dn[0] = 0; dn[1] = 0; x_clear(); wact[0] = 0; wact[1] = 0; wpos[0] = 0; wpos[1] = 0;
+    tx_valid = 0;
+    rst_n = 1;
+    wait_clk(3);
+    en = 0;
+    wait_clk(3);
+    open_pdc(16'h0001, 16'h0002);
+    traffic(1500, "after reset");
 
-    if (errors == 0) $display("TEST PASSED: UEC");
-    else             $display("TEST FAILED: %0d errors", errors);
-`ifdef VERILATOR
-    begin
-      int visited;
-      visited = 0;
-      for (int s = 0; s < 4; s++) visited += fsm_seen_t[s];
-      for (int s = 0; s < 2; s++) visited += fsm_seen_r[s];
-      $display("FSM_COV: %0d/%0d", visited, UEC_FSM_TOTAL);
-      $display("SVA_CHECKS: %0d/%0d", sva_total - sva_fail, sva_total);
-    end
-`endif
+    if (errors == 0) $display("TEST PASSED: UEC (%0d / %0d packets; rto %0d nack %0d dup %0d nobuf %0d proto %0d)",
+                              nrx[0], nrx[1], n_ev[0], n_ev[1], n_ev[2], n_ev[3], n_ev[4]);
+    else $display("TEST FAILED: UEC (%0d errors)", errors);
     $finish;
   end
 
-`ifdef VERILATOR
-  // chunked timeout guard: a single long-pending #delay event corrupts the
-  // 5.006 --timing delay heap once many short-delay resumptions interleave;
-  // chunked delays keep all heap entries short-lived (see docs/COVERAGE.md)
+  // ---- A against the BFM
+  task automatic b_part;
+    logic [15:0] r, s;
+    r = 16'hABCD;                                 // PSNs the BFM sends
+    s = 16'h4321;                                 // PSNs A sends
+    spt[0] = s; spr[0] = r;
+    a_base = s; a_pk.delete(); a_psn.delete();
+    wait_clk(2);
+    en[0] = 1;
+    // receive: in order, a gap, the gap filled, duplicates (in and behind
+    // the window), past the window
+    bdata(r, 5);
+    bwait(); wait_clk(10);
+    if (a_cack != r || a_sack != 0) fail($sformatf("ACK %h %b after PSN %h", a_cack, a_sack, r));
+    bdata(r + 2, MAXP);
+    bdata(r + 3, 1);
+    bwait(); wait_clk(10);
+    if (a_cack != r || a_sack != 8'b011) fail($sformatf("ACK %h %b with a gap", a_cack, a_sack));
+    bdata(r + 3, 4, 0);
+    bdata(r, 4, 0);
+    bdata(r + 1, 7);
+    bwait(); wait_clk(10);
+    if (a_cack != r + 3 || a_sack != 0) fail($sformatf("ACK %h %b with the gap filled", a_cack, a_sack));
+    bdata(r + 4 + W, 3, 0);                      // past the window
+    bdata(r + 4 + W - 1, 3);                     // the window's last
+    bwait(); wait_clk(10);
+    if (a_cack != r + 3 || a_sack != 8'b100) fail($sformatf("ACK %h %b, window's last", a_cack, a_sack));
+    for (int i = 0; i < W - 1; i++) bdata(r + 4 + i, 2);
+    bwait(); wait_clk(30);
+    if (a_cack != r + 3 + W) fail($sformatf("ACK %h, window filled", a_cack));
+    r = r + 4 + W;
+    // no buffer: the reader stopped; NACK for the first one dropped
+    rdy_pct[0] = 0;
+    wait_clk(40);
+    bdata(r, 3);
+    bdata(r + 1, 3);
+    bdata(r + 2, 3, 0);
+    bwait(); wait_clk(10);
+    if (a_nack != r + 2) fail($sformatf("NACK %h, expected %h", a_nack, r + 2));
+    bdata(r + 3, 3, 0);
+    bwait(); wait_clk(10);
+    if (a_nack != r + 3) fail($sformatf("NACK %h, expected %h", a_nack, r + 3));
+    rdy_pct[0] = 100;
+    wait_clk(50);
+    bdata(r + 3, 3);
+    bdata(r + 2, 3);
+    bwait(); wait_clk(10);
+    if (a_cack != r + 3) fail($sformatf("ACK %h after the NACKed ones", a_cack));
+    r = r + 4;
+    // frame errors: type, lengths, LEN 0 / over MAXP / mismatch, a long frame
+    b_bytes(4, 8'h40);
+    b_bytes(4, 8'hFF);
+    bdata(r, 3, 0, 255);
+    b_bytes(1, 8'h10);
+    b_bytes(3, 8'h20);
+    b_bytes(5, 8'h20);
+    b_bytes(2, 8'h30);
+    b_bytes(4, 8'h30);
+    bdata(r, 0, 0);
+    bdata(r, 3, 0, MAXP + 1);
+    bdata(r, 3, 0, 4);
+    bdata(r, 5, 0, 4);
+    b_bytes(40, 8'h10);
+    bq.push_back({1'b0, 8'h10}); bq.push_back({1'b0, r[15:8]}); bq.push_back({1'b0, r[7:0]});
+    bq.push_back({1'b0, 8'(MAXP + 1)});
+    b_bytes(MAXP + 1, 8'h00);                    // LEN over MAXP, length matching
+    // 40 bytes, the last 8 a DATA frame of LEN 4: the byte count saturates,
+    // so they are not taken as a frame of their own
+    for (int i = 0; i < 32; i++) bq.push_back({1'b0, i == 0 ? 8'h10 : 8'($urandom)});
+    bq.push_back({1'b0, 8'h10}); bq.push_back({1'b0, r[15:8]}); bq.push_back({1'b0, r[7:0]});
+    bq.push_back({1'b0, 8'd4});
+    for (int i = 0; i < 4; i++) bq.push_back({i == 3, 8'($urandom)});
+    b_gap = 30;
+    bdata(r, 6);                                 // with gaps: still good
+    bwait();
+    b_gap = 0;
+    wait_clk(10);
+    if (a_cack != r) fail("ACK after the frame errors");
+    r = r + 1;
+
+    // send: A's packets, ACKed one by one, then a window with no ACK
+    // (timeout), NACK, SACK, late and bad ACKs / NACKs
+    a_write(3);
+    a_expect(s);
+    back(s);
+    bwait();
+    for (int i = 0; i < W; i++) a_write(1 + $urandom % MAXP);
+    bg_n = 2;                                    // waits for room
+    for (int i = 1; i <= W; i++) a_expect(s + 16'(i));
+    a_expect(s + 1, 2 * RTO);                    // timeout: all again
+    for (int i = 2; i <= W; i++) a_expect(s + 16'(i));
+    bnack(s + 3);
+    a_expect(s + 3);
+    back(s, 8'b010);                             // SACK: s + 3 only (s + 2 + 1)
+    bnack(s + 3);                                // acknowledged, not yet out of the window
+    back(s - 5);                                 // late
+    bnack(s - 1);                                // late
+    bnack(s + W + 3);                            // not sent: proto
+    back(s + W + 3);                             // past what was sent: proto
+    bwait();
+    back(s + 1, 8'b001);                         // s + 1, s + 3 (s + 1 + 2)
+    bwait();
+    a_expect(s + 5, 400);                        // the waiting one, now in the window
+    back(s + 5);
+    bwait();
+    wait_clk(20);
+    if (outst[0] != 0) fail($sformatf("A: %0d outstanding after the last ACK", outst[0]));
+    bnack(s + 5);                                // late (acknowledged)
+    bwait();
+    // a full window sent, then timed out; the first retransmission held on
+    // the wire: an ACK for it frees its buffer, which the host may not
+    // write until the frame is out; then, with the others marked, an ACK
+    // for all whose last byte comes as the transmitter picks the next
+    s = s + 6;
+    for (int i = 0; i < W; i++) a_write(1 + $urandom % MAXP);
+    for (int i = 0; i < W; i++) a_expect(s + 16'(i));
+    wait_clk(20);
+    ntr_force = 0; ntr[0] = 0;
+    begin : b_held
+      int k;
+      k = 0;
+      while (!ntv[0] && k < 2 * RTO) begin @(negedge clk); k++; end
+      if (!ntv[0] || ntd[0] != 8'h10) fail("A: no retransmission after the timeout");
+    end
+    bg_n = 5;
+    back(s);
+    bwait();
+    wait_clk(10);
+    while (!(ntv[0] && ntl[0])) begin
+      @(negedge clk);
+      ntr_force = ntv[0] && ntl[0] ? 0 : 1; ntr[0] = ntr_force[0];
+    end
+    bq.push_back({1'b0, 8'h20}); bq.push_back({1'b0, 8'(16'(s + 3) >> 8)});
+    bq.push_back({1'b0, 8'(s + 3)});
+    bwait();
+    @(negedge clk);
+    b_wait = 1; bq.push_back({1'b1, 8'h00});
+    ntr_force = 1; ntr[0] = 1;
+    bwait();
+    ntr_force = -1;
+    a_expect(s + 4, 400);
+    back(s + 4);
+    bwait();
+    wait_clk(20);
+    if (outst[0] != 0) fail($sformatf("A: %0d outstanding after the held retransmission", outst[0]));
+    // the wire held: one packet picked, two written but not sent; ACKs and
+    // NACKs for the unsent ones are bad, SACK bits for them do nothing
+    s = s + 5;
+    ntr_force = 0; ntr[0] = 0;
+    a_write(2); a_write(3); a_write(4);
+    wait_clk(5);
+    back(s + 2);
+    back(s - 1, 8'b011);
+    bnack(s + 1);
+    bwait();
+    wait_clk(5);
+    if (outst[0] != 3) fail($sformatf("A: %0d outstanding with the wire held", outst[0]));
+    ntr_force = -1;
+    for (int i = 0; i < 3; i++) a_expect(s + 16'(i));
+    back(s);
+    bwait();
+    wait_clk(10);
+    if (outst[0] != 2) fail($sformatf("A: %0d outstanding, the SACKed unsent ones must stay", outst[0]));
+    back(s + 2);
+    bwait();
+    wait_clk(20);
+    if (outst[0] != 0) fail($sformatf("A: %0d outstanding after the held packets", outst[0]));
+    // closed with a frame on the way out, a frame coming in and a gap in
+    // what was received
+    bdata(r + 1, 2);
+    bwait();
+    a_write(MAXP);
+    p_hold = 90;
+    bq.push_back({1'b0, 8'h10}); bq.push_back({1'b0, 8'h00}); bq.push_back({1'b0, 8'h00});
+    wait_clk(8);
+    en[0] = 0;
+    wait_clk(3);
+    p_hold = 0;
+    x_clear();
+    bq.delete();
+    // opened again: nothing of the last PDC is left
+    r = 16'h5000;
+    spr[0] = r; spt[0] = 16'h0F00;
+    a_base = 16'h0F00; a_pk.delete(); a_psn.delete();
+    wait_clk(2);
+    en[0] = 1;
+    bdata(r + 1, 3);
+    bwait(); wait_clk(10);
+    if (a_cack != r - 1 || a_sack != 8'b001) fail($sformatf("ACK %h %b after reopening", a_cack, a_sack));
+    bdata(r, 2);
+    bwait(); wait_clk(10);
+    if (a_cack != r + 1) fail($sformatf("ACK %h after reopening", a_cack));
+    en[0] = 0;
+    wait_clk(3);
+    x_clear();
+  endtask
+
   initial begin
-    repeat (200000) #1000;   // 200 ms in 1-us chunks
-    $display("TIMEOUT"); $finish;
+    #30ms;
+    $display("A: outstanding %0d sbase %h | B: outstanding %0d", outst[0], g_end[0].u.sbase, outst[1]);
+    $display("TEST FAILED: UEC (timeout)");
+    $finish;
   end
-`else
-  initial begin #10_000_000; $display("TIMEOUT"); $finish; end
-`endif
 endmodule

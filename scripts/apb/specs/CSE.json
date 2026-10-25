@@ -1,0 +1,69 @@
+{
+  "title": "Crypto & Security Engine: AES-128 (FIPS-197) ECB encrypt and decrypt, key written as four words, one round per clock",
+  "code": "0x4345",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "KEY",
+      "kind": "bus",
+      "wen": "key_we",
+      "waddr": "key_widx",
+      "wdata": "key",
+      "words": [
+        {"name": "KEY0", "w": 0, "desc": "key bits [127:96] (write only; reset 0); a write while busy is refused (PROTOCOL)"},
+        {"name": "KEY1", "w": 1, "desc": "key bits [95:64] (write only; reset 0)"},
+        {"name": "KEY2", "w": 2, "desc": "key bits [63:32] (write only; reset 0)"},
+        {"name": "KEY3", "w": 3, "desc": "key bits [31:0] (write only; reset 0)"}
+      ]
+    },
+    {
+      "name": "DIN",
+      "kind": "rw",
+      "desc": "Input block",
+      "fields": [
+        {"port": "din", "reset": "0", "desc": "the 128-bit block taken by START (plaintext to encrypt, ciphertext to decrypt)"}
+      ]
+    },
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Operation",
+      "fields": [
+        {"port": "enc_dec", "reset": "1", "desc": "1: encrypt, 0: decrypt; taken by START"}
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands",
+      "fields": [
+        {"port": "start", "desc": "write 1: run one block with the current key, DIN and CTRL (21 clocks); refused while busy (PROTOCOL)"}
+      ]
+    },
+    {
+      "name": "DOUT",
+      "kind": "ro",
+      "desc": "Result",
+      "fields": [
+        {"port": "dout", "desc": "the 128-bit result of the last operation, valid from DONE"}
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Engine state",
+      "fields": [
+        {"port": "busy", "desc": "an operation is running (key expansion, then the rounds)"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "DONE", "port": "done", "desc": "an operation finished; DOUT holds the result"},
+    {"name": "PROTOCOL", "port": "irq", "desc": "START or a KEY write while busy (refused)"}
+  ],
+  "notes": [
+    "Wide values are little-endian across words: DIN0 and DOUT0 hold bits [31:0], DIN3 and DOUT3 bits [127:96]. The key is the other way round: KEY0 holds bits [127:96], as the core takes it.",
+    "The key words are write only (the core keeps no read path to them) and take whole words: a KEY write with PSTRB != 4'hF gets PSLVERR and is dropped."
+  ]
+}

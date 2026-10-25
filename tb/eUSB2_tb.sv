@@ -243,6 +243,81 @@ module eUSB2_tb;
     end
   endtask
 
+  // read request with a stretched EOP (squelch fires during the response)
+  task automatic read_req_long_eop(input logic [2:0] addr, input int se0);
+    logic [7:0] cmd;
+    begin
+      cmd = {1'b1, addr, 4'b0000};
+      send_sync;
+      send_byte(8'hC3);
+      send_byte(cmd);
+      send_byte(crc8_b(8'hFF, cmd));
+      repeat (se0) drive(1'b0, 1'b0);
+      drive(1'b1, 1'b0);
+      tb_cur = 1'b1; ones_tb = 0;
+    end
+  endtask
+
+  task automatic expect_irq_clear(input string what);
+    begin
+      if (irq !== 1'b1) begin errors++; $display("ERROR: %s: no irq", what); end
+      rst_n = 0; repeat (2) drive(1'b1, 1'b0); rst_n = 1; repeat (2) drive(1'b1, 1'b0);
+    end
+  endtask
+
+  task automatic extra_tests;
+    logic [7:0] cmd;
+    begin
+      rst_n = 0; repeat (2) drive(1'b1, 1'b0); rst_n = 1; repeat (3) drive(1'b1, 1'b0);
+      // long sync (9 zeros before the 1)
+      cmd = {1'b0, 3'd2, 4'b0000};
+      repeat (9) send_bit(1'b0); send_bit(1'b1); ones_tb = 0;
+      send_byte(8'hC3); send_byte(cmd); send_byte(8'h67);
+      send_byte(crc8_b(crc8_b(8'hFF, cmd), 8'h67)); send_eop;
+      repeat (3) drive(1'b1, 1'b0);
+      // response whose CRC ends in six 1s: stuffed bit before the EOP
+      ctrl_read(3'd2, 8'h67);
+      // runt packet: sync + 3 bits, no irq
+      send_sync; send_bit(1'b0); send_bit(1'b1); send_bit(1'b0); send_eop;
+      repeat (3) drive(1'b1, 1'b0);
+      if (irq !== 1'b0) begin errors++; $display("ERROR: runt packet raised irq"); end
+      // over-long write: ignored, irq
+      cmd = {1'b0, 3'd3, 4'b0000};
+      send_sync; send_byte(8'hC3); send_byte(cmd); send_byte(8'h11);
+      // the extra byte repeats the CRC, so only the length check catches it
+      send_byte(crc8_b(crc8_b(8'hFF, cmd), 8'h11)); send_byte(crc8_b(crc8_b(8'hFF, cmd), 8'h11)); send_eop;
+      repeat (3) drive(1'b1, 1'b0);
+      expect_irq_clear("over-long write");
+      ctrl_read(3'd3, 8'h00);
+      // over-long read: no response, irq
+      cmd = {1'b1, 3'd3, 4'b0000};
+      send_sync; send_byte(8'hC3); send_byte(cmd); send_byte(crc8_b(8'hFF, cmd));
+      send_byte(crc8_b(8'hFF, cmd)); send_eop;
+      repeat (50) drive(1'b1, 1'b0);
+      expect_irq_clear("over-long read");
+      // a read queued behind a response, and traffic received meanwhile
+      ctrl_write(3'd5, 8'hC4, 1'b0);
+      ctrl_read_req(3'd2);
+      ctrl_read_req(3'd5);
+      send_data_frame;
+      repeat (120) drive(1'b1, 1'b0);
+      // squelch during a response
+      read_req_long_eop(3'd5, 20);
+      repeat (60) drive(1'b1, 1'b0);
+      // se0 counter saturates
+      repeat (300) drive(1'b0, 1'b0);
+      repeat (3) drive(1'b1, 1'b0);
+      // every register bit back to 0
+      for (int a = 0; a < 8; a++) ctrl_write(3'(a), 8'h00, 1'b0);
+      for (int a = 0; a < 8; a++) ctrl_read(3'(a), 8'h00);
+      // reset during a response
+      ctrl_read_req(3'd1);
+      repeat (15) drive(1'b1, 1'b0);
+      rst_n = 0; repeat (2) drive(1'b1, 1'b0); rst_n = 1; repeat (3) drive(1'b1, 1'b0);
+      if (irq !== 1'b0 || squelch !== 1'b0) begin errors++; $display("ERROR: reset during response"); end
+    end
+  endtask
+
   // non-control USB2 data frame (content irrelevant; retime-checked)
   task automatic send_data_frame;
     begin
@@ -581,6 +656,9 @@ module eUSB2_tb;
                n_wr, n_bad, n_tr, n_dat, n_stf, n_se1, n_sq, n_rd);
     end
 `endif
+    // ---- coverage-closure scenarios (both simulators) ---------------
+    extra_tests;
+
     // ---- summary -----------------------------------------------------
     if (errors == 0)
       $display("TEST PASSED: eUSB2");

@@ -1,0 +1,48 @@
+{
+  "title": "FlexRay 3.0.1 communication controller (single channel, static segment)",
+  "code": "0x4652",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "200ms",
+  "regs": [
+    {"name": "CFG", "kind": "rw", "desc": "Cluster and node configuration (static while the cluster runs)",
+     "fields": [{"port": "cfg_spc", "reset": "0", "desc": "clocks per sample - 1; a bit is 8 samples (0: 8 clocks per bit, 10 Mbit/s at 80 MHz)"},
+                {"port": "cfg_tss", "reset": "5", "desc": "transmission start sequence length in bits (3..15)"},
+                {"port": "cfg_slot", "reset": "120", "desc": "static slot length in bits"},
+                {"port": "cfg_ap", "reset": "12", "desc": "action point offset in bits"},
+                {"port": "cfg_nslots", "reset": "8", "desc": "static slots per cycle (1..63)"},
+                {"port": "cfg_nit", "reset": "30", "desc": "network idle time in bits"},
+                {"port": "cfg_plen", "reset": "0", "desc": "payload length of own frames in 2-byte words"},
+                {"port": "cfg_my_slot", "reset": "0", "desc": "own static slot, 0 = listen only"},
+                {"port": "cfg_sync", "reset": "0", "desc": "own frames are sync frames"},
+                {"port": "cfg_cold", "reset": "0", "desc": "coldstart node: runs its own schedule and is the time master"},
+                {"port": "cfg_chan_b", "reset": "0", "desc": "frame CRC initial value of channel B"},
+                {"port": "cfg_corr", "reset": "64", "desc": "largest accepted offset correction in clocks"}]},
+    {"name": "TX", "kind": "stream_in", "data": "tx_data", "valid": "tx_valid", "ready": "tx_ready",
+     "desc": "Payload for the next own frame; writing TX3 commits it. With nothing queued the node sends a null frame",
+     "fdesc": {"tx_data": "payload bytes, byte 0 in bits 7:0 (sent first); bytes beyond 2 x CFG.cfg_plen are not sent"}},
+    {"name": "RX", "kind": "stream_out", "data": ["rx_data", "rx_id", "rx_cycle", "rx_len", "rx_null", "rx_sync", "rx_startup"],
+     "valid": "rx_valid",
+     "desc": "Valid frame received in its slot (null frames included); reading RX4 frees it",
+     "fdesc": {"rx_data": "first 16 payload bytes, byte 0 in bits 7:0", "rx_id": "frame ID (= slot)",
+               "rx_cycle": "cycle count", "rx_len": "payload length in words", "rx_null": "1 = null frame",
+               "rx_sync": "sync frame indicator", "rx_startup": "startup frame indicator"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Synchronisation state and position in the cycle",
+     "fields": [{"port": "synced", "desc": "1 = synchronised to the cluster"},
+                {"port": "cycle", "desc": "cycle count"},
+                {"port": "slot", "desc": "current static slot, 0 = network idle time"}]}
+  ],
+  "irqs": [
+    {"name": "CYCLE", "port": "cycle_start", "desc": "a new communication cycle started"},
+    {"name": "SENT", "port": "tx_done", "desc": "a frame carrying the queued TX payload was sent"},
+    {"name": "ERR_CODING", "port": "err_coding", "desc": "coding error (TSS, BSS or FES)"},
+    {"name": "ERR_HCRC", "port": "err_hcrc", "desc": "header CRC error"},
+    {"name": "ERR_FCRC", "port": "err_fcrc", "desc": "frame CRC error"},
+    {"name": "ERR_SLOT", "port": "err_slot", "desc": "frame ID or cycle count does not match the slot"},
+    {"name": "ERR_SYNC", "port": "err_sync", "desc": "synchronisation lost: offset correction beyond CFG.cfg_corr, or a cycle without a sync frame"}
+  ],
+  "notes": [
+    "txd / tx_en drive the bus transceiver, rxd is its receive output.",
+    "Change CFG only while the cluster is stopped (all nodes in reset or not yet synchronised)."
+  ]
+}

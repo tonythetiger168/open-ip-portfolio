@@ -1,0 +1,1 @@
+TOGGLE \.d_opcode\[[12]\]: # constant 0: TL-UL slave only answers AccessAck (0) or AccessAckData (1)

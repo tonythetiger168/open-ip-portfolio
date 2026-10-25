@@ -1,0 +1,1 @@
+LINE \| default: cs <= S_IDLE;            // unused encodings # defensive recovery for the 3 unused encodings of the 5-state 3-bit FSM; unreachable

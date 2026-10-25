@@ -23,23 +23,33 @@ module _1_Wire_top #(
     else begin dq_s <= dq; dq_d <= dq_s; end
   end
   wire dq_fall = dq_d & ~dq_s;
-  wire dq_rise = ~dq_d & dq_s;
 
   typedef enum logic [2:0] {
     ST_IDLE, ST_RESET_CNT, ST_RESET_REL, ST_PRESENCE,
     ST_WAIT_SLOT, ST_W_SAMPLE, ST_R_DRIVE, ST_TX_BYTE
   } st_t;
-  st_t        state;
-  logic [15:0] timer;
-  logic [2:0]  bit_cnt;
-  logic [7:0]  rx_shift, tx_shift;
-  logic [15:0] low_cnt;   // v2.5.1: continuous bus-low watchdog
-  // v2.5.1 fix: a reset pulse (>480us low) must be recognized from ANY
-  // state (real 1-Wire slave behaviour), not only from ST_IDLE
-  wire reset_det = (low_cnt > 16'd480*US);
+  // slot timing (us): presence waits tPDH then drives tPDL; write slots are
+  // sampled in the middle of the 15..60us window; read 0 is held 40us
+  localparam int T_RST  = 480 * US;
+  localparam int T_PDH  = 15 * US;
+  localparam int T_PDL  = 120 * US;
+  localparam int T_WS   = 30 * US;
+  localparam int T_RD   = 40 * US;
+  localparam int TW     = $clog2(T_RST + 2);
 
-  assign dq     = (state == ST_PRESENCE || (state == ST_R_DRIVE && !tx_shift[0]))
-                  ? 1'b0 : 1'bz;
+  st_t         state;
+  logic [TW-1:0] timer;
+  logic [2:0]  bit_cnt;
+  logic [6:0]  rx_shift;               // first 7 bits of the byte (LSB first)
+  logic [7:0]  tx_shift;
+  logic [TW-1:0] low_cnt; // continuous bus-low watchdog (saturating)
+  // a reset pulse (>480us low) is recognized from ANY state (real 1-Wire
+  // slave behaviour), not only from ST_IDLE
+  wire reset_det = (low_cnt > TW'(T_RST));
+
+  wire pres_drive = (state == ST_PRESENCE) && (timer >= TW'(T_PDH));
+  wire drv_low    = pres_drive || (state == ST_R_DRIVE && !tx_shift[0]);
+  assign dq     = drv_low ? 1'b0 : 1'bz;
   assign busy   = (state != ST_IDLE);
   assign irq    = rx_valid;
 
@@ -50,10 +60,10 @@ module _1_Wire_top #(
       tx_shift <= '0; low_cnt <= '0;
     end else begin
       rx_valid <= 1'b0;
-      // v2.5.1 fix: track continuous bus-low time in every state
-      // (wrap at 16'hFFFF is harmless: reset_det trips at 4800 clks)
-      if (dq_s) low_cnt <= '0;
-      else low_cnt <= low_cnt + 1'b1;
+      // track continuous bus-low time in every state (saturates just past
+      // the reset threshold)
+      if (dq_s)            low_cnt <= '0;
+      else if (!reset_det) low_cnt <= low_cnt + 1'b1;
       if (reset_det && (state == ST_WAIT_SLOT || state == ST_W_SAMPLE ||
                         state == ST_TX_BYTE   || state == ST_R_DRIVE)) begin
         // reset pulse arriving mid-transaction: abandon the current slot
@@ -67,7 +77,7 @@ module _1_Wire_top #(
         ST_RESET_CNT: begin
           if (dq_s) begin
             state <= ST_IDLE;                    // glitch: back to idle
-          end else if (timer > 16'd480*US) begin
+          end else if (timer > TW'(T_RST)) begin
             state <= ST_RESET_REL;
           end else timer <= timer + 1'b1;
         end
@@ -75,19 +85,19 @@ module _1_Wire_top #(
           state <= ST_PRESENCE; timer <= '0;     // bus released: answer
         end
         ST_PRESENCE: begin
-          if (timer > 16'd120*US) begin
+          if (timer >= TW'(T_PDH + T_PDL)) begin
             state <= ST_WAIT_SLOT; bit_cnt <= '0;
           end else timer <= timer + 1'b1;
         end
-        // write slot: master pulls low; sample at ~15us (0=held, 1=released)
+        // write slot: master pulls low; sample at 30us (0=held, 1=released)
         ST_WAIT_SLOT: if (dq_fall) begin
           state <= ST_W_SAMPLE; timer <= '0;
         end
         ST_W_SAMPLE: begin
-          if (timer == 16'd15*US) begin
-            rx_shift <= {dq_s, rx_shift[7:1]};   // LSB-first assembly
+          if (timer == TW'(T_WS)) begin
+            rx_shift <= {dq_s, rx_shift[6:1]};   // LSB-first assembly
             if (bit_cnt == 3'd7) begin
-              rx_byte  <= {dq_s, rx_shift[7:1]};
+              rx_byte  <= {dq_s, rx_shift};
               rx_valid <= 1'b1;
               bit_cnt  <= '0;
               tx_shift <= tx_byte;               // arm read phase
@@ -103,7 +113,7 @@ module _1_Wire_top #(
           state <= ST_R_DRIVE; timer <= '0;
         end
         ST_R_DRIVE: begin
-          if (timer > 16'd40*US) begin
+          if (timer > TW'(T_RD)) begin
             if (bit_cnt == 3'd7) begin
               bit_cnt <= '0;
               state   <= ST_WAIT_SLOT;           // done: expect next command
@@ -114,7 +124,6 @@ module _1_Wire_top #(
             end
           end else timer <= timer + 1'b1;
         end
-        default: state <= ST_IDLE;
       endcase
     end
   end

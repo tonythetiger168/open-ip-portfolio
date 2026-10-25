@@ -9,8 +9,9 @@ flows (Icarus Verilog simulation + Yosys synthesis).
 > compact, readable implementation of the protocol's core transaction flow —
 > not a full-spec, production-hardened controller. Some catalog entries are
 > **parameterized variants of a shared core** rather than independent
-> implementations (e.g. DDR4/DDR5/HBM3 are timing-parameter shells over the
-> common `MEMCH` memory-controller core). 117 catalog entries = 81 distinct
+> implementations (e.g. DDR4/DDR5/HBM3 each carry their own copy of one
+> memory-controller design, with their own timing and channel count; the old
+> shared `MEMCH` / `MEMCORE` cores are no longer used by any IP). 117 catalog entries = 81 distinct
 > cores + 36 shared-core variants, itemized
 > [below](#design-organization-cores-vs-variants).
 
@@ -223,10 +224,13 @@ setup_tools.sh           installs iverilog / yosys if missing
 
 ## Design organization: cores vs. variants
 
-The catalog has **117 entries** but **81 distinct RTL cores**. 36 entries are
+The catalog has **121 entries** but **97 distinct RTL cores**. 29 entries are
 parameter shells or rename-siblings over a shared core (verified by
 statement-level diff: siblings differ only in the module name, header
-comment, and timing parameters). Their verification is still real — each
+comment, and timing parameters; re-verified 2026-09-28 by byte-level
+clustering of all 119 rtl/ files; updated 2026-10-02 for v2.6 -- the 20
+memory entries are now 20 independent designs and 4 standalone Lite cores
+(DDR4_Lite, LPDDR5X_Lite, HBM3E_Lite, GDDR7_Lite) were added. Their verification is still real — each
 variant has its own testbench, its own `make` target, and its own coverage
 closure — but the *logic* is shared, so a bug in a shared core affects the
 whole family (as happened with the v2.5.1 echo-copy fix, which touched 11
@@ -234,17 +238,16 @@ variants of one template).
 
 | Shared core | Variants in catalog | Count |
 |---|---|---|
-| `MEMCH_top` + `MEMCORE_top` (multi-channel memory controller) | DDR, DDR4, DDR5, DDR6, DDR7, GDDR5, GDDR6, GDDR7, HBM, HBM2, HBM3, HBM3E, HBM4, HBM5, LPDDR, LPDDR4, LPDDR5, LPDDR5X, LPDDR6, LPDDR7 | 20 → 1 |
+| memory family (20 independent IPs) | DDR, DDR4, DDR5, DDR6, DDR7, LPDDR, LPDDR4, LPDDR5, LPDDR5X, LPDDR6, LPDDR7, GDDR5, GDDR6, GDDR7, HBM, HBM2, HBM3, HBM3E, HBM4, HBM5 | 20 → 20 |
 | `CXL_top` (echo/TLP template) | CXL, PCIe, UEC, Interlaken v1.2, JESD204C | 5 → 1 |
-| `RFFE_top` (2-wire serial register IF) | RFFE, DigRF, MIPI SLIMbus, MIPI SoundWire, MIPI DBI | 5 → 1 |
-| `CHI_top` (credit-based flit link) | CHI, CCIX, CXS, ARM LTI | 4 → 1 |
-| `NVMe_top` (echo template) | NVMe, FC, Ethernet | 3 → 1 |
-| `CAN_top` (frame/CRC template) | CAN, FlexRay, LIN | 3 → 1 |
-| `UALink_top` | UALink, UCIe | 2 → 1 |
-| `USB3_2_top` | USB 3.2, USB4 | 2 → 1 |
-| **Total** | | **44 → 8** |
+| `RFFE_top` (2-wire serial register IF) | RFFE, DigRF, HSI, MIPI SLIMbus, MIPI SoundWire, MIPI DBI | 6 → 1 |
+| `CHI_top` (credit-based flit link) | CHI, CCIX, CXS, UALink, UCIe, ARM LTI | 6 → 1 |
+| `NVMe_top` (echo template) | NVMe, FC, Ethernet, ONFI, USB4; USB 3.2 is the same template with different STP/END_B constants | 6 → 1 |
+| `CAN_top` (frame/CRC template) | CAN, Ethernet AVB/TSN, FlexRay, LIN | 4 → 1 |
+| `UART_top` (8N1 UART) | UART, ARM SWD | 2 → 1 |
+| **Total** | | **29 → 5** |
 
-The remaining **73 catalog entries are independent implementations** (117 − 44 = 73; 73 + 8 shared cores = 81 distinct designs).
+The remaining **92 catalog entries are independent implementations** (121 − 29 = 92; 92 + 5 shared cores = 97 distinct designs).
 
 Note the distinction from *same-family different implementations*, which are
 **not** counted as clones: e.g. `RFFE` vs `MIPI_RFFE`, `SPMI` vs `MIPI_SPMI`,
@@ -268,7 +271,16 @@ for m in Makefile.*; do make -f $m sim; done
 unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
 ```
 
-## Verification status (v2.5.1)
+## Verification status
+
+- **Five-metric closure (Verilator 5.052):** every IP's testbench reaches
+  100% line, toggle, FSM, SVA and functional coverage, and so does every
+  IP's APB4 register wrapper (`rtl/<P>_apb.sv`, register map in
+  `docs/ip/<P>.md`): 121 cores and 121 wrappers, 242/242 closed. Results,
+  exclusions and how to run: [docs/COVERAGE_CLOSURE.md](docs/COVERAGE_CLOSURE.md).
+  The v2.5.1 numbers below are the earlier four-metric flow.
+
+### Earlier four-metric flow (v2.5.1)
 
 - Constrained-random verification: **117/117 protocols closed** on all
   four coverage metrics (LINE / TOGGLE / FSM / SVA-subset assertions);

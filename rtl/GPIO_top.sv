@@ -27,7 +27,10 @@ module GPIO_top (
     end
   end
 
-  assign gpio  = gpio_oe ? out_q : 8'hzz;
+  // per-pin output enable: only pins with gpio_oe[i] set are driven
+  for (genvar i = 0; i < 8; i++) begin : g_pin
+    assign gpio[i] = gpio_oe[i] ? out_q[i] : 1'bz;
+  end
   assign rdata = (raddr == 4'd0) ? in_q :
                  (raddr == 4'd1) ? out_q : 8'h00;
   assign irq   = |in_q;

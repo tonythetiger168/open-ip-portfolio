@@ -58,7 +58,7 @@ module AXI4_Lite_top #(
   wstate_t wstate;
 
   logic [AW-1:0] waddr_q;
-  logic [1:0]    werr_q;
+  logic          werr_q;    // SLVERR pending for the write response
 
   wire aw_accept = awvalid && awready;
   wire w_accept  = wvalid  && wready;
@@ -68,19 +68,19 @@ module AXI4_Lite_top #(
     if (!rst_n) begin
       wstate  <= W_IDLE;
       waddr_q <= '0;
-      werr_q  <= RESP_OKAY;
+      werr_q  <= 1'b0;
     end else begin
       case (wstate)
         W_IDLE: begin
           if (aw_accept) begin
             wstate  <= W_DATA;
             waddr_q <= awaddr;
-            werr_q  <= addr_in_range(awaddr) ? RESP_OKAY : RESP_SLVERR;
+            werr_q  <= !addr_in_range(awaddr);
           end
         end
         W_DATA: begin
           if (w_accept) begin
-            if (werr_q == RESP_OKAY) begin
+            if (!werr_q) begin
               for (int b = 0; b < DW/8; b++)
                 if (wstrb[b])
                   mem[waddr_q[9:2]][8*b +: 8] <= wdata[8*b +: 8];
@@ -104,7 +104,7 @@ module AXI4_Lite_top #(
   rstate_t rstate;
 
   logic [AW-1:0] raddr_q;
-  logic [1:0]    rerr_q;
+  logic          rerr_q;    // SLVERR pending for the read response
 
   wire ar_accept = arvalid && arready;
   wire r_accept  = rvalid  && rready;
@@ -113,22 +113,21 @@ module AXI4_Lite_top #(
     if (!rst_n) begin
       rstate  <= R_IDLE;
       raddr_q <= '0;
-      rerr_q  <= RESP_OKAY;
+      rerr_q  <= 1'b0;
     end else begin
       case (rstate)
         R_IDLE: begin
           if (ar_accept) begin
             rstate  <= R_DATA;
             raddr_q <= araddr;
-            rerr_q  <= addr_in_range(araddr) ? RESP_OKAY : RESP_SLVERR;
+            rerr_q  <= !addr_in_range(araddr);
           end
         end
         R_DATA: begin
           if (r_accept)
             rstate <= R_IDLE;
         end
-        default: rstate <= R_IDLE;
-      endcase
+      endcase   // 1-bit enum, both encodings listed
     end
   end
 
@@ -154,12 +153,12 @@ module AXI4_Lite_top #(
     awready = (wstate == W_IDLE);
     wready  = (wstate == W_DATA);
     bvalid  = (wstate == W_RESP);
-    bresp   = werr_q;
+    bresp   = werr_q ? RESP_SLVERR : RESP_OKAY;
     // read channels
     arready = (rstate == R_IDLE);
     rvalid  = (rstate == R_DATA);
     rdata   = rdata_mux;
-    rresp   = rerr_q;
+    rresp   = rerr_q ? RESP_SLVERR : RESP_OKAY;
   end
 
 endmodule

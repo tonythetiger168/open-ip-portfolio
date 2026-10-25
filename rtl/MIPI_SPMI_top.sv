@@ -1,307 +1,219 @@
 // SPDX-License-Identifier: Apache-2.0
 // ============================================================================
 // MIPI SPMI protocol IP -- SPMI slave controller
-// Implementation scope (documented simplified subset of MIPI SPMI v2.x):
-//   - SSC detection: SDATA held high >= 20 clk while SCLK low (longer than
-//     any in-frame low-phase, so data traffic can never alias to an SSC)
-//   - Command frame, 12 bits: SA[3:0] | C[3:0] | A[3:0]
-//       C=4'h0 : register 0 write  (SPMI 0x00 class) -> data frame D[7:0]|P
-//       C=4'h2 : register 0 read   (SPMI 0x20 class) -> slave drives D[7:0]|P
-//       C=4'h3 : extended reg write(SPMI 0x30 class) -> A=BC(1..8), address
-//                frame A[7:0]|P then BC data frames
-//       C=4'h8 : extended reg read (SPMI 0x38 class) -> A=BC(1..8), address
-//                frame then slave drives BC data frames
-//   - A-bit arbitration on the 13th clock: master drives the A-bit; A=1 keeps
-//     the bus (writes require A=1), A=0 grants the bus to the slave (reads).
-//     A read requested with A=1 is yielded to the master (slave stays silent,
-//     priority arbitration simplified to monitoring the A-bit).
-//   - NACK (no-response) on illegal command / illegal BC / unknown SA + irq
-//   - bus park: one SCLK cycle with SDATA driven low ends every transaction;
-//     the slave recognises it and returns to idle
-//   - 16x8 register file, auto-increment on extended accesses
-// IP design implementation v1.0 -- Apache-2.0
+// Implementation scope (subset of MIPI SPMI v2.0, clk oversamples the bus):
+//   - SSC: SDATA rises then falls while SCLK stays low. It is recognised in
+//     any state the slave is not driving, so a new SSC aborts a sequence.
+//     Bus arbitration is left to the masters; this slave never requests.
+//   - Master drives SDATA on SCLK rising edges; the slave samples on SCLK
+//     falling edges, and drives read data / ACK on rising edges.
+//   - Command frame, 13 bits: SA[3:0] | C[7:0] | P, odd parity per frame.
+//       0000BBBB : extended register write  -> A[7:0]|P, BC+1 data frames
+//       00010000 : reset     (clears the register file)
+//       00010001 : sleep     \
+//       00010010 : shutdown   > accepted, no power modes in this slave
+//       00010011 : wakeup    /
+//       0010BBBB : extended register read   -> A[7:0]|P, bus park,
+//                                              BC+1 frames from the slave
+//       00110BBB : ext. register write long -> A[15:8]|P, A[7:0]|P, BC+1
+//       00111BBB : ext. register read long  -> A[15:8]|P, A[7:0]|P, bus
+//                                              park, BC+1 slave frames
+//       010AAAAA : register write           -> D[7:0]|P
+//       011AAAAA : register read            -> bus park, D[7:0]|P
+//       1DDDDDDD : register 0 write          (reg0 <= {0, D[6:0]})
+//   - Write response: after a write addressed to USID whose frames all had
+//     good parity, the slave drives ACK (1) for one SCLK cycle, then parks
+//     the bus (drives 0 for the high phase) and releases it. A sequence with
+//     a parity error is abandoned without a response, so the master reads
+//     the bus keeper's 0 as NACK. Broadcast writes get no response.
+//   - Every read ends with the slave's bus park and release.
+//   - SA = USID addresses this slave; SA = 0 (broadcast) is accepted for
+//     writes, reset, sleep, shutdown and wakeup. Other SAs are another
+//     slave's traffic and are ignored.
+//   - 32 x 8 register file; extended accesses auto-increment (the 16-bit
+//     address wraps from 0xFFFF to 0); addresses 32..65535 read as 0
+//     and ignore writes.
+//   - Command/address/data parity errors and unsupported commands (master
+//     read/write, authenticate, bus ownership transfer, DDB, ...) abort the
+//     sequence and raise irq, which holds until the next SSC.
+// IP design implementation v1.1 -- Apache-2.0
 // ============================================================================
 module MIPI_SPMI_top #(
-  parameter int DW = 32,              // framework data width (kept)
-  parameter int AW = 32,              // framework address width (kept)
   parameter logic [3:0] USID = 4'h5   // unique slave ID
 )(
   input  logic clk,
   input  logic rst_n,
   input  logic sclk,                  // SPMI clock (driven by the master)
-  inout  wire  sdata,                 // SPMI data (master parked low / tri-state)
-  output logic irq                    // sticky protocol-error flag
+  inout  wire  sdata,                 // SPMI data
+  output logic irq                    // protocol error, held until next SSC
 );
 
-  localparam int SSC_MIN = 20;        // clk cycles of SDATA high = valid SSC
-
-  localparam logic [3:0] CMD_R0_W = 4'h0;
-  localparam logic [3:0] CMD_R0_R = 4'h2;
-  localparam logic [3:0] CMD_EXT_W = 4'h3;
-  localparam logic [3:0] CMD_EXT_R = 4'h8;
-
   typedef enum logic [2:0] {
-    S_IDLE,      // parked, wait for SSC
-    S_CMD,       // shift in 12-bit command frame
-    S_ABIT,      // sample the arbitration bit
-    S_WDATA,     // register 0 write: 9-bit data frame
-    S_XADDR,     // extended access: 9-bit address frame
-    S_XDATA,     // extended write: BC x 9-bit data frames
-    S_RDATA,     // read: drive BC x 9-bit data frames
-    S_PARK       // bus park recognition
+    S_IDLE,      // wait for SSC
+    S_CMD,       // command frame (13 bits)
+    S_ADDR,      // extended address frame(s) (9 bits each)
+    S_WDATA,     // write data frame(s) (9 bits each)
+    S_ACK,       // write: slave drives ACK, then its bus park
+    S_BP,        // read: master bus-park cycle
+    S_RDATA,     // read: slave drives data frame(s)
+    S_PARK       // slave bus park, release on the falling edge
   } state_t;
-
   state_t state;
 
   // ------------------------------------------------------------------
-  // input synchronizers (clk oversamples the bus)
+  // input synchronizers
   // ------------------------------------------------------------------
   logic [2:0] sclk_d, sdat_d;
-  wire sdat_in = sdata;
-
   always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      sclk_d <= 3'b000;
-      sdat_d <= 3'b000;
-    end else begin
-      sclk_d <= {sclk_d[1:0], sclk};
-      sdat_d <= {sdat_d[1:0], sdat_in};
-    end
+    if (!rst_n) begin sclk_d <= '0; sdat_d <= '0; end
+    else begin sclk_d <= {sclk_d[1:0], sclk}; sdat_d <= {sdat_d[1:0], sdata}; end
   end
+  wire ev_r    = (sclk_d[2:1] == 2'b01);
+  wire ev_f    = (sclk_d[2:1] == 2'b10);
+  wire din     = sdat_d[1];
+  wire sd_r    = (sdat_d[2:1] == 2'b01);
+  wire sd_f    = (sdat_d[2:1] == 2'b10);
+  wire sclk_lo = !sclk_d[1] && !sclk_d[2];
 
-  wire ev_clk_r = (sclk_d[2:1] == 2'b01);
-  wire ev_clk_f = (sclk_d[2:1] == 2'b10);
-
-  // ------------------------------------------------------------------
-  // SDATA pad: slave drives only during read data frames
-  // ------------------------------------------------------------------
   logic drv_en, drv_val;
   assign sdata = drv_en ? drv_val : 1'bz;
 
   // ------------------------------------------------------------------
+  // SSC detector: SDATA high pulse with SCLK low throughout
+  // ------------------------------------------------------------------
+  logic ssc_arm;
+  wire  slave_drv = (state == S_RDATA) || (state == S_PARK) || (state == S_ACK);
+  wire  ssc = ssc_arm && sd_f && sclk_lo && !slave_drv;
+
+  // ------------------------------------------------------------------
   // datapath
   // ------------------------------------------------------------------
-  logic [10:0] sh;                            // command shift register
-  wire  [11:0] cmd_full = {sh, sdat_d[1]};    // 12-bit command frame
-  wire  [8:0]  dat_full = {sh[7:0], sdat_d[1]}; // 9-bit data frame
+  logic [11:0] sh;
   logic [3:0]  bcnt;
-  logic [5:0]  ssc_cnt;
-  logic        ssc_seen;
-  logic [3:0]  cmd_q;                         // decoded command
-  logic [3:0]  bc;                            // remaining byte count
-  logic [3:0]  xaddr;                         // extended-access pointer
-  logic [7:0]  rdata;                         // current read byte
-  logic [7:0]  mem [0:15];
-  logic        err_sticky;
+  logic [15:0] addr;
+  logic [3:0]  nleft;                       // frames left minus 1 (0..15)
+  logic        rd_q;                        // extended access is a read
+  logic        long_q;                      // two address frames
+  logic        hi_q;                        // high address byte received
+  logic        ack_q;                       // respond to this write
+  logic        ack_hi;                      // ACK bit already driven
+  logic [7:0]  rbyte;
+  logic [7:0]  mem [0:31];
+  logic        err;
+  wire  [12:0] cmd   = {sh, din};
+  wire  [8:0]  frm   = {sh[7:0], din};
+  wire  [3:0]  f_sa  = cmd[12:9];
+  wire  [7:0]  f_c   = cmd[8:1];
+  wire         c_ok  = ^cmd;                // odd parity
+  wire         f_ok  = ^frm;
+  wire         me    = (f_sa == USID);
+  wire         bcast = (f_sa == 4'h0);
+  wire         in_rf = (addr[15:5] == 11'd0);
+  wire  [7:0]  rd_v  = in_rf ? mem[addr[4:0]] : 8'h00;
 
-  assign irq = err_sticky;
+  assign irq = err;
 
-  wire [3:0] f_sa   = cmd_full[11:8];
-  wire [3:0] f_cmd  = cmd_full[7:4];
-  wire [3:0] f_addr = cmd_full[3:0];
-  wire       d_par_ok = (^dat_full == 1'b0);  // even parity over 9 bits
-
-  wire cmd_legal = (f_cmd == CMD_R0_W) || (f_cmd == CMD_R0_R) ||
-                   (f_cmd == CMD_EXT_W) || (f_cmd == CMD_EXT_R);
-  wire bc_legal  = (f_addr != 4'd0) && (f_addr <= 4'd8);
-
-  // ------------------------------------------------------------------
-  // sequential FSM + datapath
-  // ------------------------------------------------------------------
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      state      <= S_IDLE;
-      sh         <= 11'h000;
-      bcnt       <= 4'd0;
-      ssc_cnt    <= 6'd0;
-      ssc_seen   <= 1'b0;
-      cmd_q      <= 4'h0;
-      bc         <= 4'd0;
-      xaddr      <= 4'd0;
-      rdata      <= 8'h00;
-      drv_en     <= 1'b0;
-      drv_val    <= 1'b0;
-      err_sticky <= 1'b0;
-      for (int i = 0; i < 16; i++) mem[i] <= 8'h00; // fixed bound: 16 regs
+      state <= S_IDLE; ssc_arm <= 1'b0; sh <= '0; bcnt <= '0; addr <= '0;
+      nleft <= '0; rd_q <= 1'b0; long_q <= 1'b0; hi_q <= 1'b0; ack_q <= 1'b0;
+      ack_hi <= 1'b0; rbyte <= '0; drv_en <= 1'b0; drv_val <= 1'b0; err <= 1'b0;
+      for (int i = 0; i < 32; i++) mem[i] <= 8'h00;
     end else begin
-      case (state)
-        // --------------------------------------------------- idle / SSC
-        S_IDLE: begin
-          drv_en <= 1'b0;
-          // count SDATA-high cycles while SCLK is low
-          if (!sclk_d[1] && sdat_d[1]) begin
-            if (ssc_cnt != 6'h3F) ssc_cnt <= ssc_cnt + 6'd1;
-            if (ssc_cnt >= SSC_MIN[5:0]) ssc_seen <= 1'b1;
-          end else begin
-            ssc_cnt <= 6'd0;
-          end
-          // first SCLK rising after a valid SSC = first command bit
-          if (ssc_seen && ev_clk_r) begin
-            sh         <= {10'h000, sdat_d[1]};
-            bcnt       <= 4'd1;
-            ssc_seen   <= 1'b0;
-            ssc_cnt    <= 6'd0;
-            err_sticky <= 1'b0;      // new transaction clears the flag
-            state      <= S_CMD;
-          end
-        end
-
-        // --------------------------------------------------- command frame
-        S_CMD: begin
-          if (ev_clk_r) begin
-            sh <= cmd_full[10:0];
-            if (bcnt == 4'd11) begin   // all 12 bits received
-              bcnt  <= 4'd0;
-              cmd_q <= f_cmd;
-              if ((f_sa != USID) || !cmd_legal ||
-                  ((f_cmd == CMD_EXT_W || f_cmd == CMD_EXT_R) && !bc_legal)) begin
-                err_sticky <= 1'b1;    // NACK: no response + irq
-                state      <= S_PARK;
-              end else begin
-                bc <= f_addr;          // BC for extended commands
-                state <= S_ABIT;
+      if (!sclk_lo) ssc_arm <= 1'b0;
+      else if (sd_r) ssc_arm <= 1'b1;
+      if (ssc) begin
+        ssc_arm <= 1'b0; state <= S_CMD; bcnt <= '0; sh <= '0; err <= 1'b0;
+      end else begin
+        case (state)
+          S_IDLE: ;
+          S_CMD: if (ev_f) begin
+            sh <= cmd[11:0];
+            bcnt <= bcnt + 4'd1;
+            if (bcnt == 4'd12) begin
+              bcnt <= '0;
+              state <= S_IDLE;
+              ack_q <= me; ack_hi <= 1'b0; hi_q <= 1'b0;
+              if (!c_ok) err <= 1'b1;
+              else if (me || bcast) begin
+                if (f_c[7]) begin                          // register 0 write
+                  mem[0] <= {1'b0, f_c[6:0]};
+                  if (me) state <= S_ACK;
+                end else if (f_c[7:5] == 3'b010) begin     // register write
+                  addr <= {11'd0, f_c[4:0]}; nleft <= '0; state <= S_WDATA;
+                end else if (f_c[7:5] == 3'b011) begin     // register read
+                  if (me) begin addr <= {11'd0, f_c[4:0]}; nleft <= '0; state <= S_BP; end
+                end else if (f_c[7:4] == 4'b0000 || f_c[7:4] == 4'b0010) begin
+                  // extended write / read, BC = C[3:0]
+                  nleft <= f_c[3:0]; rd_q <= f_c[5]; long_q <= 1'b0;
+                  if (me || !f_c[5]) state <= S_ADDR;
+                end else if (f_c[7:4] == 4'b0011) begin
+                  // extended write / read long, BC = C[2:0]
+                  nleft <= {1'b0, f_c[2:0]}; rd_q <= f_c[3]; long_q <= 1'b1;
+                  if (me || !f_c[3]) state <= S_ADDR;
+                end else if (f_c[7:2] == 6'b000100) begin  // reset/sleep/shutdown/wakeup
+                  if (f_c[1:0] == 2'b00)
+                    for (int i = 0; i < 32; i++) mem[i] <= 8'h00;
+                end else err <= 1'b1;                      // unsupported
               end
-            end else begin
-              bcnt <= bcnt + 4'd1;
             end
           end
-        end
-
-        // --------------------------------------------------- A-bit arbitration
-        S_ABIT: begin
-          if (ev_clk_r) begin
-            bcnt <= 4'd0;
-            case (cmd_q)
-              CMD_R0_W: begin
-                // write: master must keep the bus (A=1)
-                state <= sdat_d[1] ? S_WDATA : S_PARK;
-              end
-              CMD_R0_R: begin
-                if (sdat_d[1]) begin
-                  state <= S_PARK;     // master priority: slave yields
-                end else begin
-                  rdata <= mem[4'd0];
-                  xaddr <= 4'd1;
-                  state <= S_RDATA;    // bc==1 from command A field=0? fixed 1
-                  bc    <= 4'd1;
-                end
-              end
-              CMD_EXT_W: begin
-                state <= sdat_d[1] ? S_XADDR : S_PARK;
-              end
-              CMD_EXT_R: begin
-                if (sdat_d[1]) begin
-                  state <= S_PARK;     // master priority: slave yields
-                end else begin
-                  state <= S_XADDR;
-                end
-              end
-              default: state <= S_PARK;
-            endcase
-          end
-        end
-
-        // --------------------------------------------------- reg0 write data
-        S_WDATA: begin
-          if (ev_clk_r) begin
-            sh <= {3'h0, dat_full[7:0]};
+          S_ADDR: if (ev_f) begin
+            sh <= {3'd0, frm};
+            bcnt <= bcnt + 4'd1;
             if (bcnt == 4'd8) begin
-              bcnt <= 4'd0;
-              if (d_par_ok) begin
-                mem[4'd0] <= dat_full[8:1];
+              bcnt <= '0;
+              if (!f_ok) begin err <= 1'b1; state <= S_IDLE; end
+              else if (long_q && !hi_q) begin
+                addr[15:8] <= frm[8:1]; hi_q <= 1'b1;
               end else begin
-                err_sticky <= 1'b1;    // data parity error: drop + irq
+                if (!long_q) addr[15:8] <= 8'd0;
+                addr[7:0] <= frm[8:1];
+                state <= rd_q ? S_BP : S_WDATA;
               end
-              state <= S_PARK;
-            end else begin
-              bcnt <= bcnt + 4'd1;
             end
           end
-        end
-
-        // --------------------------------------------------- extended address
-        S_XADDR: begin
-          if (ev_clk_r) begin
-            sh <= {3'h0, dat_full[7:0]};
+          S_WDATA: if (ev_f) begin
+            sh <= {3'd0, frm};
+            bcnt <= bcnt + 4'd1;
             if (bcnt == 4'd8) begin
-              bcnt <= 4'd0;
-              if (d_par_ok) begin
-                xaddr <= dat_full[4:1]; // start address (reg-file 16 deep)
-                if (cmd_q == CMD_EXT_R) begin
-                  rdata <= mem[dat_full[4:1]];
-                  xaddr <= dat_full[4:1] + 4'd1;
-                  state <= S_RDATA;
-                end else begin
-                  state <= S_XDATA;
-                end
-              end else begin
-                err_sticky <= 1'b1;
-                state      <= S_PARK;
+              bcnt <= '0;
+              if (!f_ok) begin err <= 1'b1; state <= S_IDLE; end
+              else begin
+                if (in_rf) mem[addr[4:0]] <= frm[8:1];
+                addr <= addr + 16'd1;
+                if (nleft == '0) state <= ack_q ? S_ACK : S_IDLE;
+                nleft <= nleft - 4'd1;
               end
-            end else begin
-              bcnt <= bcnt + 4'd1;
             end
           end
-        end
-
-        // --------------------------------------------------- extended write data
-        S_XDATA: begin
-          if (ev_clk_r) begin
-            sh <= {3'h0, dat_full[7:0]};
-            if (bcnt == 4'd8) begin
-              bcnt <= 4'd0;
-              if (d_par_ok) begin
-                mem[xaddr] <= dat_full[8:1];
-                xaddr      <= xaddr + 4'd1;
-                if (bc == 4'd1) begin
-                  state <= S_PARK;     // all BC bytes written
-                end else begin
-                  bc <= bc - 4'd1;
-                end
-              end else begin
-                err_sticky <= 1'b1;    // drop remaining bytes + irq
-                state      <= S_PARK;
-              end
+          S_ACK: if (ev_r) begin
+            drv_en <= 1'b1;
+            if (!ack_hi) begin drv_val <= 1'b1; ack_hi <= 1'b1; end
+            else begin drv_val <= 1'b0; state <= S_PARK; end
+          end
+          S_BP: if (ev_r) begin                            // bus-park cycle
+            bcnt <= '0; rbyte <= rd_v; state <= S_RDATA;
+          end
+          S_RDATA: if (ev_r) begin
+            drv_en <= 1'b1;
+            if (bcnt < 4'd8) begin
+              drv_val <= rbyte[3'd7 - bcnt[2:0]]; bcnt <= bcnt + 4'd1;
+            end else if (bcnt == 4'd8) begin
+              drv_val <= ~^rbyte; bcnt <= bcnt + 4'd1;     // odd parity
+              addr <= addr + 16'd1;
+            end else if (nleft != '0) begin                // next frame
+              drv_val <= rd_v[7]; rbyte <= rd_v; bcnt <= 4'd1;
+              nleft <= nleft - 4'd1;
             end else begin
-              bcnt <= bcnt + 4'd1;
+              drv_val <= 1'b0; state <= S_PARK;            // slave bus park
             end
           end
-        end
-
-        // --------------------------------------------------- read data drive
-        S_RDATA: begin
-          if (ev_clk_f) begin
-            if (bcnt < 4'd9) begin
-              drv_en  <= 1'b1;
-              drv_val <= (bcnt < 4'd8) ? rdata[3'd7 - bcnt[2:0]] : (^rdata);
-              bcnt    <= bcnt + 4'd1;
-            end else if (bc > 4'd1) begin
-              // next byte of an extended read: drive its MSB right now
-              bc      <= bc - 4'd1;
-              rdata   <= mem[xaddr];
-              xaddr   <= xaddr + 4'd1;
-              bcnt    <= 4'd1;
-              drv_en  <= 1'b1;
-              drv_val <= mem[xaddr][7];
-            end else begin
-              drv_en <= 1'b0;          // release after last parity bit
-              bcnt   <= 4'd0;
-              state  <= S_PARK;
-            end
+          S_PARK: if (ev_f) begin
+            drv_en <= 1'b0; state <= S_IDLE;
           end
-        end
-
-        // --------------------------------------------------- bus park
-        S_PARK: begin
-          drv_en <= 1'b0;
-          if (ev_clk_r) begin          // master bus-park cycle recognised
-            bcnt  <= 4'd0;
-            state <= S_IDLE;
-          end
-        end
-
-        default: state <= S_IDLE;
-      endcase
+        endcase
+      end
     end
   end
 

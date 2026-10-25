@@ -1,0 +1,40 @@
+{
+  "title": "MIPI I3C target: legacy I2C register access on static address 0x3C (16 x 8-bit registers), ENTDAA dynamic address assignment with arbitration, RSTDAA, GETPID, and in-band interrupts",
+  "code": "0x4D33",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands",
+      "fields": [
+        {"port": "ibi_req", "desc": "write 1: request an in-band interrupt carrying IBI.ibi_data; held until a dynamic address is assigned and the bus is idle, kept after a NACK, dropped after a lost arbitration"}
+      ]
+    },
+    {
+      "name": "IBI",
+      "kind": "rw",
+      "desc": "In-band interrupt payload",
+      "fields": [
+        {"port": "ibi_data", "reset": "0", "desc": "the IBI data byte (read when the IBI goes out)"}
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Dynamic address",
+      "fields": [
+        {"port": "dyn_addr", "desc": "dynamic address assigned by ENTDAA"},
+        {"port": "dyn_addr_valid", "desc": "a dynamic address is assigned (cleared by RSTDAA)"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "PROTO", "port": "irq", "desc": "protocol error or IBI arbitration lost: register pointer out of range, unknown CCC, 7E/R outside ENTDAA, ENTDAA parity error, lost IBI. Held in the core until the next START, so the bit is set again on every clock until then"}
+  ],
+  "notes": [
+    "scl (in) and sda (open drain, needs a pull-up) are the I3C bus; they pass through unchanged. SCL phases must last at least three PCLK clocks.",
+    "PID 0x0123456789AB, BCR 0x06, DCR 0x5A (core parameter defaults). The 16 registers are reached over the bus only (first written byte = pointer)."
+  ]
+}

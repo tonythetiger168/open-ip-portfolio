@@ -1,0 +1,17 @@
+{
+  "title": "eMMC host: CMD0 / CMD1 (busy polling) / CMD2 / CMD3 initialisation, then repeated CMD24 write and CMD17 read-back compare rounds in 1-bit mode, with R1 / R2 / R3 framing, CRC7, card-status, CRC16, CRC status token, busy and timeout checks",
+  "code": "0x654D",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "100ms",
+  "clock": "emmc_clk",
+  "tie": {"clk": "1'b0"},
+  "regs": [],
+  "irqs": [
+    {"name": "ERR", "port": "irq", "desc": "a response, CRC status, busy or read phase failed (framing, CRC7, command index, card-status error bits, timeout, negative or missing CRC status, busy timeout, read CRC16 / end bit / compare); the host retries"}
+  ],
+  "notes": [
+    "The core runs on PCLK as its eMMC bus clock (1 bit per PCLK); its unused system clock input is tied off. cmd and dat[7:0] (bidirectional, need pull-ups; only DAT0 is used) and emmc_rst_n (device reset, combined with PRESETN) pass through unchanged. The host initialises the device and runs its write / read-back rounds on its own.",
+    "Blocks are 32 bytes (the slice's simplification of 512)."
+  ]
+}

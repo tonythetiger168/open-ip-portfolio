@@ -152,6 +152,8 @@ module Crypto___Security_Engine_tb;
 
   // ------------------------------------------------------------------
   // standard vectors
+  localparam logic [511:0] M_SEQ = 512'h0724415e7b98b5d2ef0c294663809dbad7f4112e4b6885a2bfdcf91633506d8aa7c4e1fe1b3855728facc9e603203d5a7794b1ceeb0825425f7c99b6d3f00d2a;
+  localparam logic [511:0] K_SEQ = 512'h65727f8c99a6b3c0cddae7f4010e1b2835424f5c697683909daab7c4d1deebf805121f2c394653606d7a8794a1aebbc8d5e2effc091623303d4a5764717e8b98;
   // ------------------------------------------------------------------
   // "abc"
   localparam logic [511:0] M_ABC =
@@ -246,6 +248,47 @@ module Crypto___Security_Engine_tb;
     run_op(1'b1, 7'd8);      // key still K_RFC from check 5
     check_digest(D_RFC, "b2b hmac_rfc4231_tc1");
     $display("check 7: back-to-back operations done");
+
+    // ---- 8. padding boundaries vs. hashlib reference digests ----
+    load_msg(M_SEQ);
+    run_op(1'b0, 7'd55); check_digest(256'h90049a7259f123e69f1cea2403d496ffa7b647cd45ea9f4487dd778f9578b246, "sha256(55B)");
+    run_op(1'b0, 7'd63); check_digest(256'hbfb702913b0eabf76eb88475599bd4932114c08fce4e205593d6b7a34eb85a2e, "sha256(63B)");
+    run_op(1'b0, 7'd64); check_digest(256'he7a402f6bfefa6ff48bc1fe1bb5b77e5c9c24ca9185937a8cf07a8fdaf2424f0, "sha256(64B)");
+    load_key(K_SEQ);
+    run_op(1'b1, 7'd0);  check_digest(256'h279e69d0d31eb6fc8c6011b68c65eca5ce004eca793a7df56ba2d2d148d6a76f, "hmac(0B)");
+    run_op(1'b1, 7'd56); check_digest(256'hfaa82ccf23aa07498963061d4cfdac795bd9deff642b83438d3290a3c891ef4a, "hmac(56B)");
+    run_op(1'b1, 7'd64); check_digest(256'h39dfc3101ccd2a0bcc35e2b9c975be1716a6435aeea902c549c97b42ee3c3ba4, "hmac(64B)");
+    // RFC 4231 test case 2
+    load_key(512'h4a656665 << 480);
+    load_msg({224'h7768617420646f2079612077616e7420666f72206e6f7468696e673f, 288'h0});
+    run_op(1'b1, 7'd28); check_digest(256'h5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843, "hmac_rfc4231_tc2");
+    $display("check 8: padding boundaries done");
+
+    // ---- 9. over-long message is rejected ----
+    irq_seen = 1'b0;
+    @(negedge clk); start = 1'b1; mode = 1'b0; msg_len = 7'd65;
+    @(negedge clk); start = 1'b0;
+    wait_clk(3);
+    if (!irq_seen || busy !== 1'b0) begin
+      errors = errors + 1; $display("ERROR: msg_len 65 not rejected");
+    end
+    check_digest(256'h5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843, "digest kept after reject");
+    $display("check 9: length reject done");
+
+    // ---- 10. reset in the middle of a hash ----
+    load_msg(M_ABC);
+    @(negedge clk); start = 1'b1; mode = 1'b1; msg_len = 7'd3;
+    @(negedge clk); start = 1'b0;
+    wait_clk(100);
+    @(negedge clk); rst_n = 1'b0;
+    @(negedge clk);
+    if (busy !== 1'b0 || digest !== 256'h0) begin
+      errors = errors + 1; $display("ERROR: reset during hash");
+    end
+    rst_n = 1'b1;
+    load_msg(M_ABC);
+    run_op(1'b0, 7'd3); check_digest(D_ABC, "sha256(abc) after reset");
+    $display("check 10: mid-run reset done");
 
     // ---- summary ----
     wait_clk(10);

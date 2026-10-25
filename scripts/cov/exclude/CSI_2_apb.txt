@@ -1,0 +1,1 @@
+TOGGLE c_lb_len\[1[0-5]\]: # lb_len is clamped to LINE_BYTES (512), so bits 10..15 of the 16-bit status field are always 0

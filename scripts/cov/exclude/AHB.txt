@@ -1,0 +1,2 @@
+LINE \| default: state <= S_NORM; # defensive default: unused state encoding 2'b11
+LINE AHB_top.sv:124:.*\| default: begin # defensive default of the output decode: unused state encoding 2'b11 (kept so synthesis infers no latch)

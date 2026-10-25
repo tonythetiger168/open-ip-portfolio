@@ -275,6 +275,54 @@ module Wishbone_tb;
     wb_write(32'h0000_0030, 32'hCAFE_F00D, 4'hF);
     wb_read (32'h0000_0030, 32'hCAFE_F00D);
 
+    // CHECK 8: classic block read -- stb_i stays high across ack_o and the
+    // next address follows immediately (B4 classic BLOCK cycle)
+    exp_err[exp_wr] = 1'b0; exp_is_rd[exp_wr] = 1'b1; exp_data[exp_wr] = 32'hCAFE_F00D; exp_wr++;
+    exp_err[exp_wr] = 1'b0; exp_is_rd[exp_wr] = 1'b1; exp_data[exp_wr] = 32'h77BB_1234; exp_wr++;
+    @(negedge clk);
+    cyc_i <= 1'b1; stb_i <= 1'b1; we_i <= 1'b0; sel_i <= 4'hF; cti_i <= 3'b000;
+    adr_i <= 32'h0000_0030;
+    begin int to; to = 0;
+      @(posedge clk); while (!ack_o && to < 20) begin @(posedge clk); to++; end
+    end
+    @(negedge clk) adr_i <= 32'h0000_0020;           // stb_i still high
+    begin int to; to = 0;
+      @(posedge clk); while (!ack_o && to < 20) begin @(posedge clk); to++; end
+      if (to >= 20) begin errors++; $display("ERROR: classic block cycle: second beat never acked"); end
+    end
+    wb_idle();
+
+    // CHECK 9: queued writes with mixed SEL (incl. none) and a reserved cti
+    exp_err[exp_wr] = 1'b0; exp_is_rd[exp_wr] = 1'b0; exp_data[exp_wr] = 32'h0; exp_wr++;
+    wb_issue(32'h0000_0210, 32'h1111_1111, 4'hF, 1'b1);
+    exp_err[exp_wr] = 1'b0; exp_is_rd[exp_wr] = 1'b0; exp_data[exp_wr] = 32'h0; exp_wr++;
+    wb_issue(32'h0000_0210, 32'h2222_2222, 4'h0, 1'b1);   // queued behind slow
+    exp_err[exp_wr] = 1'b0; exp_is_rd[exp_wr] = 1'b0; exp_data[exp_wr] = 32'h0; exp_wr++;
+    @(negedge clk);
+    cti_i <= 3'b111; adr_i <= 32'h0000_0214; dat_i <= 32'h3333_3333; sel_i <= 4'hF;  // end-of-burst
+    @(posedge clk); while (stall_o) @(posedge clk);
+    wb_idle();
+    repeat (8) @(posedge clk);
+    wb_read(32'h0000_0210, 32'h1111_1111);
+    wb_read(32'h0000_0214, 32'h3333_3333);
+
+    // CHECK 10: reset with a full request queue clears responses and irq
+    @(negedge clk);
+    cyc_i <= 1'b1; stb_i <= 1'b1; we_i <= 1'b1; cti_i <= 3'b010; sel_i <= 4'hF;
+    adr_i <= 32'h0000_0218; dat_i <= 32'hBAD0_0218;
+    @(negedge clk) adr_i <= 32'h0000_021C;
+    @(negedge clk);                                    // queue full: stalled
+    @(negedge clk);
+    stb_i <= 1'b0; cyc_i <= 1'b0;
+    rst_n = 0;
+    @(negedge clk);
+    if (ack_o !== 1'b0 || err_o !== 1'b0 || stall_o !== 1'b0 || irq !== 1'b0) begin
+      errors++; $display("ERROR: outputs not quiescent in reset");
+    end
+    rst_n = 1;
+    exp_rd = exp_wr;                                   // in-flight responses dropped
+    wb_idle();
+
     // scoreboard must be drained
     if (exp_rd != exp_wr) begin
       errors++; $display("ERROR: %0d expected responses never arrived", exp_wr - exp_rd);

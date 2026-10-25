@@ -1,0 +1,1 @@
+LINE \| default   : state <= Q_RUN; # defensive default: state_t uses 5 of 8 encodings

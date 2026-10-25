@@ -1,0 +1,53 @@
+{
+  "title": "HDCP 2.3 transmitter (educational slice): AKE, pairing, locality check and session key exchange with a receiver over message channels, then AES-128-CTR encryption of the pixel stream",
+  "code": "0x4843",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "REGS",
+      "kind": "bus",
+      "wen": "reg_we",
+      "waddr": "reg_addr",
+      "wdata": "reg_wdata",
+      "raddr": "reg_addr",
+      "rdata": "reg_rdata",
+      "words": [
+        {"name": "CTRL", "w": 0, "r": 0, "desc": "write: bit 0 start a session (from IDLE or AUTH; ignored while authenticating), bit 2 clear the error flags (an error in the same clock wins); reads 0"},
+        {"name": "HSTATUS", "w": 1, "r": 1, "desc": "[0] busy, [1] authenticated, [2] encryption active, [3] last session failed, [4] the peer is a repeater, [5] keystream exhausted (read only)"},
+        {"name": "VER", "w": 2, "r": 2, "desc": "0x23 (read only)"},
+        {"name": "ERR", "w": 3, "r": 3, "desc": "error flags: [0] locality timeout, [1] pairing ack mismatch, [2] locality mismatch, [3] unexpected message type, [4] message timeout, [5] keystream exhausted (read only; cleared by CTRL bit 2 or a new session)"},
+        {"name": "KMIDX", "w": 4, "r": 4, "desc": "[3:0] byte index for KMDAT and KSDAT"},
+        {"name": "KMDAT", "w": 5, "r": 5, "desc": "master key km byte KMIDX (km[8*KMIDX +: 8])"},
+        {"name": "STATE", "w": 6, "r": 6, "desc": "[3:0] authentication state: 0 IDLE, 1 AKE_INIT, 2 AKE_CERT, 3 PAIR_TX, 4 PAIR_RX, 5 LC_TX, 6 LC_WAIT, 7 SKE_TX, 8 RPT_WAIT, 9 AUTH (read only)"},
+        {"name": "KSDAT", "w": 7, "r": 7, "desc": "session key ks byte KMIDX (read only)"}
+      ]
+    },
+    {
+      "name": "TXM",
+      "kind": "stream_out",
+      "data": ["txm_data", "txm_type"],
+      "valid": "txm_valid",
+      "ready": "txm_ready",
+      "desc": "Message to the receiver; reading the type word frees it and lets the core go on",
+      "fdesc": {"txm_data": "message body", "txm_type": "message type: 2 AKE_Init, 4 AKE_No_Stored_km (E_km), 9 LC_Init, 11 SKE_Send_Eks"}
+    },
+    {
+      "name": "RXM",
+      "kind": "stream_in",
+      "data": ["rxm_data", "rxm_type"],
+      "valid": "rxm_valid",
+      "ready": "rxm_ready",
+      "desc": "Message from the receiver; writing the type word sends it, and it is taken when the core waits for a message",
+      "fdesc": {"rxm_data": "message body", "rxm_type": "message type: 3 AKE_Send_Cert, 7 pairing ack, 10 LC_Send_L_prime, 12 repeater ack"}
+    }
+  ],
+  "irqs": [
+    {"name": "ERROR", "port": "irq", "desc": "an ERR flag is set; level in the core, so the bit is set again on every clock until CTRL bit 2 clears the flags"}
+  ],
+  "notes": [
+    "pix_valid / pix_ready / pix_data (plain pixel words in) and enc_valid / enc_ready / enc_data (encrypted words out) pass through unchanged; words flow only while authenticated.",
+    "The core's 8-bit register window sits at REGS: each word is one core register, and only bits [7:0] are used. KMDAT is written byte by byte with KMIDX before CTRL.start.",
+    "The locality check allows 20 clocks from LC_Init to the answer: read TXM words 0, 1 and the type word, then write RXM words 0, 1 and the type word back to back (RXM words 2 and 3 can be written in advance)."
+  ]
+}

@@ -5,30 +5,34 @@
 //   * Serial HS output model: 1 bit/clk on tx_bit while tx_valid is high,
 //     LSB-first per byte; SoT sync byte 8'hB8 per packet (lane/LP states
 //     abstracted: tx_oe marks host bus ownership, idle level = 1)
-//   * Packet layer identical to CSI-2: header DI+WC/data[15:0]+ECC
-//     (Hamming(30,24) subset, P7=P6=0, single-error correction on receive),
-//     long packets append CRC-16/CCITT (poly 0x1021, init 0xFFFF)
+//   * Packet layer: header DI+WC/data[15:0]+ECC (Hamming(30,24) subset,
+//     P7=P6=0, single-error correction on receive); long packets append
+//     CRC-16/CCITT (reflected poly 0x8408, init 0xFFFF), low byte first
 //   * Command ops (cmd_op):
 //       0 OP_SPKT   raw short packet        (DT=cmd_dt, data=cmd_len)
-//       1 OP_DCS_S0 DCS short write 0 param (DT=0x05, e.g. set_display_on 0x29)
-//       2 OP_DCS_S1 DCS short write 1 param (DT=0x15, e.g. set_pixel_format 0x3A)
-//       3 OP_DCS_L  DCS long write          (DT=0x39, WC=cmd_len, e.g.
-//                                            column/page address 0x2A/0x2B)
-//       4 OP_VLINE  video-mode line: HSS(0x21)/HSE(0x31)/HBP blanking
-//                   (0x19, WC=cmd_len2)/HACT RGB888 (0x3E, WC=cmd_len)
-//       5 OP_DCS_RD DCS read (DT=0x06) + bus turn-around
+//       1 OP_DCS_S0 DCS short write 0 param (DT=0x05, data={00,cmd_dcs})
+//       2 OP_DCS_S1 DCS short write 1 param (DT=0x15, data={ram[0],cmd_dcs})
+//       3 OP_DCS_L  DCS long write          (DT=0x39, WC=cmd_len, payload RAM)
+//       4 OP_VLINE  video-mode line: HSS(0x21), HSE(0x31), HBP blanking
+//                   (0x19, WC=cmd_len2, zero payload), HACT RGB888 (0x3E,
+//                   WC=cmd_len, payload RAM)
+//       5 OP_DCS_RD DCS read (DT=0x06, data={00,cmd_dcs}) + bus turn-around
+//       6, 7        invalid: rejected with irq
+//     A command whose RAM payload is longer than the 32-byte RAM, or whose
+//     HACT WC is not a whole number of RGB888 pixels (3 bytes), is rejected
+//     with irq and nothing is sent.
 //   * BTA: after the read-request packet the host sends the BTA trigger byte
 //     (8'h84, escape-command abstraction), releases the lane (tx_oe=0) and
 //     receives a peripheral short-packet response with ECC checking
-//     (single-error corrected); timeout or uncorrectable ECC raises irq
-//   * 32-byte payload RAM written via pl_we/pl_addr before long commands
-//     (long-packet WC must be <= PLEN)
-// IP design implementation v1.0 -- Apache-2.0
+//     (single-error corrected; bta_data = {data1, data0, DI}). An
+//     Acknowledge-and-Error-Report response (DT 0x02) with any error bit set
+//     completes the read and raises irq. A timeout (BTA_TO clocks without a
+//     SoT), a bad SoT byte or an uncorrectable header raise irq.
+//   * irq is a one-clock pulse.
+//   * 32-byte payload RAM written via pl_we/pl_addr.
+// IP design implementation v1.1 -- Apache-2.0
 // ============================================================================
 module DSI_top #(
-  parameter int DW = 32,          // retained framework parameter (data width)
-  parameter int AW = 32,          // retained framework parameter (address width)
-  parameter int PLEN = 32,        // payload RAM depth (bytes)
   parameter int BTA_TO = 512      // BTA response timeout (clk)
 )(
   input  logic        clk,
@@ -61,6 +65,7 @@ module DSI_top #(
   // ------------------------------------------------------------------
   // constants
   // ------------------------------------------------------------------
+  localparam int         PLEN     = 32;      // payload RAM depth (bytes)
   localparam logic [7:0] SOT_SYNC = 8'hB8;
   localparam logic [7:0] BTA_TRIG = 8'h84;   // BTA trigger (escape cmd model)
   localparam logic [7:0] DT_DCS_S0 = 8'h05;
@@ -71,6 +76,7 @@ module DSI_top #(
   localparam logic [7:0] DT_HSE    = 8'h31;
   localparam logic [7:0] DT_HBP    = 8'h19;
   localparam logic [7:0] DT_HACT   = 8'h3E;  // RGB888 pixel stream
+  localparam logic [7:0] DT_ACKERR = 8'h02;  // acknowledge and error report
 
   localparam logic [2:0] OP_SPKT   = 3'd0;
   localparam logic [2:0] OP_DCS_S0 = 3'd1;
@@ -79,7 +85,7 @@ module DSI_top #(
   localparam logic [2:0] OP_VLINE  = 3'd4;
   localparam logic [2:0] OP_DCS_RD = 3'd5;
 
-  localparam logic [15:0] BTA_TO16 = 16'(BTA_TO);
+  localparam int TOW = $clog2(BTA_TO + 1);
 
   typedef enum logic [3:0] {
     T_IDLE, T_SOT, T_H0, T_H1, T_H2, T_HE, T_PAY, T_C0, T_C1,
@@ -92,27 +98,25 @@ module DSI_top #(
   state_t state;
   rb_t    rbst;
 
-  // packet sequence descriptors (max 4 packets per command)
-  logic [7:0]  p_dt   [0:3];
-  logic [15:0] p_len  [0:3];   // payload bytes (long) / data field (short)
-  logic        p_long [0:3];
-  logic        p_zero [0:3];   // payload = zeros (blanking) vs payload RAM
-  logic [1:0]  seq_n;          // number of packets - 1
+  // current command: op, raw DT, data field / WC of the first (or HACT)
+  // packet, HBP WC; the packet sequence is derived from the op
+  logic [2:0]  c_op;
+  logic [5:0]  c_dt;
+  logic [15:0] c_len, c_len2;
   logic [1:0]  seq_i;          // current packet index
-  logic        seq_bta;        // command ends with bus turn-around
 
   // TX datapath
   logic [7:0]  tx_shreg;
   logic [2:0]  bit_cnt;
   logic [15:0] pay_cnt;
   logic [15:0] crc;
-  logic [1:0]  gap_cnt;
+  logic        gap;
 
   // BTA receive datapath
-  logic [7:0]  b_shift;
-  logic [2:0]  b_cnt;
-  logic [15:0] to_cnt;
-  logic [23:0] rb_hdr;
+  logic [6:0]     b_shift;                // latest 7 received bits
+  logic [2:0]     b_cnt;
+  logic [TOW-1:0] to_cnt;
+  logic [23:0]    rb_hdr;
 
   // payload RAM
   logic [7:0]  pl_ram [0:PLEN-1];
@@ -171,23 +175,79 @@ module DSI_top #(
     end
   endfunction
 
+    // ------------------------------------------------------------------
+  // packet sequence of a command: VLINE = HSS, HSE, HBP, HACT; others one
+  // packet
+  // ------------------------------------------------------------------
+  function automatic logic [5:0] pk_dt(input logic [2:0] op, input logic [1:0] i,
+                                       input logic [5:0] dt);
+    case (op)
+      OP_SPKT:   pk_dt = dt;
+      OP_DCS_S0: pk_dt = DT_DCS_S0[5:0];
+      OP_DCS_S1: pk_dt = DT_DCS_S1[5:0];
+      OP_DCS_L:  pk_dt = DT_DCS_L[5:0];
+      OP_VLINE:  pk_dt = (i == 2'd0) ? DT_HSS[5:0] : (i == 2'd1) ? DT_HSE[5:0] :
+                         (i == 2'd2) ? DT_HBP[5:0] : DT_HACT[5:0];
+      default:   pk_dt = DT_DCS_RD[5:0];
+    endcase
+  endfunction
+  // data field (short) / WC (long)
+  function automatic logic [15:0] pk_len(input logic [2:0] op, input logic [1:0] i,
+                                         input logic [15:0] l, input logic [15:0] l2);
+    if (op != OP_VLINE)   pk_len = l;
+    else if (i == 2'd2)   pk_len = l2;
+    else if (i == 2'd3)   pk_len = l;
+    else                  pk_len = 16'h0;
+  endfunction
+  function automatic logic pk_long(input logic [2:0] op, input logic [1:0] i);
+    pk_long = (op == OP_DCS_L) || (op == OP_VLINE && i >= 2'd2);
+  endfunction
+  // payload of zeros (HBP blanking) instead of the payload RAM
+  function automatic logic pk_zero(input logic [2:0] op, input logic [1:0] i);
+    pk_zero = (op == OP_VLINE) && (i == 2'd2);
+  endfunction
+  function automatic logic [1:0] seq_last(input logic [2:0] op);
+    seq_last = (op == OP_VLINE) ? 2'd3 : 2'd0;
+  endfunction
+
+  // command check: RAM payload must fit, HACT must be whole RGB888 pixels
+  function automatic logic cmd_ok(input logic [2:0] op, input logic [15:0] l);
+    case (op)
+      OP_SPKT, OP_DCS_S0, OP_DCS_S1, OP_DCS_RD: cmd_ok = 1'b1;
+      OP_DCS_L:  cmd_ok = (l <= 16'(PLEN));
+      OP_VLINE:  cmd_ok = (l <= 16'(PLEN)) && (l % 16'd3 == 16'd0);
+      default:   cmd_ok = 1'b0;
+    endcase
+  endfunction
+
   // ------------------------------------------------------------------
   // combinational helpers
   // ------------------------------------------------------------------
-  wire       last_bit = (bit_cnt == 3'd7);
-  wire       last_pay = (pay_cnt == p_len[seq_i] - 16'd1);
+  wire [5:0]  cur_dt   = pk_dt(c_op, seq_i, c_dt);   // DI with VC 0
+  wire [15:0] cur_len  = pk_len(c_op, seq_i, c_len, c_len2);
+  wire        cur_zero = pk_zero(c_op, seq_i);
+  wire        last_bit = (bit_cnt == 3'd7);
+  wire        last_pay = (pay_cnt == cur_len - 16'd1);
   // payload byte currently being transmitted / next one
-  wire [7:0] pay_byte  = p_zero[seq_i] ? 8'h00 : pl_ram[pay_cnt[4:0]];
-  wire [7:0] pay_next  = p_zero[seq_i] ? 8'h00 : pl_ram[pay_cnt[4:0] + 5'd1];
+  wire [7:0]  pay_byte = cur_zero ? 8'h00 : pl_ram[pay_cnt[4:0]];
+  wire [7:0]  pay_next = cur_zero ? 8'h00 : pl_ram[pay_cnt[4:0] + 5'd1];
   wire [15:0] ncrc     = crc16_byte(crc, pay_byte);
   // BTA receive: assembled byte and ECC syndrome on it
-  wire [7:0] rb_byte = {rx_bit, b_shift[7:1]};
-  wire [5:0] rb_syn  = rb_byte[5:0] ^ ecc24(rb_hdr);
-  wire [5:0] rb_eb   = ecc_bit(rb_syn);
+  wire [7:0]  rb_byte  = {rx_bit, b_shift};
+  wire [5:0]  rb_syn   = rb_byte[5:0] ^ ecc24(rb_hdr);
+  wire [5:0]  rb_eb    = ecc_bit(rb_syn);
+  // corrected response header (single data-bit error)
+  wire [23:0] rb_fix   = (rb_eb < 6'd24) ? rb_hdr ^ (24'h1 << rb_eb) : rb_hdr;
+  wire        tx_state = (state != T_IDLE) && (state != T_GAP) &&
+                         (state != B_WAIT) && (state != B_RBIT);
 
   // ------------------------------------------------------------------
   // sequential
   // ------------------------------------------------------------------
+  always_ff @(posedge clk) begin
+    if (pl_we) pl_ram[pl_addr] <= pl_wdata;
+  end
+
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       state    <= T_IDLE;
@@ -199,31 +259,36 @@ module DSI_top #(
       bit_cnt  <= 3'd0;
       pay_cnt  <= 16'h0;
       crc      <= 16'hFFFF;
-      gap_cnt  <= 2'd0;
-      seq_n    <= 2'd0;
+      gap      <= 1'b0;
+      c_op     <= OP_SPKT;
+      c_dt     <= 6'h0;
+      c_len    <= 16'h0;
+      c_len2   <= 16'h0;
       seq_i    <= 2'd0;
-      seq_bta  <= 1'b0;
-      b_shift  <= 8'h00;
+      b_shift  <= 7'h00;
       b_cnt    <= 3'd0;
-      to_cnt   <= 16'h0;
+      to_cnt   <= '0;
       rb_hdr   <= 24'h0;
       cmd_busy <= 1'b0;
       bta_done <= 1'b0;
       bta_data <= 24'h0;
       pkt_cnt  <= 16'h0;
       irq      <= 1'b0;
-      for (int i = 0; i < 4; i++) begin
-        p_dt[i]   <= 8'h00;
-        p_len[i]  <= 16'h0;
-        p_long[i] <= 1'b0;
-        p_zero[i] <= 1'b0;
-      end
     end else begin
-      bta_done <= 1'b0;   // pulse
+      bta_done <= 1'b0;   // pulses
+      irq      <= 1'b0;
 
-      // payload RAM write port
-      if (pl_we)
-        pl_ram[pl_addr] <= pl_wdata;
+      // common bit-serial output of the packet / trigger states; tx_shreg
+      // holds the state's byte, preloaded before entry
+      if (tx_state) begin
+        tx_valid <= 1'b1;
+        tx_bit   <= tx_shreg[0];
+        if (last_bit) bit_cnt <= 3'd0;
+        else begin
+          bit_cnt  <= bit_cnt + 3'd1;
+          tx_shreg <= {1'b1, tx_shreg[7:1]};
+        end
+      end
 
       case (state)
         // ----------------------------------------------------------
@@ -231,161 +296,95 @@ module DSI_top #(
           tx_valid <= 1'b0;
           tx_oe    <= 1'b1;
           tx_bit   <= 1'b1;
-          if (cmd_valid && !cmd_busy) begin
-            cmd_busy <= 1'b1;
-            seq_i    <= 2'd0;
-            seq_bta  <= (cmd_op == OP_DCS_RD);
-            pay_cnt  <= 16'h0;
-            crc      <= 16'hFFFF;
-            // decode command into packet descriptors
-            case (cmd_op)
-              OP_SPKT: begin
-                seq_n     <= 2'd0;
-                p_dt[0]   <= {2'b00, cmd_dt};
-                p_len[0]  <= cmd_len;
-                p_long[0] <= 1'b0;
-                p_zero[0] <= 1'b0;
-              end
-              OP_DCS_S0: begin
-                seq_n     <= 2'd0;
-                p_dt[0]   <= DT_DCS_S0;
-                p_len[0]  <= {8'h00, cmd_dcs};
-                p_long[0] <= 1'b0;
-                p_zero[0] <= 1'b0;
-              end
-              OP_DCS_S1: begin
-                seq_n     <= 2'd0;
-                p_dt[0]   <= DT_DCS_S1;
-                p_len[0]  <= {pl_ram[0], cmd_dcs};
-                p_long[0] <= 1'b0;
-                p_zero[0] <= 1'b0;
-              end
-              OP_DCS_L: begin
-                seq_n     <= 2'd0;
-                p_dt[0]   <= DT_DCS_L;
-                p_len[0]  <= cmd_len;
-                p_long[0] <= 1'b1;
-                p_zero[0] <= 1'b0;
-              end
-              OP_VLINE: begin
-                seq_n     <= 2'd3;
-                p_dt[0]   <= DT_HSS;
-                p_len[0]  <= 16'h0;
-                p_long[0] <= 1'b0;
-                p_zero[0] <= 1'b0;
-                p_dt[1]   <= DT_HSE;
-                p_len[1]  <= 16'h0;
-                p_long[1] <= 1'b0;
-                p_zero[1] <= 1'b0;
-                p_dt[2]   <= DT_HBP;
-                p_len[2]  <= cmd_len2;
-                p_long[2] <= 1'b1;
-                p_zero[2] <= 1'b1;
-                p_dt[3]   <= DT_HACT;
-                p_len[3]  <= cmd_len;
-                p_long[3] <= 1'b1;
-                p_zero[3] <= 1'b0;
-              end
-              default: begin  // OP_DCS_RD
-                seq_n     <= 2'd0;
-                p_dt[0]   <= DT_DCS_RD;
-                p_len[0]  <= {8'h00, cmd_dcs};
-                p_long[0] <= 1'b0;
-                p_zero[0] <= 1'b0;
-              end
-            endcase
-            state    <= T_SOT;
-            bit_cnt  <= 3'd0;
-            tx_shreg <= SOT_SYNC;
+          if (cmd_valid) begin
+            if (!cmd_ok(cmd_op, cmd_len)) begin
+              irq <= 1'b1;                       // rejected command
+            end else begin
+              cmd_busy <= 1'b1;
+              c_op     <= cmd_op;
+              c_dt     <= cmd_dt;
+              c_len    <= (cmd_op == OP_DCS_S0 || cmd_op == OP_DCS_RD) ? {8'h00, cmd_dcs} :
+                          (cmd_op == OP_DCS_S1) ? {pl_ram[0], cmd_dcs} : cmd_len;
+              c_len2   <= cmd_len2;
+              seq_i    <= 2'd0;
+              state    <= T_SOT;
+              bit_cnt  <= 3'd0;
+              tx_shreg <= SOT_SYNC;
+            end
           end
         end
 
         // ------------------------- packet TX ------------------------
-        // tx_shreg is preloaded with the state's byte before/at entry,
-        // so tx_bit <= tx_shreg[0] always emits the aligned bit.
-        T_SOT, T_H0, T_H1, T_H2, T_HE, T_PAY, T_C0, T_C1, T_BTA: begin
-          tx_valid <= 1'b1;
-          tx_bit   <= tx_shreg[0];
-          if (state == T_PAY && last_bit)
-            crc <= ncrc;
-          if (last_bit) begin
-            bit_cnt <= 3'd0;
-            case (state)
-              T_SOT: begin
-                state    <= T_H0;
-                tx_shreg <= p_dt[seq_i];
-              end
-              T_H0: begin
-                state    <= T_H1;
-                tx_shreg <= p_len[seq_i][7:0];
-              end
-              T_H1: begin
-                state    <= T_H2;
-                tx_shreg <= p_len[seq_i][15:8];
-              end
-              T_H2: begin
-                state    <= T_HE;
-                tx_shreg <= {2'b00, ecc24({p_len[seq_i], p_dt[seq_i]})};
-              end
-              T_HE: begin
-                pay_cnt <= 16'h0;
-                crc     <= 16'hFFFF;
-                if (p_long[seq_i]) begin
-                  if (p_len[seq_i] == 16'h0) begin
-                    state    <= T_C0;
-                    tx_shreg <= 8'hFF;   // CRC-16 of empty payload
-                  end else begin
-                    state    <= T_PAY;
-                    tx_shreg <= p_zero[seq_i] ? 8'h00 : pl_ram[0];
-                  end
-                end else begin
-                  state   <= T_GAP;
-                  gap_cnt <= 2'd1;
-                  pkt_cnt <= pkt_cnt + 16'd1;
-                end
-              end
-              T_PAY: begin
-                if (last_pay) begin
-                  state    <= T_C0;
-                  tx_shreg <= ncrc[7:0];
-                end else begin
-                  pay_cnt  <= pay_cnt + 16'd1;
-                  tx_shreg <= pay_next;
-                end
-              end
-              T_C0: begin
-                state    <= T_C1;
-                tx_shreg <= crc[15:8];
-              end
-              T_C1: begin
-                state   <= T_GAP;
-                gap_cnt <= 2'd1;
-                pkt_cnt <= pkt_cnt + 16'd1;
-              end
-              default: begin  // T_BTA: trigger bit7 goes out this next
-                state  <= B_WAIT;    // cycle; B_WAIT releases the lane
-                to_cnt <= 16'h0;
-                rbst   <= RB_SOT;
-              end
-            endcase
+        T_SOT: if (last_bit) begin
+          state    <= T_H0;
+          tx_shreg <= {2'b00, cur_dt};
+        end
+        T_H0: if (last_bit) begin
+          state    <= T_H1;
+          tx_shreg <= cur_len[7:0];
+        end
+        T_H1: if (last_bit) begin
+          state    <= T_H2;
+          tx_shreg <= cur_len[15:8];
+        end
+        T_H2: if (last_bit) begin
+          state    <= T_HE;
+          tx_shreg <= {2'b00, ecc24({cur_len, 2'b00, cur_dt})};
+        end
+        T_HE: if (last_bit) begin
+          pay_cnt <= 16'h0;
+          crc     <= 16'hFFFF;
+          if (pk_long(c_op, seq_i)) begin
+            if (cur_len == 16'h0) begin
+              state    <= T_C0;
+              tx_shreg <= 8'hFF;   // CRC-16 of an empty payload
+            end else begin
+              state    <= T_PAY;
+              tx_shreg <= cur_zero ? 8'h00 : pl_ram[0];
+            end
           end else begin
-            bit_cnt  <= bit_cnt + 3'd1;
-            tx_shreg <= {1'b1, tx_shreg[7:1]};
+            state   <= T_GAP;
+            gap     <= 1'b1;
+            pkt_cnt <= pkt_cnt + 16'd1;
           end
+        end
+        T_PAY: if (last_bit) begin
+          crc <= ncrc;
+          if (last_pay) begin
+            state    <= T_C0;
+            tx_shreg <= ncrc[7:0];
+          end else begin
+            pay_cnt  <= pay_cnt + 16'd1;
+            tx_shreg <= pay_next;
+          end
+        end
+        T_C0: if (last_bit) begin
+          state    <= T_C1;
+          tx_shreg <= crc[15:8];
+        end
+        T_C1: if (last_bit) begin
+          state   <= T_GAP;
+          gap     <= 1'b1;
+          pkt_cnt <= pkt_cnt + 16'd1;
+        end
+        T_BTA: if (last_bit) begin  // trigger bit7 goes out this next
+          state  <= B_WAIT;         // cycle; B_WAIT releases the lane
+          to_cnt <= '0;
         end
 
         // ------------------- inter-packet gap / next ----------------
         T_GAP: begin
           tx_valid <= 1'b0;
           tx_bit   <= 1'b1;
-          if (gap_cnt != 2'd0) begin
-            gap_cnt <= gap_cnt - 2'd1;
-          end else if (seq_i != seq_n) begin
+          gap      <= 1'b0;
+          if (gap) begin
+            // one extra idle clock between packets
+          end else if (seq_i != seq_last(c_op)) begin
             seq_i    <= seq_i + 2'd1;
             state    <= T_SOT;
             bit_cnt  <= 3'd0;
             tx_shreg <= SOT_SYNC;
-          end else if (seq_bta) begin
+          end else if (c_op == OP_DCS_RD) begin
             state    <= T_BTA;
             bit_cnt  <= 3'd0;
             tx_shreg <= BTA_TRIG;
@@ -402,23 +401,22 @@ module DSI_top #(
           tx_valid <= 1'b0;
           tx_oe    <= 1'b0;
           if (rx_bit == 1'b0) begin
-            b_shift <= {7'h00, rx_bit};
+            b_shift <= 7'h00;                  // SoT bit 0 (= 0) taken
             b_cnt   <= 3'd1;
             state   <= B_RBIT;
             rbst    <= RB_SOT;
-          end else if (to_cnt == BTA_TO16) begin
-            // peripheral did not answer
-            irq      <= 1'b1;
+          end else if (to_cnt == TOW'(BTA_TO)) begin
+            irq      <= 1'b1;                    // peripheral did not answer
             state    <= T_IDLE;
             tx_oe    <= 1'b1;
             cmd_busy <= 1'b0;
           end else begin
-            to_cnt <= to_cnt + 16'd1;
+            to_cnt <= to_cnt + 1'b1;
           end
         end
 
         B_RBIT: begin
-          b_shift <= rb_byte;
+          b_shift <= rb_byte[7:1];
           if (b_cnt == 3'd7) begin
             b_cnt <= 3'd0;
             case (rbst)
@@ -448,18 +446,11 @@ module DSI_top #(
                 state    <= T_IDLE;
                 tx_oe    <= 1'b1;
                 cmd_busy <= 1'b0;
-                if (rb_syn == 6'h00) begin
-                  bta_data <= rb_hdr;
+                if (rb_eb != 6'd63 || rb_syn == 6'h00) begin
+                  bta_data <= rb_fix;            // clean or corrected
                   bta_done <= 1'b1;
-                  irq      <= 1'b0;
-                end else if (rb_eb != 6'd63) begin
-                  // correctable single-bit error in the response header
-                  if (rb_eb < 6'd24)
-                    bta_data <= rb_hdr ^ (24'h1 << rb_eb);
-                  else
-                    bta_data <= rb_hdr;
-                  bta_done <= 1'b1;
-                  irq      <= 1'b0;
+                  if (rb_fix[7:0] == DT_ACKERR && rb_fix[23:8] != 16'h0)
+                    irq <= 1'b1;                 // peripheral reported errors
                 end else begin
                   irq <= 1'b1;                   // uncorrectable response
                 end

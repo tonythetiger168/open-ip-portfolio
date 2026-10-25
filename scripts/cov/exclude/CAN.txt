@@ -1,0 +1,5 @@
+TOGGLE CAN_top\.(tx_crc_st|crc_st)\[[01]\]: # constant 1: the CRC starts at 19 or 39 + 8 x data bytes, low bits always 11
+TOGGLE CAN_top\.(tx_crc_st|crc_st|tx_crc_ls)\[7\]: # constant 0: the CRC field ends by de-stuffed bit 117 (< 128)
+TOGGLE CAN_top\.tx_crc_ls\[[01]\]: # constant: the CRC ends at 33 or 53 + 8 x data bytes, low bits always 01
+TOGGLE CAN_top\.dat_st\[[01367]\]: # constant: the data field starts at 19 or 39
+TOGGLE CAN_top\.crc_ls\[1\]: # constant 0: 33 or 53 + 8 x data bytes, or 200 while the DLC is not yet received

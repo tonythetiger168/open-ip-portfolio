@@ -1,0 +1,3 @@
+# 2-bit write FSM has 3 states; the default arm only recovers the unused
+# encoding 2'b11, which no legal input sequence can produce.
+LINE \| default: wstate <= W_IDLE; # defensive default: unused wstate encoding 2'b11

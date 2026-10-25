@@ -1,0 +1,51 @@
+{
+  "title": "I2C target: START / STOP detection, 7-bit address 0x50, ACK, bytes received from and sent to the controller",
+  "code": "0x4943",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "TX",
+      "kind": "rw",
+      "desc": "Byte returned to the controller on reads",
+      "fields": [
+        {
+          "port": "tx_byte",
+          "reset": "0",
+          "desc": "sent MSB first for every byte of a read, until the controller NACKs; read bit by bit as the byte goes out (the MSB at the SCL fall ending the address or the previous ACK), so change it only between a byte's last bit and the ACK clock that follows"
+        }
+      ]
+    },
+    {
+      "name": "RX",
+      "kind": "stream_out",
+      "data": [
+        "rx_byte"
+      ],
+      "valid": "rx_valid",
+      "desc": "Bytes written by the controller (acknowledged); reading RX frees it"
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Target state",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "addressed: between our address and the STOP or the NACK"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "BYTE",
+      "port": "irq",
+      "desc": "a byte was received (the same clock RX captures it)"
+    }
+  ],
+  "notes": [
+    "sda (open drain: the target only pulls it low) and scl are the I2C pins; they pass through unchanged. SCL and SDA are sampled on PCLK, so each SCL phase must last at least three PCLK clocks.",
+    "The address is the core parameter I2C_ADDR (0x50). Another address is ignored until the next START or STOP."
+  ]
+}

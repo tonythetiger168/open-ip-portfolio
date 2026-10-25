@@ -19,35 +19,37 @@
 //    TMDS bit0 transmitted first. TMDS clock channel = 10'b1111100000
 //    repeated (LSB first).
 //  - Pixel source is an internal demo generator: R=x[7:0], G=y[7:0],
-//    B=x[7:0]^y[7:0]. Sync polarity is positive logic (VGA 640x480 uses
-//    negative; documented deviation), encoded {VSYNC,HSYNC} on channel 0
-//    control bits, CTL1:0 on channel 1, CTL3:2 on channel 2.
-//  - Data island: once per frame at line y=VACT+1, pixels x=0..43:
-//    8 px preamble (CTL3=CTL2=1), 2 px leading guard band, 32 px data,
-//    2 px trailing guard band. Header = {type,ver,len} + 1 XOR-parity byte
-//    (BCH(32,24) simplified to XOR parity, NOT real ECC). Each subpacket =
-//    56 data bits + 8 XOR-parity bits (BCH(64,56) simplified, NOT real ECC).
-//    Bit map per island pixel i (0..31), TERC4 4-bit inputs:
-//      ch0 = {VSYNC, HSYNC, 1'b0, header[i]}
-//      ch1 = {sp1[2i+1], sp1[2i], sp0[2i+1], sp0[2i]}
-//      ch2 = {sp3[2i+1], sp3[2i], sp2[2i+1], sp2[2i]}
+//    B=x[7:0]^y[7:0]. HSYNC/VSYNC are active low as VIC 1 specifies; the
+//    sync levels are carried on channel 0 (D0=HSYNC, D1=VSYNC) in control
+//    and data island periods, CTL1:0 on channel 1, CTL3:2 on channel 2.
+//  - The TMDS disparity counter is cleared in every non-video period.
+//  - Video preamble (CTL0=1) and leading guard band precede every active
+//    line, including line 0 after vertical blanking.
+//  - Data islands: AVI InfoFrame on line VACT+1, SPD InfoFrame on line
+//    490 (inside vsync), both at x=636..679 so they span the hsync edge:
+//    8 px preamble (CTL0=CTL2=1), 2 px leading guard band, 32 px packet,
+//    2 px trailing guard band. Packet header HB0..HB2 + BCH(32,24) ECC and
+//    4 subpackets of 7 bytes + BCH(64,56) ECC, generator x^8+x^7+x^6+1
+//    (precomputed: both packets are constant).
+//    Per packet pixel i (0..31), TERC4 inputs:
+//      ch0 = {i != 0, header[i], VSYNC, HSYNC}
+//      ch1 = {sp3[2i],   sp2[2i],   sp1[2i],   sp0[2i]}
+//      ch2 = {sp3[2i+1], sp2[2i+1], sp1[2i+1], sp0[2i+1]}
+//    guard bands: ch0 = TERC4({1,1,VSYNC,HSYNC}), ch1 = ch2 = 0100110011.
 //  - AVI InfoFrame: type=0x82 ver=0x02 len=0x0D, PB1=0x10 (RGB, active
-//    info), PB2=0x10 (4:3 picture aspect), PB4=VIC=0x01 (640x480p60),
-//    checksum = two's complement of byte sum (real HDMI rule).
+//    format present), PB2=0x18 (4:3, active format = picture), PB4=VIC 1,
+//    checksum = two's complement of the byte sum.
 //  - hpd=0: TMDS outputs stop (all zero), timing restarts at (0,0) on
 //    hpd return; irq = level "link was running and hpd was lost".
 // ============================================================================
-module HDMI_2_1_top #(
-  parameter int DW   = 32,      // data width (reserved, pixel path RGB888)
-  parameter int AW   = 32       // address width (reserved)
-)(
+module HDMI_2_1_top (
   input  logic       clk,
   input  logic       rst_n,
   input  logic       hpd,        // hot plug detect
   output logic       tmds_clk,   // TMDS clock channel (serial pattern)
   output logic [2:0] tmds_d,     // TMDS data channels 0/1/2 (serial)
-  output logic       hsync,      // horizontal sync (positive logic)
-  output logic       vsync,      // vertical sync (positive logic)
+  output logic       hsync,      // horizontal sync (active low, VIC 1)
+  output logic       vsync,      // vertical sync (active low, VIC 1)
   output logic       de,         // data enable (active video pixel)
   output logic       irq         // hpd lost while link was running
 );
@@ -61,7 +63,9 @@ module HDMI_2_1_top #(
   localparam int HS_E = HS_B + HSW;               // hsync end   752
   localparam int VS_B = VACT + VFP;               // vsync start 490
   localparam int VS_E = VS_B + VSW;               // vsync end   492
-  localparam int ISL_Y  = VACT + 1;               // data island line 481
+  localparam int ISL_Y  = VACT + 1;               // AVI island line 481
+  localparam int SPD_Y  = VS_B;                   // SPD island line 490 (in vsync)
+  localparam int ISL_X  = HS_B - 20;              // islands span the hsync edge
   localparam int PRE_B  = HACT + HFP + HSW + HBP - 10; // 790: video preamble
   localparam int GRD_B  = PRE_B + 8;              // 798: video guard band
 
@@ -69,18 +73,22 @@ module HDMI_2_1_top #(
 
   // ------------------------- TMDS 8b/10b encoder -------------------------
   // Full DVI 1.0 section 3.2 algorithm.  cnt is the running disparity
-  // (signed).  Returns {cnt'[5:0], q[9:0]}; cnt' encoded as 2's complement.
-  function automatic logic [15:0] tmds_enc(input logic [7:0] d,
+  // (signed, always even).  Returns {cnt'[5:1], q[9:0]}, cnt' as 2's
+  // complement.
+  function automatic logic [14:0] tmds_enc(input logic [7:0] d,
                                            input logic signed [5:0] cnt);
     logic [8:0] qm;
     logic [9:0] q;
     logic [3:0] ones_d;
     logic [3:0] n1;
     logic       use_xnor;
-    logic signed [6:0] n1s;   // 2*n1, signed
-    logic signed [6:0] ncnt;
+    logic signed [5:0] n1s;   // 2*n1, signed
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic signed [5:0] ncnt;               // bit 0 is always 0
+    /* verilator lint_on UNUSEDSIGNAL */
     begin
-      ones_d = d[0] + d[1] + d[2] + d[3] + d[4] + d[5] + d[6] + d[7];
+      ones_d = 4'd0;
+      for (int i = 0; i < 8; i++) ones_d = ones_d + {3'd0, d[i]};
       use_xnor = (ones_d > 4) || ((ones_d == 4) && !d[0]);
       qm[0] = d[0];
       for (int i = 1; i < 8; i++) begin
@@ -88,25 +96,26 @@ module HDMI_2_1_top #(
         else          qm[i] =   qm[i-1] ^ d[i];
       end
       qm[8] = ~use_xnor;
-      n1 = qm[0] + qm[1] + qm[2] + qm[3] + qm[4] + qm[5] + qm[6] + qm[7];
-      n1s = {3'b000, n1} <<< 1;                     // 2*N1(q_m)
+      n1 = 4'd0;
+      for (int i = 0; i < 8; i++) n1 = n1 + {3'd0, qm[i]};
+      n1s = {2'b00, n1} <<< 1;                    // 2*N1(q_m)
       if ((cnt == 0) || (n1 == 4)) begin
         q[9] = ~qm[8];
         q[8] =  qm[8];
         q[7:0] = qm[8] ? qm[7:0] : ~qm[7:0];
-        ncnt = cnt + (qm[8] ? (n1s - 7'sd8) : (7'sd8 - n1s));
+        ncnt = cnt + (qm[8] ? (n1s - 6'sd8) : (6'sd8 - n1s));
       end else if (((cnt > 0) && (n1 > 4)) || ((cnt < 0) && (n1 < 4))) begin
         q[9] = 1'b1;
         q[8] = qm[8];
         q[7:0] = ~qm[7:0];
-        ncnt = cnt + (qm[8] ? 7'sd2 : 7'sd0) + (7'sd8 - n1s);
+        ncnt = cnt + (qm[8] ? 6'sd2 : 6'sd0) + (6'sd8 - n1s);
       end else begin
         q[9] = 1'b0;
         q[8] = qm[8];
         q[7:0] = qm[7:0];
-        ncnt = cnt + (n1s - 7'sd8) - (qm[8] ? 7'sd0 : 7'sd2);
+        ncnt = cnt + (n1s - 6'sd8) - (qm[8] ? 6'sd0 : 6'sd2);
       end
-      tmds_enc = {ncnt[5:0], q};
+      tmds_enc = {ncnt[5:1], q};                  // disparity is always even
     end
   endfunction
 
@@ -147,14 +156,20 @@ module HDMI_2_1_top #(
   endfunction
 
   // ------------------------- AVI InfoFrame packet (constants) -------------------------
-  // header: 0x82 / 0x02 / 0x0D + XOR parity byte (BCH simplified, see header)
-  localparam logic [31:0] AVI_HDR = {8'h8D, 8'h0D, 8'h02, 8'h82}; // [7:0]=0x82
-  // subpackets: {8-bit XOR parity, byte6..byte0}  -> 64 bits, [1:0] sent 1st
-  localparam logic [63:0] AVI_SP0 = {8'h4F, 8'h00, 8'h00, 8'h01, 8'h00,
-                                     8'h10, 8'h10, 8'h4E};
+  // header {ECC, HB2, HB1, HB0}, bit 0 sent first
+  localparam logic [31:0] AVI_HDR = 32'hE40D0282;
+  // subpacket {ECC, byte6 .. byte0}; SP0 = PB0 (checksum 0x46) .. PB6
+  localparam logic [63:0] AVI_SP0 = 64'h0100000100181046;
   localparam logic [63:0] AVI_SP1 = 64'h0;
   localparam logic [63:0] AVI_SP2 = 64'h0;
   localparam logic [63:0] AVI_SP3 = 64'h0;
+  // SPD InfoFrame: type=0x83 ver=0x01 len=0x19, vendor "OpenIP", product
+  // "HDMI 2.1 TX Core", source information 0x00 (unknown)
+  localparam logic [31:0] SPD_HDR = 32'h64190183;
+  localparam logic [63:0] SPD_SP0 = 64'h7D50496E65704FF0;
+  localparam logic [63:0] SPD_SP1 = 64'h8220494D44480000;
+  localparam logic [63:0] SPD_SP2 = 64'hA020585420312E32;
+  localparam logic [63:0] SPD_SP3 = 64'hE500000065726F43;
 
   // ------------------------- period classification (next pixel) -------------------------
   logic [9:0] x, y;
@@ -162,20 +177,24 @@ module HDMI_2_1_top #(
 
   logic [9:0] nx, ny;
   always_comb begin
-    if (x == HT-1) begin
+    if (x == 10'(HT-1)) begin
       nx = 10'd0;
-      ny = (y == VT-1) ? 10'd0 : y + 10'd1;
+      ny = (y == 10'(VT-1)) ? 10'd0 : y + 10'd1;
     end else begin
       nx = x + 10'd1;
       ny = y;
     end
   end
 
-  logic n_hs, n_vs, n_de;
+  logic n_hs, n_vs, n_de, n_pre_line, n_spd, n_isl_line;
   always_comb begin
-    n_hs = (nx >= HS_B[9:0]) && (nx < HS_E[9:0]);
-    n_vs = (ny >= VS_B[9:0]) && (ny < VS_E[9:0]);
+    n_hs = !((nx >= HS_B[9:0]) && (nx < HS_E[9:0]));     // active low
+    n_vs = !((ny >= VS_B[9:0]) && (ny < VS_E[9:0]));
     n_de = (ny < VACT[9:0]) && (nx < HACT[9:0]);
+    // the line after this one is active: preamble + guard at its end
+    n_pre_line = (ny == VT[9:0] - 10'd1) || (ny < VACT[9:0] - 10'd1);
+    n_spd      = (ny == SPD_Y[9:0]);
+    n_isl_line = (ny == ISL_Y[9:0]) || n_spd;
   end
 
   typedef enum logic [2:0] {M_CTRL, M_VIDEO, M_PRE, M_GUARD_V,
@@ -183,32 +202,46 @@ module HDMI_2_1_top #(
   mode_t mode;
   always_comb begin
     if (n_de)                          mode = M_VIDEO;
-    else if (ny < VACT[9:0] && nx >= GRD_B[9:0]) mode = M_GUARD_V;
-    else if (ny < VACT[9:0] && nx >= PRE_B[9:0]) mode = M_PRE;
-    else if (ny == ISL_Y[9:0] && nx < 10'd8)  mode = M_ISL_PRE;
-    else if (ny == ISL_Y[9:0] && nx < 10'd10) mode = M_ISL_GRD;
-    else if (ny == ISL_Y[9:0] && nx < 10'd42) mode = M_ISL_DATA;
-    else if (ny == ISL_Y[9:0] && nx < 10'd44) mode = M_ISL_GRD;
+    else if (n_pre_line && nx >= GRD_B[9:0]) mode = M_GUARD_V;
+    else if (n_pre_line && nx >= PRE_B[9:0]) mode = M_PRE;
+    else if (n_isl_line && nx >= ISL_X[9:0] && nx < ISL_X[9:0] + 10'd8)  mode = M_ISL_PRE;
+    else if (n_isl_line && nx >= ISL_X[9:0] && nx < ISL_X[9:0] + 10'd10) mode = M_ISL_GRD;
+    else if (n_isl_line && nx >= ISL_X[9:0] && nx < ISL_X[9:0] + 10'd42) mode = M_ISL_DATA;
+    else if (n_isl_line && nx >= ISL_X[9:0] && nx < ISL_X[9:0] + 10'd44) mode = M_ISL_GRD;
     else                               mode = M_CTRL;
   end
 
   // ------------------------- code selection for next pixel -------------------------
-  logic signed [5:0] disp0, disp1, disp2;
-  logic [15:0] enc0, enc1, enc2;
+  logic signed [4:0] disp0, disp1, disp2;       // running disparity / 2
+  logic [14:0] enc0, enc1, enc2;
   logic [9:0]  code0, code1, code2;
   logic [7:0]  r_pix, g_pix, b_pix;
-  logic [5:0]  isl_idx;
-  logic [9:0]  vguard2;
+  logic [4:0]  isl_idx;
+
+  // packet bits for island pixel i: {hdr[i], sp3..0[2i+1], sp3..0[2i]};
+  // AVI InfoFrame on line 481, SPD InfoFrame on line 490
+  function automatic logic [8:0] pkt_bits(input logic spd, input logic [4:0] i);
+    logic [31:0] h;
+    logic [63:0] s0, s1, s2, s3;
+    h  = spd ? SPD_HDR : AVI_HDR;
+    s0 = spd ? SPD_SP0 : AVI_SP0;
+    s1 = spd ? SPD_SP1 : AVI_SP1;
+    s2 = spd ? SPD_SP2 : AVI_SP2;
+    s3 = spd ? SPD_SP3 : AVI_SP3;
+    pkt_bits = {h[i], s3[{i, 1'b1}], s2[{i, 1'b1}], s1[{i, 1'b1}], s0[{i, 1'b1}],
+                s3[{i, 1'b0}], s2[{i, 1'b0}], s1[{i, 1'b0}], s0[{i, 1'b0}]};
+  endfunction
+  logic [8:0] pk;
 
   always_comb begin
     r_pix = nx[7:0];
     g_pix = ny[7:0];
     b_pix = nx[7:0] ^ ny[7:0];
-    enc0 = tmds_enc(b_pix, disp0);
-    enc1 = tmds_enc(g_pix, disp1);
-    enc2 = tmds_enc(r_pix, disp2);
-    isl_idx = nx[5:0] - 6'd10;
-    vguard2 = (n_vs == n_hs) ? 10'b1011001100 : 10'b0100110011;
+    enc0 = tmds_enc(b_pix, {disp0, 1'b0});
+    enc1 = tmds_enc(g_pix, {disp1, 1'b0});
+    enc2 = tmds_enc(r_pix, {disp2, 1'b0});
+    isl_idx = 5'(nx - ISL_X[9:0] - 10'd10);
+    pk = pkt_bits(n_spd, isl_idx);
     case (mode)
       M_VIDEO: begin
         code0 = enc0[9:0];
@@ -223,24 +256,22 @@ module HDMI_2_1_top #(
       M_GUARD_V: begin
         code0 = 10'b1011001100;
         code1 = 10'b0100110011;
-        code2 = vguard2;
+        code2 = 10'b1011001100;
       end
       M_ISL_PRE: begin
         code0 = ctl_code({n_vs, n_hs});
-        code1 = ctl_code(2'b00);
-        code2 = ctl_code(2'b11);        // CTL3=CTL2=1 (data island preamble)
+        code1 = ctl_code(2'b01);        // CTL0=1, CTL2=1: data island preamble
+        code2 = ctl_code(2'b01);
       end
       M_ISL_GRD: begin
-        code0 = terc4({n_vs, n_hs, 2'b11});
+        code0 = terc4({2'b11, n_vs, n_hs});
         code1 = 10'b0100110011;
         code2 = 10'b0100110011;
       end
       M_ISL_DATA: begin
-        code0 = terc4({n_vs, n_hs, 1'b0, AVI_HDR[isl_idx]});
-        code1 = terc4({AVI_SP1[2*isl_idx+1], AVI_SP1[2*isl_idx],
-                       AVI_SP0[2*isl_idx+1], AVI_SP0[2*isl_idx]});
-        code2 = terc4({AVI_SP3[2*isl_idx+1], AVI_SP3[2*isl_idx],
-                       AVI_SP2[2*isl_idx+1], AVI_SP2[2*isl_idx]});
+        code0 = terc4({isl_idx != 5'd0, pk[8], n_vs, n_hs});
+        code1 = terc4(pk[3:0]);
+        code2 = terc4(pk[7:4]);
       end
       default: begin                    // M_CTRL
         code0 = ctl_code({n_vs, n_hs});
@@ -258,23 +289,23 @@ module HDMI_2_1_top #(
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      x <= HT-1;   y <= VT-1;   bit_cnt <= 4'd0;  // -> first pixel is (0,0)
+      x <= 10'(HT-1);   y <= 10'(VT-1);   bit_cnt <= 4'd0;  // -> first pixel is (0,0)
       sh0 <= 10'h000; sh1 <= 10'h000; sh2 <= 10'h000;
       shc <= CLK_PAT;
       tmds_clk <= 1'b0;
       tmds_d   <= 3'b000;
-      hsync <= 1'b0; vsync <= 1'b0; de <= 1'b0;
-      disp0 <= 6'sd0; disp1 <= 6'sd0; disp2 <= 6'd0;
+      hsync <= 1'b1; vsync <= 1'b1; de <= 1'b0;
+      disp0 <= 5'sd0; disp1 <= 5'sd0; disp2 <= 5'sd0;
       ever_hpd <= 1'b0;
     end else if (!hpd) begin
       // sink detached: stop TMDS, restart timing from (0,0) on return
-      x <= HT-1;   y <= VT-1;   bit_cnt <= 4'd0;
+      x <= 10'(HT-1);   y <= 10'(VT-1);   bit_cnt <= 4'd0;
       sh0 <= 10'h000; sh1 <= 10'h000; sh2 <= 10'h000;
       shc <= CLK_PAT;
       tmds_clk <= 1'b0;
       tmds_d   <= 3'b000;
-      hsync <= 1'b0; vsync <= 1'b0; de <= 1'b0;
-      disp0 <= 6'sd0; disp1 <= 6'sd0; disp2 <= 6'sd0;
+      hsync <= 1'b1; vsync <= 1'b1; de <= 1'b0;
+      disp0 <= 5'sd0; disp1 <= 5'sd0; disp2 <= 5'sd0;
     end else begin
       ever_hpd <= 1'b1;
       tmds_clk <= shc[0];
@@ -291,9 +322,11 @@ module HDMI_2_1_top #(
         vsync <= n_vs;
         de    <= n_de;
         if (mode == M_VIDEO) begin       // disparity runs on video only
-          disp0 <= enc0[15:10];
-          disp1 <= enc1[15:10];
-          disp2 <= enc2[15:10];
+          disp0 <= enc0[14:10];
+          disp1 <= enc1[14:10];
+          disp2 <= enc2[14:10];
+        end else begin                   // and restarts after blanking
+          disp0 <= 5'sd0; disp1 <= 5'sd0; disp2 <= 5'sd0;
         end
       end else begin
         bit_cnt <= bit_cnt + 4'd1;

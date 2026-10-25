@@ -198,6 +198,10 @@ module MIPI_DPI__Display_Pixel_Interface__tb;
     end
   endtask
 
+  function automatic logic [15:0] hcnt_rd;
+    hcnt_rd = dut.hcnt;
+  endfunction
+
   task automatic set_cfg(input int hfp_, hsw_, hbp_, hact_,
                          input int vfp_, vsw_, vbp_, vact_);
     begin
@@ -420,6 +424,52 @@ module MIPI_DPI__Display_Pixel_Interface__tb;
 `endif
 
     // ---- report ----
+    // (7) a line/frame total above 16 bits is rejected like a zero field
+    reg_write(4'd8, 16'h0);
+    cm = 0;
+    set_cfg(2, 2, 2, 65531, 1, 1, 1, 4);      // htotal 65537
+    reg_write(4'd8, 16'h1);
+    @(negedge clk);
+    check(irq == 1'b1, "16-bit overflow config raises irq");
+    reg_check(4'd8, 16'h0, "overflow enable rejected");
+    set_cfg(1, 1, 1, 4, 1, 1, 1, 65534);      // vtotal 65537
+    reg_write(4'd8, 16'h1);
+    @(negedge clk);
+    check(irq == 1'b1, "vertical overflow config raises irq");
+    set_cfg(1, 1, 1, 4, 1, 1, 1, 65533);       // vtotal exactly 65536: legal
+    reg_write(4'd8, 16'h1);
+    @(negedge clk);
+    check(irq == 1'b0, "vtotal of 65536 accepted");
+    reg_write(4'd8, 16'h0);
+
+    // (8) shrink the active width while the line counter is past the new
+    // total: the line wraps at once and the new timing takes over
+    set_cfg(2, 2, 2, 20, 1, 1, 1, 3);
+    reg_write(4'd8, 16'h1);
+    while (hcnt_rd() < 16'd18) @(negedge clk);
+    reg_write(4'd3, 16'd4);
+    HACT = 4; HTOT = 2 + 2 + 2 + 4;
+    @(negedge clk);                            // first edge with the new total
+    check(hcnt_rd() == 16'd0, "counter past new total wrapped");
+    resync();
+    check_frame(frame_cnt + 16'd1, "shrunk.frame0");
+
+    // (9) read-only / unused addresses: writes ignored, reads 0
+    reg_write(4'd9, 16'hFFFF);
+    reg_write(4'd12, 16'hFFFF);
+    reg_check(4'd8, 16'h1, "ctrl unchanged by read-only writes");
+    reg_check(4'd12, 16'h0, "unused address reads 0");
+    reg_check(4'd15, 16'h0, "unused address reads 0");
+
+    // (10) reset in the active region
+    while (!de) @(negedge clk);
+    @(negedge clk);
+    rst_n = 1'b0;
+    #1;
+    check(hsync == 1'b0 && vsync == 1'b0 && de == 1'b0 && rgb == 24'h0 &&
+          frame_cnt == 0 && irq == 1'b0, "reset while active");
+    @(negedge clk) rst_n = 1'b1;
+
     if (errors == 0) $display("TEST PASSED: MIPI_DPI__Display_Pixel_Interface_");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR

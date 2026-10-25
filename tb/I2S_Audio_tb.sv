@@ -69,8 +69,9 @@ module I2S_Audio_tb;
                   "A1 reset: regs cleared");
       rst_cyc++;
     end else begin
-      // A2: tx_ready is exactly the frame_pos==63 load window
-      sva_check(tx_ready === (dut.frame_pos === 6'd63), "A2 tx_ready window");
+      // A2: tx_ready is exactly the frame_pos==63 load cycle
+      sva_check(tx_ready === (dut.fall && dut.frame_pos === 6'd63 && !dut.cfg_chg),
+                "A2 tx_ready load cycle");
       // A3: wclk_out is frame_pos[5] in master mode, 0 in slave mode
       sva_check(wclk_out === (cfg_master ? dut.frame_pos[5] : 1'b0),
                 "A3 wclk_out source");
@@ -101,19 +102,20 @@ module I2S_Audio_tb;
     end
   endfunction
 
-  // drive one stereo frame into the TX sample interface
+  // drive one stereo frame into the TX sample interface (valid/ready: the
+  // pair transfers on the clock edge where tx_valid and tx_ready are high)
   task automatic send_frame(input [31:0] l, input [31:0] r);
     int n;
     begin
       n = 0;
       @(negedge clk);
+      tx_l = l; tx_r = r; tx_valid = 1'b1;
+      @(posedge clk);
       while (!tx_ready && n <= 5000) begin
-        @(negedge clk); n++;
+        @(posedge clk); n++;
       end
       chk(n <= 5000, "send_frame: tx_ready timeout");
-      tx_l = l; tx_r = r; tx_valid = 1'b1;
       @(negedge clk);
-      while (tx_ready) @(negedge clk);   // wait until loaded (fp leaves 63)
       tx_valid = 1'b0;
     end
   endtask
@@ -165,10 +167,11 @@ module I2S_Audio_tb;
   endtask
 
   // ------------------------- wclk phase monitor (master) ----------
-  // left channel must have wclk = 0, right must have wclk = 1
+  // left channel must have wclk = 0, right must have wclk = 1 (checked at
+  // the bclk rising edge, where the receiver samples)
   bit mon_en = 1'b0;
   int mon_edges = 0;
-  always @(negedge bclk_out) begin
+  always @(posedge bclk_out) begin
     if (mon_en) begin
       mon_edges++;
       if (wclk_out !== dut.frame_pos[5]) begin
@@ -198,14 +201,15 @@ module I2S_Audio_tb;
   always @(negedge clk) begin
     if (slave_en) begin
       sdiv <= sdiv + 2'd1;
-      if (sdiv == 2'd1) begin
-        // bclk rising edge happens now (unless the pulse is dropped)
-        if (!drop_pulse) bclk_r <= 1'b1;
+      // bclk rising edge (unless the pulse is dropped)
+      if (sdiv == 2'd1 && !drop_pulse) bclk_r <= 1'b1;
+      if (sdiv == 2'd3) begin
+        // bclk falling edge: the next bit starts, wclk changes with it
+        bclk_r <= 1'b0;
         sft_next = (sft == 6'd63) ? 6'd0 : sft + 6'd1;
         sft    <= sft_next;
         wclk_r <= sft_next[5];      // 0 = left, 1 = right
       end
-      if (sdiv == 2'd3) bclk_r <= 1'b0;
     end
   end
 
@@ -345,6 +349,25 @@ module I2S_Audio_tb;
                n_txn, n_slave, n_drop, n_und);
     end
 `endif
+
+    // ---- CHECK 5: config change and reset in the middle of a frame ----
+    @(negedge clk);
+    cfg_master = 1'b1; slave_en = 1'b0; cfg_fmt = 2'd1; cfg_depth = 2'd2;
+    wait_frames(2);
+    loopback(32'h1357_9BDF, 32'h2468_ACE0, 2'd2);
+    wait (dut.frame_pos == 6'd10);
+    @(negedge clk) cfg_fmt = 2'd0;           // LJ -> I2S mid-frame
+    wait_frames(2);
+    loopback(32'hFEDC_BA98, 32'h7654_3210, 2'd2);
+    wait (dut.frame_pos == 6'd40);
+    @(negedge clk) rst_n = 1'b0;
+    @(negedge clk);
+    chk(bclk_out === 1'b0 && wclk_out === 1'b0 && rx_valid === 1'b0 && irq === 1'b0,
+        "outputs not idle in reset");
+    rst_n = 1'b1;
+    wait_frames(2);
+    loopback(32'h0F0F_0F0F, 32'hF0F0_F0F0, 2'd2);
+    $display("INFO: check 5 (mid-frame config change / reset) done");
 
     // ---------------- result ----------------
     if (errors == 0) $display("TEST PASSED: I2S_Audio");

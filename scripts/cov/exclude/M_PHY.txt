@@ -1,0 +1,1 @@
+LINE \| default: rstate <= H_HUNT; # 3-state RX FSM in 2 bits: recovery for the unused encoding, unreachable

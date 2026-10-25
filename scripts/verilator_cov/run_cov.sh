@@ -20,7 +20,8 @@ SRCS="rtl/${S_LINE}_top.sv $DEPS tb/${TOP_TB}.sv"
 
 sed "s/@TOP@/${TOP_TB}/g" scripts/verilator_cov/sim_main.cpp.tmpl > "$BUILD/sim_main.cpp"
 
-verilator --cc --exe --build --timing --coverage -j 4 \
+# --unroll-count: the multi-channel memory cores loop over up to 256 bank timers
+verilator --cc --exe --build --timing --coverage -j 4 --unroll-count 512 \
   -Wno-WIDTH -Wno-fatal -Wno-UNOPTFLAT --top-module "$TOP_TB" \
   $SRCS "$BUILD/sim_main.cpp" -o "${TOP_TB}_cov" --Mdir "$BUILD/obj" \
   > "$BUILD/build.log" 2>&1 || { echo "BUILD_FAIL $P (see $BUILD/build.log)"; exit 1; }

@@ -1,0 +1,2 @@
+LINE \| default: state <= S_IDLE; # defensive default: unused state encoding 2'b11
+TOGGLE \.rty_o: # tied 0 by design: this slave never requests a retry (B4 optional signal)

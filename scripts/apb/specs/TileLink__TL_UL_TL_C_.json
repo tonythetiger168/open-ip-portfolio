@@ -1,0 +1,18 @@
+{
+  "title": "TileLink TL-UL agent: a 64-word memory on the A and D channels, PutFullData, PutPartialData and Get with source echo, a request accepted in the clock its response leaves",
+  "code": "0x544C",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [],
+  "irqs": [
+    {
+      "name": "ERR",
+      "port": "irq",
+      "desc": "a request was answered with d_error: an opcode other than PutFullData / PutPartialData / Get, a size other than 4 bytes, a misaligned or out-of-range address (0x100 and up), a mask not matching the opcode, or a non-zero param; the core holds this until reset, so the bit cannot be cleared before then"
+    }
+  ],
+  "notes": [
+    "The A channel (a_valid ... a_data) and D channel (d_valid ... d_error) pins are the TL-UL agent pins; they pass through unchanged. The registers report the agent's error event.",
+    "One response is held at a time; a new request is accepted in the clock the held response is taken. TL-C (B, C and E channels) is not implemented. d_opcode bits 2:1 are always 0 (waived)."
+  ]
+}

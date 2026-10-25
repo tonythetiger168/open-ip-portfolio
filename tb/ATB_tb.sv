@@ -79,8 +79,9 @@ module ATB_tb;
     end else begin
       // A2: count never exceeds DEPTH
       sva_check(count <= 5'd16, "A2 count within depth");
-      // A3: atready reflects FIFO-not-full exactly
-      sva_check(atready === (count < 5'd16), "A3 atready == not full");
+      // A3: atready reflects FIFO-not-full, and is low in a flush cycle
+      sva_check(atready === ((count < 5'd16) && !(afvalid && atid != dut.cur_id)),
+                "A3 atready == not full and not flushing");
       // A4: irq only on an accepted atlast beat
       sva_check(!irq || (atvalid && atready && atlast),
                 "A4 irq == push&atlast");
@@ -210,6 +211,33 @@ module ATB_tb;
                n_beats, n_flush, n_full);
     end
 `endif
+    // flush corner cases: same-ID afvalid is ignored; a beat offered in a
+    // flush cycle is not accepted; a flush of an empty buffer; then fill
+    // all 16 slots (no atlast on the last) reading slot 0 meanwhile
+    @(negedge clk); rst_n = 1'b0;
+    @(negedge clk); rst_n = 1'b1;
+    send(32'h0A7B_0000, 7'h00, 1'b0);
+    @(negedge clk); afvalid <= 1'b1; atid <= 7'h00;           // same ID
+    @(negedge clk); afvalid <= 1'b0;
+    if (count !== 5'd1) begin errors++; $display("ERROR: ATB same-ID flush emptied the buffer"); end
+    @(negedge clk); afvalid <= 1'b1; atid <= 7'h55;           // new ID + beat
+    atvalid <= 1'b1; atdata <= 32'hD0D0_D0D0; atlast <= 1'b1;
+    #1;
+    if (atready !== 1'b0 || irq !== 1'b0) begin errors++; $display("ERROR: ATB beat acked in flush cycle"); end
+    @(negedge clk); atvalid <= 1'b0; atlast <= 1'b0; atid <= 7'h66;   // flush empty
+    @(negedge clk); afvalid <= 1'b0;
+    if (count !== 5'd0 || last_id !== 7'h00) begin
+      errors++; $display("ERROR: ATB flush count=%0d last_id=%h", count, last_id);
+    end
+    @(negedge clk); ren <= 1'b1; raddr <= 4'd0;
+    for (int i = 0; i < 16; i++) begin
+      atvalid <= 1'b1; atdata <= 32'hF111_0000 + i; atlast <= 1'b0;
+      @(negedge clk);
+    end
+    atvalid <= 1'b0; ren <= 1'b0;
+    if (count !== 5'd16 || rdata !== 32'hF111_0000) begin
+      errors++; $display("ERROR: ATB fill-16 count=%0d rdata=%h", count, rdata);
+    end
     if (errors == 0) $display("TEST PASSED: ATB");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR

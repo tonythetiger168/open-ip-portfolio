@@ -1,0 +1,60 @@
+{
+  "title": "MIPI M-PHY lane: full 8b/10b (256 D-codes, 12 K-codes, running disparity), G1 / G2 bit rates, HIBERN8 with wake burst, and the receiver (comma alignment, decode, code and disparity checks)",
+  "code": "0x4D50",
+  "version": "2.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands",
+      "fields": [
+        {"port": "hibern8_req", "desc": "write 1: enter HIBERN8 (SAVE state, lines DIF-Z) once the lane is idle; a buffered byte goes first"},
+        {"port": "wake_req", "desc": "write 1: leave HIBERN8 (8-clock DIF-N wake burst)"},
+        {"port": "irq_clear", "desc": "write 1: clear the sticky receive / transmit error (an error in the same clock wins)"}
+      ]
+    },
+    {
+      "name": "CFG",
+      "kind": "rw",
+      "desc": "Gear",
+      "fields": [
+        {"port": "gear", "reset": "0", "desc": "0: G1 (1 bit per clock), 1: G2 (1 bit per 2 clocks); change only while the lane is idle (a change while locked makes the receiver re-hunt)"}
+      ]
+    },
+    {
+      "name": "TX",
+      "kind": "stream_in",
+      "data": ["tx_data", "tx_k"],
+      "valid": "tx_valid",
+      "ready": "tx_ready",
+      "desc": "Byte to send; start each burst with the comma K28.5 (0xBC with K). A byte every 10 bit times keeps the burst going; a gap ends it",
+      "fdesc": {"tx_data": "byte", "tx_k": "1: control code (K28.0-7, K23.7, K27.7, K29.7, K30.7; other K-codes are dropped with ERROR)"}
+    },
+    {
+      "name": "RX",
+      "kind": "stream_out",
+      "data": ["rx_data", "rx_k"],
+      "valid": "rx_valid",
+      "desc": "Byte decoded by the receiver (the comma included); reading RX frees it",
+      "fdesc": {"rx_data": "byte", "rx_k": "control code"}
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Lane state",
+      "fields": [
+        {"port": "hibern8", "desc": "the transmitter is in HIBERN8"},
+        {"port": "rx_locked", "desc": "the receiver found the comma and frames 10-bit words"},
+        {"port": "rx_hibern", "desc": "the receive line is in DIF-Z (hibernated)"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "ERROR", "port": "irq", "desc": "an unsupported K-code was dropped, or the receiver saw an invalid code or a disparity error; sticky in the core, so the bit is set again on every clock until CMD.irq_clear"}
+  ],
+  "notes": [
+    "tx_dif_p / tx_dif_n (transmit line) and rx_dif_p / rx_dif_n (receive line) pass through unchanged: DIF-N (0,1) idle or bit 0, DIF-P (1,0) bit 1, DIF-Z (0,0) hibernated.",
+    "At G1 a byte takes 10 clocks: TX must be written, and RX read, at that rate (RX holds one byte; a byte arriving with RX full is dropped, RX_OVF)."
+  ]
+}

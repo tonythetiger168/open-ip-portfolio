@@ -1,0 +1,4 @@
+# DDR_apb: core pin bits that are constant (see scripts/cov/exclude/DDR.txt), seen at the wrapper's pass-through ports.
+TOGGLE \.addr\[1[4-6]\]: # always 0: rows are 14 bits, columns 8 bits
+TOGGLE \.trace_cmd\[2\]: # constant 0: trace codes are 1 ACT, 2 RD, 3 WR
+TOGGLE \.dqs\[[01]\]: # tied Hi-Z: the model has no strobe
