@@ -299,7 +299,7 @@ make -f Makefile.I2C syn        # -> 0 errors, cell count report
 # APB4 register wrapper: wrapper test + synthesis
 make -f Makefile.I2C apb        # -> TEST PASSED: I2C_apb
 
-# full regression (what CI runs): sim + syn + apb for all 121 IPs, about 1-2 h
+# full regression (what CI runs): sim + syn + apb for all 121 IPs, in parallel (~50 min on 4 cores)
 bash scripts/ci_regression.sh   # logs in work/ci_*.log
 
 # five-metric coverage (Verilator)
