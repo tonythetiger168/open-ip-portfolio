@@ -259,6 +259,15 @@ module MIPI_I3C_tb;
     entdaa_round(0, 7'h33, 0, took); check(!took, "assigned slave stays out of ENTDAA");
     m_stop;
 
+    // ---- data classes on the static and the dynamic address ----
+    for (int k = 0; k < 8; k++) begin
+      logic [7:0] v;
+      logic [6:0] ad;
+      v = k % 4 == 0 ? 8'h00 : (k % 4 == 1 ? 8'hFF : (k % 4 == 2 ? 8'h55 : 8'h3C));
+      ad = k < 4 ? SADDR : 7'h2A;
+      wr_regs(ad, 4'd7, 1, v); rd_regs(ad, 4'd7, 1);
+    end
+
     // ---- reset in the middle of a read ----
     m_start; m_wbyte({SADDR, 1'b1}, ack);
     m_rbit(rd[0]); m_rbit(rd[0]);

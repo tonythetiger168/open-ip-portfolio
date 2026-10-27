@@ -38,9 +38,12 @@
     if (k == 2000) fail("no hdone");
   endtask
 
-  task automatic wrl(input logic [31:0] a, input bit gaps = 0);
+  // pk: 0 all-zero line, 1 all-ones, 2 alternating 5555 / AAAA, else random
+  task automatic wrl(input logic [31:0] a, input bit gaps = 0, input int pk = -1);
     logic [15:0] w [8];
-    for (int i = 0; i < 8; i++) w[i] = $urandom;
+    for (int i = 0; i < 8; i++)
+      w[i] = (pk == 0) ? 16'h0000 : (pk == 1) ? 16'hFFFF :
+             (pk == 2) ? (i[0] ? 16'hAAAA : 16'h5555) : 16'($urandom);
     cmd(3'd2, a, $urandom);
     for (int i = 0; i < 8; i++) begin
       if (gaps && $urandom_range(0, 2) == 0) begin
@@ -133,6 +136,8 @@
     while (hdone !== 1'b1) @(negedge clk);
     cmd(3'd1, mk(3, 1, 7), 0); wait_done(); @(negedge clk);
     ip_extra();
+    // ---- data classes: zero / ones / alternating lines written and read
+    for (int pk = 0; pk < 3; pk++) begin wrl(mk(0, 5, pk), 0, pk); rdl(mk(0, 5, pk)); end
     // ---- random traffic across refreshes
     for (int k = 0; k < 400; k++) begin
       a = rnd_addr();

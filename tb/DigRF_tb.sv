@@ -197,12 +197,13 @@ module DigRF_tb;
   int  ixh [0:1], ixt [0:1];
   int  n_rx [0:1], n_int [0:1], n_err [0:1];
   bit  cnt_err = 0;
+  int  f_dp = -1;                        // forced payload byte (directed)
   task automatic add_frame(input int s, input int size, input int chan);
     int n;
     n = 8 << (size > 5 ? 5 : size);
     flen[s][ftl[s] % 256] = n; fsz[s][ftl[s] % 256] = size; fch[s][ftl[s] % 256] = chan;
     fst[s][ftl[s] % 256] = fwp[s];
-    for (int i = 0; i < n; i++) fb[s][(fwp[s] + i) % 16384] = $urandom % 256;
+    for (int i = 0; i < n; i++) fb[s][(fwp[s] + i) % 16384] = f_dp >= 0 ? f_dp : $urandom % 256;
     fwp[s] += n; ftl[s]++;
   endtask
   function automatic int fcur(input int s, input int i); return fb[s][(fst[s][fh[s] % 256] + i) % 16384]; endfunction
@@ -229,7 +230,8 @@ module DigRF_tb;
     end
     // receive side of s
     bit in_fr;
-    always @(negedge clk) if (rst_n) begin : b_rx
+    always @(negedge clk) if (!rst_n) in_fr = 0;           // a frame cut by a reset
+    else begin : b_rx
       int e;
       if (err_code[s] || err_frame[s]) begin
         n_err[s]++;
@@ -485,6 +487,17 @@ module DigRF_tb;
     end
     rst_n = 1; cycles(10);
     ctl(1, 0, 8'h77, 8'h99, 0); ctl(1, 1, 8'h77, 0, 0);
+    quiet(10_000);
+    // data patterns both ways: payload, register writes, read responses
+    for (int k = 0; k < 4; k++) begin
+      f_dp = k == 0 ? 8'h00 : k == 1 ? 8'hFF : k == 2 ? 8'h55 : 8'hAA;
+      add_frame(0, 0, k); add_frame(1, 0, k);
+      ctl(1, 0, 8'h20 + 8'(k), 8'(f_dp), 0);
+      ctl(0, 0, 8'h20 + 8'(k), 8'(f_dp), 0); ctl(0, 1, 8'h20 + 8'(k), 0, 0);
+      quiet(10_000);
+    end
+    f_dp = -1;
+    irq(1, 5'd0); irq(1, 5'd31);
     quiet(10_000);
 
     $display("rx bytes %0d / %0d, interrupts %0d / %0d", n_rx[0], n_rx[1], n_int[0], n_int[1]);

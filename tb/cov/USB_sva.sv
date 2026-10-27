@@ -62,6 +62,12 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
         v_bad_tok, v_bad_dat, v_stuff, v_bad_pid, v_bad_sync, v_trunc, v_other_addr,
         v_long_data, v_setup_short, v_brst, v_stuff_tx, v_sof, v_wack_other, v_stuff_eop;
 
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  logic        c_tv, c_rv, c_qv, c_dv, c_av;
+  logic [3:0]  c_tpid, c_rpid, c_dpid;
+  logic [3:0]  c_ep;
+  int          c_q;
+  logic        c_dbad, c_a0;
   // build the line symbols of a packet: SYNC + bytes, NRZI, stuffing, EOP
   task automatic build(input logic [7:0] b [], input int n);
     logic lvl = 1'b1;   // J
@@ -99,6 +105,7 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
     b[1+n] = ~c[7:0]; b[2+n] = ~c[15:8];
     build(b, kind == 0 ? 1 : n + 3);
     tk = kind; tn = n; expect_ack = ack; tx_go = 1; cs = 1;
+    c_rv = 1; c_rpid = pid;
   endtask
 
   // judge a collected packet (nb raw bits)
@@ -162,7 +169,9 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
       t0 = 0; t1 = 0; to = 0; expect_ack = 0; m_irq = 0; cnt = 0; n_cnt = 0;
       m_oe = 0; tx_go = 0; tx_go_d = 0; oe_q = 0; nsym = 0; si = 0; wait_c = 0; busy = 0; tx_done_q = 0;
       m_line = 2'b10;
+      {c_tv, c_rv, c_qv, c_dv, c_av, c_dbad, c_a0} = '0; c_tpid = 0; c_rpid = 0; c_dpid = 0; c_ep = 0; c_q = 0;
     end else begin
+      {c_tv, c_rv, c_qv, c_dv, c_av} = '0;
       {v_desc_multi, v_desc_short, v_desc_zlp, v_addr, v_cfg1, v_cfg0, v_cfgget, v_cnt,
        v_stall_rq, v_stall_out, v_stall_ep, v_nak, v_ep1, v_ack_to, v_nak_retry, v_dup,
        v_bad_tok, v_bad_dat, v_stuff, v_bad_pid, v_bad_sync, v_trunc, v_other_addr,
@@ -183,6 +192,7 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
               if (!p_tok_ok) m_irq = 1;
               else if (p_tok[6:0] == addr) begin
                 m_irq = 0;
+                c_tv = 1; c_tpid = p_pid; c_ep = p_tok[10:7]; c_av = 1; c_a0 = addr == 0;
                 if (p_tok[10:7] == 0) begin
                   case (rq)
                     DESC: begin
@@ -206,6 +216,7 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
               if (!p_tok_ok) m_irq = 1;
               else if (p_tok[6:0] == addr) begin
                 m_irq = 0; exp_data = 1; exp_setup = p_pid == 4'hD;
+                c_tv = 1; c_tpid = p_pid; c_ep = p_tok[10:7]; c_av = 1; c_a0 = addr == 0;
                 pstall = p_tok[10:7] != 0 || (p_pid == 4'h1 && rq == STALL);
               end else v_other_addr = 1;
             end
@@ -218,6 +229,7 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
                 respond(0, 4'h2, 0, 0);
                 tgl_bad = (p_pid == 4'hB) != (exp_setup ? 1'b0 : to);
                 v_dup = tgl_bad;
+                c_dv = 1; c_dpid = p_pid; c_dbad = tgl_bad;
                 if (!tgl_bad) begin
                   to = exp_setup ? 1'b1 : !to;
                   if (exp_setup) begin
@@ -237,6 +249,7 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
                     else if (bm == 8'h40 && rqb == 8'h01 && len == 0) rq = CNTSET;
                     else rq = STALL;
                     if (bm == 8'h80 && rqb == 8'h08) d_len = 1;
+                    c_qv = 1; c_q = rq;
                   end else if (rq == DESC || rq == CFGGET) rq = NONE;
                 end
               end
@@ -308,6 +321,28 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
   `SVA_INV(a_tx_oe, tx_oe == m_oe)
   `SVA_IMP(a_line, m_oe, {dp, dm} == m_line)
   `SVA_INV(a_irq, irq == m_irq)
+
+  // token PID x endpoint (to this device), response PID, setup request
+  // decoded, DATA0 / DATA1 x toggle in step or duplicate, device address
+  // zero or assigned
+  function automatic int tokk(input logic [3:0] pid, input logic [3:0] ep);
+    return (pid == 4'h9 ? 0 : (pid == 4'h1 ? 3 : 6)) + (ep == 0 ? 0 : (ep == 1 ? 1 : 2));
+  endfunction
+  covergroup cg_usb @(negedge clk);
+    option.per_instance = 1;
+    cp_tok: coverpoint tokk(c_tpid, c_ep) iff (rst_n && c_tv)
+      { bins in_ep0 = {0}; bins in_ep1 = {1}; bins in_epx = {2}; bins out_ep0 = {3}; bins out_ep1 = {4};
+        bins out_epx = {5}; bins setup_ep0 = {6}; bins setup_epx = {7, 8}; }
+    cp_rsp: coverpoint c_rpid iff (rst_n && c_rv)
+      { bins ack = {4'h2}; bins nak = {4'hA}; bins stall = {4'hE}; bins data0 = {4'h3}; bins data1 = {4'hB}; }
+    cp_req: coverpoint c_q iff (rst_n && c_qv)
+      { bins get_desc = {DESC}; bins get_cfg = {CFGGET}; bins set_addr = {ADDR}; bins set_cfg = {CFGSET};
+        bins vendor = {CNTSET}; bins stall = {STALL}; }
+    cp_data: coverpoint {c_dpid == 4'hB, c_dbad} iff (rst_n && c_dv)
+      { bins data0_ok = {2'b00}; bins data0_dup = {2'b01}; bins data1_ok = {2'b10}; bins data1_dup = {2'b11}; }
+    cp_addr: coverpoint c_a0 iff (rst_n && c_av) { bins default_addr = {1}; bins assigned = {0}; }
+  endgroup
+  cg_usb u_cg_usb = new;
 
   `FC(get_descriptor_multi_packet, v_desc_multi)
   `FC(get_descriptor_short_packet, v_desc_short)

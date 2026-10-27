@@ -294,6 +294,15 @@ module SD_tb;
     end
     fault(card.F_RDEND, 17, "read end bit");        wait_rounds(1, "after read end");
     fault(card.F_RDDATA, 17, "read compare");       check(dut.err_cmp, "err_cmp"); wait_rounds(1, "after compare");
+    // every R1 fault on every data-phase command
+    fault(card.F_TXB, 24, "R1 tx bit (CMD24)");     wait_rounds(1, "after tx bit 24");
+    fault(card.F_END, 24, "R1 end bit (CMD24)");    wait_rounds(1, "after end bit 24");
+    fault(card.F_IDX, 24, "R1 index (CMD24)");      wait_rounds(1, "after index 24");
+    fault(card.F_CRC7, 17, "R1 CRC7 (CMD17)");      wait_rounds(1, "after CRC7 17");
+    fault(card.F_END, 17, "R1 end bit (CMD17)");    wait_rounds(1, "after end bit 17");
+    fault(card.F_TXB, 13, "R1 tx bit (CMD13)");     wait_rounds(1, "after tx bit 13");
+    fault(card.F_IDX, 13, "R1 index (CMD13)");      wait_rounds(1, "after index 13");
+    fault(card.F_CRC7, 13, "R1 CRC7 (CMD13)");      wait_rounds(1, "after CRC7 13");
 
     // ---- each card-status error bit alone; the other bits are benign ----
     for (int b = 0; b < 32; b++)

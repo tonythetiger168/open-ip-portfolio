@@ -37,6 +37,23 @@ module ARM_Q_Channel_Low_Power_Interface_sva #(parameter int ACT_CYCLES = 16) (
   `SVA_NXT(a_exit_restores_run, m_st == M_EXIT && qreqn, qacceptn && !qdeny)
   `SVA_IMP(a_irq_on_violation, 1'b1, irq == ((m_st == M_REQ && qreqn) || (m_st == M_EXIT && !qreqn)))
 
+  // every handshake state x qreqn x device activity, the activity window
+  // left when a request is decided, and a request decided in the first
+  // idle cycle after the window expired
+  covergroup cg_q @(posedge clk);
+    option.per_instance = 1;
+    cp_st: coverpoint m_st iff (rst_n)
+      { bins run = {M_RUN}; bins req = {M_REQ}; bins stop = {M_STOP}; bins exit_ = {M_EXIT};
+        bins deny = {M_DENY}; }
+    cp_qreqn: coverpoint qreqn iff (rst_n) { bins low = {0}; bins high = {1}; }
+    cp_busy: coverpoint busy iff (rst_n) { bins idle = {0}; bins active = {1}; }
+    x_st_in: cross cp_st, cp_qreqn, cp_busy;
+    cp_window: coverpoint m_act iff (rst_n && m_st == M_REQ && !qreqn)
+      { bins none = {0}; bins last = {1}; bins mid = {[2:ACT_CYCLES-1]}; bins full = {ACT_CYCLES}; }
+  endgroup
+  cg_q u_cg_q = new;
+  `FC(accept_right_after_window, m_st == M_REQ && !qreqn && !busy && $past(busy))
+
   `FC(accept, m_st == M_REQ && !qreqn && !busy)
   `FC(deny, m_st == M_REQ && !qreqn && busy)
   `FC(deny_held, m_st == M_DENY && !qreqn)

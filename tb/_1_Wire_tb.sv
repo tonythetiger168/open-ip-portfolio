@@ -245,6 +245,21 @@ module _1_Wire_tb;
     end
 `endif
 
+    // the remaining ROM commands: Match ROM (55) and Search ROM (F0)
+    begin : rom_cmds
+      logic [7:0] c [2];
+      c[0] = 8'h55; c[1] = 8'hF0;
+      for (int k = 0; k < 2; k++) begin
+        ow_reset(presence);
+        rx_seen = 1'b0;
+        for (int i = 0; i < 8; i++) ow_write_bit(c[k][i]);
+        repeat (5) @(posedge clk);
+        if (!rx_seen || rx_byte !== c[k]) begin
+          errors++; $display("ERROR: 1-Wire ROM command rx=%h exp=%h", rx_byte, c[k]);
+        end
+      end
+    end
+
     if (errors == 0) $display("TEST PASSED: 1-Wire");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR

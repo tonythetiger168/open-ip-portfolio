@@ -320,7 +320,7 @@ module FC_tb;
     both_random(6, 200);
     drain();
     // ---- underruns at every position in a word
-    for (int k = 1; k < 13; k++) begin send(0, 40, 0, 0, k); send(1, 40, 1, 1, k + 3); end
+    for (int k = 1; k < 13; k++) begin send(0, 40, k % 2, 0, k); send(1, 40, 1, 1, k + 3); end
     send(0, 100, 1, 0);
     drain();
     // ---- the longest frame, an over-long one

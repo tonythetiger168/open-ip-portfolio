@@ -161,10 +161,16 @@ module USB2_0_sva #(parameter int MAXB = 8) (
   int         g_len;
   always_comb for (int i = 0; i < 4; i++) g_pid[i] = m_bits[i];
   assign g_len = m_n / 8 - 3;
+  logic [7:0] g_b0;                         // first payload byte
+  always_comb for (int i = 0; i < 8; i++) g_b0[i] = m_bits[8 + i];
   covergroup cg_frame @(posedge clk iff (rst_n && g_frame));
     coverpoint g_pid { bins p[16] = {[0:15]}; }
     coverpoint g_len { bins l0 = {0}; bins l1 = {1}; bins l2 = {2}; bins l3 = {3}; bins l4 = {4};
                        bins l5 = {5}; bins l6 = {6}; bins l7 = {7}; bins l8 = {8}; }
+    cp_type: coverpoint g_pid[1:0] { bins special = {0}; bins token = {1}; bins handshake = {2}; bins data = {3}; }
+    cp_lcls: coverpoint g_len { bins empty = {0}; bins short_ = {[1:4]}; bins long_ = {[5:8]}; }
+    x_type_len: cross cp_type, cp_lcls;
+    cp_byte0: coverpoint g_b0 iff (g_len >= 1) { bins v[] = {[0:255]}; }
   endgroup
   cg_frame u_cg = new();
 endmodule

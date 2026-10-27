@@ -106,6 +106,38 @@ module CSE_sva (
   `SVA_IMP(a_done_only_at_end, done, $past(cnt) == 1)
   `SVA_NXT(a_irq, 1'b1, irq == $past((key_we || start) && cnt != 0))
 
+  // per operation: direction x plaintext / ciphertext class, direction x
+  // key class, direction of the previous operation x this one, every key
+  // word written while idle; decrypt of the previous encrypt's result
+  // (round trip) and a changed / reused key between operations
+  function automatic logic [1:0] bcls(input logic [127:0] v);
+    bcls = (v == '0) ? 2'd0 : (v == '1) ? 2'd1 : 2'd2;
+  endfunction
+  wire op_go = start && cnt == 0;
+  logic         m_prev_v, m_prev_mode;
+  logic [127:0] m_prev_key, m_prev_res;
+  always_ff @(posedge clk or negedge rst_n)
+    if (!rst_n) begin m_prev_v <= 0; m_prev_mode <= 0; m_prev_key <= 0; m_prev_res <= 0; end
+    else if (op_go) begin
+      m_prev_v <= 1; m_prev_mode <= enc_dec; m_prev_key <= m_key; m_prev_res <= aes(m_key, din, enc_dec);
+    end
+  covergroup cg_op @(posedge clk);
+    option.per_instance = 1;
+    cp_mode: coverpoint enc_dec iff (rst_n && op_go) { bins dec = {0}; bins enc = {1}; }
+    cp_din: coverpoint bcls(din) iff (rst_n && op_go) { bins zero = {0}; bins ones = {1}; bins other = {2}; }
+    cp_key: coverpoint bcls(m_key) iff (rst_n && op_go) { bins zero = {0}; bins ones = {1}; bins other = {2}; }
+    x_mode_din: cross cp_mode, cp_din;
+    x_mode_key: cross cp_mode, cp_key;
+    cp_prev: coverpoint m_prev_mode iff (rst_n && op_go && m_prev_v) { bins dec = {0}; bins enc = {1}; }
+    x_seq: cross cp_prev, cp_mode;
+    cp_kidx: coverpoint key_widx iff (rst_n && key_we && cnt == 0);
+  endgroup
+  cg_op u_cg_op = new;
+  `FC(round_trip_decrypt, op_go && !enc_dec && m_prev_v && m_prev_mode && din == m_prev_res &&
+      m_key == m_prev_key)
+  `FC(key_changed_between_ops, op_go && m_prev_v && m_key != m_prev_key)
+  `FC(key_reused_between_ops, op_go && m_prev_v && m_key == m_prev_key)
+
   `FC(encrypt_done, done && m_mode)
   `FC(decrypt_done, done && !m_mode)
   `FC(key_write_while_busy, f_kw_busy)

@@ -301,6 +301,31 @@ module JTAG_tb;
     repeat (3) @(negedge clk);
     rst_n = 1'b1;
 
+    // USER register value classes (each scan returns the previous value),
+    // then an IDCODE scan 8 bits longer than the register: the first 32
+    // TDO bits are the IDCODE, the rest are the TDI bits shifted through
+    begin : value_classes
+      logic [31:0] d;
+      goto_rti();
+      load_ir(4'b0010);
+      scan_dr(8, 32'hFF, d);
+      scan_dr(8, 32'h55, d);
+      if (d[7:0] !== 8'hFF) begin errors++; $display("ERROR: JTAG USER FF readback %h", d[7:0]); end
+      scan_dr(8, 32'hAA, d);
+      if (d[7:0] !== 8'h55) begin errors++; $display("ERROR: JTAG USER 55 readback %h", d[7:0]); end
+      scan_dr(8, 32'h00, d);
+      if (d[7:0] !== 8'hAA) begin errors++; $display("ERROR: JTAG USER AA readback %h", d[7:0]); end
+      load_ir(4'b0001);
+      jcyc(1'b1, 1'b0); jcyc(1'b0, 1'b0); jcyc(1'b0, 1'b0);
+      for (int k = 0; k < 40; k++) begin
+        jcyc(k == 39, (k < 8) ? 1'b1 : 1'b0);
+        if (k < 32) d[k] = tdo_s;
+        else if (tdo_s !== 1'b1) begin errors++; $display("ERROR: JTAG long scan bit %0d", k); end
+      end
+      jcyc(1'b1, 1'b0); jcyc(1'b0, 1'b0);
+      if (d !== 32'h1CAF_0001) begin errors++; $display("ERROR: JTAG long IDCODE scan %h", d); end
+    end
+
     if (errors == 0) $display("TEST PASSED: JTAG");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR

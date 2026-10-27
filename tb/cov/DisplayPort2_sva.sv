@@ -255,6 +255,8 @@ module DisplayPort2_sva (
   logic [8:0]  sh;
   logic        m_lp, m_lv, rdm;
   bit v_k28_rdp, v_tps;
+  logic        c_sv;                   // a main-link symbol was picked (for the covergroup)
+  logic [8:0]  c_s;
 
   function automatic logic [8:0] sym(input int p, input int t, input int v, input logic [7:0] f);
     // {k, data}
@@ -281,6 +283,7 @@ module DisplayPort2_sva (
   always_ff @(posedge clk or negedge rst_n)
     if (!rst_n) begin
       bc <= 9; tc <= 0; fp <= 0; fcnt <= 0; sc <= 0; sh <= 0; m_lp <= 0; m_lv <= 0; rdm <= 0;
+      c_sv <= 0; c_s <= 0;
     end else begin : ml
       int t, v;
       logic [8:0] s;
@@ -295,19 +298,38 @@ module DisplayPort2_sva (
           c = enc(s[7:0], s[8], rdm);
           v_k28_rdp = s == {1'b1, 8'hBC} && rdm;
           v_tps = pt == 2 && t == 0;
+          c_sv <= pt == 3; c_s <= s;
           bc <= 0; m_lp <= c[9]; sh <= c[8:0]; rdm <= c[10];
           tc <= (t + 1) % 4;
           fp <= v == 39 ? 0 : v + 1;
           if (pt == 3 && v == 39) fcnt <= fcnt + 1;
           sc <= prst ? 1 : sc < 32 ? sc + 1 : sc;
         end else begin
+          c_sv <= 0;
           bc <= bc + 1; m_lp <= sh[8]; sh <= sh << 1;
           if (prst) begin tc <= 0; fp <= 0; sc <= 0; end
         end
       end else begin
-        bc <= 9; m_lp <= 0; m_lv <= 0; sh <= 0; rdm <= 0;
+        bc <= 9; m_lp <= 0; m_lv <= 0; sh <= 0; rdm <= 0; c_sv <= 0;
       end
     end
+
+  // AUX transactions by training step, outcome and retry count; every video
+  // data byte and control symbol through the encoder
+  covergroup cg_dp @(negedge clk);
+    option.per_instance = 1;
+    cp_step: coverpoint ls iff (rst_n && m_done && sink_present)
+      { bins rate = {L_RATE}; bins lane = {L_LANE}; bins crset = {L_CRSET}; bins crpoll = {L_CRPOLL};
+        bins tpsset = {L_TPSSET}; bins tpspoll = {L_TPSPOLL}; bins edidw = {L_EDIDW}; bins edidr = {L_EDIDR};
+        bins off = {L_OFF}; }
+    cp_res: coverpoint {m_err, nak} iff (rst_n && m_done && sink_present)
+      { bins ok = {2'b00}; bins nak = {2'b11}; bins error = {2'b10}; }
+    cp_rty: coverpoint rty iff (rst_n && m_done && sink_present) { bins r[] = {[0:3]}; }
+    cp_vbyte: coverpoint c_s[7:0] iff (rst_n && c_sv && !c_s[8]) { bins b[] = {[0:255]}; }
+    cp_vk: coverpoint c_s[7:0] iff (rst_n && c_sv && c_s[8])
+      { bins bs = {8'hBC}; bins be = {8'hFB}; bins se = {8'hFD}; bins ss = {8'hFE}; bins fs = {8'hF7}; }
+  endgroup
+  cg_dp u_cg_dp = new;
 
   `SVA_RST(a_reset_outputs, !rst_n, !lane_p && !lane_valid && !link_trained && !train_fail &&
            aux_tx_p && !aux_tx_en && edid == 0 && !edid_valid && !irq)

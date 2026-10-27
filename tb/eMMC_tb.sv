@@ -266,6 +266,11 @@ module eMMC_tb;
     fault(card.F_RDCRC, 17, "read CRC16");          wait_rounds(1, "after read crc");
     fault(card.F_RDEND, 17, "read end bit");        wait_rounds(1, "after read end");
     fault(card.F_RDDATA, 17, "read compare");       check(dut.err_cmp, "err_cmp"); wait_rounds(1, "after compare");
+    // every R1 fault on the other data command too
+    fault(card.F_CRC7, 17, "R1 CRC7 (CMD17)");      wait_rounds(1, "after CRC7 17");
+    fault(card.F_IDX, 24, "R1 index (CMD24)");      wait_rounds(1, "after index 24");
+    fault(card.F_END, 17, "R1 end bit (CMD17)");    wait_rounds(1, "after end bit 17");
+    fault(card.F_TXB, 24, "R1 transmission bit (CMD24)"); wait_rounds(1, "after tx bit 24");
 
     // ---- each card-status error bit alone; the other bits are benign ----
     for (int b = 0; b < 32; b++)
@@ -293,6 +298,10 @@ module eMMC_tb;
     reset_host(0);  fault(card.F_MUTE, 2, "no R2");      wait_init("after no R2");
     reset_host(0);  fault(card.F_CRC7, 3, "R1 (CMD3)");  wait_init("after CMD3 crc");
     reset_host(0);  fault(card.F_STAT, 3, "R1 status (CMD3)"); wait_init("after CMD3 status");
+    reset_host(0);  fault(card.F_IDX, 3, "R1 index (CMD3)");   wait_init("after CMD3 index");
+    reset_host(0);  fault(card.F_END, 3, "R1 end bit (CMD3)"); wait_init("after CMD3 end bit");
+    reset_host(0);  fault(card.F_TXB, 3, "R1 tx bit (CMD3)");  wait_init("after CMD3 tx bit");
+    reset_host(0);  fault(card.F_MUTE, 3, "no R1 (CMD3)");     wait_init("after CMD3 mute");
     // reset in the middle of a write block
     wait (dut.state == 3'd4 && dut.dphase == 3'd1); repeat (40) @(posedge emmc_clk);
     reset_host(1);  wait_init("after reset in a write");

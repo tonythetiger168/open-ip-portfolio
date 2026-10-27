@@ -515,6 +515,18 @@ module UniPro_tb;
     quiet();
     read_mbuf(mm.size());
 
+    // ---- every data CPort (15 is the control CPort), data patterns on
+    // both queues, ACK on the fourth send, an empty frame on another
+    // CPort, alternating payloads
+    for (int p = 0; p < 15; p++) begin set_cport(4'(p)); push_m(p % 2, $urandom); quiet(); end
+    for (int t = 0; t < 2; t++) begin
+      push_m(t, 32'h0); push_m(t, 32'hFFFF_FFFF); push_m(t, 32'h5555_5555); push_m(t, 32'hAAAA_AAAA);
+      quiet();
+    end
+    mute_n = 3; push_m(0, $urandom); quiet();
+    send_data(4'h7, 0);
+    send_data(4'h0, 16, 0, 0, 8'h55); send_data(4'h0, 16, 0, 0, 8'hAA); read_mbuf(mm.size());
+
     // ---- reset with traffic in flight
     push_m(1, $urandom); data_frame(0, p_seq, 6);
     cycles(40);

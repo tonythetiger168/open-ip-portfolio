@@ -452,6 +452,32 @@ module Wishbone_tb;
     end
 `endif
 
+    // data classes (classic write + read back), an upper-half SEL write,
+    // and a slow pipelined read with a write queued behind it
+    begin : data_classes
+      logic [DW-1:0] dv [4];
+      int to_d;
+      dv[0] = '0; dv[1] = '1; dv[2] = 32'h5555_5555; dv[3] = 32'h2468_ACE1;
+      for (int i = 0; i < 4; i++) begin
+        wb_write(32'h100 + 4*i, dv[i], 4'hF);
+        wb_read(32'h100 + 4*i, dv[i]);
+      end
+      wb_write(32'h100, 32'hABCD_0000, 4'b1100);
+      wb_read(32'h100, 32'hABCD_0000);
+      wb_write(32'h304, dv[1], 4'hF);          // slow window: response 2 clocks late
+      exp_err[exp_wr] = 1'b0; exp_is_rd[exp_wr] = 1'b1; exp_data[exp_wr] = dv[1]; exp_wr++;
+      wb_issue(32'h304, '0, 4'hF, 1'b0);
+      exp_err[exp_wr] = 1'b0; exp_is_rd[exp_wr] = 1'b0; exp_data[exp_wr] = '0; exp_wr++;
+      wb_issue(32'h108, 32'h0BAD_F00D, 4'hF, 1'b1);
+      wb_idle();
+      to_d = 0;
+      while (exp_rd < exp_wr && to_d < 100) begin @(posedge clk); to_d++; end
+      wb_read(32'h108, 32'h0BAD_F00D);
+      to_d = 0;
+      while (exp_rd < exp_wr && to_d < 100) begin @(posedge clk); to_d++; end
+      if (exp_rd != exp_wr) begin errors++; $display("ERROR: data-class responses missing"); end
+    end
+
     if (errors == 0) $display("TEST PASSED: Wishbone");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR

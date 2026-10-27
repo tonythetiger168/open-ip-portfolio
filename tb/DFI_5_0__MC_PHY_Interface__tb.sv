@@ -345,6 +345,13 @@ module DFI_5_0__MC_PHY_Interface__tb;
     cmd_now(MRS, 0, 0); sched_wr(0, 32'h3333_3333, 4'h0, 2); sched_rd(0, 5);
     drain(); expect_irq(1, "beats without commands");
 
+    // ---------------- data patterns written and read back
+    hard_reset(); init(); act(3, 1);
+    for (int k = 0; k < 3; k++) wr(3, 3'(k), k == 0 ? 32'hFFFF_FFFF : k == 1 ? 32'h5555_5555 : 32'hAAAA_AAAA);
+    drain();
+    for (int k = 0; k < 3; k++) rd(3, 3'(k));
+    drain(); expect_irq(0, "data patterns");
+
     // ---------------- re-init during init, reset in the middle of traffic
     hard_reset();
     @(negedge clk); dfi_init_start = 1; repeat (5) @(negedge clk); dfi_init_start = 0;

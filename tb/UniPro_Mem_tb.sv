@@ -891,6 +891,30 @@ module UniPro_Mem_tb;
     // ---- coverage-closure scenarios (both simulators) ----
     begin : closure
       int n0;
+      // attribute data patterns (set, then get back) and a 3-word write /
+      // read of patterns at the top of memory
+      for (int v = 0; v < 3; v++) begin
+        logic [7:0] av;
+        av = v == 0 ? 8'hFF : v == 1 ? 8'h55 : 8'hAA;
+        n0 = n_frames;
+        send_frame(1'b0, 4'hF, 4'h0, {8'h11, 8'h05, av, 104'h0}, 8'd3, 1'b0);
+        wait_frames(n0 + 1);
+        send_frame(1'b0, 4'hF, 4'h0, {8'h10, 8'h05, 112'h0}, 8'd2, 1'b0);
+        wait_frames(n0 + 2);
+        check_frame(n0,     1'b0, 4'hF, 8'd3, {8'h91, 8'h05, av, 104'h0}, "attr pattern set");
+        check_frame(n0 + 1, 1'b0, 4'hF, 8'd3, {8'h90, 8'h05, av, 104'h0}, "attr pattern get");
+      end
+      for (int v = 0; v < 2; v++) begin
+        logic [31:0] w;
+        w = v == 0 ? 32'h5555_5555 : 32'hAAAA_AAAA;
+        n0 = n_frames;
+        send_frame(1'b0, 4'h1, 4'h0, {8'h01, 8'h00, 8'hF4, 8'h0C, w, w, w}, 8'd16, 1'b0);
+        wait_frames(n0 + 1);
+        send_frame(1'b0, 4'h1, 4'h0, {8'h02, 8'h00, 8'hF4, 8'h0C, 96'h0}, 8'd4, 1'b0);
+        wait_frames(n0 + 2);
+        check_frame(n0,     1'b0, 4'h1, 8'd5,  {8'h81, 8'h00, 8'hF4, 8'h0C, 8'h00, 88'h0}, "top write");
+        check_frame(n0 + 1, 1'b0, 4'h1, 8'd16, {8'h82, 8'h00, 8'hF4, 8'h0C, w, w, w}, "top read");
+      end
       // ESC ESC then a plain symbol outside a frame: back to hunting
       send_sym(SYM_ESC); send_sym(SYM_ESC); send_sym(8'h55);
       // oversized length (dropped), PACP attribute index far out of range,

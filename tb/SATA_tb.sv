@@ -467,6 +467,7 @@ module SATA_tb;
 
     // ---------------- link-layer faults on host frames
     i0 = irq_cnt; kn_rerr = 1; wait_cmds(3); expect_irq(i0, 0, "one R_ERR: resend");
+    i0 = irq_cnt; kn_rerr = 2; wait_cmds(3); expect_irq(i0, 0, "two R_ERR: resend twice");
     rerr_tgt = 16'h3527;
     i0 = irq_cnt; kn_rerr = 3; wait_cmds(3); expect_irq(i0, 1, "three R_ERR on WRITE: give up");
     rerr_tgt = 16'h0046;

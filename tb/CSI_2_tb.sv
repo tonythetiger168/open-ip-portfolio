@@ -343,6 +343,16 @@ module CSI_2_tb;
     e_fc = 0; e_lc = 0; e_len = 0; e_irq = 0; e_act = 0; e_err = 0; e_dt = 0; e_wc = 0;
     check("reset mid-packet");
     line(6'h2B, 10); check("after reset");
+    // frame start / end on every virtual channel, a bad CRC on a packet
+    // longer than the line buffer
+    for (int v = 0; v < 4; v++) begin
+      add_short(6'h00, 2'(v), 16'(v), 0, 0); send(3, -1, 4); sb_short(6'h00, 2'(v), 16'(v), 0);
+      add_short(6'h01, 2'(v), 16'(v), 0, 0); send(3, -1, 4); sb_short(6'h01, 2'(v), 16'(v), 0);
+      check("FS/FE per VC");
+    end
+    for (int i = 0; i < LB + 4; i++) pay[i] = $urandom;
+    add_long(6'h2B, 2'd0, LB + 4, 0, 0, 1); send(3, -1, 4); sb_long(6'h2B, 2'd0, LB + 4, 0, 1);
+    check("bad CRC past the line buffer");
 
     if (errors == 0) $display("TEST PASSED: CSI_2");
     else             $display("TEST FAILED: %0d errors", errors);

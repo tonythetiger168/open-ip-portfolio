@@ -376,6 +376,15 @@ module Crypto___Security_Engine_tb;
     end
 `endif
 
+    // message and key data patterns through both modes (digest checked by
+    // the bound model)
+    for (int k = 0; k < 4; k++) begin
+      logic [31:0] w;
+      w = k == 0 ? 32'h0 : k == 1 ? 32'hFFFF_FFFF : k == 2 ? 32'h5555_5555 : 32'hAAAA_AAAA;
+      load_msg({16{w}}); load_key({16{w}});
+      run_op(1'b0, 7'd64); run_op(1'b1, 7'd64);
+    end
+
     if (errors == 0) $display("TEST PASSED: Crypto___Security_Engine");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR

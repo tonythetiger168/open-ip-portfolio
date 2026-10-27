@@ -34,6 +34,13 @@ module MIPI_RFFE_sva #(parameter logic [3:0] USID = 4'h5) (
   // event strobes for coverage
   logic ev_reg0, ev_wr, ev_rd, ev_xw, ev_xr, ev_cpar, ev_fpar, ev_unsup, ev_other, ev_abort;
   logic ev_xw_end, ev_xr_wrap, ev_mine, ev_bc;
+  // registered copies for the covergroup: command kind, extended length,
+  // written / read bytes, parity-error frame and abort position
+  logic       c_k, c_xv, c_wv, c_wext, c_rv, c_rext, c_pv, c_av;
+  logic [3:0] c_kind;
+  logic [2:0] c_xl, c_pos, c_apos;
+  logic [4:0] c_wa;
+  logic [7:0] c_wd, c_rd;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -42,24 +49,34 @@ module MIPI_RFFE_sva #(parameter logic [3:0] USID = 4'h5) (
       for (int i = 0; i < 32; i++) m_mem[i] <= '0;
       {ev_reg0, ev_wr, ev_rd, ev_xw, ev_xr, ev_cpar, ev_fpar, ev_unsup, ev_other, ev_abort} <= '0;
       {ev_xw_end, ev_xr_wrap, ev_mine, ev_bc} <= '0;
+      {c_k, c_xv, c_wv, c_wext, c_rv, c_rext, c_pv, c_av} <= '0;
+      c_kind <= 0; c_xl <= 0; c_pos <= 0; c_apos <= 0; c_wa <= 0; c_wd <= 0; c_rd <= 0;
     end else begin
       {ev_reg0, ev_wr, ev_rd, ev_xw, ev_xr, ev_cpar, ev_fpar, ev_unsup, ev_other, ev_abort} <= '0;
       {ev_xw_end, ev_xr_wrap} <= '0;
+      {c_k, c_xv, c_wv, c_rv, c_pv, c_av} <= '0;
       if (!low) arm <= 0; else if (d[2:1] == 2'b01) arm <= 1;
       if (ssc) begin
         arm <= 0; ph <= P_IN; n <= 0; m_err <= 0; ev_abort <= ph != P_IDLE;
+        c_av <= ph == P_IN; c_apos <= n < 13 ? 0 : (is_ext && n < 22 ? 1 : 2);
       end else if (ph == P_IN && fall) begin
         n <= n + 1;
         if (n < 13) bits <= {bits[20:0], bit_in};
         else fr <= {fr[7:0], bit_in};
         if (n == 12) begin                          // command frame done
           ev_mine <= mine; ev_bc <= bc;
+          c_k <= 1;
+          c_kind <= ^cf != 1'b1 ? 8 : (!(mine || bc) ? 9 : (cc[7] ? (mine ? 0 : 1) :
+                    cc[7:5] == 3'b010 ? (mine ? 2 : 3) : (cc[7:5] == 3'b011 ? (mine ? 4 : 9) :
+                    cc[7:4] == 4'b0000 ? (mine ? 5 : 6) : (cc[7:4] == 4'b0010 ? (mine ? 7 : 9) : 10))));
+          c_xv <= ^cf == 1'b1 && (mine && cc[7:4] == 4'b0010 || (mine || bc) && cc[7:4] == 4'b0000);
+          c_xl <= (cc[5] ? 3 : 0) + (cc[3:0] == 0 ? 0 : (cc[3:0] == 15 ? 2 : 1));
           if (^cf != 1'b1) begin m_err <= 1; ph <= P_IDLE; ev_cpar <= 1; end
           else if (!(mine || bc)) begin ph <= P_IDLE; ev_other <= 1; end
           else if (cc[7]) begin m_mem[0] <= {1'b0, cc[6:0]}; ph <= P_IDLE; ev_reg0 <= 1; end
           else if (cc[7:5] == 3'b010) begin a <= {3'b0, cc[4:0]}; nfr <= 1; is_ext <= 0; is_rd <= 0; ev_wr <= 1; end
           else if (cc[7:5] == 3'b011) begin
-            if (mine) begin a <= {3'b0, cc[4:0]}; nfr <= 1; ph <= P_RD; r <= 0; ev_rd <= 1; end
+            if (mine) begin a <= {3'b0, cc[4:0]}; nfr <= 1; is_ext <= 0; ph <= P_RD; r <= 0; ev_rd <= 1; end
             else begin ph <= P_IDLE; ev_other <= 1; end
           end else if (cc[7:4] == 4'b0000) begin nfr <= cc[3:0] + 1; is_ext <= 1; is_rd <= 0; ev_xw <= 1; end
           else if (cc[7:4] == 4'b0010) begin
@@ -67,12 +84,16 @@ module MIPI_RFFE_sva #(parameter logic [3:0] USID = 4'h5) (
             else begin ph <= P_IDLE; ev_other <= 1; end
           end else begin m_err <= 1; ph <= P_IDLE; ev_unsup <= 1; end
         end else if (n > 12 && (n - 12) % 9 == 0) begin   // 9-bit frame done
-          if (^{fr[7:0], bit_in} != 1'b1) begin m_err <= 1; ph <= P_IDLE; ev_fpar <= 1; end
+          if (^{fr[7:0], bit_in} != 1'b1) begin
+            m_err <= 1; ph <= P_IDLE; ev_fpar <= 1;
+            c_pv <= 1; c_pos <= !is_ext ? 0 : (n == 21 ? (is_rd ? 2 : 1) : (n == 30 ? 3 : 4));
+          end
           else if (is_ext && n == 21) begin
             a <= {fr[7:0], bit_in} >> 1;
             if (is_rd) begin ph <= P_RD; r <= 0; end
           end else begin
             if (a < 32) m_mem[a[4:0]] <= fr[7:0];
+            c_wv <= a < 32; c_wa <= a[4:0]; c_wd <= fr[7:0]; c_wext <= is_ext;
             a <= a + 1;
             nfr <= nfr - 1;
             if (nfr == 1) begin ph <= P_IDLE; ev_xw_end <= is_ext && a >= 31; end
@@ -81,7 +102,7 @@ module MIPI_RFFE_sva #(parameter logic [3:0] USID = 4'h5) (
       end else if (ph == P_RD && rise) begin
         // rising 0 = master bus park; then 9 bits per frame; then slave park
         r <= r + 1;
-        if (r == 0) begin rb <= rv; k <= 0; end
+        if (r == 0) begin rb <= rv; k <= 0; c_rv <= a < 32; c_rd <= rv; c_rext <= is_ext; end
         else if (k < 9) begin
           m_drv <= 1;
           m_val <= k < 8 ? rb[7 - k] : ~^rb;
@@ -89,6 +110,7 @@ module MIPI_RFFE_sva #(parameter logic [3:0] USID = 4'h5) (
           if (k == 8) a <= a + 1;
         end else if (nfr > 1) begin
           nfr <= nfr - 1; rb <= rv; m_val <= rv[7]; k <= 1; ev_xr_wrap <= a >= 32;
+          c_rv <= a < 32; c_rd <= rv; c_rext <= 1;
         end else begin m_val <= 0; ph <= P_PARK; end
       end else if (ph == P_PARK && fall) begin
         m_drv <= 0; ph <= P_IDLE;
@@ -109,6 +131,29 @@ module MIPI_RFFE_sva #(parameter logic [3:0] USID = 4'h5) (
   `SVA_INV(a_regs_model, mem_ok)
   `SVA_NXT(a_ssc_clears_irq, ssc, !irq)
   `SVA_IMP(a_drive_only_in_read, drv_en, ph == P_RD || ph == P_PARK)
+
+  function automatic int dcls(input logic [7:0] v);
+    return v == 8'h00 ? 0 : (v == 8'hFF ? 1 : (v == 8'h55 || v == 8'hAA ? 2 : 3));
+  endfunction
+  covergroup cg_slave @(negedge clk);
+    option.per_instance = 1;
+    cp_kind: coverpoint c_kind iff (rst_n && c_k)
+      { bins reg0_own = {0}; bins reg0_bc = {1}; bins wr_own = {2}; bins wr_bc = {3};
+        bins rd_own = {4}; bins xw_own = {5}; bins xw_bc = {6}; bins xr_own = {7};
+        bins cmd_parity = {8}; bins other_or_bc_read = {9}; bins unsupported = {10}; }
+    cp_xlen: coverpoint c_xl iff (rst_n && c_xv)
+      { bins w1 = {0}; bins w_mid = {1}; bins w16 = {2}; bins r1 = {3}; bins r_mid = {4}; bins r16 = {5}; }
+    cp_waddr: coverpoint c_wa iff (rst_n && c_wv);
+    cp_wdata: coverpoint int'(c_wext) * 4 + dcls(c_wd) iff (rst_n && c_wv)
+      { bins short_[] = {[0:3]}; bins ext[] = {[4:7]}; }
+    cp_rdata: coverpoint int'(c_rext) * 4 + dcls(c_rd) iff (rst_n && c_rv)
+      { bins short_[] = {[0:3]}; bins ext[] = {[4:7]}; }
+    cp_perr: coverpoint c_pos iff (rst_n && c_pv)
+      { bins wr_data = {0}; bins xw_addr = {1}; bins xr_addr = {2}; bins xw_first = {3}; bins xw_later = {4}; }
+    cp_abort: coverpoint c_apos iff (rst_n && c_av)
+      { bins in_cmd = {0}; bins in_addr = {1}; bins in_data = {2}; }
+  endgroup
+  cg_slave u_cg_slave = new;
 
   `FC(reg0_write_own, ev_reg0 && ev_mine)
   `FC(reg0_write_broadcast, ev_reg0 && ev_bc)

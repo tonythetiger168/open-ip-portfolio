@@ -21,7 +21,7 @@
         "req_addr": "byte address (MAddr)",
         "req_wdata": "write data: the first word with the descriptor, then one word per commit",
         "req_rw": "1 = write, 0 = read",
-        "req_posted": "1 = posted write (WRNP, no response from the slave)",
+        "req_posted": "1 = posted write (MCmd WR, no response from the slave); 0 = non-posted write (MCmd WRNP)",
         "req_len": "burst length 1 to 8 (0 is 1; above 8 is clamped to 8 and sets ERR)"
       }
     },

@@ -95,6 +95,42 @@ module AHB_tb;
     @(negedge clk); #1;
   endtask
 
+  // ----------------------------------------------------------------------
+  // pipelined pair: transfer A, then transfer B captured while A's data
+  // phase completes (wait states held). Region 0 fast, 1 slow alias, 2
+  // reserved (two-cycle ERROR). ea / eb: expected read data.
+  // ----------------------------------------------------------------------
+  task automatic crv_wr_plain(input logic [AW-1:0] a, input logic [DW-1:0] d);
+    @(negedge clk);
+    hsel = 1; htrans = 2'b10; haddr = a; hwrite = 1; hsize = 3'b010; #1;
+    @(negedge clk);
+    hwdata = d; htrans = 2'b00; hsel = 0; hwrite = 0; #1;
+    while (hreadyout !== 1'b1) begin @(negedge clk); #1; end
+    @(negedge clk); #1;
+  endtask
+  function automatic logic [AW-1:0] reg_addr(input int region, input int word);
+    reg_addr = (region == 2) ? 32'h0000_0800 :
+               (region == 1) ? 32'(1024 + word * 4) : 32'(word * 4);
+  endfunction
+  task automatic pipe_pair(input int ra, input logic wa, input int ka, input logic [DW-1:0] da,
+                           input logic [DW-1:0] ea,
+                           input int rb, input logic wb, input int kb, input logic [DW-1:0] db,
+                           input logic [DW-1:0] eb);
+    @(negedge clk);
+    hsel = 1; htrans = 2'b10; haddr = reg_addr(ra, ka); hwrite = wa; hsize = 3'b010; #1;
+    @(negedge clk);                        // A data phase || B address phase
+    hwdata = da; haddr = reg_addr(rb, kb); hwrite = wb; #1;
+    while (hreadyout !== 1'b1) begin @(negedge clk); #1; end
+    if (!wa && ra != 2) chk(hrdata === ea, "pipe_pair: A read data");
+    chk(hresp === (ra == 2), "pipe_pair: A response");
+    @(negedge clk);                        // B data phase
+    hwdata = db; htrans = 2'b00; hsel = 0; hwrite = 0; #1;
+    while (hreadyout !== 1'b1) begin @(negedge clk); #1; end
+    if (!wb && rb != 2) chk(hrdata === eb, "pipe_pair: B read data");
+    chk(hresp === (rb == 2), "pipe_pair: B response");
+    @(negedge clk); #1;
+  endtask
+
 `ifdef VERILATOR
   // =====================================================================
   // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
@@ -367,6 +403,29 @@ module AHB_tb;
                n_wr, n_rd, n_err);
     end
 `endif
+    // every pipelined pair (previous direction x region, next direction)
+    // with all-zero / all-one / alternating / other data
+    begin : pipe_pairs
+      logic [DW-1:0] dv [4];
+      logic [DW-1:0] mdl [0:7];
+      dv[0] = '0; dv[1] = '1; dv[2] = 32'hAAAA_AAAA; dv[3] = 32'h0F1E_2D3C;
+      for (int k = 0; k < 8; k++) begin
+        crv_wr_plain(32'(k * 4), dv[k % 4]); mdl[k] = dv[k % 4];
+      end
+      for (int ra = 0; ra < 3; ra++)
+        for (int wa = 0; wa < 2; wa++)
+          for (int wb = 0; wb < 2; wb++) begin
+            int ka, kb;
+            logic [DW-1:0] da, db;
+            ka = (ra * 4 + wa * 2 + wb) % 8; kb = (ka + 3) % 8;
+            da = dv[(ka + 1) % 4]; db = dv[(kb + 2) % 4];
+            pipe_pair(ra, wa[0], ka, da, mdl[ka], 0, wb[0], kb, db, mdl[kb]);
+            if (wa && ra != 2) mdl[ka] = da;
+            if (wb) mdl[kb] = db;
+          end
+      for (int k = 0; k < 8; k++)
+        pipe_pair(0, 1'b0, k, '0, mdl[k], 1, 1'b0, k, '0, mdl[k]);
+    end
     if (errors == 0) $display("TEST PASSED: AHB");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR

@@ -334,6 +334,34 @@ module FlexRay_sva (
                                                     bins high = {[7:63]}; }
   endgroup
   cg_fr u_cg_fr = new;
+  // payload data (over the bytes the frame carries), received cycle and
+  // header flags
+  function automatic int dcls(input logic [127:0] v, input int nb);
+    logic [127:0] m;
+    m = '0;
+    for (int i = 0; i < 16; i++) if (i < nb) m[8*i +: 8] = 8'hFF;
+    v = v & m;
+    dcls = v == 0 ? 0 : v == m ? 1 : (v == ({32{4'h5}} & m) || v == ({32{4'hA}} & m)) ? 2 : 3;
+  endfunction
+  int c_td, c_rd;
+  always @(posedge clk) begin
+    c_td = rst_n && tx_valid && tx_ready && cfg_plen != 0 ? dcls(tx_data, 2 * int'(cfg_plen)) : -1;
+    c_rd = rst_n && rx_valid && !rx_null && rx_len != 0 && rx_len <= 8 ? dcls(rx_data, 2 * int'(rx_len)) : -1;
+  end
+  covergroup cg_frdd @(negedge clk);
+    option.per_instance = 1;
+    cp_tdata: coverpoint c_td iff (c_td >= 0) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint c_rd iff (c_rd >= 0) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_frdd u_cg_frdd = new;
+  covergroup cg_frd @(posedge clk);
+    option.per_instance = 1;
+    cp_rcycle: coverpoint rx_cycle iff (rst_n && rx_valid) { bins c0 = {0}; bins c1 = {1}; bins low = {[2:15]};
+                                                            bins mid = {[16:47]}; bins high = {[48:63]}; }
+    cp_rflags: coverpoint {rx_sync, rx_startup, rx_null} iff (rst_n && rx_valid)
+      { bins plain = {3'b000}; bins null_ = {3'b001}; bins sync = {3'b100}; bins startup = {3'b110}; }
+  endgroup
+  cg_frd u_cg_frd = new;
 
   `FC(integration, v_integrate)
   `FC(offset_correction, v_rephase)

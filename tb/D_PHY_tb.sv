@@ -96,6 +96,7 @@ module D_PHY_tb;
   // between offers (a long stall ends the burst early: bytes after that are
   // not sent)
   logic [7:0] sent [$];
+  int         hs_pat = -1, lp_pat = -1;     // forced data byte (directed)
   task automatic hs_burst(input int n, input int stall = 0, input bit rnd = 1);
     int n0, k;
     n0 = n_hs_done; k = 0;
@@ -104,7 +105,7 @@ module D_PHY_tb;
     @(negedge clk); hs_req = 0;
     while (k < n && n_hs_done == n0) begin
       hs_tx_valid = 1;
-      hs_tx_data  = rnd ? 8'($urandom) : ((k % 2) ? 8'hFF : 8'h00);
+      hs_tx_data  = rnd ? (hs_pat >= 0 ? 8'(hs_pat) : 8'($urandom)) : ((k % 2) ? 8'hFF : 8'h00);
       @(posedge clk);
       if (hs_tx_ready) begin sent.push_back(hs_tx_data); k++; end
       @(negedge clk);
@@ -133,7 +134,7 @@ module D_PHY_tb;
     esc(8'h87);
     while (k < n && n_esc_done == n0) begin
       lpdt_valid = 1;
-      lpdt_data  = 8'($urandom);
+      lpdt_data  = lp_pat >= 0 ? 8'(lp_pat) : 8'($urandom);
       lpdt_last  = (k == n - 1) && !underrun;
       @(posedge clk);
       if (lpdt_ready) begin sent.push_back(lpdt_data); k++; end
@@ -372,6 +373,13 @@ module D_PHY_tb;
     rxq.delete(); cmdq.delete();
     hs_burst(2);
     lpdt(2);
+    // data patterns both ways
+    for (int k = 0; k < 4; k++) begin
+      hs_pat = k == 0 ? 8'h00 : k == 1 ? 8'hFF : k == 2 ? 8'h55 : 8'hAA; lp_pat = hs_pat;
+      hs_burst(2);
+      lpdt(2);
+    end
+    hs_pat = -1; lp_pat = -1;
 
     if (errors == 0) $display("TEST PASSED: D_PHY");
     else             $display("TEST FAILED: %0d errors", errors);

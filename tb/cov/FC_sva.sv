@@ -122,6 +122,11 @@ module FC_sva (
   bit v_disp, v_viol, v_kpos, v_kother, v_sync, v_rr_rx, v_dat_out, v_eof_out, v_unk_os;
   bit v_ab_eofa, v_ab_os, v_ab_sof, v_ab_code, v_crc, v_short, v_long, v_sat, v_good, v_rx_eoft, v_rx_sofi, v_frag;
 
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  bit c_tv, c_rv, c_ev, t_si, c_es;
+  int c_ee;
+  logic [7:0] c_tb, c_rb;
+
   wire exp_ready = t_cnt == 0 && t_ph == 2 && tx_valid;
 
   always @(posedge clk or negedge rst_n) begin
@@ -139,6 +144,7 @@ module FC_sva (
       logic [10:0] c;
       sof_tx = 0; rr_tx = 0; f_end = 0; rr_rx = 0;
       m_done = 0; m_ur = 0;
+      {c_tv, c_rv, c_ev} = '0;
 
       // ---- transmitter
       if (t_cnt == 0) begin
@@ -150,6 +156,7 @@ module FC_sva (
             if (t_gap == 6 && tx_valid && (cfg_credit == 0 || m_cu < int'(cfg_credit))) begin
               sof_tx = 1; t_ph = 1; t_os = tx_sofi ? SOFI : SOFN;
               if (tx_sofi) v_sofi = 1; else v_sofn = 1;
+              t_si = tx_sofi;
               if (m_rp > 0) v_sof_over_rr = 1;
             end else begin
               if (t_gap == 6 && tx_valid) v_cr_wait = 1;
@@ -161,6 +168,7 @@ module FC_sva (
           1: if (t_w == 3) begin t_ph = 2; t_n = 0; t_crc = '1; end
           2: if (tx_valid) begin
             s = {1'b0, tx_data}; t_crc = crc_b(t_crc, tx_data); t_n++;
+            c_tv = 1; c_tb = tx_data;
             if (tx_last) begin
               t_eot = tx_eoft;
               if (t_w == 3 && t_n >= 24) begin t_ph = 4; v_nopad = 1; end
@@ -180,6 +188,7 @@ module FC_sva (
             s = K285;
             t_os = {t_rd ? 8'hB5 : 8'h95, {2{t_abt ? 8'hF5 : t_eot ? 8'h75 : 8'hD5}}};
             if (t_rd) v_eof_pos = 1; else v_eof_neg = 1;
+            c_ev = 1; c_es = t_si; c_ee = t_abt ? 2 : t_eot ? 1 : 0;
             if (!t_abt) begin m_done = 1; if (t_eot) v_eoft = 1; else v_eofn = 1; end
           end else if (t_w == 3) begin t_ph = 0; t_gap = 0; t_abt = 0; end
         endcase
@@ -242,7 +251,7 @@ module FC_sva (
             if (!y[8] && (r_w == 0 || !r_os)) begin
               if (r_in) begin
                 r_crc = crc_b(r_crc, y[7:0]);
-                if (r_n >= 5) begin m_rv = 1; m_rd = r_dl[4]; m_rl = 0; end
+                if (r_n >= 5) begin m_rv = 1; m_rd = r_dl[4]; m_rl = 0; c_rv = 1; c_rb = r_dl[4]; end
                 for (int i = 4; i > 0; i--) r_dl[i] = r_dl[i - 1];
                 r_dl[0] = y[7:0];
                 if (r_n < 4095) r_n++; else v_sat = 1;
@@ -275,6 +284,17 @@ module FC_sva (
       else if (rr_tx) m_rp--;
     end
   end
+
+  // every data byte through the 8b/10b encoder and decoder; SOF x EOF kinds
+  covergroup cg_fc @(negedge clk);
+    option.per_instance = 1;
+    cp_tbyte: coverpoint c_tb iff (rst_n && c_tv) { bins b[] = {[0:255]}; }
+    cp_rbyte: coverpoint c_rb iff (rst_n && c_rv) { bins b[] = {[0:255]}; }
+    cp_sof: coverpoint c_es iff (rst_n && c_ev) { bins sofn = {0}; bins sofi = {1}; }
+    cp_eof: coverpoint c_ee iff (rst_n && c_ev) { bins eofn = {0}; bins eoft = {1}; bins eofa = {2}; }
+    x_frame: cross cp_sof, cp_eof;
+  endgroup
+  cg_fc u_cg_fc = new;
 
   // ---------------- assertions ----------------
   `SVA_INV(a_tx_bit, tx_p == t_bits[9])

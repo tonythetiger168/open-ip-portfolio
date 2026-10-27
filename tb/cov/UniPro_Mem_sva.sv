@@ -48,6 +48,11 @@ module UniPro_Mem_sva (
   logic [7:0]  ts [0:47];
   int          tn, ti;
 
+  // covergroup samples (one cycle after the event)
+  function automatic int dcls(input logic [31:0] v);
+    dcls = v == 0 ? 0 : v == 32'hFFFF_FFFF ? 1 : (v == 32'h5555_5555 || v == 32'hAAAA_AAAA) ? 2 : 3;
+  endfunction
+  int c_mk, c_ml, c_ma, c_md, c_ak, c_ai, c_ad, c_rt, c_rk;
   // coverage strobes
   logic vwr, vrd, vget, vset, vnac, vnacx, vnacmiss, vcrc, voob_w, voob_r, voob_a, vbad, vlong, vdrop,
         vtmo, vqos, vretx, vesc, vabort, vshortmem, vpacpshort, vwr3, vrd3;
@@ -126,6 +131,7 @@ module UniPro_Mem_sva (
        vtmo, vqos, vretx, vesc, vabort, vshortmem, vpacpshort, vwr3, vrd3} <= '0;
       m_irq <= 0;
       go = 0; r = '0;
+      c_mk <= -1; c_ak <= -1; c_rt <= -1;
 
       // transmitter
       if (tv) begin
@@ -174,12 +180,22 @@ module UniPro_Mem_sva (
                         for (int i = 0; i < 3; i++)
                           if (i < int'(fb[6][7:2])) sm[6'(fb[5][7:2] + i)] <= {fb[7 + 4 * i], fb[8 + 4 * i], fb[9 + 4 * i], fb[10 + 4 * i]};
                         vwr <= 1; vwr3 <= fb[6] == 12;
-                      end else if (op == 8'h02 && r.rd) begin vrd <= 1; vrd3 <= fb[6] == 12; end
+                        c_mk <= 0; c_ml <= fb[6]; c_ma <= fb[5] == 0 ? 0 : int'(fb[5]) + int'(fb[6]) == 256 ? 2 : 1;
+                        c_md <= dcls({fb[7], fb[8], fb[9], fb[10]});
+                      end else if (op == 8'h02 && r.rd) begin
+                        vrd <= 1; vrd3 <= fb[6] == 12;
+                        c_mk <= 1; c_ml <= fb[6]; c_ma <= fb[5] == 0 ? 0 : int'(fb[5]) + int'(fb[6]) == 256 ? 2 : 1;
+                        c_md <= dcls(sm[fb[5][7:2]]);
+                      end
                       else vbad <= 1;
                     end else if (fb[0][3:0] == 4'hF) begin
                       if ((op == 8'h10 || op == 8'h11) && a1 >= 16) begin m_irq <= 1; voob_a <= 1; end
-                      else if (op == 8'h11 && r.pay[127:120] == 8'h91) begin sa[a1[3:0]] <= fb[5]; vset <= 1; end
-                      else if (op == 8'h10 && r.pay[127:120] == 8'h90) vget <= 1;
+                      else if (op == 8'h11 && r.pay[127:120] == 8'h91) begin
+                        sa[a1[3:0]] <= fb[5]; vset <= 1;
+                        c_ak <= 1; c_ai <= a1[3:0]; c_ad <= dcls({4{fb[5]}});
+                      end else if (op == 8'h10 && r.pay[127:120] == 8'h90) begin
+                        vget <= 1; c_ak <= 0; c_ai <= a1[3:0]; c_ad <= dcls({4{sa[a1[3:0]]}});
+                      end
                       else if (op == 8'h20) begin
                         vnac <= 1;
                         if (rb.v && rb.sq == a1[3:0]) begin
@@ -200,6 +216,11 @@ module UniPro_Mem_sva (
       if (go) begin
         if (r.tc ? (!q[1].v || ld1) : (!q[0].v || ld0)) begin
           r.sq = seq; r.tmr = 100;
+          c_rt <= r.tc;
+          case (r.pay[127:120])
+            8'h81: c_rk <= 0; 8'h82: c_rk <= 1; 8'h90: c_rk <= 2; 8'h91: c_rk <= 3;
+            default: c_rk <= r.pay[119:112] == 8'h02 ? 4 : 5;
+          endcase
           q[r.tc] <= r;
           seq <= seq + 1;
         end else begin m_irq <= 1; vdrop <= 1; end
@@ -213,6 +234,25 @@ module UniPro_Mem_sva (
     for (int i = 0; i < 64; i++) if (mem[i] != sm[i]) mem_ok = 0;
     for (int i = 0; i < 16; i++) if (attr[i] != sa[i]) mem_ok = 0;
   end
+
+  covergroup cg_unipro_mem @(negedge clk);
+    cp_mkind: coverpoint c_mk iff (c_mk >= 0) { bins write = {0}; bins read = {1}; }
+    cp_mlen: coverpoint c_ml iff (c_mk >= 0) { bins w1 = {4}; bins w2 = {8}; bins w3 = {12}; }
+    cp_maddr: coverpoint c_ma iff (c_mk >= 0) { bins first = {0}; bins middle = {1}; bins last = {2}; }
+    cp_mdata: coverpoint c_md iff (c_mk >= 0) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    x_mlen: cross cp_mkind, cp_mlen;
+    x_maddr: cross cp_mkind, cp_maddr;
+    x_mdata: cross cp_mkind, cp_mdata;
+    cp_akind: coverpoint c_ak iff (c_ak >= 0) { bins get = {0}; bins set = {1}; }
+    cp_aidx: coverpoint c_ai iff (c_ak >= 0) { bins i[] = {[0:15]}; }
+    cp_adata: coverpoint c_ad iff (c_ak >= 0) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    x_attr: cross cp_akind, cp_adata;
+    cp_rtc: coverpoint c_rt iff (c_rt >= 0) { bins tc[] = {[0:1]}; }
+    cp_rkind: coverpoint c_rk iff (c_rt >= 0) { bins wr_ok = {0}; bins rd_data = {1}; bins get_rsp = {2}; bins set_cnf = {3};
+                                                bins err_range = {4}; bins err_other = {5}; }
+    x_rsp: cross cp_rtc, cp_rkind;
+  endgroup
+  cg_unipro_mem u_cg_unipro_mem = new();
 
   `SVA_RST(a_reset_state, !rst_n, !tx_valid && !irq)
   `SVA_INV(a_tx_valid, tx_valid == tv)

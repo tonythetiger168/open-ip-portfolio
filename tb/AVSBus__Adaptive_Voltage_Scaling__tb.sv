@@ -438,6 +438,47 @@ module AVSBus__Adaptive_Voltage_Scaling__tb;
       set_and_verify(12'd500);
     end
 
+    // SET code edges (0xFFF and 0, each up / down / repeated), GET of 0 and
+    // 0xFFF, NACKed GET and unknown commands (foreign address, bad CRC),
+    // and frames abandoned in the address, data and readback fields
+    begin : frame_classes
+      logic        ack;
+      logic [15:0] rd;
+      logic [30:0] pl;
+      logic [3:0]  cr;
+      set_and_verify(12'h100);
+      avs_send(SLAVE_ADDR, CMD_SET, 16'h0100, 0, ack, rd);  wait_ramp_done();
+      set_and_verify(12'hFFF);
+      avs_send(SLAVE_ADDR, CMD_SET, 16'h0FFF, 0, ack, rd);  wait_ramp_done();
+      set_and_verify(12'h000);
+      avs_send(SLAVE_ADDR, CMD_SET, 16'h0000, 0, ack, rd);  wait_ramp_done();
+      avs_send(7'h12, CMD_GET, 16'h0, 0, ack, rd);
+      if (ack !== 1'b0) begin errors++; $display("ERROR: AVSBus foreign GET ACKed"); end
+      avs_send(SLAVE_ADDR, CMD_GET, 16'h0, 1, ack, rd);
+      if (ack !== 1'b0) begin errors++; $display("ERROR: AVSBus bad-CRC GET ACKed"); end
+      avs_send(7'h12, 8'h07, 16'h0, 0, ack, rd);
+      if (ack !== 1'b0) begin errors++; $display("ERROR: AVSBus foreign unknown cmd ACKed"); end
+      avs_send(SLAVE_ADDR, 8'h07, 16'h0, 1, ack, rd);
+      if (ack !== 1'b0) begin errors++; $display("ERROR: AVSBus bad-CRC unknown cmd ACKed"); end
+      // abandoned frames: stop clocking after 3 address bits, after 20
+      // data bits, and after 2 readback bits of an ACKed GET
+      pl = {SLAVE_ADDR, CMD_GET, 16'h0};
+      cr = crc4_31(pl);
+      for (int k = 0; k < 3; k++) begin
+        avs_tx_bit(1'b1);
+        if (k == 0) for (int i = 30; i > 27; i--) avs_tx_bit(pl[i]);
+        if (k == 1) for (int i = 30; i > 10; i--) avs_tx_bit(pl[i]);
+        if (k == 2) begin
+          for (int i = 30; i >= 0; i--) avs_tx_bit(pl[i]);
+          for (int i = 3; i >= 0; i--) avs_tx_bit(cr[i]);
+          avs_rx_bit(ack); avs_rx_bit(ack); avs_rx_bit(ack);
+        end
+        mst_oe = 0;
+        #15000;
+      end
+      set_and_verify(12'h123);
+    end
+
     if (errors == 0) $display("TEST PASSED: AVSBus__Adaptive_Voltage_Scaling_");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR
