@@ -258,11 +258,12 @@ module ACE_Lite_tb;
   task automatic axi_write(input logic [AW-1:0] addr, input logic [7:0] len,
                            input logic [DW-1:0] base, input logic [1:0] burst,
                            input logic [DW/8-1:0] strb, input logic [1:0] bar,
-                           input logic [1:0] exp_resp);
+                           input logic [1:0] exp_resp, input logic [2:0] snp = 3'b000,
+                           input logic [1:0] dom = 2'b01, input logic [2:0] sz = 3'd2);
     begin
       @(negedge clk);
-      awvalid = 1; awaddr = addr; awlen = len; awsize = 3'd2;
-      awburst = burst; awsnoop = 3'b000; awdomain = 2'b01; awbar = bar;
+      awvalid = 1; awaddr = addr; awlen = len; awsize = sz;
+      awburst = burst; awsnoop = snp; awdomain = dom; awbar = bar;
       while (!awready) @(negedge clk);
       @(posedge clk);
       @(negedge clk) awvalid = 0;
@@ -291,12 +292,14 @@ module ACE_Lite_tb;
   // -------------------------------------------------
   task automatic axi_read(input logic [AW-1:0] addr, input logic [7:0] len,
                           input logic [DW-1:0] base, input logic [1:0] bar,
-                          input logic [1:0] exp_resp);
+                          input logic [1:0] exp_resp, input logic [3:0] snp = 4'h0,
+                          input logic [1:0] dom = 2'b01, input logic [2:0] sz = 3'd2,
+                          input logic [1:0] burst = 2'b01);
     logic [DW-1:0] exp;
     begin
       @(negedge clk);
-      arvalid = 1; araddr = addr; arlen = len; arsize = 3'd2;
-      arburst = 2'b01; arsnoop = 4'h0; ardomain = 2'b01; arbar = bar;
+      arvalid = 1; araddr = addr; arlen = len; arsize = sz;
+      arburst = burst; arsnoop = snp; ardomain = dom; arbar = bar;
       while (!arready) @(negedge clk);
       @(posedge clk);
       @(negedge clk) arvalid = 0;
@@ -441,6 +444,65 @@ module ACE_Lite_tb;
     end
     rst_n = 1;
     axi_read(32'h0000_0240, 8'd3, 32'h0240_0000, 2'b00, AXI_OKAY);
+
+    // ---- ACE-Lite transaction types, error causes, sizes, lanes, data ----
+    begin : txn_classes
+      // writes: WriteNoSnoop (both domains), WriteUnique, WriteLineUnique,
+      // each in range (OKAY) and out of range (SLVERR); snoop fields are
+      // accepted and ignored, so the data path is the plain one
+      axi_write(32'h0000_0050, 8'd0, 32'h0050_0000, 2'b01, 4'hF, 2'b00, AXI_OKAY,   3'b000, 2'b00);
+      axi_write(32'h0000_0054, 8'd0, 32'h0054_0000, 2'b01, 4'hF, 2'b00, AXI_OKAY,   3'b000, 2'b11);
+      axi_write(32'h0000_1050, 8'd0, 32'h0000_0000, 2'b01, 4'hF, 2'b00, AXI_SLVERR, 3'b000, 2'b00);
+      axi_write(32'h0000_0058, 8'd0, 32'h0058_0000, 2'b01, 4'hF, 2'b00, AXI_OKAY,   3'b000, 2'b10);
+      axi_write(32'h0000_1058, 8'd0, 32'h0000_0000, 2'b01, 4'hF, 2'b00, AXI_SLVERR, 3'b000, 2'b10);
+      axi_write(32'h0000_005C, 8'd0, 32'h005C_0000, 2'b01, 4'hF, 2'b00, AXI_OKAY,   3'b001, 2'b01);
+      axi_write(32'h0000_105C, 8'd0, 32'h0000_0000, 2'b01, 4'hF, 2'b00, AXI_SLVERR, 3'b001, 2'b01);
+      axi_write(32'h0000_0060, 8'd0, 32'h0060_0000, 2'b01, 4'hF, 2'b00, AXI_OKAY,   3'b101, 2'b01);
+      // reads: ReadNoSnoop, ReadOnce, CleanShared, CleanInvalid, MakeInvalid
+      axi_read(32'h0000_0050, 8'd0, 32'h0050_0000, 2'b00, AXI_OKAY,   4'b0000, 2'b00);
+      axi_read(32'h0000_1050, 8'd0, 32'h0000_0000, 2'b00, AXI_SLVERR, 4'b0000, 2'b11);
+      axi_read(32'h0000_0054, 8'd0, 32'h0054_0000, 2'b00, AXI_OKAY,   4'b0000, 2'b10);
+      axi_read(32'h0000_1054, 8'd0, 32'h0000_0000, 2'b00, AXI_SLVERR, 4'b0000, 2'b01);
+      axi_read(32'h0000_0058, 8'd0, 32'h0058_0000, 2'b00, AXI_OKAY,   4'b1000, 2'b01);
+      axi_read(32'h0000_1058, 8'd0, 32'h0000_0000, 2'b00, AXI_SLVERR, 4'b1000, 2'b10);
+      axi_read(32'h0000_005C, 8'd0, 32'h005C_0000, 2'b00, AXI_OKAY,   4'b1001, 2'b01);
+      axi_read(32'h0000_105C, 8'd0, 32'h0000_0000, 2'b00, AXI_SLVERR, 4'b1001, 2'b10);
+      axi_read(32'h0000_0060, 8'd0, 32'h0060_0000, 2'b00, AXI_OKAY,   4'b1101, 2'b01);
+      axi_read(32'h0000_1060, 8'd0, 32'h0000_0000, 2'b00, AXI_SLVERR, 4'b1101, 2'b11);
+      axi_read(32'h0000_0060, 8'd0, 32'h0060_0000, 2'b00, AXI_OKAY,   4'b0011, 2'b01);
+      // error causes not covered above: read burst type, size > 4 bytes
+      axi_read (32'h0000_0050, 8'd0, 32'h0000_0000, 2'b00, AXI_SLVERR, 4'h0, 2'b01, 3'd2, 2'b00);
+      axi_write(32'h0000_0064, 8'd0, 32'h0000_0000, 2'b01, 4'hF, 2'b00, AXI_SLVERR, 3'b000, 2'b01, 3'd3);
+      axi_read (32'h0000_0064, 8'd0, 32'h0000_0000, 2'b00, AXI_SLVERR, 4'h0, 2'b01, 3'd3);
+      // narrow (1- and 2-byte) legal transfers into zeroed words
+      axi_write(32'h0000_0068, 8'd0, 32'h0000_0000, 2'b01, 4'hF, 2'b00, AXI_OKAY);
+      axi_write(32'h0000_006C, 8'd0, 32'h0000_0000, 2'b01, 4'hF, 2'b00, AXI_OKAY);
+      axi_write(32'h0000_0068, 8'd0, 32'h0000_0068, 2'b01, 4'h1, 2'b00, AXI_OKAY, 3'b000, 2'b01, 3'd0);
+      axi_write(32'h0000_006C, 8'd0, 32'h0000_006C, 2'b01, 4'h3, 2'b00, AXI_OKAY, 3'b000, 2'b01, 3'd1);
+      axi_read (32'h0000_0068, 8'd0, 32'h0000_0068, 2'b00, AXI_OKAY, 4'h0, 2'b01, 3'd0);
+      axi_read (32'h0000_006C, 8'd0, 32'h0000_006C, 2'b00, AXI_OKAY, 4'h0, 2'b01, 3'd1);
+      // single byte lanes and upper half on a word holding 0
+      axi_write(32'h0000_0070, 8'd0, 32'h0000_0000, 2'b01, 4'hF, 2'b00, AXI_OKAY);
+      axi_write(32'h0000_0070, 8'd0, 32'h0000_0011, 2'b01, 4'h1, 2'b00, AXI_OKAY);
+      axi_write(32'h0000_0070, 8'd0, 32'h0000_2200, 2'b01, 4'h2, 2'b00, AXI_OKAY);
+      axi_write(32'h0000_0070, 8'd0, 32'h0033_0000, 2'b01, 4'h4, 2'b00, AXI_OKAY);
+      axi_write(32'h0000_0070, 8'd0, 32'h4400_0000, 2'b01, 4'h8, 2'b00, AXI_OKAY);
+      axi_read (32'h0000_0070, 8'd0, 32'h4433_2211, 2'b00, AXI_OKAY);
+      axi_write(32'h0000_0070, 8'd0, 32'h9988_0000, 2'b01, 4'hC, 2'b00, AXI_OKAY);
+      axi_read (32'h0000_0070, 8'd0, 32'h9988_2211, 2'b00, AXI_OKAY);
+      // data classes (full strobes) written and read back
+      axi_write(32'h0000_0074, 8'd0, 32'h0000_0000, 2'b01, 4'hF, 2'b00, AXI_OKAY);
+      axi_read (32'h0000_0074, 8'd0, 32'h0000_0000, 2'b00, AXI_OKAY);
+      axi_write(32'h0000_0074, 8'd0, 32'hFFFF_FFFF, 2'b01, 4'hF, 2'b00, AXI_OKAY);
+      axi_read (32'h0000_0074, 8'd0, 32'hFFFF_FFFF, 2'b00, AXI_OKAY);
+      axi_write(32'h0000_0074, 8'd0, 32'h5555_5555, 2'b01, 4'hF, 2'b00, AXI_OKAY);
+      axi_read (32'h0000_0074, 8'd0, 32'h5555_5555, 2'b00, AXI_OKAY);
+      axi_write(32'h0000_0074, 8'd0, 32'hAAAA_AAAA, 2'b01, 4'hF, 2'b00, AXI_OKAY);
+      axi_read (32'h0000_0074, 8'd0, 32'hAAAA_AAAA, 2'b00, AXI_OKAY);
+      // long legal bursts (32 beats) in both directions, barrier read
+      axi_write(32'h0000_0080, 8'd31, 32'h0800_0000, 2'b01, 4'hF, 2'b00, AXI_OKAY);
+      axi_read (32'h0000_0080, 8'd31, 32'h0800_0000, 2'b10, AXI_OKAY);
+    end
 
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ------

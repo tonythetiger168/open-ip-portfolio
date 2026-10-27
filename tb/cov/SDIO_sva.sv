@@ -175,6 +175,37 @@ module SDIO_sva #(parameter int BIT_CLKS = 1) (
   `SVA_INV(a_irq, irq == m_irq)
   `SVA_INV(a_register_file, mem_ok)
 
+  // accepted command x direction x outcome, CMD53 byte count and address
+  // mode per direction, CMD52 register address class per direction,
+  // CMD52 write data / read data byte classes
+  function automatic logic [1:0] bcls(input logic [7:0] v);
+    bcls = (v == 8'h00) ? 2'd0 : (v == 8'hFF) ? 2'd1 : (v == 8'h55 || v == 8'hAA) ? 2'd2 : 2'd3;
+  endfunction
+  wire acc  = tk && ph == CMD && n == 47 && good && (c52 || c53);
+  wire [1:0] outc = efn ? 2'd1 : erg ? 2'd2 : 2'd0;
+  covergroup cg_cmd @(posedge sd_clk);
+    option.per_instance = 1;
+    cp_kind: coverpoint {c53, f[39], outc} iff (rst_n && acc)
+      { bins r52_ok = {4'b0_0_00}; bins r52_fn = {4'b0_0_01}; bins r52_rg = {4'b0_0_10};
+        bins w52_ok = {4'b0_1_00}; bins w52_fn = {4'b0_1_01}; bins w52_rg = {4'b0_1_10};
+        bins r53_ok = {4'b1_0_00}; bins r53_fn = {4'b1_0_01}; bins r53_rg = {4'b1_0_10};
+        bins w53_ok = {4'b1_1_00}; bins w53_fn = {4'b1_1_01}; bins w53_rg = {4'b1_1_10}; }
+    cp_dir53: coverpoint f[39] iff (rst_n && acc && c53 && outc == 0) { bins rd = {0}; bins wr = {1}; }
+    cp_cnt53: coverpoint fn_ iff (rst_n && acc && c53 && outc == 0)
+      { bins one = {1}; bins mid = {[2:31]}; bins max32 = {32}; }
+    cp_mode53: coverpoint f[34] iff (rst_n && acc && c53 && outc == 0) { bins fixed = {0}; bins incr = {1}; }
+    x_53: cross cp_dir53, cp_cnt53, cp_mode53;
+    cp_dir52: coverpoint f[39] iff (rst_n && acc && c52 && outc == 0) { bins rd = {0}; bins wr = {1}; }
+    cp_addr52: coverpoint fa iff (rst_n && acc && c52 && outc == 0)
+      { bins first = {0}; bins last = {127}; bins mid = {[1:126]}; }
+    x_52: cross cp_dir52, cp_addr52;
+    cp_wd52: coverpoint bcls(f[15:8]) iff (rst_n && acc && c52 && f[39] && outc == 0)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rd: coverpoint bcls(rd8) iff (rst_n && tk && ph == RDATA && k % 2 == 0)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_cmd u_cg_cmd = new;
+
   `FC(cmd52_read, v52r)
   `FC(cmd52_write, v52w)
   `FC(cmd53_read, v53r)

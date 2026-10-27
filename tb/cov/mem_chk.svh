@@ -113,6 +113,11 @@
   logic        m_chk;
   logic [15:0] m_exp;
   int          rb_m;                 // per-entry refresh: REFs since reset
+  // functional-coverage samples (set by the model, sampled at the falling edge)
+  logic        c_acc, c_rdv;
+  logic [2:0]  c_cmd, c_prev, c_last;
+  logic [1:0]  c_col;
+  logic [15:0] c_wd, c_rdd;
 
   // violations (checked one clock later by the assertions below)
   logic v_stray, v_closed, v_act_open, v_trcd, v_trp, v_trc, v_tras, v_trfc, v_ref_open,
@@ -129,6 +134,7 @@
       n = 0; t_ref = 0; t_refend = 0; t_rdpin = 0; busy = 0;
       op_v = 0; s_act = 0; s_rw = 0; s_pre = 0; s_done = 0; s_apre = 0; op_hit = 0; op_open = 0;
       p_tv = 0; p_done = 0; m_chk = 0; rb_m = 0;
+      c_acc = 0; c_rdv = 0; c_cmd = 0; c_prev = 0; c_last = 0; c_col = 0; c_wd = 0; c_rdd = 0;
       for (int b = 0; b < NB; b++) begin
         open_m[b] = 0; row_m[b] = 0; t_act[b] = -1000000; t_pre[b] = -1000000;
       end
@@ -151,6 +157,7 @@
        e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea, e_apre,
        e_refpb_others_open} = '0;
       // ---- read data registered by the previous hdone
+      c_acc = 0; c_rdv = m_chk; c_rdd = q_hrdata;
       if (m_chk) v_rdata = q_hrdata !== m_exp;
       m_chk = 0;
       // ---- pin command
@@ -293,6 +300,8 @@
           if (hcmd == 3'd2 || hcmd == 3'd3) op_hit = open_m[op_b];
 `endif
           e_b2b = done_now;
+          c_acc = 1; c_cmd = hcmd; c_prev = c_last; c_last = hcmd; c_wd = hwdata;
+          c_col = col_of(haddr) == 8'h00 ? 2'd0 : col_of(haddr) == 8'hFF ? 2'd1 : 2'd2;
           e_col0 = col_of(haddr) == 8'h00; e_col255 = col_of(haddr) == 8'hFF;
           `MEM_CHK_ON_ACCEPT
           case (hcmd)
@@ -334,6 +343,32 @@
   `SVA_INV(a_cke_out_of_reset, cke)
 `endif
   `SVA_RST(a_reset_pins, !rst_n, !cke && !hdone && !trace_valid && q_pc == P_NOP)
+
+  // host command pairs (previous accepted command x this one; c_prev = 0
+  // is the first command after reset), RD / WR column classes, write and
+  // read data classes
+  function automatic logic [1:0] mdcls(input logic [15:0] v);
+    mdcls = (v == 16'h0000) ? 2'd0 : (v == 16'hFFFF) ? 2'd1 :
+            (v == 16'h5555 || v == 16'hAAAA) ? 2'd2 : 2'd3;
+  endfunction
+  covergroup cg_mem_ops @(negedge clk);
+    option.per_instance = 1;
+    cp_cmd: coverpoint c_cmd iff (rst_n && c_acc)
+      { bins act = {1}; bins rd = {2}; bins wr = {3}; bins pre = {4}; }
+    cp_prev: coverpoint c_prev iff (rst_n && c_acc)
+      { bins act = {1}; bins rd = {2}; bins wr = {3}; bins pre = {4}; }
+    x_pair: cross cp_prev, cp_cmd;
+    cp_rw: coverpoint c_cmd iff (rst_n && c_acc && (c_cmd == 3'd2 || c_cmd == 3'd3))
+      { bins rd = {2}; bins wr = {3}; }
+    cp_col: coverpoint c_col iff (rst_n && c_acc && (c_cmd == 3'd2 || c_cmd == 3'd3))
+      { bins col0 = {0}; bins col255 = {1}; bins other = {2}; }
+    x_rw_col: cross cp_rw, cp_col;
+    cp_wdata: coverpoint mdcls(c_wd) iff (rst_n && c_acc && c_cmd == 3'd3)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint mdcls(c_rdd) iff (rst_n && c_rdv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_mem_ops u_cg_mem_ops = new;
 
   `FC(rd_page_hit, e_rd_hit)
   `FC(rd_bank_closed, e_rd_closed)

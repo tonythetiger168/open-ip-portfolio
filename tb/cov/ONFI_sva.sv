@@ -76,6 +76,11 @@ module ONFI_sva #(
   bit v_op [0:7], v_len0, v_len_big, v_wr_stall, v_rd_stall, v_to [0:7], v_fail_pg, v_fail_er, v_rdy_now, v_busy_long;
   bit v_id20, v_st_busy, v_st_noise, v_cmd_wait, v_back2back;
   int busy_n;
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  bit          c_av, c_dv, c_wv, c_rv, c_sv;
+  int          c_op, c_len, c_dk;
+  logic [23:0] c_row;
+  logic [7:0]  c_wd, c_rd, c_sd;
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -84,18 +89,21 @@ module ONFI_sva #(
       {o_cle, o_ale, o_oe, o_rv, o_done, o_fail, o_to} = '0;
       {o_ce, o_we, o_re} = 3'b111;
       o_dq = 0; o_rd = 0; o_st = 0;
+      {c_av, c_dv, c_wv, c_rv, c_sv} = '0; c_op = 0; c_len = 0; c_dk = 0; c_row = 0; c_wd = 0; c_rd = 0; c_sd = 0;
     end else begin : b_step
       bit o_s2, o_rv0;
       o_s2 = s2; o_rv0 = o_rv;
       s2 = s1; s1 = rb_n;
       if (o_done && cmd_valid) v_back2back = 1;
       o_done = 0; o_fail = 0; o_to = 0;
+      {c_av, c_dv, c_wv, c_rv, c_sv} = '0;
       if (o_rv && rd_ready) o_rv = 0;
       case (ph)
         P_IDLE:
           if (cmd_valid) begin
             m_op = cmd_op;
             v_op[cmd_op] = 1;
+            c_av = 1; c_op = cmd_op; c_len = cmd_len; c_row = cmd_row;
             if ((cmd_op == 1 || cmd_op == 3 || cmd_op == 4) && cmd_len == 0) v_len0 = 1;
             if (cmd_len[LW-1] && (cmd_op == 3 || cmd_op == 4)) v_len_big = 1;
             if (cmd_op == 1 && cmd_col[7:0] == 8'h20) v_id20 = 1;
@@ -107,6 +115,7 @@ module ONFI_sva #(
             ph = P_IDLE; o_ce = 1; o_oe = 0; o_done = 1;
             o_fail = o_st[0] && (m_op == 4 || m_op == 5);
             if (o_fail) begin if (m_op == 4) v_fail_pg = 1; else v_fail_er = 1; end
+            c_dv = 1; c_dk = o_fail ? (m_op == 4 ? 8 : 9) : m_op;
           end else
             case (k_ty[0])
               K_C, K_A: begin
@@ -118,6 +127,7 @@ module ONFI_sva #(
                 if (k_v[0] == 0) begin void'(k_ty.pop_front()); void'(k_v.pop_front()); end
                 else if (wr_valid) begin
                   o_dq = wr_data; o_we = 0; o_oe = 1; cnt = 0; ph = P_WR; k_v[0]--;
+                  c_wv = 1; c_wd = wr_data;
                 end else v_wr_stall = 1;
               K_DO:
                 if (k_v[0] == 0) begin void'(k_ty.pop_front()); void'(k_v.pop_front()); end
@@ -137,11 +147,11 @@ module ONFI_sva #(
           if (cnt == TP - 1) begin
             o_re = 1;
             if (k_ty[0] == K_ST) begin
-              o_st = dq_i;
+              o_st = dq_i; c_sv = 1; c_sd = dq_i;
               if (!dq_i[6]) v_st_busy = 1;
               if (dq_i[4:1] != 0) v_st_noise = 1;
             end else begin
-              o_rv = 1; o_rd = dq_i; k_v[0]--;
+              o_rv = 1; o_rd = dq_i; k_v[0]--; c_rv = 1; c_rd = dq_i;
             end
           end
           if (cnt == 2 * TP - 1) begin
@@ -160,6 +170,7 @@ module ONFI_sva #(
             ph = P_NEXT; void'(k_ty.pop_front()); void'(k_v.pop_front());
           end else if (cnt == TBUSY - 1) begin
             ph = P_IDLE; o_ce = 1; o_oe = 0; o_done = 1; o_to = 1; v_to[m_op] = 1;
+            c_dv = 1; c_dk = 10 + m_op;
           end else cnt++;
       endcase
       if (cmd_valid && ph != P_IDLE) v_cmd_wait = 1;
@@ -176,6 +187,30 @@ module ONFI_sva #(
                           !ev_fail && !ev_timeout && status == 0)
 
   // ---------------- functional coverage ----------------
+  // completion kind (every op OK, program / erase fail, timeouts),
+  // read-page / program length class, row class, data-in / data-out /
+  // status byte classes
+  function automatic int dcls(input logic [7:0] v);
+    return v == 8'h00 ? 0 : (v == 8'hFF ? 1 : (v == 8'h55 || v == 8'hAA ? 2 : 3));
+  endfunction
+  covergroup cg_onfi @(negedge clk);
+    option.per_instance = 1;
+    cp_done: coverpoint c_dk iff (rst_n && c_dv)
+      { bins ok[] = {[0:7]}; bins prog_fail = {8}; bins erase_fail = {9};
+        bins to_reset = {10}; bins to_read_page = {13}; bins to_erase = {15}; }
+    cp_len: coverpoint (c_op == 4 ? 4 : 0) + (c_len == 0 ? 0 : (c_len < 100 ? 1 : (c_len < 2048 ? 2 : 3)))
+            iff (rst_n && c_av && (c_op == 3 || c_op == 4))
+      { bins rd_zero = {0}; bins rd_short = {1}; bins rd_long = {2}; bins rd_top = {3};
+        bins pg_zero = {4}; bins pg_short = {5}; bins pg_long = {6}; bins pg_top = {7}; }
+    cp_row: coverpoint c_row == 0 ? 0 : (c_row == 24'hFFFFFF ? 1 : 2) iff (rst_n && c_av && c_op inside {[3:5]})
+      { bins zero = {0}; bins max = {1}; bins other = {2}; }
+    cp_din: coverpoint dcls(c_wd) iff (rst_n && c_wv) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_dout: coverpoint dcls(c_rd) iff (rst_n && c_rv) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_status: coverpoint c_sd iff (rst_n && c_sv)
+      { bins ready = {8'hE0}; bins fail = {8'hE1}; bins busy = {[0:8'hBF]}; bins ready_noise = {[8'hE2:8'hFF]}; }
+  endgroup
+  cg_onfi u_cg_onfi = new;
+
   `FC(op_reset, v_op[0])
   `FC(op_read_id, v_op[1])
   `FC(op_read_status, v_op[2])

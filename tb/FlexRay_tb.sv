@@ -231,6 +231,11 @@ module FlexRay_tb;
           q_n[i] = 1;
           if (k == 0) begin q_d[i] = i[0] ? {128{1'b1}} : 128'h0; q_n[i] = i == 0 ? 2 : 1; end
         end
+      for (int i = 0; i < 3; i++)                 // patterns, both ways
+        if (slot_of[i] != 0 && n > 4 && (k == 1 || k == 3)) begin
+          q_d[i] = k == 1 ? (i[0] ? {32{4'h5}} : {32{4'hA}}) : (i[0] ? {32{4'hA}} : {128{1'b1}});
+          q_n[i] = 1;
+        end
       at_cycle_start();
     end
     at_cycle_start();                       // the last payloads go out

@@ -102,6 +102,30 @@ module Avalon_MM_sva #(parameter int DW = 32, AW = 32) (
   endgroup
   cg_cmd u_cg_cmd = new;
 
+  // burst length class x direction, byte lanes, data classes of in-range beats
+  function automatic logic [1:0] dcls(input logic [DW-1:0] v);
+    dcls = (v == '0) ? 2'd0 : (v == '1) ? 2'd1 :
+           (v == {(DW/2){2'b01}} || v == {(DW/2){2'b10}}) ? 2'd2 : 2'd3;
+  endfunction
+  wire wr_beat_ok = ((cmd_acc && av_write && !av_read && valid_a(cmd_a)) || (beat_acc && valid_a(m_a)));
+  covergroup cg_beat @(posedge clk);
+    option.per_instance = 1;
+    cp_blen: coverpoint (av_burstcount <= 1 ? 2'd0 : av_burstcount < 16 ? 2'd1 : av_burstcount == 16 ? 2'd2 : 2'd3)
+             iff (rst_n && cmd_acc && !(av_read && av_write))
+      { bins single = {0}; bins mid = {1}; bins max16 = {2}; bins over = {3}; }
+    cp_rw: coverpoint av_write iff (rst_n && cmd_acc && !(av_read && av_write))
+      { bins rd = {0}; bins wr = {1}; }
+    x_blen_rw: cross cp_blen, cp_rw;
+    cp_lane: coverpoint av_byteenable iff (rst_n && wr_beat_ok)
+      { bins b0 = {4'b0001}; bins b1 = {4'b0010}; bins b2 = {4'b0100}; bins b3 = {4'b1000};
+        bins lo_half = {4'b0011}; bins hi_half = {4'b1100}; }
+    cp_wdata: coverpoint dcls(av_writedata) iff (rst_n && wr_beat_ok && av_byteenable == 4'hF)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint dcls(av_readdata) iff (rst_n && rd_beat && valid_a(m_a))
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_beat u_cg_beat = new;
+
   `FC(slow_write_beat_wait, m_st == M_WRB && av_waitrequest)
   `FC(write_beat_gap, m_st == M_WRB && !av_write)
   `FC(read_bubble, m_st == M_RDD && !av_readdatavalid)

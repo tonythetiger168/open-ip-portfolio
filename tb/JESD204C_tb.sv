@@ -53,13 +53,23 @@ module JESD204C_tb;
 
   // ---------------- host drivers ----------------
   int gap_pct = 0;                      // chance of no block offered
+  int dpat = -1, cpat = -1;             // >= 0: payload class (0, ones, 0x55.., 0xAA..) / fixed command
+  function automatic logic [63:0] pl;
+    case (dpat)
+      0: return 64'd0;
+      1: return '1;
+      2: return {32{2'b01}};
+      3: return {32{2'b10}};
+      default: return {$urandom, $urandom};
+    endcase
+  endfunction
   always @(negedge clk)
     for (int p = 0; p < 2; p++) begin
       tx_valid[p] = ($urandom % 100) >= gap_pct;
-      if (!tx_valid[p] || $urandom % 2) tx_data[p] = {$urandom, $urandom};
+      if (!tx_valid[p] || $urandom % 2) tx_data[p] = pl();
     end
   // a new command at every multiblock start
-  always @(posedge clk) for (int p = 0; p < 2; p++) if (tx_mb_start[p]) tx_cmd[p] <= 7'($urandom);
+  always @(posedge clk) for (int p = 0; p < 2; p++) if (tx_mb_start[p]) tx_cmd[p] <= cpat >= 0 ? 7'(cpat) : 7'($urandom);
 
   // ---------------- what each transmitter sent ----------------
   // per end: {command of its multiblock, emb start, mb start, data},
@@ -249,6 +259,12 @@ module JESD204C_tb;
     clean_both();
     wait_clk(34 * 2112);
     if (ncrc_ok[1] == 0) fail("no clean multiblock seen");
+    // ---- payload and command classes
+    for (int k = 0; k < 4; k++) begin dpat = k; wait_clk(2112); end
+    dpat = -1;
+    cpat = 0; wait_clk(3 * 2112);
+    cpat = 7'h7F; wait_clk(3 * 2112);
+    cpat = -1;
     // ---- reset while locked
     do_reset();
     cfg_e = 0;

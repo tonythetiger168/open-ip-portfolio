@@ -229,6 +229,13 @@ module Toggle_Mode_NAND_tb;
     check(irq === 1'b0, "strobe with ce_n high was taken");
     cmd(8'h90); addr(0); ce_n = 1; re_n = 0; wclk(5); check(dq === 8'hFF, "drives with ce_n high"); re_n = 1; wclk(5);
 
+    // ---- pages 12 and 14, a program starting at the last column, 0xFF / 0x55 data ----
+    read_page(12, 0, 4); read_page(14, 0, 4);
+    erase(0);
+    wbuf[0] = 8'hFF; wbuf[1] = 8'h55;
+    program_page(3, 63, 2);
+    read_page(3, 63, 2);
+
     // ---- rst_n during a program ----
     for (int i = 0; i < 64; i++) wbuf[i] = 8'h00;
     cmd(8'h80); addr5(0, 10); din(4); cmd(8'h10); wclk(10);

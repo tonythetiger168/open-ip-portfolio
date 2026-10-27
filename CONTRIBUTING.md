@@ -1,6 +1,6 @@
 # Contributing to open-ip-portfolio
 
-Thanks for your interest! This portfolio holds 117 protocol IP designs in
+Thanks for your interest! This portfolio holds 121 protocol IP designs in
 SystemVerilog. Contributions of all kinds are welcome: bug reports, bug fixes,
 new protocol IPs, deeper testbench coverage, and documentation.
 
@@ -23,18 +23,21 @@ new protocol IPs, deeper testbench coverage, and documentation.
   after (mutant verification)
 
 ### Build
-- Every protocol must pass both:
-  `make -f Makefile.<P> sim` and `make -f Makefile.<P> syn`
-  using only the open toolchain (iverilog 11+, yosys 0.23+)
-- CI (`scripts/ci_regression.sh`) runs all 117 protocols on every push
+- Every protocol must pass `make -f Makefile.<P> sim`, `syn` and `apb`
+  using only the open toolchain (iverilog 12, yosys 0.33; see README, Setup)
+- CI (`scripts/ci_regression.sh`) runs all 121 protocols on every push
+- A core or wrapper change must keep `bash scripts/cov/run_cov.sh <P>` and
+  `<P>_apb` at `RESULT: CLOSED` (Verilator 5.052)
 
 ## Workflow
 
 1. Open an issue describing the change (or comment on an existing one)
 2. Fork, create a branch (`fix/<proto>-<topic>` or `feat/<proto>`)
 3. Keep commits scoped to one protocol (plus shared deps if required)
-4. If you change RTL that originates from a `gen_framework.py` template,
-   patch the template too so regeneration stays in sync
+4. `gen_framework.py` is frozen (rtl/ and tb/ have been rewritten by hand
+   since); don't regenerate from it. The APB wrappers, their TBs, checkers
+   and `docs/ip/` pages are generated: edit `scripts/apb/specs/<P>.json` or
+   `tb/apb/<P>_apb_func.svh` and rerun `python3 scripts/apb/gen_apb.py <P>`
 5. Ensure CI is green; a maintainer will review and merge
 
 ## Coding reference

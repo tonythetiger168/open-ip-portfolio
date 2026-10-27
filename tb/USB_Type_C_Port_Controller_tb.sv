@@ -439,6 +439,31 @@ module USB_Type_C_Port_Controller_tb;
     cc1 = 2'b00;
     repeat (5) @(negedge clk);
 
+    // line combinations with Ra and faults on both pins; a powered cable
+    // (Ra on one pin, Rd on the other) attaches on the Rd pin; writes to
+    // the read-only ORIENT / VBUS registers have no effect
+    begin : cc_classes
+      logic [3:0] lv [4];            // {cc1, cc2}
+      lv[0] = 4'b10_10; lv[1] = 4'b10_11; lv[2] = 4'b11_10; lv[3] = 4'b11_11;
+      for (int i = 0; i < 4; i++) begin
+        @(negedge clk); {cc1, cc2} = lv[i];
+        repeat (5) @(negedge clk);
+        chk(!attached, "no attach without Rd");
+      end
+      @(negedge clk); cc1 = 2'b00; cc2 = 2'b00; repeat (20) @(negedge clk);
+      clear_ints();
+      for (int p = 0; p < 2; p++) begin
+        @(negedge clk); cc1 = p ? 2'b10 : 2'b01; cc2 = p ? 2'b01 : 2'b10;
+        repeat (120) @(negedge clk);
+        chk(attached && orientation == 1'(p), "powered cable attaches on the Rd pin");
+        reg_write(3'd5, 8'h00); reg_write(3'd6, 8'h00);
+        chk(orientation == 1'(p) && vbus_en, "read-only writes ignored");
+        @(negedge clk); cc1 = 2'b00; cc2 = 2'b00; repeat (20) @(negedge clk);
+        chk(!attached, "powered cable detach");
+      end
+      clear_ints();
+    end
+
     if (errors == 0) $display("TEST PASSED: USB Type-C Port Controller");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR

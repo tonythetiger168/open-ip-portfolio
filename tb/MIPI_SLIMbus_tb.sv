@@ -125,6 +125,7 @@ module MIPI_SLIMbus_tb;
   logic [31:0] sq [0:N-1][0:4095];
   int          stl [0:N-1], rhd [0:N-1], src [0:N-1], n_rx [0:N-1], n_under [0:N-1], n_rxerr [0:N-1];
   int          busy_pct [0:N-1];
+  longint      f_tx = -1;                  // forced sample (directed)
   bit          allow_skip = 0, allow_rxerr = 0;
   bit [N-1:0]  took = 0;
   always @(posedge clk) took <= tx_valid & tx_ready;
@@ -137,7 +138,7 @@ module MIPI_SLIMbus_tb;
         sq[i][stl[i] % 4096] = lmask(txl[i], tx_data[i]); stl[i]++;
         tx_valid[i] = 0;
       end
-      if (!tx_valid[i] && ($urandom % 100) < busy_pct[i]) begin tx_valid[i] = 1; tx_data[i] = $urandom; end
+      if (!tx_valid[i] && ($urandom % 100) < busy_pct[i]) begin tx_valid[i] = 1; tx_data[i] = f_tx >= 0 ? 32'(f_tx) : $urandom; end
       if (tx_underrun[i]) n_under[i]++;
       if (rx_err[i]) begin n_rxerr[i]++; if (!allow_rxerr) fail($sformatf("ep %0d: rx_err", i)); end
       if (rx_valid[i]) begin
@@ -325,6 +326,15 @@ module MIPI_SLIMbus_tb;
     sync_chk = 1; allow_cont = 0; allow_rxerr = 0;
     frames(10);
     settle();
+    // every segment length with each data pattern, both ways
+    for (int l = 1; l <= 4; l++)
+      for (int k = 0; k < 5; k++) begin
+        f_tx = k == 0 ? 32'h0000_0000 : k == 1 ? 32'hFFFF_FFFF : k == 2 ? 32'h5555_5555 :
+               k == 3 ? 32'hAAAA_AAAA : -1;
+        chan_off(); chan(0, 5, l, 1); chan(1, 120, l, 0);
+        frames(4); settle();
+      end
+    f_tx = -1; chan_off();
 
     $display("frames %0d superframes %0d samples %0d/%0d/%0d", n_frames, n_sf, n_rx[0], n_rx[1], n_rx[2]);
     if (errors == 0) $display("TEST PASSED: MIPI_SLIMbus");

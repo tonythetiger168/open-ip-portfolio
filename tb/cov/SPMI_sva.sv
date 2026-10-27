@@ -62,6 +62,33 @@ module SPMI_sva #(parameter logic [3:0] SPMI_ADDR = 4'h5) (
   `SVA_INV(a_busy_model, busy == (ph >= 1 && ph <= 5))
   `SVA_INV(a_irq_is_rx_valid, irq == rx_valid)
 
+  // accepted command x register address class, write / read data
+  // classes, every read bit position x value, the field a repeated SSC
+  // restarted
+  function automatic logic [1:0] bcls(input logic [7:0] v);
+    bcls = (v == 8'h00) ? 2'd0 : (v == 8'hFF) ? 2'd1 : (v == 8'h55 || v == 8'hAA) ? 2'd2 : 2'd3;
+  endfunction
+  wire addr_done = rise && ph == 2 && n == 7;
+  covergroup cg_frame @(posedge clk);
+    option.per_instance = 1;
+    cp_cmd: coverpoint m_cmd iff (rst_n && addr_done)
+      { bins write = {0}; bins read = {1}; bins other = {[2:15]}; }
+    cp_rw: coverpoint m_cmd iff (rst_n && addr_done && m_cmd <= 1) { bins write = {0}; bins read = {1}; }
+    cp_reg: coverpoint w iff (rst_n && addr_done && m_cmd <= 1)
+      { bins r00 = {8'h00}; bins rff = {8'hFF}; bins other = {[8'h01:8'hFE]}; }
+    x_rw_reg: cross cp_rw, cp_reg;
+    cp_wdata: coverpoint bcls(w) iff (rst_n && rise && ph == 3 && n == 7)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint bcls(m_tx) iff (rst_n && fall && ph == 5 && n == 0)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rpos: coverpoint n iff (rst_n && fall && ph == 5) { bins b[] = {[0:7]}; }
+    cp_rval: coverpoint m_tx[7 - n] iff (rst_n && fall && ph == 5) { bins zero = {0}; bins one = {1}; }
+    x_rbit: cross cp_rpos, cp_rval;
+    cp_restart: coverpoint ph iff (rst_n && ssc && ph >= 1 && ph <= 3 && n > 0)
+      { bins header = {1}; bins addr = {2}; bins data = {3}; }
+  endgroup
+  cg_frame u_cg_frame = new;
+
   `FC(write_acked, fall && ph == 4)
   `FC(read_bit0_low, fall && ph == 5 && n == 7 && !m_tx[0])
   `FC(read_all_ones, fall && ph == 5 && n == 0 && m_tx == 8'hFF)

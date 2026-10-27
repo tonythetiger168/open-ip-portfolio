@@ -104,6 +104,11 @@ module CPRI_v8_0__eCPRI_over_CPR__sva (
         v_l1bad, v_l1restart, v_push_pop, v_full_drop, v_ovf_sat, v_pop_empty, v_set_wins,
         v_kp;
   logic [7:0] v_disp;                // wrong-disparity rule hit (see below)
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  logic        c_dv, c_pv;
+  logic [7:0]  c_db;
+  int          c_qn;
+  logic [31:0] c_pw;
 
   wire [9:0] dec = dtab[rrd][rx_sym];
   wire       rv  = dec[9];
@@ -137,7 +142,9 @@ module CPRI_v8_0__eCPRI_over_CPR__sva (
       {v_align, v_sync, v_stray, v_align_lost, v_los, v_miss3, v_badcg, v_baddisp, v_l1ok,
        v_l1bad, v_l1restart, v_push_pop, v_full_drop, v_ovf_sat, v_pop_empty, v_set_wins, v_kp} = '0;
       v_disp = 8'h0;
+      c_dv = 0; c_pv = 0;
     end else begin
+      c_dv = 0; c_pv = 0;
       {v_align, v_sync, v_stray, v_align_lost, v_los, v_miss3, v_badcg, v_baddisp, v_l1ok,
        v_l1bad, v_l1restart, v_push_pop, v_full_drop, v_ovf_sat, v_pop_empty, v_set_wins, v_kp} = '0;
       // ---- transmitter ----
@@ -175,6 +182,7 @@ module CPRI_v8_0__eCPRI_over_CPR__sva (
       if (cpu_re && cpu_addr == 10 && qn == 0) v_pop_empty = 1;
       comma = rv && rk && rdd == 8'hBC;
       data  = rv && !rk;
+      if (data && st == 2) begin c_dv = 1; c_db = rdd; end
       push  = 0;
 
       // ---- sync FSM + slow stream + IQ ----
@@ -216,6 +224,7 @@ module CPRI_v8_0__eCPRI_over_CPR__sva (
             if (ib == 3) begin
               if (qn < 32 || popq) begin
                 q[(qh + qn) % 32] = {ish, rdd}; push = 1;
+                c_pv = 1; c_qn = qn; c_pw = {ish, rdd};
                 if (popq) v_push_pop = 1;
               end else begin
                 v_full_drop = 1;
@@ -232,6 +241,21 @@ module CPRI_v8_0__eCPRI_over_CPR__sva (
       rrd = rd_after(rx_sym, rrd);
     end
   end
+
+  function automatic int dcls(input logic [31:0] v);
+    return v == 32'd0 ? 0 : v == '1 ? 1 : (v == 32'h5555_5555 || v == 32'hAAAA_AAAA) ? 2 : 3;
+  endfunction
+  // every received data byte through the decoder, IQ buffer depth and word
+  // classes, every CPU register written
+  covergroup cg_cpri @(negedge clk);
+    option.per_instance = 1;
+    cp_rbyte: coverpoint c_db iff (rst_n && c_dv) { bins b[] = {[0:255]}; }
+    cp_depth: coverpoint c_qn iff (rst_n && c_pv) { bins empty = {0}; bins some = {[1:30]}; bins last = {31}; }
+    cp_iq: coverpoint dcls(c_pw) iff (rst_n && c_pv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_wr: coverpoint cpu_addr iff (rst_n && cpu_we) { bins cfg[] = {[0:7]}; bins clear = {13}; }
+  endgroup
+  cg_cpri u_cg_cpri = new;
 
   // expected cpu read data (combinational on the current address)
   logic [31:0] m_rd;

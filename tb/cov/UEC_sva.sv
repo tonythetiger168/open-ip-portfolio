@@ -75,6 +75,10 @@ module UEC_sva #(
   bit v_ack_coal, v_ack_and_due, v_win_full, v_slot_guard, v_cut, v_bad_type, v_bad_short, v_bad_long, v_len0;
   bit v_len_over, v_len_mis, v_long_frame, v_cut_frame, v_swrap, v_rwrap, v_retx_two, v_freed_marked, v_retx_order;
   bit v_rx_cut;
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  bit c_wv, c_fv, c_rv, c_av;
+  int c_wn, c_wq, c_fk, c_rd, c_rn, c_am;
+  logic [7:0] c_wb, c_rb;
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n || !enable) begin
@@ -102,6 +106,7 @@ module UEC_sva #(
         o_ack[i] = i < o_cnt ? q_ack[i] : 0; rt[i] = i < o_cnt ? q_rtx[i] : 0; fr[i] = 0; o_got[i] = m_got[i];
       end
       an = 0; as = 0; has_new = 0; pop = 0; push = 0;
+      {c_wv, c_fv, c_rv, c_av} = '0;
       {m_rto, m_nack, m_dup, m_nobuf, m_pro} = '0;
 
       // ---- host write
@@ -111,6 +116,7 @@ module UEC_sva #(
         if (tx_last || w_n == MAXP) begin
           if (!tx_last) v_cut = 1;
           has_new = 1; nl = w_n; nd = w_d; w_n = 0; w_d = 0;
+          c_wv = 1; c_wn = nl; c_wq = o_cnt; c_wb = nd[7:0];
         end
       end
       if (tx_valid && enable && o_cnt == W) v_win_full = 1;
@@ -139,6 +145,7 @@ module UEC_sva #(
                 push = 1; pl = f_b[3]; pd = 0;
                 for (int i = 0; i < pl; i++) pd[8 * i +: 8] = f_b[4 + i];
                 m_got[d] = 1;
+                c_rv = 1; c_rd = d; c_rn = pl; c_rb = pd[7:0];
                 if (d == 0) v_new_order = 1; else v_new_gap = 1;
                 if (d == W - 1) v_win_last = 1;
                 if (d == 0 && m_got[1]) v_run = 1;
@@ -223,14 +230,17 @@ module UEC_sva #(
           m_ton = 1; m_tdata = 0; m_tidx = 0; m_tlen = 4; m_tpsn = c;
           m_tf[0] = 8'h20; m_tf[1] = c[15:8]; m_tf[2] = c[7:0]; m_tf[3] = sk;
           as = 1;
+          c_av = 1; c_am = sk;
           if (an) v_ack_and_due = 1;
         end else if (k >= 0) begin
           frame_data(o_sbase + 16'(k), q_len[k], q_dat[k]);
           rt[k] = 0;
+          c_fv = 1; c_fk = k;
           if (nrt > 1) v_retx_two = 1;
           if (k > 0 && nrt == 1) v_retx_order = 1;
         end else if (o_snew != o_snext) begin
           frame_data(o_snew, q_len[o_sent], q_dat[o_sent]);
+          c_fv = 1; c_fk = W;
           m_snew++;
         end
       end
@@ -254,6 +264,26 @@ module UEC_sva #(
       if (push) begin r_len.push_back(pl); r_dat.push_back(pd); end
     end
   end
+
+  function automatic int dcls(input logic [7:0] v);
+    return v == 8'h00 ? 0 : v == 8'hFF ? 1 : (v == 8'h55 || v == 8'hAA) ? 2 : 3;
+  endfunction
+  covergroup cg_uec @(negedge clk);
+    option.per_instance = 1;
+    cp_wlen: coverpoint c_wn iff (rst_n && c_wv)
+      { bins one = {1}; bins short_ = {[2:3]}; bins mid = {[4:MAXP-1]}; bins maxp = {MAXP}; }
+    cp_wslot: coverpoint c_wq iff (rst_n && c_wv) { bins s[] = {[0:W-1]}; }
+    cp_wdata: coverpoint dcls(c_wb) iff (rst_n && c_wv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_frame: coverpoint c_fk iff (rst_n && c_fv) { bins retx[] = {[0:W-1]}; bins fresh = {W}; }
+    cp_rpos: coverpoint c_rd iff (rst_n && c_rv) { bins d[] = {[0:W-1]}; }
+    cp_rlen: coverpoint c_rn iff (rst_n && c_rv)
+      { bins one = {1}; bins short_ = {[2:3]}; bins mid = {[4:MAXP-1]}; bins maxp = {MAXP}; }
+    cp_rdata: coverpoint dcls(c_rb) iff (rst_n && c_rv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_sack: coverpoint c_am iff (rst_n && c_av) { bins m[] = {[0:(1 << (W - 1)) - 1]}; }
+  endgroup
+  cg_uec u_cg_uec = new;
 
   // ---------------- assertions ----------------
   `SVA_INV(a_tx_ready, tx_ready == m_tx_ready())

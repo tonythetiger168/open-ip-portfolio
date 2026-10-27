@@ -164,12 +164,13 @@ module WTB_tb;
 
   // mode: 0 good, 1 bad CRC, 2 bad ED, 3 bad CRC and ED
   logic [7:0] pl [0:15];
+  int         pfix = -1;                 // forced payload byte (directed)
   task automatic send_frame(input logic [7:0] fc, da, sa, len, input int mode);
     logic [15:0] c;
     logic [31:0] w;
     int nb;
     nb = (len > 16) ? 0 : len;
-    for (int i = 0; i < 16; i++) pl[i] = $urandom;
+    for (int i = 0; i < 16; i++) pl[i] = pfix >= 0 ? 8'(pfix) : 8'($urandom);
     c = 16'hFFFF;
     c = crc16_byte(c, fc);
     c = crc16_byte(c, da);
@@ -323,6 +324,21 @@ module WTB_tb;
       rx_pop(rxq_wr - rxq_rd, 1);
     end
     check(rx_count == 0, "rx empty");
+    // one-word broadcast and payload patterns (eight words: the RX FIFO
+    // slots stay where the later sweeps expect them)
+    for (int k = 0; k < 8; k++) begin
+      pfix = k % 4 == 0 ? -1 : k % 4 == 1 ? 8'hFF : k % 4 == 2 ? 8'h55 : 8'hAA;
+      send_frame(8'h02, k % 4 == 0 ? 8'hFF : my_addr, 8'h30, 8'd4, 0);
+      repeat (6) @(negedge clk);
+      rx_pop(rxq_wr - rxq_rd, 1);
+    end
+    pfix = -1;
+    // transmit data patterns
+    wfix_en = 1;
+    wfix = 32'h5555_5555; push_words(1);
+    wfix = 32'hAAAA_AAAA; push_words(1);
+    wfix_en = 0;
+    token_round(ns, da, 2, "tx patterns");
     // not for me / own frame / bad frames: nothing delivered
     send_frame(8'h02, 8'h44, 8'h05, 8'd8, 0);
     send_frame(8'h02, my_addr, my_addr, 8'd8, 0);
