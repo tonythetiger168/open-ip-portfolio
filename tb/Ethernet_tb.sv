@@ -327,6 +327,7 @@ module Ethernet_tb;
       traffic(r == 3 ? 6 : 30);
       // sizes at the edges: 59, 60, 61 and the maximum
       send(0, MB, 16'h0800, 59, -1); send(1, MA, 16'h0800, 60, -1); send(0, BCAST, 16'h0800, 61, -1);
+      send(0, MB, 16'h0800, 60, -1);
       if (r < 2) begin send(1, MA, 16'h0800, 1514, -1); send(0, MB, 16'h8100, 1518, -1); end
       // a shorter byte time in the middle of frames (both ends switch together)
       if (r == 3) begin cycles(3000); while (g_mac[0].u.dc != 5'd20) @(negedge clk); cfg_div = 2; end
@@ -353,6 +354,7 @@ module Ethernet_tb;
     ij_frame(MA, 16'h8100, 1519, 1, 0, -1, 0);            // VLAN too long
     ij_frame(MA, 16'h0800, 2100, 7, 0, -1, 0);            // past the length counter
     ij_frame(MA, 16'h0800, 100, 7, 1, -1, 0);             // bad FCS
+    ij_frame(MA, 16'h0800, 40, 7, 1, -1, 0);              // runt with a bad FCS
     ij_frame(MA, 16'h0800, 100, 0, 0, 20, 0);             // grx_er, no preamble before the SFD
     ij_frame(48'h02_00_00_00_00_09, 16'h0800, 100, 7, 0, -1, 0);   // another station: dropped
     ij_frame(48'h03_00_00_00_00_09, 16'h0800, 100, 7, 0, -1, 0);   // multicast: dropped

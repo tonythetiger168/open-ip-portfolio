@@ -36,6 +36,10 @@ module MIPI_SPMI_sva #(parameter logic [3:0] USID = 4'h5) (
   // event strobes for coverage
   logic ev_reg0, ev_wr, ev_rd, ev_xw, ev_xr, ev_lw, ev_lr, ev_rst, ev_pwr, ev_cpar, ev_fpar;
   logic ev_unsup, ev_other, ev_abort, ev_xw_end, ev_xr_wrap, ev_a16_wrap, ev_mine, ev_bc, ev_ack;
+  // covergroup samples: a register byte written / read (address, data)
+  logic       c_wv, c_rv;
+  logic [4:0] c_wa, c_ra;
+  logic [7:0] c_wd, c_rd;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -44,7 +48,9 @@ module MIPI_SPMI_sva #(parameter logic [3:0] USID = 4'h5) (
       for (int i = 0; i < 32; i++) m_mem[i] <= '0;
       {ev_reg0, ev_wr, ev_rd, ev_xw, ev_xr, ev_lw, ev_lr, ev_rst, ev_pwr, ev_cpar, ev_fpar} <= '0;
       {ev_unsup, ev_other, ev_abort, ev_xw_end, ev_xr_wrap, ev_a16_wrap, ev_mine, ev_bc, ev_ack} <= '0;
+      c_wv <= 0; c_rv <= 0; c_wa <= 0; c_ra <= 0; c_wd <= 0; c_rd <= 0;
     end else begin
+      c_wv <= 0; c_rv <= 0;
       {ev_reg0, ev_wr, ev_rd, ev_xw, ev_xr, ev_lw, ev_lr, ev_rst, ev_pwr, ev_cpar, ev_fpar} <= '0;
       {ev_unsup, ev_other, ev_abort, ev_xw_end, ev_xr_wrap, ev_a16_wrap, ev_ack} <= '0;
       if (!low) arm <= 0; else if (d[2:1] == 2'b01) arm <= 1;
@@ -88,7 +94,7 @@ module MIPI_SPMI_sva #(parameter logic [3:0] USID = 4'h5) (
               if (is_rd) begin ph <= P_RD; r <= 0; end
             end
           end else begin
-            if (a < 32) m_mem[a[4:0]] <= ff[8:1];
+            if (a < 32) begin m_mem[a[4:0]] <= ff[8:1]; c_wv <= 1; c_wa <= a[4:0]; c_wd <= ff[8:1]; end
             a <= a + 1;
             ev_a16_wrap <= a == 16'hFFFF;
             nfr <= nfr - 1;
@@ -104,7 +110,7 @@ module MIPI_SPMI_sva #(parameter logic [3:0] USID = 4'h5) (
       end else if (ph == P_RD && rise) begin
         // rising 0 = master bus park; then 9 bits per frame; then slave park
         r <= r + 1;
-        if (r == 0) begin rb <= rv; k <= 0; end
+        if (r == 0) begin rb <= rv; k <= 0; c_rv <= a < 32; c_ra <= a[4:0]; c_rd <= rv; end
         else if (k < 9) begin
           m_drv <= 1;
           m_val <= k < 8 ? rb[7 - k] : ~^rb;
@@ -112,6 +118,7 @@ module MIPI_SPMI_sva #(parameter logic [3:0] USID = 4'h5) (
           if (k == 8) begin a <= a + 1; ev_a16_wrap <= a == 16'hFFFF; end
         end else if (nfr > 1) begin
           nfr <= nfr - 1; rb <= rv; m_val <= rv[7]; k <= 1; ev_xr_wrap <= a >= 32;
+          c_rv <= a < 32; c_ra <= a[4:0]; c_rd <= rv;
         end else begin m_val <= 0; ph <= P_PARK; end
       end else if (ph == P_PARK && fall) begin
         m_drv <= 0; ph <= P_IDLE;
@@ -124,6 +131,21 @@ module MIPI_SPMI_sva #(parameter logic [3:0] USID = 4'h5) (
     mem_ok = 1'b1;
     for (int i = 0; i < 32; i++) if (mem[i] != m_mem[i]) mem_ok = 1'b0;
   end
+
+  function automatic int dcls(input logic [7:0] v);
+    return v == 8'h00 ? 0 : v == 8'hFF ? 1 : (v == 8'h55 || v == 8'hAA) ? 2 : 3;
+  endfunction
+  // every register written and read, data classes both ways
+  covergroup cg_spmi @(negedge clk);
+    option.per_instance = 1;
+    cp_wa: coverpoint c_wa iff (rst_n && c_wv) { bins r[] = {[0:31]}; }
+    cp_wd: coverpoint dcls(c_wd) iff (rst_n && c_wv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_ra: coverpoint c_ra iff (rst_n && c_rv) { bins r[] = {[0:31]}; }
+    cp_rd: coverpoint dcls(c_rd) iff (rst_n && c_rv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_spmi u_cg_spmi = new;
 
   `SVA_RST(a_reset_released, !rst_n, !drv_en && !irq)
   `SVA_INV(a_irq_model, irq == m_err)

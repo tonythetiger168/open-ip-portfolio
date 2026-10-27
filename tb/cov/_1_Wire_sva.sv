@@ -59,6 +59,29 @@ module _1_Wire_sva #(parameter int US = 10) (
   `SVA_INV(a_busy_model, busy == (ph != 0))
   `SVA_INV(a_irq_is_rx_valid, irq == rx_valid)
 
+  // bit position x value of every write slot and every read slot, the
+  // received command (ROM command codes and data classes) and the class
+  // of the byte answered in the read slots
+  function automatic logic [1:0] bcls(input logic [7:0] v);
+    bcls = (v == 8'h00) ? 2'd0 : (v == 8'hFF) ? 2'd1 : (v == 8'h55 || v == 8'hAA) ? 2'd2 : 2'd3;
+  endfunction
+  covergroup cg_slot @(posedge clk);
+    option.per_instance = 1;
+    cp_wpos: coverpoint n iff (rst_n && ph == 5 && t == T_WS) { bins b[] = {[0:7]}; }
+    cp_wval: coverpoint q1 iff (rst_n && ph == 5 && t == T_WS) { bins zero = {0}; bins one = {1}; }
+    x_wslot: cross cp_wpos, cp_wval;
+    cp_rpos: coverpoint n iff (rst_n && ph == 7 && t == 0) { bins b[] = {[0:7]}; }
+    cp_rval: coverpoint m_tx[0] iff (rst_n && ph == 7 && t == 0) { bins zero = {0}; bins one = {1}; }
+    x_rslot: cross cp_rpos, cp_rval;
+    cp_cmd: coverpoint m_rx iff (rst_n && m_valid)
+      { bins read_rom = {8'h33}; bins match_rom = {8'h55}; bins skip_rom = {8'hCC};
+        bins search_rom = {8'hF0}; bins zero = {8'h00}; bins ones = {8'hFF};
+        bins other = default; }
+    cp_tx: coverpoint bcls(tx_byte) iff (rst_n && m_valid)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_slot u_cg_slot = new;
+
   `FC(presence_sent, ph == 3 && t == T_PDH)
   `FC(short_low_ignored, ph == 1 && q1)
   `FC(reset_during_write_slots, rst_seen && (ph == 4 || ph == 5))

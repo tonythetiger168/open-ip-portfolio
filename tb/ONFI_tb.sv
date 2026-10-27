@@ -394,6 +394,10 @@ module ONFI_tb;
     while (!rb_n) @(negedge clk);
     wait_clk(5);
     for (int i = 0; i < 20; i++) rnd_cmd();
+    // ---- row 0 and a long program
+    run(3, 24'h000000, 16'h0000, 4, 0, 0, -1);
+    nx_fail = 0; st_noise = 0;
+    run(4, 24'h000006, 16'h0000, 500, 0, 0, -1);
     // ---- a reset in the middle of a Program
     wq.delete();
     for (int i = 0; i < 300; i++) wq.push_back(8'($urandom));

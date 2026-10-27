@@ -260,6 +260,18 @@ module MIPI_RFFE_tb;
     end
     compare_all();
 
+    // data classes, short and extended, written and read back; a parity
+    // error on the first extended data frame
+    for (int p = 0; p < 4; p++) begin
+      logic [7:0] v;
+      v = p == 0 ? 8'h00 : (p == 1 ? 8'hFF : (p == 2 ? 8'h55 : 8'h3C));
+      reg_write(USID, 5'd8, v, 0, 0); reg_read(USID, 5'd8);
+      ext_write(USID, 1, 8'd9, v, -1); ext_read(USID, 1, 8'd9);
+    end
+    ext_write(USID, 3, 8'd5, 8'h70, 1); expect_irq(1, "first ext data parity");
+    reg_read(USID, 5'd5); expect_irq(0, "clean sequence");
+    compare_all();
+
     if (errors == 0) $display("TEST PASSED: MIPI_RFFE");
     else             $display("TEST FAILED: %0d errors", errors);
     $finish;

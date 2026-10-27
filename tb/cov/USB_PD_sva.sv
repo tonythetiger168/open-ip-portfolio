@@ -48,6 +48,11 @@ module USB_PD_sva #(
   logic v_9v, v_5v_one, v_5v_other, v_reneg, v_reject, v_wrong_id, v_retry, v_giveup,
         v_crc, v_eop, v_nobj, v_hrst, v_hrst_contract, v_hrst_gcrc, v_wrap, v_src_gc,
         v_other, v_ack_retry;
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  logic        c_dn, c_tv, c_tg, c_av;
+  int          c_k, c_pe, c_ar;
+  logic [2:0]  c_id, c_tid;
+  logic [9:0]  c_rc;
 
   always @(posedge clk or negedge rst_n) begin
     logic        b, o_done, o_err, o_hrst, o_busy, o_stgc, o_streq, gcrc, caps, ctrl;
@@ -69,6 +74,7 @@ module USB_PD_sva #(
       {v_9v, v_5v_one, v_5v_other, v_reneg, v_reject, v_wrong_id, v_retry, v_giveup,
        v_crc, v_eop, v_nobj, v_hrst, v_hrst_contract, v_hrst_gcrc, v_wrap, v_src_gc,
        v_other, v_ack_retry} = '0;
+      {c_dn, c_tv, c_tg, c_av} = '0; c_k = 0; c_pe = 0; c_ar = 0; c_id = 0; c_tid = 0; c_rc = 0;
     end else begin
       {v_9v, v_5v_one, v_5v_other, v_reneg, v_reject, v_wrong_id, v_retry, v_giveup,
        v_crc, v_eop, v_nobj, v_hrst, v_hrst_contract, v_hrst_gcrc, v_wrap, v_src_gc,
@@ -83,6 +89,10 @@ module USB_PD_sva #(
       ctrl = (r_nobj == 0);
       gcrc = o_done && ctrl && r_mt == 5'h01;
       caps = o_done && !ctrl && r_mt == 5'h01;
+      {c_tv, c_av} = '0;
+      c_dn = o_done && !o_hrst; c_pe = o_pe; c_id = r_id;
+      c_k = !ctrl ? (r_mt != 5'h01 ? 7 : (r_nobj == 1 ? 5 : 6)) :
+            (r_mt == 5'h01 ? 0 : (r_mt == 5'h03 ? 1 : (r_mt == 5'h04 ? 2 : (r_mt == 5'h06 ? 3 : 4))));
       if (o_hrst) begin
         v_hrst = 1;
         if (o_pe == CONTRACT) v_hrst_contract = 1;
@@ -109,6 +119,7 @@ module USB_PD_sva #(
               if (r_id == k_id) begin
                 if (k_id == 7) v_wrap = 1;
                 if (retry != 0) v_ack_retry = 1;
+                c_av = 1; c_ar = retry;
                 k_id++; pe = WACC;
               end else begin m_irq = 1; v_wrong_id = 1; end
             end else if (o_tmr == GCRC_TO) begin
@@ -201,6 +212,7 @@ module USB_PD_sva #(
         for (int i = 4; i >= 0; i--) begin tbits[n] = K_EOP[i]; n++; end
         t_n = n; t_k = 0; t_busy = 1; m_en = 1; m_line = 1;
         st_gc = o_pgc; st_req = !o_pgc;
+        c_tv = 1; c_tg = o_pgc; c_tid = o_pgc ? o_gcid : o_kid; c_rc = o_rcur;
       end
     end
   end
@@ -213,6 +225,28 @@ module USB_PD_sva #(
   `SVA_INV(a_irq, irq == m_irq)
 
   // ---------------- functional coverage ----------------
+  // received message kind, x the policy state where it matters, its
+  // MessageID; GoodCRC / Request sent x MessageID; requested current
+  // class; Request acknowledged first time or after a retry
+  covergroup cg_pd @(negedge clk);
+    option.per_instance = 1;
+    cp_rx: coverpoint c_k iff (rst_n && c_dn)
+      { bins goodcrc = {0}; bins accept = {1}; bins reject = {2}; bins ps_rdy = {3}; bins other_ctrl = {4};
+        bins caps_1pdo = {5}; bins caps_2pdo = {6}; bins other_data = {7}; }
+    cp_rx_pe: coverpoint c_k * 8 + c_pe iff (rst_n && c_dn && c_k inside {[0:3], 5, 6})
+      { bins gc_in_wait_gcrc = {0 * 8 + WGCRC}; bins gc_in_contract = {0 * 8 + CONTRACT};
+        bins accept_in_wait_acc = {1 * 8 + WACC}; bins accept_in_contract = {1 * 8 + CONTRACT};
+        bins reject_in_wait_acc = {2 * 8 + WACC}; bins psrdy_in_wait_psrdy = {3 * 8 + WPSRDY};
+        bins psrdy_in_wait_caps = {3 * 8 + WCAPS};
+        bins caps_in_wait_caps = {5 * 8 + WCAPS, 6 * 8 + WCAPS}; bins caps_in_contract = {5 * 8 + CONTRACT, 6 * 8 + CONTRACT}; }
+    cp_rx_id: coverpoint c_id iff (rst_n && c_dn);
+    cp_tx: coverpoint {c_tg, c_tid} iff (rst_n && c_tv) { bins req[] = {[0:7]}; bins goodcrc[] = {[8:15]}; }
+    cp_cur: coverpoint c_rc iff (rst_n && c_tv && !c_tg)
+      { bins zero = {0}; bins max = {10'h3FF}; bins alt = {10'h155, 10'h2AA}; bins other = {[1:10'h154], [10'h156:10'h2A9], [10'h2AB:10'h3FE]}; }
+    cp_ack: coverpoint c_ar iff (rst_n && c_av) { bins first_try = {0}; bins after_retry = {[1:N_RETRY]}; }
+  endgroup
+  cg_pd u_cg_pd = new;
+
   `FC(request_9v, v_9v)
   `FC(request_5v_single_pdo, v_5v_one)
   `FC(request_5v_second_pdo_not_9v, v_5v_other)

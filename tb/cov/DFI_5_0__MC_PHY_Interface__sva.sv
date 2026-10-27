@@ -42,6 +42,12 @@ module DFI_5_0__MC_PHY_Interface__sva #(
   logic        m_v, m_irq;
   logic [31:0] m_d;
 
+  // covergroup samples
+  function automatic int dcls(input logic [31:0] v);
+    dcls = v == 0 ? 0 : v == 32'hFFFF_FFFF ? 1 : (v == 32'h5555_5555 || v == 32'hAAAA_AAAA) ? 2 : 3;
+  endfunction
+  int c_k, c_b, c_r, c_col, c_wm, c_wd, c_rd;
+
   logic v_act, v_rd, v_wr, v_pre1, v_preall, v_ref, v_mrs, v_ill_init, v_ill_lp, v_ill_cke,
         v_ill_act, v_ill_closed, v_ill_ref, v_w_miss, v_w_extra, v_r_miss, v_r_extra, v_mask,
         v_rw_same, v_reinit_open, v_short_start, v_lp, v_lp_short, v_b2b;
@@ -60,6 +66,7 @@ module DFI_5_0__MC_PHY_Interface__sva #(
        v_ill_act, v_ill_closed, v_ill_ref, v_w_miss, v_w_extra, v_r_miss, v_r_extra, v_mask,
        v_rw_same, v_reinit_open, v_short_start, v_lp, v_lp_short, v_b2b} = '0;
       s  = int'(n % 16);
+      c_k = -1; c_wm = -1; c_rd = -1;
       up = ready && !(lst == 1 || lst == 2) && dfi_cke;
       // ---- command
       real_cmd = !dfi_cs_n && c != 3'b111;
@@ -87,6 +94,11 @@ module DFI_5_0__MC_PHY_Interface__sva #(
                    else v_ill_ref = 1;
         endcase
       end
+      if (real_cmd && up && ok) begin
+        c_k = c == 3'b011 ? 0 : c == 3'b101 ? 1 : c == 3'b100 ? 2 : c == 3'b010 ? (dfi_address[10] ? 4 : 3) :
+              c == 3'b001 ? 5 : c == 3'b000 ? 6 : 7;
+        c_b = dfi_bank; c_r = dfi_address[1:0]; c_col = dfi_address[2:0];
+      end
       if (real_cmd && !up) begin
         v_ill_init = !ready; v_ill_lp = ready && (lst == 1 || lst == 2); v_ill_cke = ready && !dfi_cke;
       end
@@ -105,11 +117,13 @@ module DFI_5_0__MC_PHY_Interface__sva #(
         for (int i = 0; i < 4; i++)
           if (!dfi_wrdata_mask[i]) arr[w_adr[s]][8*i +: 8] = dfi_wrdata[8*i +: 8];
         v_mask = dfi_wrdata_mask != 0;
+        c_wm = dfi_wrdata_mask; c_wd = dcls(dfi_wrdata);
         v_rw_same = rd_due_now && dfi_rddata_en && r_adr[s] == w_adr[s];
       end
       v_b2b = v_rd && r_due[(s + T_RDDATA_EN + 15) % 16];
       r_due[s] = 0; w_due[s] = 0;
       m_v = d_due[s]; m_d = d_due[s] ? d_dat[s] : 32'd0; d_due[s] = 0;
+      if (m_v) c_rd = dcls(m_d);
       // ---- init handshake
       rise = dfi_init_start && !start_q;
       start_q = dfi_init_start;
@@ -138,6 +152,21 @@ module DFI_5_0__MC_PHY_Interface__sva #(
       n = n + 1;
     end
   end
+
+  covergroup cg_dfi @(negedge clk);
+    cp_cmd: coverpoint c_k iff (c_k >= 0) { bins act = {0}; bins rd = {1}; bins wr = {2}; bins pre = {3}; bins pre_all = {4};
+                                            bins ref_ = {5}; bins mrs = {6}; }
+    cp_bcmd: coverpoint c_k iff (c_k >= 0 && c_k <= 3) { bins act = {0}; bins rd = {1}; bins wr = {2}; bins pre = {3}; }
+    cp_bank: coverpoint c_b iff (c_k >= 0 && c_k <= 3) { bins b[] = {[0:7]}; }
+    x_bank: cross cp_bcmd, cp_bank;
+    cp_row: coverpoint c_r iff (c_k == 0) { bins r[] = {[0:3]}; }
+    cp_rcol: coverpoint c_col iff (c_k == 1) { bins c[] = {[0:7]}; }
+    cp_wcol: coverpoint c_col iff (c_k == 2) { bins c[] = {[0:7]}; }
+    cp_wmask: coverpoint c_wm iff (c_wm >= 0) { bins m[] = {[0:15]}; }
+    cp_wdata: coverpoint c_wd iff (c_wm >= 0) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint c_rd iff (c_rd >= 0) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_dfi u_cg_dfi = new();
 
   `SVA_RST(a_reset_outputs, !rst_n, !dfi_rddata_valid && dfi_rddata == 0 && !dfi_init_complete &&
            !dfi_lp_ctrl_ack && !irq)

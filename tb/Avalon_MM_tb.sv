@@ -517,6 +517,19 @@ module Avalon_MM_tb;
     end
 `endif
 
+    // data classes (single write + read back, fast and slow windows) and an
+    // upper-half byteenable write
+    begin : data_classes
+      logic [DW-1:0] dv [4];
+      dv[0] = '0; dv[1] = '1; dv[2] = 32'hAAAA_AAAA; dv[3] = 32'h1F2E_3D4C;
+      for (int i = 0; i < 4; i++) begin
+        av_write1(32'h080 + 4*i, dv[i], 4'hF); av_read1(32'h080 + 4*i, dv[i]);
+        av_write1(32'h280 + 4*i, dv[i], 4'hF); av_read1(32'h280 + 4*i, dv[i]);
+      end
+      av_write1(32'h080, 32'h5A5A_0000, 4'b1100);
+      av_read1(32'h080, 32'h5A5A_0000);
+    end
+
     if (errors == 0) $display("TEST PASSED: Avalon_MM");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR

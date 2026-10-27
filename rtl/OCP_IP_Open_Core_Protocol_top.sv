@@ -3,7 +3,8 @@
 // ============================================================================
 // OCP-IP master -- real protocol IP design
 // Scope : OCP-IP master (initiator) side.  MCmd encoding : 0=IDLE, 1=WR,
-//         2=RD, 5=WRNP (posted write, no response).  Bursts : INCR
+//         2=RD, 5=WRNP; WR=1 is the posted write (no
+//         response), WRNP=5 the non-posted write (answered).  Bursts : INCR
 //         (MBurstSeq=0), MBurstLength 1..8, address given once, write data
 //         beats handshaken per-beat with SCmdAccept.  SCmdAccept backpressure
 //         is obeyed (request held stable); 64 clk without SCmdAccept aborts
@@ -26,7 +27,7 @@ module OCP_IP_Open_Core_Protocol_top #(
   input  logic          req_valid,
   output logic          req_ready,
   input  logic          req_rw,      // 1 = write, 0 = read
-  input  logic          req_posted,  // 1 = posted write (WRNP, no response)
+  input  logic          req_posted,  // 1 = posted write (MCmd WR, no response)
   input  logic [AW-1:0] req_addr,
   input  logic [4:0]    req_len,     // burst length 1..8 (0 -> 1, >8 clamped)
   input  logic [DW-1:0] req_wdata,
@@ -79,7 +80,7 @@ module OCP_IP_Open_Core_Protocol_top #(
 
   // OCP request channel (held stable while waiting for SCmdAccept)
   assign MCmd         = (state == O_ISSUE) ?
-                        (rw_q ? (posted_q ? CMD_WRNP : CMD_WR) : CMD_RD)
+                        (rw_q ? (posted_q ? CMD_WR : CMD_WRNP) : CMD_RD)
                         : CMD_IDLE;
   assign MAddr        = addr_q;
   assign MData        = wbuf[beat];

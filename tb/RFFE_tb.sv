@@ -193,7 +193,7 @@ module RFFE_tb;
   // ---------------- write data host ----------------
   logic [7:0] wq [0:1023];
   int         wqh = 0, wqt = 0, n_stall = 0, wr_delay = 0;
-  int         hold = 0;
+  int         hold = 0, wpat = -1;          // wpat >= 0: every write byte is that value
   always @(negedge clk) if (rst_n) begin
     if (wr_valid && wr_ready) begin wqh++; wr_valid = 0; hold = wr_delay; end
     if (sclk == 0 && dut.st == dut.S_WAIT) n_stall++;
@@ -214,7 +214,7 @@ module RFFE_tb;
     // write bytes, and the model of what the slaves keep
     for (int i = 0; i < nb; i++) begin : b_w
       logic [7:0] d;
-      d = $urandom;
+      d = wpat >= 0 ? 8'(wpat) : 8'($urandom);
       wq[wqt % 1024] = d; wqt++;
       w_reg(sa, ty == 5 ? ad + 16'(i) : {8'h00, ad[7:0] + 8'(i)}, d, ty == 5);
     end
@@ -316,6 +316,20 @@ module RFFE_tb;
       cmd(4, 4'd9, 16'h0000, 3); cmd(1, 4'd5, 16'h0002, 0); wait_done();
     end
     for (int i = 0; i < 30; i++) rnd_cmd();
+    wait_done(); check_files();
+
+    // functional classes: every type broadcast, write and read data classes
+    // per command type (the last command clears the slaves' irq from the
+    // broadcast long write they do not support)
+    for (int ty = 0; ty < 7; ty++) begin cmd(ty, 4'd0, 16'h1230, 1); wait_done(); end
+    for (int p = 0; p < 4; p++) begin
+      wpat = p == 0 ? 8'h00 : (p == 1 ? 8'hFF : (p == 2 ? 8'h55 : 8'h3C));
+      cmd(1, 4'd9, 16'h0008, 0); cmd(3, 4'd9, 16'h0040, 1); cmd(5, 4'd9, 16'h0140, 1);
+      wpat = -1;
+      cmd(2, 4'd9, 16'h0008, 0); cmd(4, 4'd9, 16'h0040, 1); cmd(6, 4'd9, 16'h0140, 1);
+      wait_done();
+    end
+    cmd(1, 4'd5, 16'h0003, 0); cmd(1, 4'd2, 16'h0003, 0);
     wait_done(); check_files();
 
     $display("sequences %0d reads %0d stalls %0d", n_done, n_rd, n_stall);

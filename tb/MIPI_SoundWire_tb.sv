@@ -200,6 +200,7 @@ module MIPI_SoundWire_tb;
   int          stl [0:N-1], rhd [0:N-1], src [0:N-1], n_rx [0:N-1], n_under [0:N-1];
   int          busy_pct [0:N-1];
   bit          allow_skip = 0, pat = 0, pat_ph = 0;
+  longint      f_tx = -1;                 // forced sample (directed)
   bit [N-1:0]  took = 0;
   always @(posedge clk) took <= tx_valid & tx_ready;
   for (genvar i = 0; i < N; i++) begin : g_host
@@ -207,7 +208,7 @@ module MIPI_SoundWire_tb;
       if (took[i]) begin sq[i][stl[i] % 4096] = tx_data[i]; stl[i]++; tx_valid[i] = 0; end
       if (tx_underrun[i] && busy_pct[i] == 0) begin sq[i][stl[i] % 4096] = 0; stl[i]++; n_under[i]++; end
       if (!tx_valid[i] && ($urandom % 100) < busy_pct[i]) begin
-        tx_valid[i] = 1; tx_data[i] = $urandom;
+        tx_valid[i] = 1; tx_data[i] = f_tx >= 0 ? 32'(f_tx) : $urandom;
         // a static sync pattern in every other sample
         if (pat && i == 0) begin tx_data[i][31:24] = pat_ph ? 8'hB1 : 8'h00; pat_ph = !pat_ph; end
       end
@@ -312,7 +313,15 @@ module MIPI_SoundWire_tb;
     // every data bit both ways, all-ones and all-zeros registers
     cfg_cols = 3; chan_off();
     cmd(3, 1, 16'hFFFF, 8'hFF); cmd(2, 1, 16'hFFFF, 0); cmd(3, 5, 16'h0000, 8'h00); cmd(2, 5, 16'h0000, 0);
+    cmd(3, 1, 16'h0055, 8'h55); cmd(2, 1, 16'h0055, 0); cmd(3, 5, 16'h00AA, 8'hAA); cmd(2, 5, 16'h00AA, 0);
     wait_rsp();
+    // samples of each data pattern both ways
+    for (int k = 0; k < 4; k++) begin
+      f_tx = k == 0 ? 32'h0000_0000 : k == 1 ? 32'hFFFF_FFFF : k == 2 ? 32'h5555_5555 : 32'hAAAA_AAAA;
+      chan(0, 6, 1); chan(1, 7, 0);
+      frames(3); settle(); chan_off();
+    end
+    f_tx = -1;
     // underruns send zeros
     chan(0, 6, 1); busy_pct[0] = 0; frames(4); settle();
     chan_off();

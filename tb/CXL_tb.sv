@@ -61,6 +61,7 @@ module CXL_tb;
   int           rmode = 0;                     // response back-pressure
   int           gap_max = 4, p_out = 10;       // gaps, % out of range
   int           f_off = -100, f_po = -1;       // forced line offset, poison (directed)
+  int           f_dp = -1;                    // forced data byte pattern (directed)
   bit           stop = 0;
 
   task automatic ref_clear();
@@ -193,7 +194,7 @@ module CXL_tb;
     if (mf == 2'b01 || mf == 2'b10 || snp[2]) x_proto++;
     bm = $urandom % 6;                         // byte enables: 0 none, 1 all, else random
     for (int b = 0; b < 8; b++) begin
-      d[b] = {$urandom, $urandom};
+      d[b] = f_dp >= 0 ? {8{8'(f_dp)}} : {$urandom, $urandom};
       be[b] = bm == 0 ? 8'h00 : bm == 1 ? 8'hFF : 8'($urandom);
     end
     if (op == 4'd1 || op == 4'd2) begin
@@ -417,6 +418,15 @@ module CXL_tb;
     n_range = 0; n_opcode = 0; n_proto = 0; n_poison = 0;
     rmode = 0;
     traffic(60, 40, "after reset");
+    // every line written and read with each data pattern
+    for (int k = 0; k < 4; k++)
+      for (int l = 0; l < LINES; l++) begin
+        f_off = l; f_po = 0; f_dp = k == 0 ? 8'h00 : k == 1 ? 8'hFF : k == 2 ? 8'h55 : 8'hAA;
+        send_rwd(4'd1);
+        send_req(4'd1);
+      end
+    f_off = -100; f_po = -1; f_dp = -1;
+    drain("data patterns");
 
     if (errors == 0) $display("TEST PASSED: CXL (%0d NDR, %0d DRS)", n_ndr, n_drs);
     else $display("TEST FAILED: CXL (%0d errors)", errors);

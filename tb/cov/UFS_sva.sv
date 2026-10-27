@@ -48,6 +48,12 @@ module UFS_sva #(parameter int BIT_CLKS = 1) (
   // coverage strobes
   logic f_tur, f_w4, f_r8, f_crc, f_eof, f_big, f_short, f_lun, f_xfer, f_woor, f_r0, f_rbig;
   logic f_unk, f_other, f_busy, f_retrain, f_second_bad, f_link;
+  // registered copies of each executed command for the covergroup
+  logic        c_cv, c_ok;
+  logic [2:0]  c_kind;
+  int          c_wn, c_rn, c_lc;
+  logic [7:0]  c_tt;
+  logic [31:0] c_wd, c_rd;
 
   task automatic frame(inout logic [31:0] b [0:16], inout int n, input logic [31:0] h,
                        input int len, input logic [31:0] p [0:7]);
@@ -65,7 +71,9 @@ module UFS_sva #(parameter int BIT_CLKS = 1) (
       qn <= 0; qb <= 0; treq <= 0; trun <= 0; m_tx <= 1; m_irq <= 0;
       {f_tur, f_w4, f_r8, f_crc, f_eof, f_big, f_short, f_lun, f_xfer, f_woor, f_r0, f_rbig} <= '0;
       {f_unk, f_other, f_busy, f_retrain, f_second_bad, f_link} <= '0;
+      c_cv <= 0; c_ok <= 0; c_kind <= 0; c_wn <= 0; c_rn <= 0; c_lc <= 0; c_tt <= 0; c_wd <= 0; c_rd <= 0;
     end else begin
+      c_cv <= 0;
       {f_tur, f_w4, f_r8, f_crc, f_eof, f_big, f_short, f_lun, f_xfer, f_woor, f_r0, f_rbig} <= '0;
       {f_unk, f_other, f_busy, f_retrain, f_second_bad, f_link} <= '0;
       m_irq <= 0;
@@ -145,6 +153,9 @@ module UFS_sva #(parameter int BIT_CLKS = 1) (
                 end else begin rd = 1; f_r8 <= nx == 8; end
               end else begin ok = 0; f_unk <= 1; end
               if (!ok) m_irq <= 1;
+              c_cv <= 1; c_ok <= ok; c_tt <= tt; c_wn <= n; c_rn <= nx; c_wd <= p[4]; c_rd <= m_st[lba[7:0]];
+              c_kind <= h[15:8] != 0 ? 3'd5 : (op == 8'h00 ? 3'd0 : (op == 8'h2A ? 3'd1 : (op == 8'h28 ? 3'd2 : 3'd6)));
+              c_lc <= lba == 0 ? 0 : (lba + 32'(op == 8'h2A ? n : nx) == 256 ? 2 : 1);
               st = ok ? 32'h0 : 32'h0005_0001;
               p[0] = st;
               frame(b, nb, {8'h81, tt, h[15:8], 8'd1}, 1, p);
@@ -186,6 +197,28 @@ module UFS_sva #(parameter int BIT_CLKS = 1) (
   `SVA_INV(a_differential, tx_n == !tx_p)
   `SVA_INV(a_irq, irq == m_irq)
   `SVA_INV(a_medium, st_ok)
+
+  // command kind x outcome, WRITE10 / READ10 lengths, LBA at the start /
+  // end of the medium, task tag classes, first written / read dword class
+  function automatic int dcls(input logic [31:0] v);
+    return v == 32'h0 ? 0 : (v == '1 ? 1 : (v == {16{2'b01}} || v == {16{2'b10}} ? 2 : 3));
+  endfunction
+  covergroup cg_cmd @(negedge clk);
+    option.per_instance = 1;
+    cp_cmd: coverpoint {c_kind, c_ok} iff (rst_n && c_cv)
+      { bins tur_ok = {4'b000_1}; bins wr_ok = {4'b001_1}; bins rd_ok = {4'b010_1};
+        bins wr_err = {4'b001_0}; bins rd_err = {4'b010_0}; bins bad_lun = {4'b101_0}; bins unknown = {4'b110_0}; }
+    cp_wn: coverpoint c_wn iff (rst_n && c_cv && c_ok && c_kind == 1) { bins n[] = {[1:4]}; }
+    cp_rn: coverpoint c_rn iff (rst_n && c_cv && c_ok && c_kind == 2) { bins n[] = {[1:8]}; }
+    cp_lba: coverpoint int'(c_kind) * 4 + c_lc iff (rst_n && c_cv && c_ok && (c_kind == 1 || c_kind == 2))
+      { bins wr_first = {4}; bins wr_mid = {5}; bins wr_last = {6}; bins rd_first = {8}; bins rd_mid = {9}; bins rd_last = {10}; }
+    cp_tag: coverpoint c_tt iff (rst_n && c_cv && c_ok) { bins zero = {0}; bins ff = {8'hFF}; bins other = {[1:254]}; }
+    cp_wd: coverpoint dcls(c_wd) iff (rst_n && c_cv && c_ok && c_kind == 1)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rd: coverpoint dcls(c_rd) iff (rst_n && c_cv && c_ok && c_kind == 2)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_cmd u_cg_cmd = new;
 
   `FC(link_trained, f_link)
   `FC(retrain_timeout, f_retrain)

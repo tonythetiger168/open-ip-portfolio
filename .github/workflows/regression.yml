@@ -6,6 +6,11 @@ on:
     tags: ['v*']
   pull_request:
 
+# A newer push supersedes the run in progress on the same branch / PR.
+concurrency:
+  group: regression-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   sim-syn:
     runs-on: ubuntu-latest

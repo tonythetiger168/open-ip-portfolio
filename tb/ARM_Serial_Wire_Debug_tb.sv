@@ -471,6 +471,15 @@ module ARM_Serial_Wire_Debug_tb;
     if (g !== d) fail("slow SWCLK readback");
     lo_min = 41; lo_max = 120; hi_min = 41; hi_max = 120;
 
+    // 11b. AP select 0xFF, alternating data written and read back
+    dp_wr(2'd2, 32'hFF00_0000);
+    for (int i = 0; i < 2; i++) begin
+      d = i == 0 ? 32'h5555_5555 : 32'hAAAA_AAAA;
+      ap_wr(2'(i), d); ap_rd(2'(i), g); rdbuff(g);
+      if (g !== d) fail("pattern readback");
+    end
+    dp_wr(2'd2, 32'h0);
+
     // 12. power down, reset in the middle of a packet
     dp_wr(2'd1, 32'h0); idle(6); check_ctrl("powered down");
     fork

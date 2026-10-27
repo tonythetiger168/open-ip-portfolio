@@ -83,6 +83,38 @@ module Wishbone_sva #(parameter int DW = 32, AW = 32) (
   endgroup
   cg_req u_cg_req = new;
 
+  // at the response: window class x direction, byte lanes and data classes
+  // of in-range accesses; at accept: cycle type x direction and the
+  // direction of the request queued behind an outstanding one
+  function automatic logic [1:0] dcls(input logic [DW-1:0] v);
+    dcls = (v == '0) ? 2'd0 : (v == '1) ? 2'd1 :
+           (v == {(DW/2){2'b01}} || v == {(DW/2){2'b10}}) ? 2'd2 : 2'd3;
+  endfunction
+  covergroup cg_resp @(posedge clk);
+    option.per_instance = 1;
+    cp_win: coverpoint {mq_rsv[0], mq_ok[0], mq_slow[0]} iff (rst_n && resp)
+      { bins fast = {3'b010}; bins slow = {3'b011}; bins hole = {3'b000}; bins rsv = {3'b100}; }
+    cp_we: coverpoint mq_we[0] iff (rst_n && resp) { bins rd = {0}; bins wr = {1}; }
+    x_win_we: cross cp_win, cp_we;
+    cp_lane: coverpoint mq_sel[0] iff (rst_n && resp && mq_ok[0] && mq_we[0])
+      { bins b0 = {4'b0001}; bins b1 = {4'b0010}; bins b2 = {4'b0100}; bins b3 = {4'b1000};
+        bins lo_half = {4'b0011}; bins hi_half = {4'b1100}; }
+    cp_wdata: coverpoint dcls(mq_dat[0]) iff (rst_n && resp && mq_ok[0] && mq_we[0] && mq_sel[0] == 4'hF)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint dcls(dat_o) iff (rst_n && resp && mq_ok[0] && !mq_we[0])
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_resp u_cg_resp = new;
+  covergroup cg_acc @(posedge clk);
+    option.per_instance = 1;
+    cp_cti: coverpoint cti_i iff (rst_n && acc) { bins classic = {3'b000}; bins incr = {3'b010}; }
+    cp_we: coverpoint we_i iff (rst_n && acc) { bins rd = {0}; bins wr = {1}; }
+    x_cti_we: cross cp_cti, cp_we;
+    cp_queued: coverpoint {mq_we[0], we_i} iff (rst_n && acc && m_cnt == 1 && !resp)
+      { bins rd_rd = {2'b00}; bins rd_wr = {2'b01}; bins wr_rd = {2'b10}; bins wr_wr = {2'b11}; }
+  endgroup
+  cg_acc u_cg_acc = new;
+
   `FC(stalled_strobe, cyc_i && stb_i && stall_o)
   `FC(accept_with_response, acc && resp)
   `FC(classic_block_held_stb, acc && cti_i == 3'b000 && $past(ack_o && stb_i && cti_i == 3'b000))

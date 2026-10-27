@@ -57,6 +57,11 @@ module ARM_Serial_Wire_Debug_sva #(
   bit v_abort_busy, v_abort_idle, v_clr_err, v_clr_wd, v_clr_orun, v_ap_err_rd, v_ap_err_wr;
   bit v_rst_zero_one;
   int v_trn;
+  // covergroup samples (set at the clock, sampled at the next negedge)
+  function automatic int dcls(input logic [31:0] v);
+    dcls = v == 0 ? 0 : v == 32'hFFFF_FFFF ? 1 : (v == 32'h5555_5555 || v == 32'hAAAA_AAAA) ? 2 : 3;
+  endfunction
+  int c_rq, c_ack, c_ar, c_aa, c_ab, c_as, c_ad, c_rd;
 
   function automatic logic [31:0] ctrl_of(input bit o, so, se, ro, wd, cd, cs);
     return {csyspwrupack, cs, cdbgpwrupack, cd, 20'h0, wd, ro, se, 1'b0, 2'b00, so, o};
@@ -84,6 +89,7 @@ module ARM_Serial_Wire_Debug_sva #(
       {v_wait_ap, v_wait_rdbuff, v_fault_rd, v_fault_wr, v_orun_rd, v_orun_wr, v_wderr_dp, v_wderr_ap} = '0;
       {v_abort_busy, v_abort_idle, v_clr_err, v_clr_wd, v_clr_orun, v_ap_err_rd, v_ap_err_wr} = '0;
       v_rst_zero_one = 0; v_trn = -1;
+      c_rq = -1; c_ar = -1; c_rd = -1;
       m_abort = 0; m_req = 0; m_lr = 0; m_pe = 0; m_aw = 0; m_af = 0;
       busy0 = busy; orun0 = orun; serr0 = serr; sorun0 = sorun; wderr0 = wderr; rok0 = rok;
       cdbg0 = cdbg; csys0 = csys; trn0 = trn; apsel0 = apsel; apbank0 = apbank; dpbank0 = dpbank;
@@ -95,6 +101,7 @@ module ARM_Serial_Wire_Debug_sva #(
         busy = 0;
         if (ap_err) begin serr = 1; if (m_wr) v_ap_err_wr = 1; else v_ap_err_rd = 1; end
         if (!m_wr) begin rdbuf = ap_rdata; rok = !ap_err; end
+        if (!m_wr && !ap_err) c_rd = dcls(ap_rdata);
       end
 
       // ---------------- SWCLK rising edge
@@ -128,6 +135,7 @@ module ARM_Serial_Wire_Debug_sva #(
               end
             end else if (p == 7 + T) begin
               m_oe = 1; m_out = ackv == A_OK;
+              c_rq = 8 * int'(ap_) + 4 * int'(rn_) + a_; c_ack = ackv;
               if (ackv == A_WAIT) begin m_aw = 1; if (ap_) v_wait_ap = 1; else v_wait_rdbuff = 1; end
               if (ackv == A_FAULT) begin m_af = 1; if (rn_) v_fault_rd = 1; else v_fault_wr = 1; end
               dph = ackv == A_OK || orun0;
@@ -191,6 +199,10 @@ module ARM_Serial_Wire_Debug_sva #(
           end
         endcase
       end
+      if (m_req) begin
+        c_ar = m_wr; c_aa = m_addr[1:0]; c_ab = m_addr[5:2] == 0 ? 0 : m_addr[5:2] == 4'hF ? 1 : 2;
+        c_as = m_sel == 0 ? 0 : m_sel == 8'hFF ? 1 : 2; c_ad = dcls(m_wd);
+      end
       c3 = c2; c2 = c1; c1 = swclk; d2 = d1; d1 = swdio_in;
     end
   end
@@ -214,6 +226,22 @@ module ARM_Serial_Wire_Debug_sva #(
     cp_turnround: coverpoint trn_q iff (rst_n && trn_q >= 0) { bins t[] = {[0:3]}; }
   endgroup
   cg_swd u_cg_swd = new;
+  covergroup cg_swd_pkt @(negedge clk);
+    // request {APnDP, RnW, A[3:2]} of every accepted packet, AP outcome
+    cp_req: coverpoint c_rq iff (c_rq >= 0) { bins r[] = {[0:15]}; }
+    cp_aprw: coverpoint c_rq / 4 iff (c_rq >= 8) { bins ap_wr = {2}; bins ap_rd = {3}; }
+    cp_ack: coverpoint c_ack iff (c_rq >= 8) { bins ok = {0}; bins wait_ = {1}; bins fault = {2}; }
+    x_ap_ack: cross cp_aprw, cp_ack;
+    // AP access issued: direction x register, bank, AP select, write data
+    cp_arw: coverpoint c_ar iff (c_ar >= 0) { bins rd = {0}; bins wr = {1}; }
+    cp_aaddr: coverpoint c_aa iff (c_ar >= 0) { bins a[] = {[0:3]}; }
+    x_areg: cross cp_arw, cp_aaddr;
+    cp_abank: coverpoint c_ab iff (c_ar >= 0) { bins zero = {0}; bins top = {1}; bins other = {2}; }
+    cp_asel: coverpoint c_as iff (c_ar >= 0) { bins zero = {0}; bins top = {1}; bins other = {2}; }
+    cp_awdata: coverpoint c_ad iff (c_ar == 1) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_ardata: coverpoint c_rd iff (c_rd >= 0) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_swd_pkt u_cg_swd_pkt = new;
 
   `FC(line_reset, line_reset)
   `FC(packet_while_locked_out, v_lock_pkt)

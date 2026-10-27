@@ -2,6 +2,12 @@
   "title": "GPIO bank: 8 bidirectional pins with per-pin output enable and input readback",
   "code": "0x4750",
   "version": "2.0",
+  "features": [
+    "8 bidirectional pins `gpio[7:0]`; each pin is driven from OUT only while its OE bit is 1, otherwise it is released (high impedance).",
+    "Input readback: IN shows the pin levels registered one clock earlier.",
+    "OUT reads back the value last written.",
+    "Interrupt HIGH is set while any registered input pin is high (level source, so it sets again until the pins are low)."
+  ],
   "tb_clk_ns": 10,
   "regs": [
     {"name": "OE", "kind": "rw", "desc": "Output enables",

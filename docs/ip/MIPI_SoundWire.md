@@ -2,6 +2,17 @@
 
 Protocol IP `MIPI_SoundWire`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `MIPI_SoundWire_top` (`rtl/MIPI_SoundWire_top.sv`) |
+| Register interface | APB4 slave `MIPI_SoundWire_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x534E0200 (code 0x534E, version 2.0) |
+| Registers | 11 words, 0x000 to 0x028 |
+| Interrupts | 11 sources into one level-high `irq` |
+| Data streams | CMD (to the core), RSP (from the core), TX (to the core), RX (from the core) |
+| Protocol pins | 11 pass-through |
+
 ## Overview
 
 MIPI_SoundWire_top v2.0: SoundWire-style two-wire audio bus interface (manager or peripheral) with control commands and one data port each way
@@ -55,12 +66,41 @@ reg_we / reg_re / reg_addr / reg_wdata and reg_rdata are the peripheral's regist
 | `tb/cov/MIPI_SoundWire_sva.sv`, `tb/cov/MIPI_SoundWire_apb_sva.sv` | coverage checkers (core, wrapper) |
 | `scripts/apb/specs/MIPI_SoundWire.json` | register spec the wrapper, TB, checker and this page are generated from |
 
-```
-make -f Makefile.MIPI_SoundWire sim syn            # core test + synthesis (Icarus, Yosys)
-make -f Makefile.MIPI_SoundWire apb                # wrapper test + synthesis
-bash scripts/cov/run_cov.sh MIPI_SoundWire          # core coverage (Verilator)
-bash scripts/cov/run_cov.sh MIPI_SoundWire_apb      # wrapper coverage
-```
+How to run the tests and the coverage flow: see [Running and verifying](#running-and-verifying).
+
+## Parameters
+
+The core and the wrapper have no parameters.
+
+## Wrapper pins
+
+Pins of `MIPI_SoundWire_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `sw_clk_o` | output | 1 | protocol pin, core port `sw_clk_o` |
+| `sw_clk_oe` | output | 1 | protocol pin, core port `sw_clk_oe` |
+| `sw_clk_i` | input | 1 | protocol pin, core port `sw_clk_i` |
+| `sw_dat_o` | output | 1 | protocol pin, core port `sw_dat_o` |
+| `sw_dat_oe` | output | 1 | protocol pin, core port `sw_dat_oe` |
+| `sw_dat_i` | input | 1 | protocol pin, core port `sw_dat_i` |
+| `reg_we` | output | 1 | protocol pin, core port `reg_we` |
+| `reg_re` | output | 1 | protocol pin, core port `reg_re` |
+| `reg_addr` | output | 16 | protocol pin, core port `reg_addr` |
+| `reg_wdata` | output | 8 | protocol pin, core port `reg_wdata` |
+| `reg_rdata` | input | 8 | protocol pin, core port `reg_rdata` |
 
 ## Core ports
 
@@ -127,33 +167,39 @@ Pass-through pins: `sw_clk_o`, `sw_clk_oe`, `sw_clk_i`, `sw_dat_o`, `sw_dat_oe`,
 | 0x01C | RSP | RO (pop) | 0x00000000 | Manager: response to a command; reading RSP frees it |
 | 0x020 | TX | RW | 0x00000000 | Transmit sample for the data port; writing TX commits it for the next frame |
 | 0x024 | RX | RO (pop) | 0x00000000 | Received sample from the data port; reading RX frees it |
-| 0x028 | STATUS | RO | 0x00000000 | Lock and PING status |
+| 0x028 | STATUS | RO | core | Lock and PING status |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x02C up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x534E |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| CFG | 0 | `cfg_manager` | 1 = manager (drives CLOCK and the control word) |
-| CFG | 5:1 | `cfg_div` | manager: bit time - 1 in PCLK (11 or more) |
-| CFG | 7:6 | `cfg_cols` | columns per row: 0..3 = 2, 4, 8, 16 |
-| CFG | 11:8 | `cfg_dev` | peripheral: device number (PING slot for 1..8) |
-| CFG | 15:12 | `cfg_tx_col` | transmit column (0 or past the last column = off) |
-| CFG | 19:16 | `cfg_rx_col` | receive column (0 or past the last column = off) |
-| CFG | 21:20 | `dev_status` | peripheral: status sent in its PING slot |
-| CMD | 1:0 | `cmd_op` | 0 PING, 2 READ, 3 WRITE (1 reserved) |
-| CMD | 5:2 | `cmd_dev` | device number |
-| CMD | 21:6 | `cmd_addr` | register address |
-| CMD | 29:22 | `cmd_wdata` | WRITE data |
-| RSP | 0 | `rsp_ack` | ACK bit of the frame |
-| RSP | 1 | `rsp_nak` | NAK bit of the frame |
-| RSP | 9:2 | `rsp_rdata` | data bits of the frame (READ data, WRITE data echoed) |
-| TX | 31:0 | `tx_data` | sample, MSB first in rows 0..31 of the column |
-| RX | 31:0 | `rx_data` | sample |
-| STATUS | 0 | `locked` | frame locked (always 1 on the manager) |
-| STATUS | 16:1 | `ping_status` | manager: status bits of the last PING, device 1 in [15:14] |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x534E | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 10:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 10:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| FLAGS | 3:0 | one bit per stream flag | RO | 0x0 | see FLAGS |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| CFG | 0 | `cfg_manager` | RW | 0x0 | 1 = manager (drives CLOCK and the control word) |
+| CFG | 5:1 | `cfg_div` | RW | 0xB | manager: bit time - 1 in PCLK (11 or more) |
+| CFG | 7:6 | `cfg_cols` | RW | 0x0 | columns per row: 0..3 = 2, 4, 8, 16 |
+| CFG | 11:8 | `cfg_dev` | RW | 0x1 | peripheral: device number (PING slot for 1..8) |
+| CFG | 15:12 | `cfg_tx_col` | RW | 0x0 | transmit column (0 or past the last column = off) |
+| CFG | 19:16 | `cfg_rx_col` | RW | 0x0 | receive column (0 or past the last column = off) |
+| CFG | 21:20 | `dev_status` | RW | 0x0 | peripheral: status sent in its PING slot |
+| CMD | 1:0 | `cmd_op` | RW | 0x0 | 0 PING, 2 READ, 3 WRITE (1 reserved) |
+| CMD | 5:2 | `cmd_dev` | RW | 0x0 | device number |
+| CMD | 21:6 | `cmd_addr` | RW | 0x0 | register address |
+| CMD | 29:22 | `cmd_wdata` | RW | 0x0 | WRITE data |
+| RSP | 0 | `rsp_ack` | RO (pop) | 0x0 | ACK bit of the frame |
+| RSP | 1 | `rsp_nak` | RO (pop) | 0x0 | NAK bit of the frame |
+| RSP | 9:2 | `rsp_rdata` | RO (pop) | 0x0 | data bits of the frame (READ data, WRITE data echoed) |
+| TX | 31:0 | `tx_data` | RW | 0x0 | sample, MSB first in rows 0..31 of the column |
+| RX | 31:0 | `rx_data` | RO (pop) | 0x0 | sample |
+| STATUS | 0 | `locked` | RO | core | frame locked (always 1 on the manager) |
+| STATUS | 16:1 | `ping_status` | RO | core | manager: status bits of the last PING, device 1 in [15:14] |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -189,11 +235,60 @@ A bit is set while its source is active, stays set until written with 1, and a s
 * **TX** feeds `tx_data`/`tx_valid`. Writing TX commits the beat: FLAGS.TX_FULL is set and `tx_valid` stays high until the core's `tx_ready`; then TX_DONE is set. A write while full is dropped and sets TX_OVF.
 * **RX** captures `rx_data` when `rx_valid` is high and the register is empty (or is being read in the same clock), and sets FLAGS/IRQ RX_AVAIL. Reading RX pops it. A beat that arrives while the register is full is dropped and sets RX_OVF.
 
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x534E0200.
+2. Write 0x7FF to IRQ_STATUS (0x004) to clear any stale bits.
+3. Configure the core: write CFG (0x014). Reset values are in the register map; PSTRB selects the bytes written.
+4. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x7FF enables all).
+5. To send on CMD: wait until FLAGS.CMD_FULL (bit 0) is 0, or for IRQ CMD_DONE, then write CMD (0x018). The last write commits the beat. CMD_OVF means a write came while the register was full and was dropped.
+6. To receive on RSP: wait for IRQ RSP_AVAIL or FLAGS.RSP_AVAIL (bit 1), then read RSP (0x01C). Reading the last word frees the register for the next beat; write 1 to IRQ_STATUS.RSP_AVAIL (bit 5) to clear it. Read each beat before the next arrives, or it is dropped and RSP_OVF is set.
+7. To send on TX: wait until FLAGS.TX_FULL (bit 2) is 0, or for IRQ TX_DONE, then write TX (0x020). The last write commits the beat. TX_OVF means a write came while the register was full and was dropped.
+8. To receive on RX: wait for IRQ RX_AVAIL or FLAGS.RX_AVAIL (bit 3), then read RX (0x024). Reading the last word frees the register for the next beat; write 1 to IRQ_STATUS.RX_AVAIL (bit 9) to clear it. Read each beat before the next arrives, or it is dropped and RX_OVF is set.
+9. Read STATUS (0x028) for the core's live `locked`, `ping_status`; it needs no clearing.
+10. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
+
+## Running and verifying
+
+All commands run from the repository root. Icarus Verilog 12 and Yosys 0.33 are enough for steps 1 to 3; step 4 also needs Verilator 5.052 and pyslang (see [README, Setup](../../README.md#setup)).
+
+| Step | Command | Pass when | Output |
+|---|---|---|---|
+| 1. Core test | `make -f Makefile.MIPI_SoundWire sim` | a `TEST PASSED` line, no `ERROR` | console |
+| 2. Core synthesis | `make -f Makefile.MIPI_SoundWire syn` | Yosys ends without `ERROR`; `stat` prints the cell count | `work/MIPI_SoundWire_top.json` |
+| 3. APB wrapper test + synthesis | `make -f Makefile.MIPI_SoundWire apb` | `TEST PASSED: MIPI_SoundWire_apb`, then Yosys without `ERROR` | console, `work/MIPI_SoundWire_apb.json` |
+| 4. Coverage (core, wrapper) | `bash scripts/cov/run_cov.sh MIPI_SoundWire`<br>`bash scripts/cov/run_cov.sh MIPI_SoundWire_apb` | `RESULT: CLOSED` (all five metrics 100%) | `work/cov/MIPI_SoundWire/score.json`, `work/cov/MIPI_SoundWire_apb/score.json` |
+
+Expected end of a step 4 run:
+
+```
+===== MIPI_SoundWire =====
+TEST: PASSED   SVA_FAILURES: 0
+LINE ... TOGGLE ... FSM ... SVA ... FUNCTIONAL  (each n/n, 100.0%)
+RESULT: CLOSED
+```
+
+**Core test** (`tb/MIPI_SoundWire_tb.sv`): drives `MIPI_SoundWire_top` through its own ports against a protocol peer or model and checks every result itself; any mismatch prints `ERROR`, and `TEST PASSED` is printed only when there were none.
+
+**APB wrapper test** (`tb/MIPI_SoundWire_apb_tb.sv`), in this order:
+
+1. Reset values of every register, ID included.
+2. Writes to read-only registers are ignored.
+3. Each RW register: all ones, all zeros, then 16 random writes with every PSTRB byte-lane pattern, read back each time.
+4. Unmapped and misaligned addresses, reads and writes: PSLVERR, read data 0, no side effect on other registers.
+5. Back-to-back transfers with no idle cycle.
+6. IP traffic through the registers only (`tb/apb/MIPI_SoundWire_apb_func.svh`): the programming sequence above, every interrupt bit set, enabled and cleared, stream FULL/AVAIL/OVF cases (100% wrapper toggle coverage confirms each bit moved).
+7. PRESETN asserted mid-run: `irq` and PRDATA go to 0, registers return to reset values.
+
+**Checkers** (`tb/cov/MIPI_SoundWire_sva.sv`, `tb/cov/MIPI_SoundWire_apb_sva.sv`): SVA protocol and APB assertions plus covergroups, bound in by the coverage flow. An assertion failure prints `SVA_FAIL` and fails the run even when the test itself passed.
+
+Whole portfolio: `bash scripts/ci_regression.sh` runs steps 1 to 3 for every IP (what CI runs), and `bash scripts/cov/run_all.sh 4` runs step 4 for every IP.
+
 ## Verification
 
 Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVERAGE_CLOSURE.md](../COVERAGE_CLOSURE.md) for the flow. Line and toggle count only the named RTL file.
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/MIPI_SoundWire_top.sv` | pass | 102/102 | 1024/1024 | 8/8 | 16/16 | 30/30 |
+| core `rtl/MIPI_SoundWire_top.sv` | pass | 102/102 | 1024/1024 | 8/8 | 16/16 | 53/53 |
 | wrapper `rtl/MIPI_SoundWire_apb.sv` | pass | 44/44 | 1114/1114 | n/a | 21/21 | 91/91 |

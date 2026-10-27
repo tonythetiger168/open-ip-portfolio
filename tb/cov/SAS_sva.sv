@@ -63,6 +63,11 @@ module SAS_sva #(parameter int BIT_CLKS = 1) (
   logic v_oob_retry_cr, v_oob_retry_ci, v_wr, v_rq, v_rs_ok, v_mm_val, v_mm_src, v_tmo_wr, v_tmo_rd,
         v_crc, v_eof, v_len, v_nopay, v_badreg_wr, v_badreg_rd, v_type, v_emptyrsp, v_len16,
         v_pending;
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  logic        c_wv, c_qv;
+  logic [3:0]  c_wr, c_qr;
+  int          c_wl;
+  logic [31:0] c_wd, c_qd;
 
   always @(posedge clk or negedge rst_n) begin
     logic        pend0, tick, o_det, o_ack, o_rq, o_pcrc, o_ppro, o_ptmo, o_wr, o_rsp, o_phy, req, rd_k;
@@ -82,6 +87,7 @@ module SAS_sva #(parameter int BIT_CLKS = 1) (
       {v_oob_retry_cr, v_oob_retry_ci, v_wr, v_rq, v_rs_ok, v_mm_val, v_mm_src, v_tmo_wr, v_tmo_rd,
        v_crc, v_eof, v_len, v_nopay, v_badreg_wr, v_badreg_rd, v_type, v_emptyrsp, v_len16,
        v_pending} = '0;
+      {c_wv, c_qv} = '0; c_wr = 0; c_qr = 0; c_wl = 0; c_wd = 0; c_qd = 0;
     end else begin
       {v_oob_retry_cr, v_oob_retry_ci, v_wr, v_rq, v_rs_ok, v_mm_val, v_mm_src, v_tmo_wr, v_tmo_rd,
        v_crc, v_eof, v_len, v_nopay, v_badreg_wr, v_badreg_rd, v_type, v_emptyrsp, v_len16,
@@ -178,6 +184,7 @@ module SAS_sva #(parameter int BIT_CLKS = 1) (
 
       // ---------------- receiver ----------------
       {p_crc, p_pro, p_wr, p_rsp, p_rq} = '0;
+      {c_wv, c_qv} = '0;
       if (!o_phy) begin w = 0; r_on = 0; end
       else if (tick) begin
         w = {w[30:0], rx_p};
@@ -201,10 +208,12 @@ module SAS_sva #(parameter int BIT_CLKS = 1) (
                 8'h01:
                   if (rlen != 0 && rd[0][15:8] < 16) begin
                     regs[rd[0][11:8]] = rd[1]; p_wr = 1; v_wr = 1; if (rlen == 16) v_len16 = 1;
+                    c_wv = 1; c_wr = rd[0][11:8]; c_wl = rlen; c_wd = rd[1];
                   end else begin p_pro = 1; if (rlen == 0) v_nopay = 1; else v_badreg_wr = 1; end
                 8'h02:
                   if (rd[0][15:8] < 16) begin
                     p_rq = 1; v_rq = 1; q_dst = rd[0][7:0]; q_src = rd[0][11:8]; q_data = regs[rd[0][11:8]];
+                    c_qv = 1; c_qr = rd[0][11:8]; c_qd = regs[rd[0][11:8]];
                   end else begin p_pro = 1; v_badreg_rd = 1; end
                 8'h83:
                   if (rlen != 0) begin p_rsp = 1; e_val = rd[1]; e_from = rd[0][7:0]; end
@@ -229,6 +238,23 @@ module SAS_sva #(parameter int BIT_CLKS = 1) (
   `SVA_INV(a_counters, ok_cnt == m_ok && mm_cnt == m_mm)
 
   // ---------------- functional coverage ----------------
+  // register of every applied write and served read, write frame length,
+  // written and served data classes
+  function automatic int dcls(input logic [31:0] v);
+    return v == 32'd0 ? 0 : (v == '1 ? 1 : (v == {16{2'b01}} || v == {16{2'b10}} ? 2 : 3));
+  endfunction
+  covergroup cg_frame @(negedge clk);
+    option.per_instance = 1;
+    cp_wreg: coverpoint c_wr iff (rst_n && c_wv);
+    cp_rreg: coverpoint c_qr iff (rst_n && c_qv);
+    cp_wlen: coverpoint c_wl iff (rst_n && c_wv) { bins one = {1}; bins mid = {[2:15]}; bins sixteen = {16}; }
+    cp_wdata: coverpoint dcls(c_wd) iff (rst_n && c_wv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint dcls(c_qd) iff (rst_n && c_qv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_frame u_cg_frame = new;
+
   `FC(oob_cominit_missed_after_comreset, v_oob_retry_cr)
   `FC(oob_cominit_missed_after_cominit, v_oob_retry_ci)
   `FC(write_applied, v_wr)

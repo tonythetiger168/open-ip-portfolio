@@ -40,6 +40,12 @@ module Toggle_Mode_NAND_sva #(
 
   // coverage strobes
   logic vid, vrd, vpg, ver, vpf, vef, vbs, vret, vunk, vseq, vadr, vwb, vrp, vre, vrr, vwrap, vbrk;
+  // registered copies for the covergroup: completed operation and page,
+  // start column, data-in / data-out / status bytes
+  logic       c_ov, c_cv, c_crd, c_wv, c_rv, c_sv;
+  int         c_op, c_pg, c_col;
+  logic [7:0] c_wd, c_rd;
+  logic [1:0] c_st;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -49,7 +55,9 @@ module Toggle_Mode_NAND_sva #(
       for (int i = 0; i < 1024; i++) sh[i] <= 8'hFF;
       for (int i = 0; i < 64; i++) pb[i] <= 8'hFF;
       {vid, vrd, vpg, ver, vpf, vef, vbs, vret, vunk, vseq, vadr, vwb, vrp, vre, vrr, vwrap, vbrk} <= '0;
+      {c_ov, c_cv, c_crd, c_wv, c_rv, c_sv} <= '0; c_op <= 0; c_pg <= 0; c_col <= 0; c_wd <= 0; c_rd <= 0; c_st <= 0;
     end else begin
+      {c_ov, c_cv, c_wv, c_rv, c_sv} <= '0;
       {vid, vrd, vpg, ver, vpf, vef, vbs, vret, vunk, vseq, vadr, vwb, vrp, vre, vrr, vwrap, vbrk} <= '0;
       w <= {w[1:0], we_n}; r <= {r[1:0], re_n}; s <= {s[1:0], dqs};
       c <= {c[0], ce_n}; l <= {l[0], cle}; a <= {a[0], ale}; d0 <= dq; d1 <= d0;
@@ -57,14 +65,16 @@ module Toggle_Mode_NAND_sva #(
       if (r[2] != r[1] && on && om != O_NONE) begin
         if (!st) st <= !r[1];
         else if (om == O_ID) ptr <= (ptr + 1) % 5;
-        else if (om == O_DATA) begin ptr <= (ptr + 1) % 64; vwrap <= ptr == 63; end
+        else if (om == O_DATA) begin ptr <= (ptr + 1) % 64; vwrap <= ptr == 63; c_rv <= 1; c_rd <= pb[ptr]; end
+        if (st && om == O_STAT) begin c_sv <= 1; c_st <= {bsy, fl}; end
       end
-      if (s[2] != s[1] && on && md == M_DIN && !drv) begin pb[ptr] <= d1; ptr <= (ptr + 1) % 64; end
+      if (s[2] != s[1] && on && md == M_DIN && !drv) begin pb[ptr] <= d1; ptr <= (ptr + 1) % 64; c_wv <= 1; c_wd <= d1; end
 
       if (bsy) begin
         if (cnt > 0) cnt <= cnt - 1;
         else begin
           bsy <= 0;
+          c_ov <= op != P_RST; c_op <= op; c_pg <= op == P_ERASE ? pg / 4 : pg;
           if (op == P_RD) begin
             av <= 1;
             if (om != O_STAT) begin om <= O_DATA; ptr <= col; st <= 0; end
@@ -117,7 +127,7 @@ module Toggle_Mode_NAND_sva #(
           if (na == 0) col <= d1 % 64;
           if (na == 2) pg <= d1 % 16;
           na <= na + 1;
-          if (na == 4) begin md <= rd ? M_W30 : M_DIN; ptr <= col; end
+          if (na == 4) begin md <= rd ? M_W30 : M_DIN; ptr <= col; c_cv <= 1; c_crd <= rd; c_col <= col; end
         end else if (md == M_EADDR) begin
           if (na == 0) pg <= d1 % 16;
           na <= na + 1;
@@ -140,6 +150,22 @@ module Toggle_Mode_NAND_sva #(
   `SVA_IMP(a_dq_value, drv, dq == ob)
   `SVA_IMP(a_dqs_echo, drv, dqs == r[1])
   `SVA_INV(a_array, mem_ok)
+
+  function automatic int dcls(input logic [7:0] v);
+    return v == 8'h00 ? 0 : (v == 8'hFF ? 1 : (v == 8'h55 || v == 8'hAA ? 2 : 3));
+  endfunction
+  covergroup cg_nand @(negedge clk);
+    option.per_instance = 1;
+    cp_opg: coverpoint c_op * 16 + c_pg iff (rst_n && c_ov)
+      { bins read_page[] = {[0:15]}; bins prog_page[] = {[16:31]}; bins erase_block[] = {[32:35]}; }
+    cp_col: coverpoint int'(c_crd) * 4 + (c_col == 0 ? 0 : (c_col == 63 ? 2 : 1)) iff (rst_n && c_cv)
+      { bins prog_first = {0}; bins prog_mid = {1}; bins prog_last = {2};
+        bins read_first = {4}; bins read_mid = {5}; bins read_last = {6}; }
+    cp_din: coverpoint dcls(c_wd) iff (rst_n && c_wv) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_dout: coverpoint dcls(c_rd) iff (rst_n && c_rv) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_status: coverpoint c_st iff (rst_n && c_sv) { bins ready_ok = {2'b00}; bins ready_fail = {2'b01}; bins busy = {2'b10}; }
+  endgroup
+  cg_nand u_cg_nand = new;
 
   `FC(read_id, vid)
   `FC(read_id_wraps, drv && om == O_ID && ptr == 4 ##[1:20] drv && om == O_ID && ptr == 0)

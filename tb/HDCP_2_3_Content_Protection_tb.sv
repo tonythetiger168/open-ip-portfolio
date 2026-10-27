@@ -168,17 +168,34 @@ module HDCP_2_3_Content_Protection_tb;
   endtask
 
   // wait for a TX message, check its type, accept it after dly clocks
+  // messages taken at the handshake (for tx_expect with ready held high)
+  logic [127:0] tx_cap;
+  logic [3:0]   tx_cap_t;
+  int           tx_hs = 0;
+  always @(posedge clk) if (txm_valid && txm_ready) begin
+    tx_cap <= txm_data; tx_cap_t <= txm_type; tx_hs <= tx_hs + 1;
+  end
+  bit tx_direct = 0;          // tx_expect: ready already high when the message appears
   task automatic tx_expect(input logic [3:0] mtype, input int dly, output logic [127:0] data);
-    int n;
+    int n, h0;
     n = 0;
-    @(negedge clk);
-    while (!txm_valid && n < 100) begin @(negedge clk); n++; end
-    chk(txm_valid && txm_type == mtype, $sformatf("TX message type %0d", mtype));
-    data = txm_data;
-    repeat (dly) begin @(negedge clk); chk(txm_valid && txm_data == data, "TX message held"); end
-    txm_ready = 1'b1;
-    @(negedge clk);
-    txm_ready = 1'b0;
+    if (tx_direct) begin
+      h0 = tx_hs;
+      txm_ready = 1'b1;
+      while (tx_hs == h0 && n < 100) begin @(negedge clk); n++; end
+      txm_ready = 1'b0;
+      chk(tx_hs != h0 && tx_cap_t == mtype, $sformatf("TX message type %0d (direct)", mtype));
+      data = tx_cap;
+    end else begin
+      @(negedge clk);
+      while (!txm_valid && n < 100) begin @(negedge clk); n++; end
+      chk(txm_valid && txm_type == mtype, $sformatf("TX message type %0d", mtype));
+      data = txm_data;
+      repeat (dly) begin @(negedge clk); chk(txm_valid && txm_data == data, "TX message held"); end
+      txm_ready = 1'b1;
+      @(negedge clk);
+      txm_ready = 1'b0;
+    end
   endtask
 
   // send an RX message after dly clocks (accepted in the clock it is valid)
@@ -320,7 +337,8 @@ module HDCP_2_3_Content_Protection_tb;
         while (sent < n) begin
           @(negedge clk);
           pix_valid = ($urandom_range(0, 7) != 0);
-          pix_data = $urandom;
+          pix_data = ($urandom_range(0, 15) == 0) ? 32'h0 :
+                     ($urandom_range(0, 15) == 0) ? 32'hFFFF_FFFF : 32'($urandom);
           #1;
           if (pix_valid && pix_ready) begin p.push_back(pix_data); c.push_back(ctr); ctr++; sent++; end
         end
@@ -435,6 +453,13 @@ module HDCP_2_3_Content_Protection_tb;
     auth(0, 0, 0);                                   // a new session re-keys
     chk(!irq, "new session clears the error");
     stream(10, 1);
+
+    // every transmitter message taken in the clock it appears (ready held
+    // high), for a plain receiver and a repeater
+    tx_direct = 1;
+    auth(0, 0, 0);
+    auth(1, 0, 0);
+    tx_direct = 0;
 
     if (errors == 0) $display("TEST PASSED: HDCP_2_3_Content_Protection");
     else             $display("TEST FAILED: %0d errors", errors);

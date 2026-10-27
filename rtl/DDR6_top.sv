@@ -39,7 +39,11 @@ module DDR6_top #(
   logic [15:0] mem [0:(1<<CHW)*256-1];   // NCH ch x 256 col
   // array contents are not cleared by rst_n (a DRAM keeps its data);
   // zero them once for deterministic simulation
+  // sim-only clear; yosys (SYNTHESIS) would unroll it into one assignment per
+  // line, which takes minutes and GBs for no netlist change
+`ifndef SYNTHESIS
   initial for (int i = 0; i <= (1<<CHW)*256-1; i++) mem[i] = '0;
+`endif
   logic [13:0] open_row [0:NB-1];
   logic [NB-1:0] bank_open;
   logic [8:0] rp_t [0:NB-1], ras_t [0:NB-1], rc_t [0:NB-1];

@@ -75,6 +75,15 @@ module SD_sva #(parameter int SD_CLK_DIV = 4) (
   logic v_poll, v_r3bad, v_r2bad, v_r1crc, v_r1idx, v_r1end, v_r1tx, v_stat, v_r6stat, v_r7v, v_r7p,
         v_rto, v_tokbad, v_tokto, v_busyto, v_busy, v_rdto, v_rcrc, v_rend, v_cmp, v_round;
   logic [5:0] v_where;    // which command an error hit
+  // registered copies for the covergroup: R1 outcome per data-phase
+  // command, block address of each CMD24 / CMD17
+  logic       c_r1, c_iv;
+  logic [1:0] c_cc;
+  logic [2:0] c_k, c_ia;
+  function automatic logic [1:0] ccode(input logic [5:0] c);
+    return c == 6'd24 ? 2'd0 : (c == 6'd17 ? 2'd1 : 2'd2);
+  endfunction
+  wire data_cmd = cc == 6'd24 || cc == 6'd17 || cc == 6'd13;
 
   task automatic issue(input logic [5:0] idx, input logic [31:0] arg, input int l);
     ph <= TX; n <= 0; fr <= frame(idx, arg); cc <= idx; len <= l; m_coe <= 1; w <= 0;
@@ -95,7 +104,9 @@ module SD_sva #(parameter int SD_CLK_DIV = 4) (
       {v_poll, v_r3bad, v_r2bad, v_r1crc, v_r1idx, v_r1end, v_r1tx, v_stat, v_r6stat, v_r7v, v_r7p,
        v_rto, v_tokbad, v_tokto, v_busyto, v_busy, v_rdto, v_rcrc, v_rend, v_cmp, v_round} <= '0;
       v_where <= 0;
+      {c_r1, c_iv} <= '0; c_cc <= 0; c_k <= 0; c_ia <= 0;
     end else begin
+      {c_r1, c_iv} <= '0;
       bd <= tk ? 0 : bd + 1;
       if (tk) m_sdclk <= 1; else if (bd == SD_CLK_DIV / 2 - 1) m_sdclk <= 0;
       {v_poll, v_r3bad, v_r2bad, v_r1crc, v_r1idx, v_r1end, v_r1tx, v_stat, v_r6stat, v_r7v, v_r7p,
@@ -114,7 +125,10 @@ module SD_sva #(parameter int SD_CLK_DIV = 4) (
           end
           HUNT:
             if (!cmd) begin ph <= RSP; n <= 1; rs <= 0; end
-            else if (w == 63) begin fail(); v_rto <= 1; v_where <= cc; end
+            else if (w == 63) begin
+              fail(); v_rto <= 1; v_where <= cc;
+              c_r1 <= data_cmd; c_cc <= ccode(cc); c_k <= 6;
+            end
             else w <= w + 1;
           RSP: begin
             rs <= rn; n <= n + 1;
@@ -131,6 +145,8 @@ module SD_sva #(parameter int SD_CLK_DIV = 4) (
                 default: begin
                   v_r1crc <= crc7({80'h0, rn[47:8]}, 40) != rn[7:1]; v_r1idx <= rn[45:40] != cc;
                   v_r1end <= !rn[0]; v_r1tx <= rn[46];
+                  c_r1 <= data_cmd; c_cc <= ccode(cc);
+                  c_k <= rn[46] ? 1 : (!rn[0] ? 2 : (rn[45:40] != cc ? 3 : (crc7({80'h0, rn[47:8]}, 40) != rn[7:1] ? 4 : (r1e ? 5 : 0))));
                   if (!r1f) fail();
                   else if (cc == 6'd8) begin
                     if (!r7c) begin fail(); v_r7v <= rn[19:16] != 4'h1; v_r7p <= rn[15:8] != 8'hAA; end
@@ -155,7 +171,10 @@ module SD_sva #(parameter int SD_CLK_DIV = 4) (
               endcase
             end
           end
-          IDLE: begin w <= w + 1; if (w == 7) issue(6'd24, barg, 48); end
+          IDLE: begin
+            w <= w + 1;
+            if (w == 7) begin issue(6'd24, barg, 48); c_iv <= 1; c_ia <= {1'b0, m_round[1:0]}; end
+          end
           WST: begin m_do <= 4'h0; ph <= WDAT; end
           WDAT: begin
             m_do <= db[255 - 4 * n -: 4];
@@ -185,7 +204,10 @@ module SD_sva #(parameter int SD_CLK_DIV = 4) (
             if (dat[0]) begin ph <= BGAP; w <= 0; v_busy <= w > 0; end
             else if (w == 63) begin fail(); v_busyto <= 1; end
             else w <= w + 1;
-          BGAP: begin w <= w + 1; if (w == 5) issue(6'd17, barg, 48); end
+          BGAP: begin
+            w <= w + 1;
+            if (w == 5) begin issue(6'd17, barg, 48); c_iv <= 1; c_ia <= {1'b1, m_round[1:0]}; end
+          end
           RHUNT:
             if (dat == 4'h0) begin ph <= RDAT; n <= 0; end
             else if (w == 63) begin fail(); v_rdto <= 1; end
@@ -217,6 +239,19 @@ module SD_sva #(parameter int SD_CLK_DIV = 4) (
   `SVA_INV(a_irq, irq == m_irq)
   `SVA_INV(a_card_identity, cid == m_cid && rca == m_rca && ccs == m_ccs)
   `SVA_INV(a_round_and_matches, round == m_round && match_cnt == m_match)
+
+  // R1 outcome (OK, transmission bit, end bit, index, CRC7, card status,
+  // no response) x data-phase command (CMD24, CMD17, CMD13); block
+  // address of every CMD24 and CMD17
+  covergroup cg_sd @(negedge clk);
+    option.per_instance = 1;
+    cp_cmd: coverpoint c_cc iff (rst_n && c_r1) { bins cmd24 = {0}; bins cmd17 = {1}; bins cmd13 = {2}; }
+    cp_r1: coverpoint c_k iff (rst_n && c_r1)
+      { bins ok = {0}; bins tx_bit = {1}; bins end_bit = {2}; bins index = {3}; bins crc7 = {4}; bins status = {5}; bins none = {6}; }
+    x_r1: cross cp_cmd, cp_r1;
+    cp_blk: coverpoint c_ia iff (rst_n && c_iv) { bins wr[] = {[0:3]}; bins rd[] = {[4:7]}; }
+  endgroup
+  cg_sd u_cg_sd = new;
 
   `FC(acmd41_busy_poll, v_poll)
   `FC(r3_malformed, v_r3bad)

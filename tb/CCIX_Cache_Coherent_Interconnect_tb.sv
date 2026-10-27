@@ -55,6 +55,7 @@ module CCIX_Cache_Coherent_Interconnect_tb;
   bit          eb_h [$];                         // ... header word
   int          p_tx = 70, p_rx = 70;
   int          n_wmsg = 0;
+  longint      f_dp = -1;                        // forced body word (directed)
   task automatic w_msg(input int ty, input int ln, input bit bad);
     logic [31:0] h;
     h = {4'(ty), 4'(ln), 8'($urandom), 16'($urandom)};
@@ -62,7 +63,7 @@ module CCIX_Cache_Coherent_Interconnect_tb;
     if (!bad) begin
       eb.push_back(h); eb_h.push_back(1);
       for (int i = 1; i < ln; i++) begin
-        h = $urandom;
+        h = f_dp >= 0 ? 32'(f_dp) : $urandom;
         wq.push_back(h); eb.push_back(h); eb_h.push_back(0);
       end
       n_wmsg++;
@@ -201,7 +202,7 @@ module CCIX_Cache_Coherent_Interconnect_tb;
     if (nocrd) x_nocrd++;
     if (ty != 0 && !nocrd) begin ec.push_back(h); ec_s.push_back(1); ec_r.push_back(ty == 3); ec_l.push_back(ln == 1); end
     for (int i = 1; i < ln; i++) begin
-      h = $urandom;
+      h = f_dp >= 0 ? 32'(f_dp) : $urandom;
       bp.push_back(h);
       if (ty != 0 && !nocrd) begin ec.push_back(h); ec_s.push_back(0); ec_r.push_back(ty == 3); ec_l.push_back(i == ln - 1); end
     end
@@ -471,6 +472,13 @@ module CCIX_Cache_Coherent_Interconnect_tb;
     b_oq = BQ; b_os = BS;
     bg_w = 100; bg_b = 50;
     drain("after reset");
+    // body words of each data pattern both ways
+    for (int k = 0; k < 4; k++) begin
+      f_dp = k == 0 ? 32'h0000_0000 : k == 1 ? 32'hFFFF_FFFF : k == 2 ? 32'h5555_5555 : 32'hAAAA_AAAA;
+      bg_w = 10; bg_b = 5;
+      drain("data patterns");
+    end
+    f_dp = -1;
     // ---- credit counts past 31: the excess is refused
     while (b_oq != 0 || b_os != 0 || b_dq.size() != 0) @(negedge clk);
     wait_clk(40);

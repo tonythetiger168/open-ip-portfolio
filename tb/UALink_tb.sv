@@ -313,6 +313,10 @@ module UALink_tb;
     wait_clk(1000);
     req_on = 0;
     drain("after reset");
+    // alternating data patterns
+    fixed(1, 0, 7, {32{2'b01}}, 1); fixed(1, 8, 7, {32{2'b10}}, 1);
+    fixed(0, 0, 7, 0, 1); fixed(0, 8, 7, 0, 1);
+    drain("patterns");
     if (errors == 0) $display("TEST PASSED: UALink (%0d requests, %0d read beats, %0d write responses)", n_req, n_rd, n_wr);
     else $display("TEST FAILED: UALink (%0d errors)", errors);
     $finish;

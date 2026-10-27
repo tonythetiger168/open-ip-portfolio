@@ -12,6 +12,14 @@ P="${1:?usage: run_cov.sh <PROTOCOL>}"
 TB="${P}_tb"
 BUILD="${BUILD_DIR:-work/cov/$P}"
 SEED="${SEED:-1}"
+# Older Verilators parse covergroups but drop them (COVERIGN, silenced below),
+# which would score functional coverage on the fc_* covers alone.
+VV=$(verilator --version 2>/dev/null | awk '{print $2}')
+[ -n "$VV" ] || { echo "NO_VERILATOR: install Verilator 5.052 (see README, Setup)"; exit 2; }
+if [ "$(printf '%s\n5.052\n' "$VV" | sort -V | head -1)" != "5.052" ]; then
+  echo "OLD_VERILATOR $VV: this flow needs Verilator >= 5.052 (see README, Setup)"; exit 2
+fi
+python3 -c "import pyslang" 2>/dev/null || { echo "NO_PYSLANG: pip install pyslang==12.0.0 (see README, Setup)"; exit 2; }
 mkdir -p "$BUILD"
 case "$P" in
   *_apb) BASE="${P%_apb}" ;;
