@@ -2,7 +2,7 @@
 // ============================================================================
 // Self-checking testbench for ACE_top -- AXI4 master model + snoop (AC/CR/CD)
 // interconnect model. Checks: reset state, burst write/read compare,
-// snoop dirty-hit data return, snoop miss, MakeUnique invalidation,
+// snoop dirty-hit data return, snoop miss, MakeInvalid invalidation,
 // SLVERR error injection + irq, back-to-back transactions.
 // IP design implementation v1.0 -- Apache-2.0
 // ============================================================================
@@ -12,10 +12,10 @@ module ACE_tb;
 
   localparam logic [1:0] AXI_OKAY   = 2'b00;
   localparam logic [1:0] AXI_SLVERR = 2'b10;
-  localparam logic [3:0] SNP_READSHARED = 4'b0000;
-  localparam logic [3:0] SNP_READCLEAN  = 4'b0001;
-  localparam logic [3:0] SNP_MAKEUNIQUE = 4'b0111;
-  localparam logic [3:0] SNP_CLEANINVALID = 4'b1000;  // RTL encoding
+  localparam logic [3:0] SNP_READSHARED = 4'b0001;
+  localparam logic [3:0] SNP_READCLEAN  = 4'b0010;
+  localparam logic [3:0] SNP_MAKEINVALID = 4'b1101;
+  localparam logic [3:0] SNP_CLEANINVALID = 4'b1001;
 
   logic clk = 0, rst_n = 0;
   // AW
@@ -316,7 +316,7 @@ module ACE_tb;
           exp_cd   = 1'b1;
           exp_data = m_data[addr[7:2]];
         end
-        default: ;   // MakeUnique / unsupported: plain miss response
+        default: ;   // MakeInvalid / unsupported: plain miss response
       endcase
       // AC
       @(negedge clk);
@@ -350,7 +350,7 @@ module ACE_tb;
       case (stype)
         SNP_READSHARED, SNP_READCLEAN:
           if (hit) m_dirty[addr[7:2]] = 1'b0;
-        SNP_MAKEUNIQUE: begin   // invalidate unconditionally
+        SNP_MAKEINVALID: begin   // invalidate unconditionally
           m_valid[addr[7:2]] = 1'b0;
           m_dirty[addr[7:2]] = 1'b0;
         end
@@ -514,18 +514,18 @@ module ACE_tb;
       $display("ERROR: ACE snoop miss crresp=%b exp=00000", sresp);
     end
 
-    // ---------------- 5. MakeUnique invalidation ----------------
+    // ---------------- 5. MakeInvalid invalidation ----------------
     axi_write(32'h0000_0400, 8'd0, 32'hCAFE_F00D, 2'b01, AXI_OKAY);
-    do_snoop(32'h0000_0400, SNP_MAKEUNIQUE, sresp, sdat_q);
+    do_snoop(32'h0000_0400, SNP_MAKEINVALID, sresp, sdat_q);
     if (sresp !== 5'b00000) begin
       errors++;
-      $display("ERROR: ACE MakeUnique crresp=%b exp=00000 (no data)", sresp);
+      $display("ERROR: ACE MakeInvalid crresp=%b exp=00000 (no data)", sresp);
     end
     // line must be invalidated: re-snoop misses now
     do_snoop(32'h0000_0400, SNP_READSHARED, sresp, sdat_q);
     if (sresp !== 5'b00000) begin
       errors++;
-      $display("ERROR: ACE post-MakeUnique snoop crresp=%b exp=00000", sresp);
+      $display("ERROR: ACE post-MakeInvalid snoop crresp=%b exp=00000", sresp);
     end
     // and AXI read of invalidated line reads as miss (zero)
     axi_read(32'h0000_0400, 8'd0, 32'h0, AXI_OKAY, 1);
@@ -634,7 +634,7 @@ module ACE_tb;
     // size (mostly 2, sometimes >2 -> SLVERR), address class (in-range
     // tag0 / in-range nonzero-tag / boundary / out-of-range high bits /
     // misaligned), per-beat data + strobes, ACE side fields, snoop type
-    // (ReadShared/ReadClean/MakeUnique/CleanInvalid/unsupported) and
+    // (ReadShared/ReadClean/MakeInvalid/CleanInvalid/unsupported) and
     // backpressure stalls.
     begin : crv_phase
       int n_wr = 0, n_rd = 0, n_snp = 0;
@@ -689,9 +689,9 @@ module ACE_tb;
           case (roll)
             0, 1:    c_snp = SNP_READSHARED;
             2, 3:    c_snp = SNP_READCLEAN;
-            4, 5:    c_snp = SNP_MAKEUNIQUE;
+            4, 5:    c_snp = SNP_MAKEINVALID;
             6, 7:    c_snp = SNP_CLEANINVALID;
-            default: c_snp = 4'($urandom_range(2, 6));  // unsupported
+            default: c_snp = 4'($urandom_range(3, 7));  // unsupported (ReadNotSharedDirty .. ReadUnique)
           endcase
           // snoop addresses favor recently-written lines for hits
           if ($urandom_range(0, 1))
@@ -717,6 +717,17 @@ module ACE_tb;
         $display("ERROR: ACE CleanInvalid dirty hit resp=%b data=%h",
                  sresp, sdat_q);
       end
+      // snoops of every type to the now-empty line (no data, CRRESP 0),
+      // and a read hit on a clean line (written, then cleaned by ReadShared)
+      do_snoop(32'h020, SNP_READCLEAN, sresp, sdat_q);
+      if (sresp !== 5'b00000) begin errors++; $display("ERROR: ACE ReadClean on empty line resp=%b", sresp); end
+      do_snoop(32'h020, SNP_MAKEINVALID, sresp, sdat_q);
+      if (sresp !== 5'b00000) begin errors++; $display("ERROR: ACE MakeInvalid on empty line resp=%b", sresp); end
+      do_snoop(32'h020, SNP_CLEANINVALID, sresp, sdat_q);
+      if (sresp !== 5'b00000) begin errors++; $display("ERROR: ACE CleanInvalid on empty line resp=%b", sresp); end
+      axi_write(32'h024, 8'd0, 32'hAAAA_AAAA, 2'b01, AXI_OKAY);
+      do_snoop(32'h024, SNP_READSHARED, sresp, sdat_q);
+      axi_read (32'h024, 8'd0, 32'hAAAA_AAAA, AXI_OKAY, 0);
       $display("CRV: 64 init + 140 txns (wr=%0d rd=%0d snp=%0d)",
                n_wr, n_rd, n_snp);
     end

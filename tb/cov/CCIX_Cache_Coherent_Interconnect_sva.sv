@@ -71,6 +71,10 @@ module CCIX_Cache_Coherent_Interconnect_sva #(
   bit v_cut_fit, v_cut_crd, v_cut_idle, v_wait_crd, v_misc_tx, v_misc_rx, v_bad_hdr_idle, v_bad_hdr_gath;
   bit v_rx_bad [0:15], v_nocrd_req, v_nocrd_snp, v_ovf, v_crd_ovf, v_partial, v_tx_stall, v_rx_deep, v_pop_cmt;
   bit v_piggy, v_rx_gap;
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  bit c_tv, c_bv, c_rv, c_rbv, c_sv;
+  int c_tty, c_tln, c_rty, c_rln, c_sn;
+  logic [31:0] c_bw, c_rbw;
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -87,6 +91,7 @@ module CCIX_Cache_Coherent_Interconnect_sva #(
       txr = e_txr; misc = d_misc;
       o_err = 0; o_nocrd = 0; o_ovf = 0;
       bad = 0; done = 0;
+      {c_tv, c_bv, c_rv, c_rbv, c_sv} = '0;
       // ---- receive
       w = tlp_rx_data;
       if (tlp_rx_valid) begin
@@ -138,6 +143,7 @@ module CCIX_Cache_Coherent_Interconnect_sva #(
                 o_nocrd = 1;
                 if (ty == 1) v_nocrd_req = 1; else v_nocrd_snp = 1;
               end
+              if (!skip && ty != 0) begin c_rv = 1; c_rty = ty; c_rln = ln; end
               if (r_keep) tq.push_back({ln == 1 ? 2'(ty) : 2'd0, w});
               r_rem--; r_cnt = ln - 1;
               if (ln == 1) done = 1;
@@ -147,7 +153,10 @@ module CCIX_Cache_Coherent_Interconnect_sva #(
           R_BODY, R_SKIP:
             if (tlp_rx_last != (r_rem == 1)) begin bad = 1; v_rx_bad[14] = 1; end
             else begin
-              if (r_ph == R_BODY) tq.push_back({r_cnt == 1 ? 2'(r_cl) : 2'd0, w});
+              if (r_ph == R_BODY) begin
+                tq.push_back({r_cnt == 1 ? 2'(r_cl) : 2'd0, w});
+                c_rbv = 1; c_rbw = w;
+              end
               r_rem--; r_cnt--;
               if (r_cnt == 0) done = 1;
             end
@@ -193,6 +202,7 @@ module CCIX_Cache_Coherent_Interconnect_sva #(
         T_BODY:
           if (tx_valid) begin
             t_pl[t_n] = tx_data; t_n++; t_left--;
+            c_bv = 1; c_bw = tx_data;
             if (t_left == 0) t_ph = T_GATH;
           end
         T_GATH:
@@ -202,6 +212,7 @@ module CCIX_Cache_Coherent_Interconnect_sva #(
             else if (!d_fit) v_cut_fit = 1;
             else v_cut_crd = 1;
             if (t_n == MAXP) v_full = 1;
+            c_sv = 1; c_sn = t_n;
             t_i = 0; t_ph = T_SEND;
           end
         default:
@@ -227,6 +238,7 @@ module CCIX_Cache_Coherent_Interconnect_sva #(
       if (d_ty == 4'd1) cq--;
       if (d_ty == 4'd2) cs--;
       v_tx_ty[d_ty] = 1;
+      c_tv = 1; c_tty = d_ty; c_tln = d_ln;
       if (d_ln == 4'd1) v_tx_l1 = 1;
       if (d_ln == 4'd8) v_tx_l8 = 1;
       if (t_ph == T_GATH && t_n >= 2) v_multi = 1;
@@ -244,6 +256,26 @@ module CCIX_Cache_Coherent_Interconnect_sva #(
   `SVA_RST(a_reset, !rst_n, !tlp_tx_valid && !rx_valid && tx_crd_req == 0 && tx_crd_snp == 0 && !ev_err && !ev_nocrd && !ev_ovf)
 
   // ---------------- functional coverage ----------------
+  function automatic int dcls(input logic [31:0] v);
+    return v == 32'd0 ? 0 : v == '1 ? 1 : (v == 32'h5555_5555 || v == 32'hAAAA_AAAA) ? 2 : 3;
+  endfunction
+  covergroup cg_ccix @(negedge clk);
+    option.per_instance = 1;
+    cp_tty: coverpoint c_tty iff (rst_n && c_tv) { bins req = {1}; bins snp = {2}; bins rsp = {3}; }
+    cp_tln: coverpoint c_tln iff (rst_n && c_tv) { bins l[] = {[1:8]}; }
+    x_tx: cross cp_tty, cp_tln;
+    cp_tword: coverpoint dcls(c_bw) iff (rst_n && c_bv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_tlp: coverpoint c_sn iff (rst_n && c_sv)
+      { bins one = {1}; bins some = {[2:MAXP-1]}; bins full = {MAXP}; }
+    cp_rty: coverpoint c_rty iff (rst_n && c_rv) { bins req = {1}; bins snp = {2}; bins rsp = {3}; }
+    cp_rln: coverpoint c_rln iff (rst_n && c_rv) { bins l[] = {[1:8]}; }
+    x_rx: cross cp_rty, cp_rln;
+    cp_rword: coverpoint dcls(c_rbw) iff (rst_n && c_rbv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_ccix u_cg_ccix = new;
+
   `FC(tx_request, v_tx_ty[1])
   `FC(tx_snoop, v_tx_ty[2])
   `FC(tx_response, v_tx_ty[3])

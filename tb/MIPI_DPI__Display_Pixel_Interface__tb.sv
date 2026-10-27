@@ -470,6 +470,26 @@ module MIPI_DPI__Display_Pixel_Interface__tb;
           frame_cnt == 0 && irq == 1'b0, "reset while active");
     @(negedge clk) rst_n = 1'b1;
 
+    // constant black / white pixels in both colour modes, enable with
+    // shutdown in 18-bit mode, live hcnt / vcnt readback (all checked
+    // cycle by cycle by the checker's video and readback models)
+    begin : pixel_classes
+      set_cfg(2, 2, 2, 4, 1, 1, 1, 2);
+      for (int m = 0; m < 2; m++) begin
+        reg_write(4'd8, m ? 16'h5 : 16'h1);
+        pixel = 24'h000000; repeat (2 * HTOT * VTOT) @(negedge clk);
+        pixel = 24'hFFFFFF; repeat (2 * HTOT * VTOT) @(negedge clk);
+        check(m ? (rgb === 24'h0 || rgb === 24'hFCFCFC) : (rgb === 24'h0 || rgb === 24'hFFFFFF),
+              "constant pixel through the colour mask");
+      end
+      reg_addr = 4'd10; @(negedge clk); reg_addr = 4'd11; @(negedge clk);
+      reg_write(4'd8, 16'h7);
+      repeat (10) @(negedge clk);
+      check(!hsync && !vsync && !de && rgb === 24'h0, "shutdown in 18-bit mode blanks");
+      reg_write(4'd8, 16'h0);
+      pixel = 24'h0;
+    end
+
     if (errors == 0) $display("TEST PASSED: MIPI_DPI__Display_Pixel_Interface_");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR

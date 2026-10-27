@@ -304,6 +304,32 @@ module LIN_sva (
     cp_sub_len: coverpoint dec_len iff (rst_n && dec_q && !dec_pub);
   endgroup
   cg_lin u_cg_lin = new;
+  function automatic int dcls(input logic [63:0] v, input int nb);
+    logic [63:0] m;
+    m = '0;
+    for (int i = 0; i < 8; i++) if (i < nb) m[8*i +: 8] = 8'hFF;
+    v = v & m;
+    dcls = v == 0 ? 0 : v == m ? 1 : (v == ({16{4'h5}} & m) || v == ({16{4'hA}} & m)) ? 2 : 3;
+  endfunction
+  // response direction x checksum model, data classes both ways
+  int c_td, c_rd;
+  always @(posedge clk) begin
+    c_td = rst_n && rsp_ready && rsp_valid && rsp_pub ? dcls(rsp_data, int'(rsp_len) + 1) : -1;
+    c_rd = rst_n && rx_valid ? dcls(rx_data, int'(rx_len) + 1) : -1;
+  end
+  covergroup cg_lin_x @(posedge clk);
+    option.per_instance = 1;
+    cp_pub: coverpoint rsp_pub iff (rst_n && rsp_ready && rsp_valid) { bins subscribe = {0}; bins publish = {1}; }
+    cp_enh: coverpoint rsp_enh iff (rst_n && rsp_ready && rsp_valid) { bins classic = {0}; bins enhanced = {1}; }
+    x_rsp: cross cp_pub, cp_enh;
+  endgroup
+  cg_lin_x u_cg_lin_x = new;
+  covergroup cg_lin_d @(negedge clk);
+    option.per_instance = 1;
+    cp_tdata: coverpoint c_td iff (c_td >= 0) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint c_rd iff (c_rd >= 0) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_lin_d u_cg_lin_d = new;
 
   `FC(header_sent, hdr_valid && hdr_ready)
   `FC(response_sent, tx_done)

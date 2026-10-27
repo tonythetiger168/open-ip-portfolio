@@ -29,6 +29,7 @@ module Interlaken_v1_2_tb;
   // ---------------- ends: index 0 = A, 1 = B ----------------
   logic [1:0]       tx_valid = 0, tx_sop = 0, tx_eop = 0;
   logic [1:0][63:0] tx_data = 0;
+  int               f_dp = -1;                 // forced data byte (directed)
   logic [1:0][2:0]  tx_bytes = 0;
   logic [1:0][7:0]  tx_chan = 0;
   logic [1:0][15:0] tx_fc = 0;
@@ -108,7 +109,7 @@ module Interlaken_v1_2_tb;
           end
           left[p]--;
           tx_eop[p] = left[p] == 0;
-          tx_data[p] = {$urandom, $urandom};
+          tx_data[p] = f_dp >= 0 ? {8{8'(f_dp)}} : {$urandom, $urandom};
           tx_valid[p] = 1;
         end
         if (!fc_hold && $urandom % 500 == 0) tx_fc[p] = $urandom;
@@ -330,6 +331,13 @@ module Interlaken_v1_2_tb;
     len_max = 12; gap_pct = 10;
     wait_clk(3 * MCLK);
     if (nrx[1] < 100) fail("too few clean words through");
+    // each data pattern both ways
+    for (int k = 0; k < 4; k++) begin
+      f_dp = k == 0 ? 8'h00 : k == 1 ? 8'hFF : k == 2 ? 8'h55 : 8'hAA;
+      wait_clk(2 * MCLK);
+    end
+    f_dp = -1;
+    wait_clk(MCLK);
 
     // ---- reset while locked
     do_reset();

@@ -156,6 +156,21 @@ module HSI_sva (
   `SVA_IMP(a_one_line, $changed(tx_data), $stable(tx_flag))
   `SVA_RST(a_rst_lines, 1'b1, !tx_data && !tx_flag && txq_ready && !tx_busy && !rxq_valid)
 
+  function automatic int dcls(input logic [31:0] v);
+    return v == 32'd0 ? 0 : v == '1 ? 1 : (v == 32'h5555_5555 || v == 32'hAAAA_AAAA) ? 2 : 3;
+  endfunction
+  // frames taken and handed out: channel (4 channel bits) and data class
+  covergroup cg_hsi @(negedge clk);
+    option.per_instance = 1;
+    cp_tch: coverpoint txq_ch iff (rst_n && txq_valid && txq_ready && cfg_chbits == 4) { bins c[] = {[0:15]}; }
+    cp_tdata: coverpoint dcls(txq_data) iff (rst_n && txq_valid && txq_ready)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rch: coverpoint rxq_ch iff (rst_n && rxq_valid && rxq_ready && cfg_chbits == 4) { bins c[] = {[0:15]}; }
+    cp_rdata: coverpoint dcls(rxq_data) iff (rst_n && rxq_valid && rxq_ready)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_hsi u_cg_hsi = new;
+
   // ---------------- functional coverage ----------------
   `FC(sent_chbits_0, v_sent[0])
   `FC(sent_chbits_1, v_sent[1])

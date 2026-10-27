@@ -368,6 +368,10 @@ module UFS_tb;
       end else illegal(8'h2A, 24'(256 - n + $urandom_range(1, 8)), 8'(n), 8'h00, n, "random out of range");
     end
 
+    // ---- data classes 0x5555.. / 0xAAAA.., task tag FF ----
+    for (int j = 0; j < 4; j++) wdata[j] = j[0] ? 32'hAAAA_AAAA : 32'h5555_5555;
+    write10(60, 2, 8'hFF); read10(60, 1, 8'hFF); read10(61, 1, 8'h3C);
+
     // ---- reset while the DATA UPIU is on the wire, then retrain ----
     cmd_raw(8'h28, 24'd0, 8'd8, 8'h44, 8'h00, 0, 0);
     wait_sof();

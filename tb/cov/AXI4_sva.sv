@@ -145,6 +145,48 @@ module AXI4_sva #(parameter int DW = 32, AW = 32) (
   endgroup
   cg_aw u_cg_aw = new; cg_ar u_cg_ar = new; cg_w u_cg_w = new; cg_resp u_cg_resp = new;
 
+  // legal bursts: size x burst type and (reads) type x length; the cause
+  // of each error response per direction; byte lanes and data classes
+  function automatic logic [2:0] cause(input logic [3:0] id, input logic [2:0] sz,
+      input logic [1:0] bu, input logic [7:0] len, input logic [AW-1:0] a);
+    cause = (id != 0) ? 3'd1 : (sz > 3'd2) ? 3'd2 : (bu == 2'b11) ? 3'd3 : (len > 8'd15) ? 3'd4 :
+            (!in_rng(a)) ? 3'd5 : (bu == 2'b10) ? 3'd6 : 3'd0;
+  endfunction
+  function automatic logic [1:0] dcls(input logic [DW-1:0] v);
+    dcls = (v == '0) ? 2'd0 : (v == '1) ? 2'd1 :
+           (v == {(DW/2){2'b01}} || v == {(DW/2){2'b10}}) ? 2'd2 : 2'd3;
+  endfunction
+  covergroup cg_legal @(posedge clk);
+    option.per_instance = 1;
+    cp_awsize: coverpoint awsize iff (rst_n && aw_hs && addr_resp(awid, awsize, awburst, awlen, awaddr) == OKAY)
+      { bins b1 = {0}; bins b2 = {1}; bins b4 = {2}; }
+    cp_awburst: coverpoint awburst iff (rst_n && aw_hs && addr_resp(awid, awsize, awburst, awlen, awaddr) == OKAY)
+      { bins fixed = {0}; bins incr = {1}; }
+    x_aw_size_burst: cross cp_awsize, cp_awburst;
+    cp_arsize: coverpoint arsize iff (rst_n && ar_hs && addr_resp(arid, arsize, arburst, arlen, araddr) == OKAY)
+      { bins b1 = {0}; bins b2 = {1}; bins b4 = {2}; }
+    cp_arburst: coverpoint arburst iff (rst_n && ar_hs && addr_resp(arid, arsize, arburst, arlen, araddr) == OKAY)
+      { bins fixed = {0}; bins incr = {1}; }
+    cp_arlen: coverpoint arlen iff (rst_n && ar_hs && addr_resp(arid, arsize, arburst, arlen, araddr) == OKAY)
+      { bins one = {0}; bins mid = {[1:14]}; bins max16 = {15}; }
+    x_ar_size_burst: cross cp_arsize, cp_arburst;
+    x_ar_burst_len: cross cp_arburst, cp_arlen;
+    cp_awcause: coverpoint cause(awid, awsize, awburst, awlen, awaddr) iff (rst_n && aw_hs)
+      { bins ok = {0}; bins bad_id = {1}; bins bad_size = {2}; bins rsvd_burst = {3}; bins too_long = {4};
+        bins out_of_range = {5}; bins wrap = {6}; }
+    cp_arcause: coverpoint cause(arid, arsize, arburst, arlen, araddr) iff (rst_n && ar_hs)
+      { bins ok = {0}; bins bad_id = {1}; bins bad_size = {2}; bins rsvd_burst = {3}; bins too_long = {4};
+        bins out_of_range = {5}; bins wrap = {6}; }
+    cp_lane: coverpoint wstrb iff (rst_n && w_hs && m_bresp == OKAY && in_rng(m_wa))
+      { bins b0 = {4'b0001}; bins b1 = {4'b0010}; bins b2 = {4'b0100}; bins b3 = {4'b1000};
+        bins lo_half = {4'b0011}; bins hi_half = {4'b1100}; }
+    cp_wdata: coverpoint dcls(wdata) iff (rst_n && w_hs && m_bresp == OKAY && in_rng(m_wa) && wstrb == 4'hF)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint dcls(rdata) iff (rst_n && r_hs && rresp == OKAY)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_legal u_cg_legal = new;
+
   `FC(b_backpressure, bvalid && !bready)
   `FC(r_backpressure, rvalid && !rready)
   `FC(w_bubble, m_wbusy && !bvalid && !wvalid)

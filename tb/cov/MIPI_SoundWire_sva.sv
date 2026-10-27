@@ -242,6 +242,30 @@ module MIPI_SoundWire_sva (
   `SVA_RST(a_reset, 1'b1, !sw_dat_oe && !locked && !rsp_valid && !tx_ready && !rx_valid && cmd_ready)
 
   // ---------------- functional coverage ----------------
+  function automatic int dcls(input logic [31:0] v, input bit w32);
+    logic [31:0] m;
+    m = w32 ? '1 : 32'h0000_00FF;
+    v &= m;
+    return v == 0 ? 0 : v == m ? 1 : (v == (32'h5555_5555 & m) || v == (32'hAAAA_AAAA & m)) ? 2 : 3;
+  endfunction
+  // commands and responses (manager), command / read data, port samples
+  covergroup cg_sdw @(negedge clk);
+    option.per_instance = 1;
+    cp_op: coverpoint cmd_op iff (rst_n && cfg_manager && cmd_valid && cmd_ready)
+      { bins ping = {0}; bins reserved = {1}; bins read = {2}; bins write = {3}; }
+    cp_rsp: coverpoint {rsp_ack, rsp_nak} iff (rst_n && cfg_manager && rsp_valid)
+      { bins none = {2'b00}; bins ack = {2'b10}; bins nak = {2'b01}; }
+    cp_wdata: coverpoint dcls({24'd0, cmd_wdata}, 0) iff (rst_n && cfg_manager && cmd_valid && cmd_ready && cmd_op == 3)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint dcls({24'd0, rsp_rdata}, 0) iff (rst_n && cfg_manager && rsp_valid && rsp_ack && q_op == 2)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_tx: coverpoint dcls(tx_data, 1) iff (rst_n && tx_valid && tx_ready)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rx: coverpoint dcls(rx_data, 1) iff (rst_n && rx_valid)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_sdw u_cg_sdw = new;
+
   `FC(peripheral_lock, !cfg_manager && $rose(locked))
   `FC(check_fails, v_check_fail)
   `FC(one_miss_survived, v_miss_ok)

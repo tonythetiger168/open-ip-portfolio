@@ -2,6 +2,17 @@
 
 Protocol IP `ARM_Serial_Wire_Debug`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `ARM_Serial_Wire_Debug_top` (`rtl/ARM_Serial_Wire_Debug_top.sv`) |
+| Register interface | APB4 slave `ARM_Serial_Wire_Debug_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x53570200 (code 0x5357, version 2.0) |
+| Registers | 11 words, 0x000 to 0x028 |
+| Interrupts | 7 sources into one level-high `irq` |
+| Data streams | APREQ (from the core), APRESP (to the core) |
+| Protocol pins | 4 pass-through |
+
 ## Overview
 
 ARM_Serial_Wire_Debug_top v2.0: Serial Wire Debug port (SW-DP, ADIv5 DPv1 register set, SWD only) with a request port towards the access ports
@@ -65,12 +76,38 @@ Software acts as the access ports: on APREQ_AVAIL read APREQ0/APREQ1, perform th
 | `tb/cov/ARM_Serial_Wire_Debug_sva.sv`, `tb/cov/ARM_Serial_Wire_Debug_apb_sva.sv` | coverage checkers (core, wrapper) |
 | `scripts/apb/specs/ARM_Serial_Wire_Debug.json` | register spec the wrapper, TB, checker and this page are generated from |
 
-```
-make -f Makefile.ARM_Serial_Wire_Debug sim syn            # core test + synthesis (Icarus, Yosys)
-make -f Makefile.ARM_Serial_Wire_Debug apb                # wrapper test + synthesis
-bash scripts/cov/run_cov.sh ARM_Serial_Wire_Debug          # core coverage (Verilator)
-bash scripts/cov/run_cov.sh ARM_Serial_Wire_Debug_apb      # wrapper coverage
-```
+How to run the tests and the coverage flow: see [Running and verifying](#running-and-verifying).
+
+## Parameters
+
+`ARM_Serial_Wire_Debug_apb` has the core's parameters and passes them to `ARM_Serial_Wire_Debug_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `DPIDR` | logic [31:0] | `32'h0010_1001` |
+
+## Wrapper pins
+
+Pins of `ARM_Serial_Wire_Debug_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `swclk` | input | 1 | protocol pin, core port `swclk` |
+| `swdio_in` | input | 1 | protocol pin, core port `swdio_in` |
+| `swdio_out` | output | 1 | protocol pin, core port `swdio_out` |
+| `swdio_oe` | output | 1 | protocol pin, core port `swdio_oe` |
 
 ## Core ports
 
@@ -122,27 +159,33 @@ Pass-through pins: `swclk`, `swdio_in`, `swdio_out`, `swdio_oe`.
 | 0x01C | APREQ1 | RO (pop) | 0x00000000 | AP access requested by the debugger; reading APREQ1 frees it. Answer every request through APRESP |
 | 0x020 | APRESP0 | RW | 0x00000000 | Completes the AP access in progress; writing APRESP1 commits it (ignored when no access is in progress) |
 | 0x024 | APRESP1 | RW | 0x00000000 | Completes the AP access in progress; writing APRESP1 commits it (ignored when no access is in progress) |
-| 0x028 | STATUS | RO | 0x00000000 | Port state |
+| 0x028 | STATUS | RO | core | Port state |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x02C up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x5357 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| PWR | 0 | `cdbgpwrupack` | debug power-up acknowledge (CTRL/STAT.CDBGPWRUPACK) |
-| PWR | 1 | `csyspwrupack` | system power-up acknowledge (CTRL/STAT.CSYSPWRUPACK) |
-| APREQ0 | 31:0 | `ap_wdata` | write data |
-| APREQ1 | 0 | `ap_write` | 1 = write, 0 = read |
-| APREQ1 | 8:1 | `ap_sel` | SELECT.APSEL |
-| APREQ1 | 14:9 | `ap_addr` | AP register word address {SELECT.APBANKSEL, A[3:2]} |
-| APRESP0 | 31:0 | `ap_rdata` | read data (reads only) |
-| APRESP1 | 0 | `ap_err` | 1 = the access failed (sets CTRL/STAT.STICKYERR) |
-| STATUS | 0 | `ap_busy` | an AP access is in progress (the debugger gets WAIT) |
-| STATUS | 1 | `lockout` | waiting for a line reset |
-| STATUS | 2 | `cdbgpwrupreq` | debug power-up requested |
-| STATUS | 3 | `csyspwrupreq` | system power-up requested |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x5357 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 6:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 6:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| FLAGS | 0 | one bit per stream flag | RO | 0x0 | see FLAGS |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| PWR | 0 | `cdbgpwrupack` | RW | 0x0 | debug power-up acknowledge (CTRL/STAT.CDBGPWRUPACK) |
+| PWR | 1 | `csyspwrupack` | RW | 0x0 | system power-up acknowledge (CTRL/STAT.CSYSPWRUPACK) |
+| APREQ0 | 31:0 | `ap_wdata` | RO (pop) | 0x0 | write data |
+| APREQ1 | 0 | `ap_write` | RO (pop) | 0x0 | 1 = write, 0 = read |
+| APREQ1 | 8:1 | `ap_sel` | RO (pop) | 0x0 | SELECT.APSEL |
+| APREQ1 | 14:9 | `ap_addr` | RO (pop) | 0x0 | AP register word address {SELECT.APBANKSEL, A[3:2]} |
+| APRESP0 | 31:0 | `ap_rdata` | RW | 0x0 | read data (reads only) |
+| APRESP1 | 0 | `ap_err` | RW | 0x0 | 1 = the access failed (sets CTRL/STAT.STICKYERR) |
+| STATUS | 0 | `ap_busy` | RO | core | an AP access is in progress (the debugger gets WAIT) |
+| STATUS | 1 | `lockout` | RO | core | waiting for a line reset |
+| STATUS | 2 | `cdbgpwrupreq` | RO | core | debug power-up requested |
+| STATUS | 3 | `csyspwrupreq` | RO | core | system power-up requested |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -169,11 +212,58 @@ A bit is set while its source is active, stays set until written with 1, and a s
 * **APREQ** captures `ap_wdata`, `ap_write`, `ap_sel`, `ap_addr` when `ap_req` is high and the register is empty (or is being read in the same clock), and sets FLAGS/IRQ APREQ_AVAIL. Reading APREQ1 pops it. A beat that arrives while the register is full is dropped and sets APREQ_OVF.
 * **APRESP** feeds `ap_rdata`, `ap_err`; writing APRESP1 pulses `ap_done` for one clock.
 
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x53570200.
+2. Write 0x7F to IRQ_STATUS (0x004) to clear any stale bits.
+3. Configure the core: write PWR (0x014). Reset values are in the register map; PSTRB selects the bytes written.
+4. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x7F enables all).
+5. To receive on APREQ: wait for IRQ APREQ_AVAIL or FLAGS.APREQ_AVAIL (bit 0), then read APREQ0 (0x018) then APREQ1 (0x01C). Reading the last word frees the register for the next beat; write 1 to IRQ_STATUS.APREQ_AVAIL (bit 5) to clear it. Read each beat before the next arrives, or it is dropped and APREQ_OVF is set.
+6. To send on APRESP: write APRESP0 (0x020) then APRESP1 (0x024). The last write pulses `ap_done` for one clock; there is no back-pressure.
+7. Read STATUS (0x028) for the core's live `ap_busy`, `lockout`, `cdbgpwrupreq`, `csyspwrupreq`; it needs no clearing.
+8. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
+
+## Running and verifying
+
+All commands run from the repository root. Icarus Verilog 12 and Yosys 0.33 are enough for steps 1 to 3; step 4 also needs Verilator 5.052 and pyslang (see [README, Setup](../../README.md#setup)).
+
+| Step | Command | Pass when | Output |
+|---|---|---|---|
+| 1. Core test | `make -f Makefile.ARM_Serial_Wire_Debug sim` | a `TEST PASSED` line, no `ERROR` | console |
+| 2. Core synthesis | `make -f Makefile.ARM_Serial_Wire_Debug syn` | Yosys ends without `ERROR`; `stat` prints the cell count | `work/ARM_Serial_Wire_Debug_top.json` |
+| 3. APB wrapper test + synthesis | `make -f Makefile.ARM_Serial_Wire_Debug apb` | `TEST PASSED: ARM_Serial_Wire_Debug_apb`, then Yosys without `ERROR` | console, `work/ARM_Serial_Wire_Debug_apb.json` |
+| 4. Coverage (core, wrapper) | `bash scripts/cov/run_cov.sh ARM_Serial_Wire_Debug`<br>`bash scripts/cov/run_cov.sh ARM_Serial_Wire_Debug_apb` | `RESULT: CLOSED` (all five metrics 100%) | `work/cov/ARM_Serial_Wire_Debug/score.json`, `work/cov/ARM_Serial_Wire_Debug_apb/score.json` |
+
+Expected end of a step 4 run:
+
+```
+===== ARM_Serial_Wire_Debug =====
+TEST: PASSED   SVA_FAILURES: 0
+LINE ... TOGGLE ... FSM ... SVA ... FUNCTIONAL  (each n/n, 100.0%)
+RESULT: CLOSED
+```
+
+**Core test** (`tb/ARM_Serial_Wire_Debug_tb.sv`): drives `ARM_Serial_Wire_Debug_top` through its own ports against a protocol peer or model and checks every result itself; any mismatch prints `ERROR`, and `TEST PASSED` is printed only when there were none.
+
+**APB wrapper test** (`tb/ARM_Serial_Wire_Debug_apb_tb.sv`), in this order:
+
+1. Reset values of every register, ID included.
+2. Writes to read-only registers are ignored.
+3. Each RW register: all ones, all zeros, then 16 random writes with every PSTRB byte-lane pattern, read back each time.
+4. Unmapped and misaligned addresses, reads and writes: PSLVERR, read data 0, no side effect on other registers.
+5. Back-to-back transfers with no idle cycle.
+6. IP traffic through the registers only (`tb/apb/ARM_Serial_Wire_Debug_apb_func.svh`): the programming sequence above, every interrupt bit set, enabled and cleared, stream FULL/AVAIL/OVF cases (100% wrapper toggle coverage confirms each bit moved).
+7. PRESETN asserted mid-run: `irq` and PRDATA go to 0, registers return to reset values.
+
+**Checkers** (`tb/cov/ARM_Serial_Wire_Debug_sva.sv`, `tb/cov/ARM_Serial_Wire_Debug_apb_sva.sv`): SVA protocol and APB assertions plus covergroups, bound in by the coverage flow. An assertion failure prints `SVA_FAIL` and fails the run even when the test itself passed.
+
+Whole portfolio: `bash scripts/ci_regression.sh` runs steps 1 to 3 for every IP (what CI runs), and `bash scripts/cov/run_all.sh 4` runs step 4 for every IP.
+
 ## Verification
 
 Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVERAGE_CLOSURE.md](../COVERAGE_CLOSURE.md) for the flow. Line and toggle count only the named RTL file.
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/ARM_Serial_Wire_Debug_top.sv` | pass | 95/95 | 552/552 | 23/23 | 6/6 | 42/42 |
+| core `rtl/ARM_Serial_Wire_Debug_top.sv` | pass | 95/95 | 552/552 | 23/23 | 6/6 | 97/97 |
 | wrapper `rtl/ARM_Serial_Wire_Debug_apb.sv` | pass | 35/35 | 802/802 | n/a | 12/12 | 65/65 |

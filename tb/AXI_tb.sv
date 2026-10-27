@@ -624,6 +624,37 @@ module AXI_tb;
       axi_read_burst (4'h0, 32'h020, 4'd0, INCR, OKAY, 1'b0, 1'b1);
       axi_write_burst(4'h0, 32'h020, 4'd0, INCR, 32'h0000_0000, OKAY, 1'b0, 1'b1);
       axi_read_burst (4'h0, 32'h020, 4'd0, INCR, OKAY, 1'b0, 1'b1);
+      // ---- legal size x burst, error causes, data classes -------------
+      begin : legal_mix
+        logic [DW-1:0] dv [4];
+        dv[0] = '0; dv[1] = '1; dv[2] = 32'hAAAA_AAAA; dv[3] = 32'h3C5A_96C3;
+        for (int sz = 0; sz < 3; sz++)
+          for (int bu = 0; bu < 2; bu++) begin
+            axi_aw(4'h0, 32'h0000_0200, 1, 2'(bu), 3'(sz));
+            axi_w_strb(4'h0, dv[1], 4'hF, 1'b0, 1'b0);
+            axi_w_strb(4'h0, dv[2], 4'hF, 1'b1, 1'b0);
+            axi_b(OKAY, 4'h0, 1'b0);
+            for (int i = 0; i < 2; i++) model[(bu ? 32'h200 + 4*i : 32'h200) >> 2] = dv[1 + i];
+            crv_read_burst(4'h0, 32'h0000_0200, 1, 2'(bu), 3'(sz), OKAY, 1'b0, 1'b0);
+          end
+        // full-word INCR burst of every data class, read back and compared
+        axi_aw(4'h0, 32'h0000_0240, 3, INCR, 3'd2);
+        for (int i = 0; i < 4; i++) begin
+          axi_w_strb(4'h0, dv[i], 4'hF, (i == 3), 1'b0);
+          model[(32'h240 >> 2) + i] = dv[i];
+        end
+        axi_b(OKAY, 4'h0, 1'b0);
+        crv_read_burst(4'h0, 32'h0000_0240, 3, INCR, 3'd2, OKAY, 1'b0, 1'b1);
+        // reserved burst type (DECERR) and WRAP (SLVERR), both directions
+        axi_aw(4'h0, 32'h0000_0280, 1, 2'b11, 3'd2);
+        axi_w_strb(4'h0, 32'h1, 4'hF, 1'b0, 1'b0); axi_w_strb(4'h0, 32'h2, 4'hF, 1'b1, 1'b0);
+        axi_b(DECERR, 4'h0, 1'b0);
+        crv_read_burst(4'h0, 32'h0000_0280, 1, 2'b11, 3'd2, DECERR, 1'b0, 1'b0);
+        axi_aw(4'h0, 32'h0000_0280, 1, 2'b10, 3'd2);
+        axi_w_strb(4'h0, 32'h1, 4'hF, 1'b0, 1'b0); axi_w_strb(4'h0, 32'h2, 4'hF, 1'b1, 1'b0);
+        axi_b(SLVERR, 4'h0, 1'b0);
+        crv_read_burst(4'h0, 32'h0000_0280, 1, 2'b10, 3'd2, SLVERR, 1'b0, 1'b0);
+      end
       $display("CRV: 160 txns (wr=%0d rd=%0d | okay=%0d slverr=%0d decerr=%0d)",
                n_wr, n_rd, n_okay, n_slv, n_dec);
     end

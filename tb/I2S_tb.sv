@@ -69,13 +69,16 @@ module I2S_tb;
 
   // run nw words with the given TX registers; check both directions
   task automatic frames(input int nw, input int slot,
-                        input logic [15:0] txl, input logic [15:0] txr);
+                        input logic [15:0] txl, input logic [15:0] txr,
+                        input int rxpat = -1);   // 0 / 1 / 2: zero, ones, 5555-AAAA words
     logic [15:0] got;
     begin
       wr(4'd0, txl); wr(4'd1, txr);
       // idle in the right channel so the first word sees an LRCK change
       lrck = 1; #(4 * HB);
-      for (int i = 0; i < nw; i++) m_tx[i] = $urandom;
+      for (int i = 0; i < nw; i++)
+        m_tx[i] = (rxpat == 0) ? 16'h0000 : (rxpat == 1) ? 16'hFFFF :
+                  (rxpat == 2) ? ((i % 4 < 2) ? 16'h5555 : 16'hAAAA) : 16'($urandom);
       run(nw, slot);
       for (int i = 0; i < nw; i++)
         if (m_rx[i] !== ((i % 2) ? txr : txl)) begin
@@ -130,6 +133,16 @@ module I2S_tb;
     if (sdout !== 1'b0) begin errors++; $display("ERROR: I2S sdout not 0 in reset"); end
     #(2 * HB) rst_n = 1'b1;
     frames(4, 16, 16'hC3C3, 16'h3C3C);
+
+    // data classes in both directions and on both channels; then slots
+    // shorter than the word (truncated words are not stored), followed by
+    // a normal run
+    frames(4, 16, 16'h5555, 16'hAAAA, 0);
+    frames(4, 16, 16'hAAAA, 16'h5555, 1);
+    frames(8, 16, 16'h0001, 16'h8000, 2);
+    lrck = 1; #(4 * HB);
+    run(4, 12);
+    frames(4, 16, 16'h1357, 16'h2468);
 
     if (errors == 0) $display("TEST PASSED: I2S");
     else             $display("TEST FAILED: %0d errors", errors);

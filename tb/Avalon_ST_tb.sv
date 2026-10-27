@@ -196,6 +196,23 @@ module Avalon_ST_tb;
     if (count !== 5'd16 || rdata !== 32'h5100_0000) begin
       errors++; $display("ERROR: fill-16 count=%0d rdata=%h", count, rdata);
     end
+    // data classes: all-zero / all-ones / alternating beats captured and
+    // read back
+    begin : data_classes
+      logic [31:0] v [4];
+      v[0] = 32'h0000_0000; v[1] = 32'hFFFF_FFFF; v[2] = 32'h5555_5555; v[3] = 32'hAAAA_AAAA;
+      @(negedge clk); rst_n = 1'b0;
+      @(negedge clk); rst_n = 1'b1;
+      for (int i = 0; i < 4; i++) send(v[i], i == 3);
+      for (int i = 0; i < 4; i++) begin
+        @(negedge clk); ren <= 1'b1; raddr <= i[3:0];
+        #1;
+        if (rdata !== ((i < 4) ? v[i & 3] : 32'h0000_00A5 + (i - 4))) begin
+          errors++; $display("ERROR: data class slot %0d got=%h", i, rdata);
+        end
+        @(negedge clk); ren <= 1'b0;
+      end
+    end
     if (errors == 0) $display("TEST PASSED: Avalon-ST");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR

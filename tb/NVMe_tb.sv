@@ -378,11 +378,16 @@ module NVMe_tb;
     f_pat = 32'hFFFFFFFF; submit(2, 1);
     f_pat = 32'h00000000; submit(2, 1);
     submit(3, 1);
+    f_pat = 32'h55555555; submit(2, 1);
+    submit(3, 1);
+    f_pat = 32'hAAAAAAAA; submit(2, 1);
+    submit(3, 1);
     f_slba = -1; f_nlb = -1;
     drain("pattern");
     // single bits beyond the checked fields
     f_nsid = 33'h0_0000_FFFF; submit(4, 1);
     f_nsid = 33'h0_FFFF_0001; submit(4, 1);
+    f_nsid = 33'h0_0000_0000; submit(2, 1);
     f_nsid = '1;
     f_slba = 0; f_nlb = 16'h8000; submit(3, 1);
     f_nlb = 16'h4001; submit(2, 1);

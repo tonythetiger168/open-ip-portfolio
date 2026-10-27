@@ -67,11 +67,11 @@ module ACE_sva #(parameter int DW = 32, AW = 32) (
       if (ac_hs) begin
         m_sbusy <= 1; m_aa <= acaddr; m_crresp <= '0; m_cdpend <= 0;
         case (acsnoop)
-          4'b0000, 4'b0001: if (ac_hit) begin           // ReadShared / ReadClean
+          4'b0001, 4'b0010: if (ac_hit) begin           // ReadShared / ReadClean
             m_crresp <= {c_d[awi], 1'b1, c_d[awi], 1'b0, 1'b1}; m_cdpend <= 1; c_d[awi] <= 0;
           end
-          4'b0111: begin c_v[awi] <= 0; c_d[awi] <= 0; end // MakeUnique
-          4'b1000: if (ac_hit) begin                     // CleanInvalid
+          4'b1101: begin c_v[awi] <= 0; c_d[awi] <= 0; end // MakeInvalid
+          4'b1001: if (ac_hit) begin                     // CleanInvalid
             if (c_d[awi]) begin m_crresp <= 5'b10101; m_cdpend <= 1; end
             c_v[awi] <= 0; c_d[awi] <= 0;
           end
@@ -105,8 +105,8 @@ module ACE_sva #(parameter int DW = 32, AW = 32) (
   covergroup cg_snoop @(posedge clk);
     option.per_instance = 1;
     cp_type: coverpoint acsnoop iff (rst_n && ac_hs)
-      { bins read_shared = {4'b0000}; bins read_clean = {4'b0001};
-        bins make_unique = {4'b0111}; bins clean_inv = {4'b1000}; bins other = default; }
+      { bins read_shared = {4'b0001}; bins read_clean = {4'b0010};
+        bins make_invalid = {4'b1101}; bins clean_inv = {4'b1001}; bins other = default; }
     cp_state: coverpoint {ac_hit, c_d[awi]} iff (rst_n && ac_hs)
       { bins miss = {2'b00, 2'b01}; bins clean_hit = {2'b10}; bins dirty_hit = {2'b11}; }
     x_type_state: cross cp_type, cp_state;
@@ -124,6 +124,35 @@ module ACE_sva #(parameter int DW = 32, AW = 32) (
   endgroup
   cg_snoop u_cg_snoop = new;
   cg_axi   u_cg_axi   = new;
+
+  // line state each write beat, read beat and snoop finds: empty, other
+  // tag (conflict), clean hit, dirty hit; snoop type x that state; data
+  // classes written
+  function automatic logic [1:0] lstate(input logic v, input logic d, input logic hit);
+    lstate = !v ? 2'd0 : !hit ? 2'd1 : d ? 2'd3 : 2'd2;
+  endfunction
+  function automatic logic [1:0] dcls(input logic [DW-1:0] x);
+    dcls = (x == '0) ? 2'd0 : (x == '1) ? 2'd1 :
+           (x == {(DW/2){2'b01}} || x == {(DW/2){2'b10}}) ? 2'd2 : 2'd3;
+  endfunction
+  wire [5:0] wi = m_wa[7:2];
+  wire       w_hit = c_tag[wi] == m_wa[AW-1:8];
+  covergroup cg_line @(posedge clk);
+    option.per_instance = 1;
+    cp_wline: coverpoint lstate(c_v[wi], c_d[wi], w_hit) iff (rst_n && w_hs && !m_werr)
+      { bins empty = {0}; bins conflict = {1}; bins clean_hit = {2}; bins dirty_hit = {3}; }
+    cp_rline: coverpoint lstate(c_v[ri], c_d[ri], r_hit) iff (rst_n && r_hs && !m_rerr)
+      { bins empty = {0}; bins conflict = {1}; bins clean_hit = {2}; bins dirty_hit = {3}; }
+    cp_sline: coverpoint lstate(c_v[awi], c_d[awi], ac_hit) iff (rst_n && ac_hs)
+      { bins empty = {0}; bins conflict = {1}; bins clean_hit = {2}; bins dirty_hit = {3}; }
+    cp_stype: coverpoint acsnoop iff (rst_n && ac_hs)
+      { bins read_shared = {4'b0001}; bins read_clean = {4'b0010};
+        bins make_invalid = {4'b1101}; bins clean_inv = {4'b1001}; }
+    x_stype_sline: cross cp_stype, cp_sline;
+    cp_wdata: coverpoint dcls(wdata) iff (rst_n && w_hs && !m_werr && wstrb == {(DW/8){1'b1}})
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_line u_cg_line = new;
 
   `FC(cr_backpressure, crvalid && !crready)
   `FC(cd_backpressure, cdvalid && !cdready)

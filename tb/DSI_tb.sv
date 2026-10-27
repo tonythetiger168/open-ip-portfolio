@@ -169,8 +169,8 @@ module DSI_tb;
     check(pkt_cnt == 16'(pcnt), {tag, " pkt_cnt"});
   endtask
 
-  task automatic dcs_long(input logic [7:0] dcs, input int n);
-    for (int i = 0; i < n; i++) ram[i] = $urandom;
+  task automatic dcs_long(input logic [7:0] dcs, input int n, input int pat = -1);
+    for (int i = 0; i < n; i++) ram[i] = pat >= 0 ? 8'(pat) : 8'($urandom);
     if (n > 0) ram[0] = dcs;
     pl_write(n);
     do_cmd(OP_DCS_L, 6'h0, 8'h00, 16'(n), 16'h0);
@@ -308,6 +308,7 @@ module DSI_tb;
     dcs_long(8'h2A, 5);
     dcs_long(8'h2C, 32);
     for (int k = 0; k < 4; k++) dcs_long(8'h2C, 2 + $urandom_range(0, 30));
+    dcs_long(8'h3C, 8, 8'h00); dcs_long(8'h3C, 8, 8'hFF); dcs_long(8'h3C, 8, 8'h55); dcs_long(8'h3C, 8, 8'hAA);
 
     // ---- video lines ----
     vline(0, 0);
@@ -344,6 +345,8 @@ module DSI_tb;
     read_txn(24'hFFFF22, 30'h0, 0);
     read_txn(24'h000002, 30'h0, 2);                  // ack-error report, no errors
     read_txn(24'h800002, 30'h0, 2);                  // ack-error report with an error
+    read_txn(24'h000021, 30'h0, 1);                  // read data patterns
+    read_txn(24'h555522, 30'h0, 1);
     for (int k = 0; k < 30; k++)                     // each single-bit error corrected
       read_txn(24'(($urandom << 8) | 8'h21), 30'h1 << k, 1);
     read_txn(24'h123421, 30'h3, 1);                  // double errors

@@ -2,6 +2,14 @@
   "title": "Quad SPI slave: standard mode (MOSI on io[0], MISO on io[1]) and quad mode (a nibble per SCLK on io[3:0], read or write)",
   "code": "0x5153",
   "version": "2.0",
+  "features": [
+    "QSPI slave, mode 0, MSB first, 8-bit frames, selectable with MODE: standard SPI (1 bit per clock) or quad (4 bits per clock).",
+    "Standard mode: `io[0]` is MOSI and `io[1]` is MISO; `io[3:2]` are not driven.",
+    "Quad mode: DIR selects the direction. DIR = 0 drives `io[3:0]` with the TX byte, high nibble first; DIR = 1 releases the pins and receives a byte as two nibbles.",
+    "The first bit or nibble of a frame shows on the pins as soon as CSn falls, from the current TX value.",
+    "CSn high resets the bit and nibble counters.",
+    "Interrupt BYTE once per received byte."
+  ],
   "tb_clk_ns": 10,
   "regs": [
     {"name": "CORE", "kind": "bus", "wen": "wen", "waddr": "waddr", "wdata": "wdata", "ren": "ren", "raddr": "raddr", "rdata": "rdata",

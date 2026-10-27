@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Self-checking testbench for OCP_top -- OCP-IP slave, master model in TB
 // Checks: reset state / WR+RD full-path compare / byte-enable merge /
-//         posted WRNP (no response) / 2-cycle DVA latency / SThreadID echo /
+//         posted WR (no response) / 2-cycle DVA latency / SThreadID echo /
 //         reserved-region ERR + irq / back-to-back transactions
 `timescale 1ns/1ps
 module OCP_tb;
@@ -70,15 +70,15 @@ module OCP_tb;
       if (s0_acc !== 1'b1) begin errors++; $display("ERROR: OCP dut0 no same-cycle accept @%h", a); end
       @(negedge clk);
       m0_cmd = 3'b000;
-      if (cmd == MCMD_WRNP) begin
-        if (s0_resp !== 2'b00) begin errors++; $display("ERROR: OCP dut0 WRNP responded"); end
+      if (cmd == MCMD_WR) begin
+        if (s0_resp !== 2'b00) begin errors++; $display("ERROR: OCP dut0 posted WR responded"); end
         if (hold_next) begin                          // read back right behind it
           m0_cmd = MCMD_RD; m0_tid = 2'd2; #1;
-          if (s0_acc !== 1'b1) begin errors++; $display("ERROR: OCP dut0 no accept after WRNP"); end
+          if (s0_acc !== 1'b1) begin errors++; $display("ERROR: OCP dut0 no accept after posted WR"); end
           @(negedge clk) m0_cmd = 3'b000;
           @(negedge clk);
           if (s0_resp !== 2'b01 || s0_data !== d) begin
-            errors++; $display("ERROR: OCP dut0 read behind WRNP resp=%b data=%h", s0_resp, s0_data);
+            errors++; $display("ERROR: OCP dut0 read behind posted WR resp=%b data=%h", s0_resp, s0_data);
           end
         end
       end else begin
@@ -98,10 +98,10 @@ module OCP_tb;
 
   initial begin
     @(posedge rst_n); repeat (2) @(posedge clk);
-    o0_xfer(MCMD_WR,   32'h010, 32'h0D10_0010, 4'hF, 2'd1, 2'b01, '0);
+    o0_xfer(MCMD_WRNP, 32'h010, 32'h0D10_0010, 4'hF, 2'd1, 2'b01, '0);
     o0_xfer(MCMD_RD,   32'h010, '0, 4'hF, 2'd2, 2'b01, 32'h0D10_0010);
-    o0_xfer(MCMD_WRNP, 32'h014, 32'h0D10_0014, 4'hF, 2'd0, 2'b00, '0, 1'b1);
-    o0_xfer(MCMD_WR,   32'h014, 32'hFFFF_FFFF, 4'h0, 2'd3, 2'b01, '0);   // no lanes
+    o0_xfer(MCMD_WR, 32'h014, 32'h0D10_0014, 4'hF, 2'd0, 2'b00, '0, 1'b1);
+    o0_xfer(MCMD_WRNP, 32'h014, 32'hFFFF_FFFF, 4'h0, 2'd3, 2'b01, '0);   // no lanes
     o0_xfer(MCMD_RD,   32'h014, '0, 4'hF, 2'd3, 2'b01, 32'h0D10_0014, 1'b1);
     // held RD (addr 0x014) is accepted on the first idle cycle
     o0_xfer(MCMD_RD,   32'h014, '0, 4'hF, 2'd0, 2'b01, 32'h0D10_0014);
@@ -110,8 +110,8 @@ module OCP_tb;
         o0_xfer(3'(c), 32'h010, 32'hBAD0_0000, 4'hF, 2'(c), 2'b11, '0);
     o0_xfer(MCMD_RD,   32'h010, '0, 4'hF, 2'd1, 2'b01, 32'h0D10_0010);  // untouched
     o0_xfer(MCMD_RD,   32'h400, '0, 4'hF, 2'd1, 2'b11, '0);
-    o0_xfer(MCMD_WR,   32'h011, 32'h1, 4'hF, 2'd1, 2'b11, '0);
-    o0_xfer(MCMD_WRNP, 32'h800, 32'h1, 4'hF, 2'd0, 2'b00, '0);
+    o0_xfer(MCMD_WRNP, 32'h011, 32'h1, 4'hF, 2'd1, 2'b11, '0);
+    o0_xfer(MCMD_WR, 32'h800, 32'h1, 4'hF, 2'd0, 2'b00, '0);
     dut0_done = 1'b1;
   end
   logic irq_mon = 1'b0;
@@ -212,19 +212,19 @@ module OCP_tb;
                            input logic [1:0] exp_resp);
     logic [1:0] rsp; logic [DW-1:0] dd; int lat;
     begin
-      ocp_cmd(MCMD_WR, a, d, be, tid);
+      ocp_cmd(MCMD_WRNP, a, d, be, tid);
       ocp_wait_resp(rsp, dd, lat);
       if (rsp !== exp_resp) begin
         errors++;
-        $display("ERROR: OCP WR @%h resp=%b exp=%b", a, rsp, exp_resp);
+        $display("ERROR: OCP WRNP @%h resp=%b exp=%b", a, rsp, exp_resp);
       end
       if (lat !== 2) begin
         errors++;
-        $display("ERROR: OCP WR @%h DVA latency=%0d exp=2", a, lat);
+        $display("ERROR: OCP WRNP @%h DVA latency=%0d exp=2", a, lat);
       end
       if (sthreadid !== tid) begin
         errors++;
-        $display("ERROR: OCP WR @%h SThreadID=%b exp=%b", a, sthreadid, tid);
+        $display("ERROR: OCP WRNP @%h SThreadID=%b exp=%b", a, sthreadid, tid);
       end
     end
   endtask
@@ -255,16 +255,17 @@ module OCP_tb;
   endtask
 
   // posted write: expect accept but no response within 5 cycles
-  task automatic ocp_write_np(input logic [AW-1:0] a, input logic [DW-1:0] d);
+  task automatic ocp_write_posted(input logic [AW-1:0] a, input logic [DW-1:0] d,
+                                  input logic [3:0] be = 4'hF, input logic [1:0] tid = 2'b00);
     int n;
     begin
-      ocp_cmd(MCMD_WRNP, a, d, 4'hF, 2'b00);
+      ocp_cmd(MCMD_WR, a, d, be, tid);
       n = 0;
       repeat (5) begin
         @(posedge clk);
         if (sresp != 2'b00) begin
           errors++;
-          $display("ERROR: OCP WRNP @%h got unexpected SResp=%b", a, sresp);
+          $display("ERROR: OCP posted WR @%h got unexpected SResp=%b", a, sresp);
         end
         n++;
       end
@@ -299,9 +300,9 @@ module OCP_tb;
     ocp_write(32'h040, 32'hAB00_0000, 4'b1000, 2'b11, 2'b01);
     ocp_read (32'h040, 32'hABFF_1234, 2'b11, 2'b01);
 
-    // CHECK 4: posted WRNP - accepted, written, but no response
-    ocp_write_np(32'h080, 32'hCAFE_0001);
-    ocp_write_np(32'h084, 32'hCAFE_0002);
+    // CHECK 4: posted WR - accepted, written, but no response
+    ocp_write_posted(32'h080, 32'hCAFE_0001);
+    ocp_write_posted(32'h084, 32'hCAFE_0002);
     ocp_read(32'h080, 32'hCAFE_0001, 2'b00, 2'b01);
     ocp_read(32'h084, 32'hCAFE_0002, 2'b00, 2'b01);
 
@@ -318,10 +319,10 @@ module OCP_tb;
         end
         begin : b2b_drv
           @(negedge clk);
-          mcmd <= MCMD_WR; maddr <= 32'h0C0; mdata <= 32'hB2B_0001; mbyteen <= 4'hF; mthreadid <= 2'b01;
+          mcmd <= MCMD_WRNP; maddr <= 32'h0C0; mdata <= 32'hB2B_0001; mbyteen <= 4'hF; mthreadid <= 2'b01;
           do @(posedge clk); while (!scmdaccept);
           @(negedge clk);
-          mcmd <= MCMD_WR; maddr <= 32'h0C4; mdata <= 32'hB2B_0002; // immediately re-drive
+          mcmd <= MCMD_WRNP; maddr <= 32'h0C4; mdata <= 32'hB2B_0002; // immediately re-drive
           // note: slave is busy; cmd must be held until accepted
           do @(posedge clk); while (!scmdaccept);
           @(negedge clk); mcmd <= MCMD_IDLE;
@@ -461,7 +462,7 @@ module OCP_tb;
               if (be_v[b]) sh_mem[ba[9:2]][b*8 +: 8] = db[b*8 +: 8];
           end
           if (roll == 3) begin
-            ocp_write_np(ba, db);
+            ocp_write_posted(ba, db);
             n_np++;
           end else begin
             ocp_write(ba, db, be_v, tid_v,
@@ -485,6 +486,26 @@ module OCP_tb;
                n_wr, n_rd, n_np, n_err);
     end
 `endif
+
+    // posted writes with every thread ID and single byte lanes, data
+    // classes written (both write kinds) and read back
+    begin : cmd_classes
+      logic [DW-1:0] dv [4];
+      logic [DW-1:0] cur;
+      dv[0] = '0; dv[1] = '1; dv[2] = 32'h5555_5555; dv[3] = 32'h7E81_42BD;
+      for (int i = 0; i < 4; i++) begin
+        ocp_write_posted(32'h300 + 4*i, dv[i], 4'hF, 2'(i));
+        ocp_read(32'h300 + 4*i, dv[i], 2'(i), 2'b01);
+        ocp_write(32'h310 + 4*i, dv[i], 4'hF, 2'(3 - i), 2'b01);
+        ocp_read(32'h310 + 4*i, dv[i], 2'(3 - i), 2'b01);
+      end
+      cur = dv[3];
+      for (int b = 0; b < 4; b++) begin
+        ocp_write_posted(32'h30C, 32'hA5A5_A5A5, 4'b0001 << b, 2'(b));
+        cur[8*b +: 8] = 8'hA5;
+        ocp_read(32'h30C, cur, 2'(b), 2'b01);
+      end
+    end
 
     if (errors == 0) $display("TEST PASSED: OCP");
     else             $display("TEST FAILED: %0d errors", errors);

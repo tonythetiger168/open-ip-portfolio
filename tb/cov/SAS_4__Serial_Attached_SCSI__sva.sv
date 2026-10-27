@@ -293,6 +293,20 @@ module SAS_4__Serial_Attached_SCSI__sva (
 
   wire m_tx = ready ? tb : drive;
 
+  // received frames by kind, every register written and read by the peer,
+  // responses to each of the sequencer's registers, payload lengths
+  covergroup cg_sas @(negedge clk);
+    option.per_instance = 1;
+    cp_frame: coverpoint {e_wr, e_rq, e_rsp, e_crc, e_proto} iff (rst_n && link_up)
+      { bins write = {5'b10000}; bins read = {5'b01000}; bins response = {5'b00100}; bins crc = {5'b00010};
+        bins proto = {5'b00001}; }
+    cp_wreg: coverpoint e_wr_a iff (rst_n && e_wr) { bins r[] = {[0:15]}; }
+    cp_rreg: coverpoint rq_src iff (rst_n && e_rq) { bins r[] = {[0:15]}; }
+    cp_rsp: coverpoint e_rsp_a iff (rst_n && e_rsp && e_rsp_a < 16) { bins r[] = {[0:15]}; }
+    cp_len: coverpoint f_len iff (rst_n && (e_wr || e_rsp)) { bins l[] = {[1:8]}; }
+  endgroup
+  cg_sas u_cg_sas = new;
+
   `SVA_RST(a_reset_outputs, !rst_n, !tx_p && tx_n && !link_up && !irq)
   `SVA_INV(a_tx_p, tx_p == m_tx)
   `SVA_INV(a_tx_n, tx_n == !tx_p)

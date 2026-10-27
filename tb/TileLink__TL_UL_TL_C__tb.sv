@@ -402,6 +402,21 @@ module TileLink__TL_UL_TL_C__tb;
     end
 `endif
 
+    // data classes through PutFull / Get, upper-half PutPartial, source
+    // IDs 0x00 and 0xFF on each legal opcode
+    begin : data_classes
+      tl_xact(3'd0, 32'h0000_0080, 32'h0000_0000, 4'hF, 3'd2, 8'hFF, 1'b0, 32'h0);
+      tl_xact(3'd4, 32'h0000_0080, 32'h0,         4'hF, 3'd2, 8'hFF, 1'b0, 32'h0000_0000);
+      tl_xact(3'd0, 32'h0000_0080, 32'hFFFF_FFFF, 4'hF, 3'd2, 8'h00, 1'b0, 32'h0);
+      tl_xact(3'd4, 32'h0000_0080, 32'h0,         4'hF, 3'd2, 8'h00, 1'b0, 32'hFFFF_FFFF);
+      tl_xact(3'd0, 32'h0000_0080, 32'h5555_5555, 4'hF, 3'd2, 8'h5A, 1'b0, 32'h0);
+      tl_xact(3'd4, 32'h0000_0080, 32'h0,         4'hF, 3'd2, 8'h5B, 1'b0, 32'h5555_5555);
+      tl_xact(3'd0, 32'h0000_0080, 32'hAAAA_AAAA, 4'hF, 3'd2, 8'h5C, 1'b0, 32'h0);
+      tl_xact(3'd4, 32'h0000_0080, 32'h0,         4'hF, 3'd2, 8'h5D, 1'b0, 32'hAAAA_AAAA);
+      tl_xact(3'd1, 32'h0000_0080, 32'h1234_0000, 4'b1100, 3'd2, 8'h00, 1'b0, 32'h0);
+      tl_xact(3'd1, 32'h0000_0080, 32'h0000_00BB, 4'b0001, 3'd2, 8'hFF, 1'b0, 32'h0);
+      tl_xact(3'd4, 32'h0000_0080, 32'h0,         4'hF, 3'd2, 8'h5E, 1'b0, 32'h1234_AABB);
+    end
     if (errors == 0) $display("TEST PASSED: TileLink__TL_UL_TL_C_");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR

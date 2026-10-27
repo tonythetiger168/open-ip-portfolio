@@ -339,6 +339,38 @@ module CAN_sva (
     cp_tx_kind: coverpoint acc_kind iff (rst_n && acc_q);
   endgroup
   cg_can u_cg_can = new;
+  function automatic int dcls(input logic [63:0] v, input int nb);
+    logic [63:0] m;
+    m = '0;
+    for (int i = 0; i < 8; i++) if (i < nb) m[8*i +: 8] = 8'hFF;
+    v = v & m;
+    dcls = v == 0 ? 0 : v == m ? 1 : (v == ({16{4'h5}} & m) || v == ({16{4'hA}} & m)) ? 2 : 3;
+  endfunction
+  wire [3:0] rx_nb = rx_dlc > 8 ? 4'd8 : rx_dlc;
+  wire [3:0] tx_nb = tx_dlc > 8 ? 4'd8 : tx_dlc;
+  // kind x length, identifier corners per format, payload data classes
+  int c_td, c_rd;
+  always @(posedge clk) begin
+    c_td = rst_n && accept_tx && !tx_rtr && tx_nb != 0 ? dcls(tx_data, int'(tx_nb)) : -1;
+    c_rd = rst_n && rx_valid && !rx_rtr && rx_nb != 0 ? dcls(rx_data, int'(rx_nb)) : -1;
+  end
+  covergroup cg_can_d @(negedge clk);
+    option.per_instance = 1;
+    cp_rdata: coverpoint c_rd iff (c_rd >= 0) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_tdata: coverpoint c_td iff (c_td >= 0) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_can_d u_cg_can_d = new;
+  covergroup cg_can_x @(posedge clk);
+    option.per_instance = 1;
+    cp_rkind: coverpoint {rx_ide, rx_rtr} iff (rst_n && rx_valid) { bins std = {0}; bins std_rtr = {1}; bins ext = {2}; bins ext_rtr = {3}; }
+    cp_rlen: coverpoint rx_nb iff (rst_n && rx_valid) { bins zero = {0}; bins mid = {[1:7]}; bins full = {8}; }
+    x_rx: cross cp_rkind, cp_rlen;
+    cp_rid: coverpoint (rx_id == 0 ? 0 : rx_id == (rx_ide ? 29'h1FFF_FFFF : 29'h7FF) ? 1 : 2) iff (rst_n && rx_valid)
+      { bins zero = {0}; bins max_ = {1}; bins other = {2}; }
+    cp_rfmt: coverpoint rx_ide iff (rst_n && rx_valid) { bins std = {0}; bins ext = {1}; }
+    x_rid: cross cp_rfmt, cp_rid;
+  endgroup
+  cg_can_x u_cg_can_x = new;
 
   `FC(frame_sent, tx_done)
   `FC(frame_received, rx_valid)

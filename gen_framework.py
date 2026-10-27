@@ -715,7 +715,7 @@ sim:
 \t./simv
 
 syn:
-\tcd work && $(SYN) ../syn/$(S)_yosys.ys
+\tmkdir -p work && cd work && $(SYN) ../syn/$(S)_yosys.ys
 
 clean:
 \trm -f simv *.vcd work/*.json work/*_netlist.v
@@ -13107,7 +13107,16 @@ endmodule
 """)
 
 if __name__ == "__main__":
-    csv_path = sys.argv[1] if len(sys.argv) > 1 else "/mnt/agents/temp/table_1788849587.csv"
+    # Most rtl/ and tb/ files have been rewritten by hand since these templates
+    # were last synced (v2.6 memory family, clone rewrites, APB wrappers), and
+    # the emitted Makefiles have no apb target. Regenerating in place would
+    # revert that work, so it needs an explicit --force.
+    if "--force" not in sys.argv:
+        sys.exit("gen_framework.py: templates are out of sync with rtl/ and tb/; "
+                 "running it would overwrite hand-edited files. Pass --force to "
+                 "regenerate anyway (into a scratch checkout).")
+    sys.argv.remove("--force")
+    csv_path = sys.argv[1] if len(sys.argv) > 1 else "protocols_master.csv"
     plist = read_protocols(csv_path)
     for P in plist:
         generate(P)

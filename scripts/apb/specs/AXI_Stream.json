@@ -2,6 +2,12 @@
   "title": "AXI4-Stream sink: a 16-beat capture buffer, read back through the registers",
   "code": "0x4153",
   "version": "2.0",
+  "features": [
+    "AXI4-Stream slave: `tvalid` / `tready` handshake, `DW`-bit (default 32) `tdata`, `tlast`.",
+    "Captures up to `DEPTH` (16) beats into a buffer, entries 0 to 15 in order; `tready` drops when it is full.",
+    "STATUS.count reports how many beats are stored; buffer entries D0 to D15 are read at any time without side effects.",
+    "Interrupt LAST on every accepted beat with `tlast`."
+  ],
   "tb_clk_ns": 10,
   "regs": [
     {

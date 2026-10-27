@@ -276,6 +276,59 @@ module QSPI_tb;
     if (d1 !== 8'h96 || got !== 8'h3E) begin
       errors++; $display("ERROR: QSPI post-abort frame miso=%h mosi=%h", d1, got);
     end
+    // data-class sweep per transfer kind: std (every MOSI x MISO class
+    // pair), quad read (each TX class), quad write (each RX class); then an
+    // abort after each std bit count and after one nibble in both quad kinds
+    begin : data_sweep
+      logic [7:0] dv [4];
+      logic [7:0] tv [4];
+      logic [7:0] o;
+      dv[0] = 8'h00; dv[1] = 8'hFF; dv[2] = 8'h55; dv[3] = 8'hC3;
+      tv[0] = 8'h00; tv[1] = 8'hFF; tv[2] = 8'hAA; tv[3] = 8'h3C;
+      wr(4'd2, 8'h00);
+      for (int i = 0; i < 4; i++)
+        for (int j = 0; j < 4; j++) begin
+          wr(4'd0, tv[j]); std_xfer(dv[i], o); rd(4'd0, got);
+          if (o !== tv[j] || got !== dv[i]) begin
+            errors++; $display("ERROR: QSPI std sweep miso=%h/%h mosi=%h/%h", o, tv[j], got, dv[i]);
+          end
+        end
+      wr(4'd2, 8'h01); wr(4'd3, 8'h00);
+      for (int j = 0; j < 4; j++) begin
+        wr(4'd0, tv[j]); quad_read(o);
+        if (o !== tv[j]) begin errors++; $display("ERROR: QSPI quad-read sweep got=%h exp=%h", o, tv[j]); end
+      end
+      wr(4'd3, 8'h01);
+      for (int i = 0; i < 4; i++) begin
+        quad_write(dv[i]); rd(4'd0, got);
+        if (got !== dv[i]) begin errors++; $display("ERROR: QSPI quad-write sweep got=%h exp=%h", got, dv[i]); end
+      end
+      wr(4'd2, 8'h00);
+      for (int n = 1; n < 8; n++) begin
+        wr(4'd0, 8'h96);
+        csn = 1'b0; drv_en = 1'b1; drv_mask = 4'b0001;
+        for (int i = 0; i < n; i++) begin drv_val = {3'b000, i[0]}; #40 sclk = 1'b1; #40 sclk = 1'b0; end
+        drv_en = 1'b0; csn = 1'b1; #100;
+        std_xfer(8'h69, o); rd(4'd0, got);
+        if (o !== 8'h96 || got !== 8'h69) begin
+          errors++; $display("ERROR: QSPI abort@%0d miso=%h mosi=%h", n, o, got);
+        end
+      end
+      for (int k = 0; k < 2; k++) begin
+        wr(4'd2, 8'h01); wr(4'd3, {7'd0, k[0]}); wr(4'd0, 8'h5C);
+        csn = 1'b0; drv_en = k[0]; drv_mask = 4'b1111; drv_val = 4'h9;
+        #40 sclk = 1'b1; #40 sclk = 1'b0;
+        drv_en = 1'b0; csn = 1'b1; #100;
+        if (k == 0) begin
+          quad_read(o);
+          if (o !== 8'h5C) begin errors++; $display("ERROR: QSPI quad-read after abort got=%h", o); end
+        end else begin
+          quad_write(8'h3A); rd(4'd0, got);
+          if (got !== 8'h3A) begin errors++; $display("ERROR: QSPI quad-write after abort got=%h", got); end
+        end
+      end
+    end
+
     // reset mid-frame
     wr(4'd2, 8'h00);
     csn = 1'b0;

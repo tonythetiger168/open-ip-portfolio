@@ -209,6 +209,7 @@ module CPRI_v8_0__eCPRI_over_CPR__tb;
   logic       bad_clr = 0, clr_off = 0;   // clear the cv flag in the bad symbol's clock
   logic [7:0] p_vendor = 8'h5C;
   int         iq_n = 0;
+  int         f_dp = -1;          // forced IQ byte (directed)
   logic [7:0] iq_log [0:65535];
   int         iq_base = -1;
   logic       log_iq = 0;
@@ -240,7 +241,7 @@ module CPRI_v8_0__eCPRI_over_CPR__tb;
         else if (pw == 64) b = p_vendor;
       end else if (pw < 3) b = 8'h50;
       else begin
-        b = 8'($urandom);
+        b = f_dp >= 0 ? 8'(f_dp) : 8'($urandom);
         if (log_iq) begin
           if (pop_full && iq_n % 4 == 3) begin
             cpu_re = 1; cpu_addr = 4'd10; pop_full = 0; pop_off = 1; pp_idx = iq_n - 3;
@@ -451,6 +452,16 @@ module CPRI_v8_0__eCPRI_over_CPR__tb;
     bring_up;
     repeat (300) @(negedge clk);
     pop_check(4);
+    // IQ words of each data pattern
+    log_iq = 0;
+    for (int k = 0; k < 4; k++) begin
+      cpu_rd(4'd11, r, 0);
+      n = r;
+      for (int j = 0; j < n; j++) cpu_rd(4'd10, r, 1);
+      f_dp = k == 0 ? 8'h00 : k == 1 ? 8'hFF : k == 2 ? 8'h55 : 8'hAA;
+      repeat (80) @(negedge clk);
+    end
+    f_dp = -1;
 
     // ---- reset mid-sync ----
     rst_n = 0; @(negedge clk);

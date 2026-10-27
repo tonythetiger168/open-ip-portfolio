@@ -201,6 +201,21 @@ module Ethernet_AVB_TSN_sva (
   `SVA_RST(a_rst, 1'b1, time_ns == 0 && !tx_busy && !tx_start && q_pop == 0 && !gcl_running
                         && cbs_credit == 0 && !cycle_start && gate_state == 4'hF)
 
+  // frames sent per class and length, schedule entries and gate masks while
+  // the schedule runs, shaped classes at a start
+  covergroup cg_tsn @(negedge clk);
+    option.per_instance = 1;
+    cp_tc: coverpoint tx_tc iff (rst_n && tx_start) { bins t[] = {[0:3]}; }
+    cp_len: coverpoint tx_len iff (rst_n && tx_start)
+      { bins zero = {0}; bins runt = {[1:63]}; bins normal = {[64:1522]}; bins jumbo = {[1523:2047]}; }
+    x_tc_len: cross cp_tc, cp_len;
+    cp_shaped: coverpoint cbs_en[tx_tc] iff (rst_n && tx_start) { bins off = {0}; bins on = {1}; }
+    x_tc_shaped: cross cp_tc, cp_shaped;
+    cp_entry: coverpoint gcl_entry iff (rst_n && gcl_running) { bins e[] = {[0:7]}; }
+    cp_gates: coverpoint gate_state iff (rst_n && gcl_running) { bins g[] = {[0:15]}; }
+  endgroup
+  cg_tsn u_cg_tsn = new;
+
   // ---------------- functional coverage ----------------
   `FC(tx_class0, v_tx[0])
   `FC(tx_class1, v_tx[1])

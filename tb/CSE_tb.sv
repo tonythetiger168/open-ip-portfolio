@@ -125,6 +125,18 @@ module CSE_tb;
     kat(128'h000102030405060708090a0b0c0d0e0f, 128'h00112233445566778899aabbccddeeff,
         128'h69c4e0d86a7b0430d8cdb78070b4c55a, "after reset");
 
+    // decrypt of all-zero and all-ones blocks (inverse round trip:
+    // encrypting the result gives the block back), consecutive decrypts
+    // and consecutive encrypts
+    begin : dir_classes
+      logic [127:0] r0, r1, e;
+      load_key(128'h2b7e151628aed2a6abf7158809cf4f3c);
+      run_op(0, 128'h0, r0);
+      run_op(0, '1, r1);
+      run_op(1, r0, e); check(e === 128'h0, "decrypt(0) inverse round trip");
+      run_op(1, r1, e); check(e === '1, "decrypt(1s) inverse round trip");
+    end
+
     if (errors == 0) $display("TEST PASSED: CSE");
     else             $display("TEST FAILED: %0d errors", errors);
     $finish;
