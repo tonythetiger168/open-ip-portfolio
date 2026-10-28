@@ -58,7 +58,14 @@
 
   task automatic act(input logic [31:0] a); cmd(3'd1, a, $urandom); endtask
   task automatic pre(input logic [31:0] a); cmd(3'd4, a, $urandom); endtask
-  task automatic idle(input int n); repeat (n) @(negedge clk); endtask
+  // idle clocks; once the controller has been idle 40 clocks (any write data
+  // long gone), dq must float: a controller drives dq only for write data
+  task automatic idle(input int n);
+    for (int i = 0; i < n; i++) begin
+      @(negedge clk);
+      if (i >= 40 && hready === 1'b1 && dq !== 'z) fail($sformatf("dq driven while idle: %h", dq));
+    end
+  endtask
   task automatic quiesce; while (hready !== 1'b1) @(negedge clk); endtask
 
   function automatic logic [13:0] rrow;
