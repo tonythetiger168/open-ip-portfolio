@@ -278,12 +278,14 @@ module UCIe_tb;
     wait_clk(3);
     rst_n = 1;
     wait_clk(3);
-    // ---- bring-up: B late (A's AdvCap kept in RESET)
+    // ---- bring-up: B late (A's AdvCap kept in RESET), with both capabilities,
+    // so A must wait in PARAM for B's AdvCap before it can finish
     a_phy = 1; b_phy = 1; a_en = 1;
     wait_clk(20);
     if (a_st != PARAM) fail("A not in PARAM while B is disabled");
     b_en = 1;
     wait_st(ACTIVE, ACTIVE, "bring-up");
+    if (a_cap != 2'b11 || b_cap != 2'b11) fail($sformatf("bring-up: cap %b / %b", a_cap, b_cap));
     run(1000, "clean");
     dly = 6; p_tx = 100;
     run(1000, "long delay");
@@ -325,9 +327,14 @@ module UCIe_tb;
     if (a_st != ACTIVE) fail("A asked for L1 again without pm_req dropping");
     a_pm = 0; wait_clk(1); a_pm = 1;
     wait_st(L1, L1, "L1 again");
+    a_pm = 0; wait_clk(1); a_pm = 1;                 // dropped and raised in L1: armed again
     poke(1);                                         // A wakes the link
     wait_st(ACTIVE, ACTIVE, "L1 exit by A");
     drain("L1 exit by A");
+    wait_st(L1, L1, "L1 re-armed in L1");            // so A asks again by itself
+    poke(1);
+    wait_st(ACTIVE, ACTIVE, "second L1 exit by A");
+    drain("second L1 exit by A");
     a_pm = 0; b_l1ok = 0; wait_clk(2); a_pm = 1;    // B refuses: PMNAK
     wait_clk(30);
     if (a_st != ACTIVE || b_st != ACTIVE) fail("L1 refused, but not ACTIVE");
@@ -550,6 +557,10 @@ module UCIe_tb;
     a_on = 1; b_on = 1; wait_clk(100);
     link_down();                                     // with traffic
     link_up(1, 1, 1, 1, "after disable in ACTIVE");
+    link_down();                                     // a bad flit first thing after a
+    link_up(1, 1, 1, 1, "before a bad first flit");  // restart: Nak
+    p_cor = 100; poke(1); wait_clk(dly + 3); p_cor = 0;
+    drain("bad first flit");
     run(300, "after disable in ACTIVE");
 
     // ---- reset with traffic in flight
@@ -559,9 +570,15 @@ module UCIe_tb;
     a_on = 0; b_on = 0;
     wait_clk(3);
     sb_ab.delete(); sb_ba.delete(); a_tv = 0; b_tv = 0;
+    a_pm = 1;                                        // held through the reset: not armed
     rst_n = 1;
     p_cor = 0; dly = 1;
     wait_st(ACTIVE, ACTIVE, "after reset");
+    p_cor = 100; poke(1); wait_clk(dly + 3); p_cor = 0;  // a bad first flit after reset: Nak
+    drain("bad first flit after reset");
+    wait_clk(30);
+    if (a_st != ACTIVE) fail("A asked for L1 after reset without pm_req dropping");
+    a_pm = 0;
     run(1000, "after reset");
     if (errors == 0) $display("TEST PASSED: UCIe (%0d A->B, %0d B->A payloads, %0d replays, %0d retrains)", n_ab, n_ba, n_rep, n_rt);
     else $display("TEST FAILED: UCIe (%0d errors)", errors);

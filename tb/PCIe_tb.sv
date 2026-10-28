@@ -49,7 +49,7 @@ module PCIe_tb;
   wire  [7:0]      rs1 = dr[0] ? 8'h00 : tx_sym[0] ^ xs[0];
   wire             rk1 = dr[0] ? 1'b0 : tx_k[0] ^ xk[0];
 
-  PCIe_top #(.MAXLEN(MAXLEN), .TXN(TXN), .RXN(RXN), .REPLAY_TO(REPLAY_TO), .DP(3)) u_a (
+  PCIe_top #(.MAXLEN(MAXLEN), .TXN(TXN), .RXN(RXN), .REPLAY_TO(REPLAY_TO), .DP(3), .DC(4)) u_a (
     .clk(clk), .rst_n(rst_n), .link_up(link[0]), .tx_sym(tx_sym[0]), .tx_k(tx_k[0]), .rx_sym(rs0), .rx_k(rk0),
     .tlp_valid(tlp_valid[0]), .tlp_ready(tlp_ready[0]), .tlp_data(tlp_data[0]), .tlp_last(tlp_last[0]),
     .rx_valid(rx_valid[0]), .rx_ready(rx_ready[0]), .rx_data(rx_data[0]), .rx_last(rx_last[0]),
@@ -232,6 +232,13 @@ module PCIe_tb;
     @(negedge clk);
   endtask
 
+  task automatic chk_initfc(input logic [7:0] t, input logic [7:0] h, input logic [11:0] d);
+    wait_dllp(t);
+    if ({a_dllp[1][5:0], a_dllp[2][7:6]} != h || {a_dllp[2][3:0], a_dllp[3]} != d)
+      fail($sformatf("InitFC1 %h: %0d headers, %0d data credits; want %0d, %0d", t,
+                     {a_dllp[1][5:0], a_dllp[2][7:6]}, {a_dllp[2][3:0], a_dllp[3]}, h, d));
+  endtask
+
   // ---------------- helpers ----------------
   task automatic wait_clk(input int n);
     repeat (n) @(negedge clk);
@@ -399,8 +406,11 @@ module PCIe_tb;
     link_cycle();
     bfm = 1;
     link[0] = 1;
-    // InitFC2 straight away (FC1 -> FC2), infinite credit; UpdateFC ends FC2
-    wait_dllp(8'h40);
+    // the credits A advertises (DP = 3, DC = 4); InitFC2 straight away (FC1 -> FC2),
+    // infinite credit; UpdateFC ends FC2
+    chk_initfc(8'h50, 8'd1, 12'd2);
+    chk_initfc(8'h60, 8'd1, 12'd4);
+    chk_initfc(8'h40, 8'd2, 12'd3);
     bfc3(8'hC0, 8'd0);
     bwait();
     wait_clk(50);
@@ -603,6 +613,15 @@ module PCIe_tb;
     bwait();
     pm_wait(0, 0, 50);
     pm_wait(0, 1);
+    // a TLP while A asks, the ack right behind it: A owes an Ack, so it
+    // ignores the ack, sends the Ack and asks again
+    btlp(bseq, 6, 0, 1); bseq++;
+    bdllp(8'h24, 0, 0, 0);
+    bwait();
+    wait_clk(3);
+    if (pm_state[0] == 2'd2) fail("L1 entered with an Ack owed");
+    wait_dllp(8'h00);
+    wait_dllp(8'h23);
     bdllp(8'h24, 0, 0, 0);
     bwait();
     pm_wait(0, 2);

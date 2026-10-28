@@ -66,12 +66,13 @@ clocks while in L0.
 up and nothing unacknowledged, written or owed, the layer stops
 taking TLPs and sends PM_Active_State_Request_L1 every FC_GAP clocks
 (credits read out are still returned);
-PM_Request_Ack -> L1; pm_req low or a TLP written -> L0. A request
-received with aspm_ok and the same idle conditions (no TLP written)
-is answered by PM_Request_Ack and enters L1; otherwise
-it is ignored. In L1 nothing is sent but PM_Request_Ack; a TLP
-written, an Ack, Nak or UpdateFC owed, or any packet received other
-than a PM DLLP, returns to L0.
+PM_Request_Ack -> L1 when nothing is owed (no Ack, Nak or UpdateFC
+waiting; otherwise the ack is ignored and the request repeated);
+pm_req low or a TLP written -> L0. A request received with aspm_ok
+and the same conditions (no TLP written, nothing owed) is answered by
+PM_Request_Ack and enters L1; otherwise it is ignored. In L1 nothing
+is sent but PM_Request_Ack; a TLP written, a TLP read out or any
+packet received other than a PM DLLP returns to L0.
 Packets go out between packets in the order Nak, Ack, PM_Request_Ack,
 InitFC, PM request, UpdateFC (P, NP, Cpl), TLP.
 Not implemented: the physical layer (LTSSM, ordered sets, electrical
@@ -318,5 +319,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/PCIe_top.sv` | pass | 192/192 | 1804/1804 (+4 excl.) | 22/22 | 8/8 | 127/127 |
+| core `rtl/PCIe_top.sv` | pass | 192/192 | 1838/1838 (+4 excl.) | 22/22 | 8/8 | 128/128 |
 | wrapper `rtl/PCIe_apb.sv` | pass | 34/34 | 640/640 | n/a | 14/14 | 91/91 |

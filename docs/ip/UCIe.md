@@ -394,5 +394,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/UCIe_top.sv` | pass | 139/139 | 4562/4562 (+22 excl.) | 7/7 | 8/8 | 230/230 |
+| core `rtl/UCIe_top.sv` | pass | 146/146 (+7 excl.) | 4562/4562 (+22 excl.) | 7/7 | 8/8 | 230/230 |
 | wrapper `rtl/UCIe_apb.sv` | pass | 98/98 | 6936/6936 (+22 excl.) | n/a | 30/30 | 139/139 |
