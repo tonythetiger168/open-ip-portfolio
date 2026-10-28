@@ -426,6 +426,15 @@ module SAS_4__Serial_Attached_SCSI__tb;
     wait_rsp(4);
     cycles(500);
 
+    // ---- OOB detect threshold: a 63-clk answer burst is ignored (the DUT
+    // repeats COMRESET), a 64-clk one (OOB_DET_MIN) is taken
+    hard_reset();
+    bursts_seen = 0;
+    oob_plan = '{63, 64};
+    wait_link(6000);
+    if (bursts_seen != 3) fail($sformatf("OOB threshold: bursts %0d exp 3", bursts_seen));
+    wait_rsp(2);
+
     if (frames_wr == 0 || frames_rd == 0) fail("no sequencer traffic");
     if (errors == 0) $display("TEST PASSED: SAS_4__Serial_Attached_SCSI_");
     else $display("TEST FAILED: SAS_4__Serial_Attached_SCSI_ (%0d errors)", errors);
