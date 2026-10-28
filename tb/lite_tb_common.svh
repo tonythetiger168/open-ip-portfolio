@@ -174,6 +174,9 @@
     rst_n = 0; idle(3); rst_n = 1; idle(2);
     mrr(0, 8'(CL0 - 5));
     rdl(mk(1, 2, 2));
+    // a full refresh rotation of traffic-free time raises no irq
+    idle(T_REFI * NBANK + 200);
+    if (irq !== 1'b0) fail("irq set with no rejected command since reset");
     if (errors == 0 && n_rd > 0)
       $display("TEST PASSED: %m (%0d reads, %0d writes)", n_rd, n_wr);
     else $display("TEST FAILED: %m (%0d errors)", errors);
