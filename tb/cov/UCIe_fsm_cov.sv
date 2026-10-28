@@ -3,4 +3,19 @@
 // FSM state and transition (arc) coverage for UCIe: one cover property per
 // state and per explicit RTL arc, bound into the DUT module(s).
 
-// no clocked enum-typed state register found: FSM coverage N/A
+module UCIe_top__fsm_cov (
+  input logic c_clk,
+  input logic r_rst_n,
+  input logic [2:0] s_st
+);
+  // ---- FSM UCIe_top.st: 7 states, 0 arcs ----
+  fsm_st__st__S_RESET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_st == 3'd0);
+  fsm_st__st__S_PARAM: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_st == 3'd1);
+  fsm_st__st__S_ACTREQ: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_st == 3'd2);
+  fsm_st__st__S_ACTIVE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_st == 3'd3);
+  fsm_st__st__S_L1: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_st == 3'd4);
+  fsm_st__st__S_RETRAIN: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_st == 3'd5);
+  fsm_st__st__S_LINKERR: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_st == 3'd6);
+endmodule
+
+bind UCIe_top UCIe_top__fsm_cov u_fsm_cov (.c_clk(clk), .r_rst_n(rst_n), .s_st(st));

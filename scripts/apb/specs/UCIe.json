@@ -1,25 +1,53 @@
 {
-  "title": "UCIe Die-to-Die Adapter Retry: flits with CRC-16 and sequence numbers, Ack / Nak from the far side, a replay buffer resent on a Nak or a replay timeout",
+  "title": "UCIe-style Die-to-Die Adapter: 68-byte flits for two protocol stacks, capability exchange and the Adapter link state machine over the sideband, L1, retrain, and Retry (CRC-16, sequence numbers, Ack / Nak, replay buffer and timer)",
   "code": "0x5543",
-  "version": "2.0",
+  "version": "3.0",
   "tb_clk_ns": 10,
-  "tb_timeout": "20ms",
+  "tb_timeout": "40ms",
   "regs": [
-    {"name": "TX", "kind": "stream_in", "data": ["tx_data"], "valid": "tx_valid", "ready": "tx_ready",
-     "desc": "Payload to send; writing TX1 sends it (the Adapter takes it when the replay buffer has room and no replay is running)",
-     "fdesc": {"tx_data": "payload"}},
-    {"name": "RX", "kind": "stream_out", "data": ["rx_data"], "valid": "rx_valid",
-     "desc": "Payload received; reading RX1 pops it. A payload arriving while RX is full is lost (RX_OVF)",
-     "fdesc": {"rx_data": "payload"}},
-    {"name": "STATUS", "kind": "ro", "desc": "Retry state",
-     "fields": [{"port": "tx_pend", "desc": "flits sent and not yet acknowledged"}]}
+    {"name": "CTRL", "kind": "rw", "desc": "Link control and capabilities",
+     "fields": [{"port": "link_en", "reset": "0", "desc": "enable the link: with phy_up the Adapter starts the capability exchange; clearing it returns to RESET and clears everything"},
+                {"port": "cfg_retry", "reset": "1", "desc": "Retry capability advertised in AdvCap (taken when the link starts)"},
+                {"port": "cfg_stack1", "reset": "1", "desc": "stack 1 capability advertised in AdvCap (taken when the link starts)"},
+                {"port": "cfg_l1_ok", "reset": "1", "desc": "accept L1 requests from the far side"},
+                {"port": "pm_req", "reset": "0", "desc": "request L1 when the link is idle (armed again once cleared)"}]},
+    {"name": "TX", "kind": "stream_in", "data": ["tx_data", "tx_stack"], "valid": "tx_valid", "ready": "tx_ready",
+     "desc": "64-byte flit payload to send and its stack; writing the last word sends it (the Adapter takes it in ACTIVE when the replay buffer has room and no replay is running; in L1 it wakes the link)",
+     "fdesc": {"tx_data": "payload", "tx_stack": "protocol stack (1 is dropped unless negotiated)"}},
+    {"name": "RX", "kind": "stream_out", "data": ["rx_data", "rx_stack"], "valid": "rx_valid",
+     "desc": "64-byte payload received and its stack; reading the last word pops it. A payload arriving while RX is full is lost (RX_OVF)",
+     "fdesc": {"rx_data": "payload", "rx_stack": "protocol stack"}},
+    {"name": "STATUS", "kind": "ro", "desc": "Link state",
+     "fields": [{"port": "state", "desc": "link state: 0 RESET, 1 PARAM, 2 ACTREQ, 3 ACTIVE, 4 L1, 5 RETRAIN, 6 LINKERROR"},
+                {"port": "cap", "desc": "negotiated capabilities {stack 1, Retry}"},
+                {"port": "tx_pend", "desc": "flits sent and not yet acknowledged"}]}
   ],
   "irqs": [
     {"name": "CRC", "port": "ev_crc", "desc": "a flit with a bad CRC was received and dropped"},
-    {"name": "REPLAY", "port": "ev_replay", "desc": "a replay started: a Nak from the far side, or the replay timeout"}
+    {"name": "REPLAY", "port": "ev_replay", "desc": "a replay started: a Nak from the far side, or the replay timeout"},
+    {"name": "RETRAIN", "port": "ev_retrain", "desc": "NR replays without progress: a retrain was requested (lp_retrain)"},
+    {"name": "PMNAK", "port": "ev_pmnak", "desc": "the far side refused an L1 request"},
+    {"name": "PROTO", "port": "ev_proto", "desc": "a sideband message not expected in the state, or a flit dropped (wrong state, RTY mismatch, stack 1 not negotiated)"},
+    {"name": "LINKERR", "port": "ev_lerr", "desc": "LINKERROR entered: FinCap mismatch, handshake timeout, or a bad CRC without Retry"}
+  ],
+  "features": [
+    "68-byte flits: a 2-byte header {DATA, STACK, NAK, RTY, SEQ, ACK}, a 64-byte payload, a CRC-16.",
+    "Two protocol stacks multiplexed on one link; stack 1 only when both sides advertise it.",
+    "Capability exchange (AdvCap / FinCap) and the Active handshake (Req.Active / Rsp.Active) over a sideband, with a handshake timeout.",
+    "Adapter link state machine: RESET, PARAM, ACTREQ, ACTIVE, L1, RETRAIN, LINKERROR.",
+    "L1 entry from either side (Req.L1 / Rsp.L1 / Rsp.PMNAK), crossed requests, exit on traffic.",
+    "Retrain on phy_up loss, keeping the Retry state and replaying what is outstanding; a retrain request after NR replays without progress.",
+    "Retry: sequence numbers, Ack / Nak, an RB-entry replay buffer and a replay timer. Without Retry a bad CRC is a link error."
   ],
   "notes": [
-    "lt_valid / lt_flit and lr_valid / lr_flit are the flit interfaces to the link; they pass through unchanged.",
-    "The core parameters RB (8) and TO (32) keep their defaults."
+    "lt_valid / lt_flit and lr_valid / lr_flit are the 68-byte flit interface to the physical layer, phy_up / lp_retrain its status and retrain request, and sb_tx_valid / sb_tx_msg and sb_rx_valid / sb_rx_msg the sideband; they pass through unchanged.",
+    "The core parameters RB (8), TO (64), NR (4) and HT (512) keep their defaults.",
+    "Field layouts, message codes and the CRC are ours; they follow the UCIe Adapter's structure but have not been checked against another UCIe Adapter."
+  ],
+  "sequence": [
+    "Write CTRL with link_en set (and the capabilities wanted); poll STATUS until state reads 3 (ACTIVE) and check cap.",
+    "Send: write TX0..TX15 (payload) and TX16 (stack); the last write commits it. Receive: on RX_AVAIL read RX0..RX16; reading RX16 pops it.",
+    "Set pm_req to let the link enter L1 when idle; a TX write wakes it.",
+    "On LINKERR, clear link_en, then set it again to restart the link."
   ]
 }
