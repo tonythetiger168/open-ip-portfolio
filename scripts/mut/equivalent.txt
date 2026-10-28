@@ -1,0 +1,25 @@
+# Equivalent mutants: no observable behaviour changes, so no test can kill
+# them. run_mut.py skips these sites. One per line:
+#   IP | stripped RTL line[#N] | from -> to | reason
+# #N picks the N-th line with that text when it occurs more than once. An
+# entry that matches no mutant site fails the run, so fix the entry when the
+# RTL changes.
+ACE | line_dirty[acaddr[7:2]] <= 1'b0;#3 | 1'b0 -> 1'b1 | the line is invalidated in the same clock; dirty is only visible on a valid line
+HBM2 | if (ref_walk)      begin ref_walk <= 1'b0; dstate <= D_IDLE; end | 1'b0 -> 1'b1 | ref_walk is reloaded at every host accept before it is read again
+HBM | if (ref_walk)      begin ref_walk <= 1'b0; dstate <= D_IDLE; end | 1'b0 -> 1'b1 | ref_walk is reloaded at every host accept before it is read again
+GDDR6 | bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0]; | 1'b0 -> 1'b1 | overwritten by a later non-blocking assignment in the same clock
+GDDR6 | rd_pending <= 1'b0; | 1'b0 -> 1'b1 | rd_pending is reloaded at every host accept, before the next D_CAS
+USB | if (rx_edge && (line == LN_K)) begin | == -> != | idle is J, so the mutant starts on the second sync edge instead of the first and still locks on the closing KK
+USB2 | if (line == LN_J) rs <= RS_IDLE; | == -> != | RS_IDLE and RS_SE0 act the same until the next J/K edge, and SE0 -> J is not an edge
+USB2 | exp_setup  <= 1'b0; | 1'b0 -> 1'b1 | reloaded on every token before it is used
+APB | waited_q <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; reloaded at every setup phase before it is read
+APB | end else if (access && penable && !pready) begin | && -> || | sets waited_q only outside a wait state; the next setup phase reloads it before pready reads it
+OCP_IP_Open_Core_Protocol | done_err <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; written on every path into O_DONE
+LIN | if (!t_hdr && t_i <= {1'b0, r_len}) t_sum <= csum_add(t_sum, t_byte); | && -> || | only changes t_sum after the checksum byte has been sent
+LIN | if (!t_hdr && t_i <= {1'b0, r_len}) t_sum <= csum_add(t_sum, t_byte); | 1'b0 -> 1'b1 | only changes t_sum after the checksum byte has been sent
+GDDR7_Lite | wire rrd_done = (rrd_cnt == '0) && !ld_rrd_v; | && -> || | a single engine: tRRD has always elapsed by the next ACT
+HBM3E_Lite | if (!req_we && rbuf_valid) begin | && -> || | latency only: the buffered read is returned either way
+HBM3E_Lite | eng_ref_req <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; written at every engine refresh start before it is read
+Avalon_MM | (av_burstcount >  8'd16) ? 5'd16 : | > -> >= | burstcount 16 clamps to 16 either way
+CSI_2 | lb_len <= (wc > LB16) ? LB16 : wc; | > -> >= | wc == LB16 gives LB16 either way
+Ethernet_AVB_TSN | ttc[c] = (open || t >= {3'd0, cyc_rem}) ? cyc_rem : t[23:0]; | >= -> > | t == cyc_rem gives cyc_rem either way

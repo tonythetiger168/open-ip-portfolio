@@ -20,6 +20,11 @@ checkers (tb/cov/<P>_sva.sv) kill more, so this is a lower bound.
 
 Results: work/mut/<P>.json and a table on stdout (survivors listed with
 their line, so each one is either a TB gap to close or an equivalent mutant).
+
+Equivalent mutants (no observable behaviour changes) are listed, with the
+reason, in scripts/mut/equivalent.txt and are not run or scored. An entry
+that no longer matches a mutant site is an error, so the list follows the
+RTL.
 """
 import argparse, json, os, random, re, shutil, signal, subprocess, sys, tempfile, time
 from concurrent.futures import ThreadPoolExecutor
@@ -41,6 +46,47 @@ SKIP = ("`", "localparam", "parameter", "input", "output", "inout", "module",
         "initial")
 # a net / variable declaration is skipped unless it carries an assignment
 DECL = ("logic", "reg", "wire", "bit", "int", "integer")
+
+
+EQUIV = os.path.join(ROOT, "scripts", "mut", "equivalent.txt")
+
+
+def load_equiv():
+    """{ip: [(code, nth, from, to, reason)]} from equivalent.txt. Lines:
+    IP | code | from -> to | reason, where code is the stripped RTL line and
+    code#N picks the N-th line with that text when it occurs more than once."""
+    eq = {}
+    if not os.path.exists(EQUIV):
+        return eq
+    for raw in open(EQUIV):
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        ip, code, op, reason = (f.strip() for f in raw.rstrip("\n").split(" | ", 3))
+        nth = None
+        m = re.fullmatch(r"(.*)#(\d+)", code)
+        if m:
+            code, nth = m.group(1).strip(), int(m.group(2))
+        a, b = (x.strip() for x in op.split("->"))
+        eq.setdefault(ip, []).append((code, nth, a, b, reason))
+    return eq
+
+
+def equiv_sites(src, cand, entries):
+    """The candidate sites the entries name, and the entries that name none."""
+    lines = [code_part(l).strip() for l in src.splitlines()]
+    hit, stale = set(), []
+    for e in entries:
+        code, nth, a, b, _ = e
+        lns = [i for i, l in enumerate(lines) if l == code_part(code).strip()]
+        if (nth is None and len(lns) != 1) or len(lns) < (nth or 1):
+            stale.append(e)   # missing, or ambiguous without #N
+            continue
+        ln = lns[(nth or 1) - 1]
+        m = [c for c in cand if c[0] == ln and src.splitlines()[ln][c[1]:c[2]] == a and c[3] == b]
+        if not m:
+            stale.append(e)
+        hit.update(m)
+    return hit, stale
 
 
 def code_part(line):
@@ -152,6 +198,11 @@ def one(flow, P, n, seed, lines=None):
     base = time.time() - t0
     timeout = max(60, 3 * base)
     cand = sites(src)
+    eq, stale = equiv_sites(src, cand, load_equiv().get(P, []))
+    if stale:
+        return {"ip": P, "error": "equivalent.txt entries match no mutant: " +
+                "; ".join(f"{c}{'#%d' % k if k else ''} {a} -> {b}" for c, k, a, b, _ in stale)}
+    cand = [c for c in cand if c not in eq]
     if lines:   # every mutant on the given lines, in order
         cand = [c for c in cand if c[0] + 1 in lines]
         n = len(cand)
@@ -169,7 +220,8 @@ def one(flow, P, n, seed, lines=None):
         res.append({"line": ln + 1, "from": line[a:b], "to": rep, "status": st,
                     "code": line.strip()})
     k = sum(r["status"] == "KILLED" for r in res)
-    return {"ip": P, "flow": flow, "sites": len(cand), "mutants": len(res), "killed": k,
+    return {"ip": P, "flow": flow, "sites": len(cand), "equivalent": len(eq),
+            "mutants": len(res), "killed": k,
             "score": (k / len(res)) if res else None, "results": res}
 
 
@@ -208,7 +260,8 @@ def main():
                 continue
             tot_k += r["killed"]; tot_m += r["mutants"]
             sc = "n/a" if r["score"] is None else f"{100 * r['score']:.0f}%"
-            print(f"{r['ip']:40s} {r['killed']:3d}/{r['mutants']:<3d} {sc}", flush=True)
+            eqn = f"  ({r['equivalent']} equivalent skipped)" if r["equivalent"] else ""
+            print(f"{r['ip']:40s} {r['killed']:3d}/{r['mutants']:<3d} {sc}{eqn}", flush=True)
             for m in r["results"]:
                 if m["status"] == "SURVIVED" or lines:
                     print(f"    {m['status'].lower()} line {m['line']}: {m['from']} -> {m['to']}   {m['code'][:80]}")
