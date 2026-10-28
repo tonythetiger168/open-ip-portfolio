@@ -55,8 +55,13 @@ partially-encoded enum, a tie-off that is constant by construction, and the
 upper bits of a counter whose largest load is below the next power of two.
 FSM, SVA and functional coverage have no exclusions.
 
-Totals: 110 line points out of 11516 and 3765 toggle points out of 127254
-for the cores; 455 toggle points out of 92640 for the wrappers.
+Totals: 110 line points out of 11622 and 3787 toggle points out of 131078
+for the cores; 477 toggle points out of 98244 for the wrappers.
+
+Verilator leaves signals wider than 256 bits out of toggle coverage by
+default. An IP with wider buses (UCIe: 544-bit flits) raises the limit in
+`scripts/cov/flags/<P>.txt`, which `run_cov.sh` passes to Verilator for the
+core and wrapper runs, so those bits are scored too.
 
 * Of the 3765 core toggle exclusions, 3675 are in the 24 memory controllers.
   Each bank keeps its own timing counters (tRP, tRAS, tRC, tRFC, tREFI), and
@@ -183,7 +188,7 @@ all closed). The tables come from `python3 scripts/cov/report.py`.
 | Toggle_Mode_NAND | 98/98 | 246/246 | 31/31 | 7/7 | 75/75 | pass |
 | UALink | 70/70 | 1722/1722 | 8/8 | 5/5 | 108/108 | pass |
 | UART | 59/59 | 130/130 | 17/17 | 8/8 | 526/526 | pass |
-| UCIe | 33/33 | 738/738 | n/a | 5/5 | 67/67 | pass |
+| UCIe | 139/139 | 4562/4562 (+22 excl.) | 7/7 | 8/8 | 230/230 | pass |
 | UEC | 90/90 | 1132/1132 | n/a | 7/7 | 79/79 | pass |
 | UFS | 102/103 (+1 excl.) | 1156/1156 | 26/26 | 5/5 | 56/56 | pass |
 | USB | 234/234 | 910/910 | 47/47 | 4/4 | 56/56 | pass |
@@ -204,7 +209,7 @@ all closed). The tables come from `python3 scripts/cov/report.py`.
 | eMMC | 120/120 | 1622/1622 | 17/17 | 6/6 | 64/64 | pass |
 | eUSB2 | 107/108 (+1 excl.) | 394/394 | 16/16 | 6/6 | 74/74 | pass |
 
-Totals: line 11406/11516 (+110 excluded), toggle 123489/127254 (+3765 excluded), fsm 2500/2500, sva 1450/1450, functional 11320/11320.
+Totals: line 11512/11622 (+110 excluded), toggle 127291/131078 (+3787 excluded), fsm 2507/2507, sva 1453/1453, functional 11483/11483.
 
 For the IPs rebuilt last (UniPro, DisplayPort2, SAS-4, SATA, the clone
 rewrites and the memory family), the checker was also tested with deliberate
@@ -322,7 +327,7 @@ machine, so FSM is n/a.
 | Toggle_Mode_NAND_apb | 20/20 | 426/426 | n/a | 7/7 | 25/25 | pass |
 | UALink_apb | 19/19 | 792/792 | n/a | 7/7 | 27/27 | pass |
 | UART_apb | 30/30 | 502/502 | n/a | 9/9 | 51/51 | pass |
-| UCIe_apb | 35/35 | 1332/1332 | n/a | 10/10 | 61/61 | pass |
+| UCIe_apb | 98/98 | 6936/6936 (+22 excl.) | n/a | 30/30 | 139/139 | pass |
 | UEC_apb | 37/37 | 720/720 | n/a | 14/14 | 69/69 | pass |
 | UFS_apb | 19/19 | 402/402 | n/a | 7/7 | 23/23 | pass |
 | USB2_0_apb | 20/20 | 402/402 | n/a | 7/7 | 25/25 | pass |
@@ -343,4 +348,4 @@ machine, so FSM is n/a.
 | eMMC_apb | 19/19 | 412/412 | n/a | 7/7 | 23/23 | pass |
 | eUSB2_apb | 20/20 | 406/406 | n/a | 7/7 | 25/25 | pass |
 
-Totals: line 3674/3674, toggle 92185/92640 (+455 excluded), fsm 0/0, sva 1335/1335, functional 5705/5705.
+Totals: line 3737/3737, toggle 97767/98244 (+477 excluded), fsm 0/0, sva 1355/1355, functional 5783/5783.

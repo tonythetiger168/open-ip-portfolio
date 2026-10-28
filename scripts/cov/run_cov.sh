@@ -6,6 +6,7 @@
 #   bash scripts/cov/run_cov.sh I2C
 #   bash scripts/cov/run_cov.sh I2C_apb   # APB wrapper: scores rtl/I2C_apb.sv only
 # Env: BUILD_DIR (default work/cov/<P>), SEED (default 1), VFLAGS (extra).
+# Per-IP options: scripts/cov/flags/<P>.txt (core and wrapper runs).
 set -u
 cd "$(dirname "$0")/../.."
 P="${1:?usage: run_cov.sh <PROTOCOL>}"
@@ -41,12 +42,15 @@ else
   COV="tb/cov/${P}_fsm_cov.sv"
   [ -f "tb/cov/${P}_sva.sv" ] && COV="$COV tb/cov/${P}_sva.sv"
 fi
+# per-IP Verilator options (e.g. --coverage-max-width for flits wider than
+# the default 256 bits, which Verilator leaves out of toggle coverage)
+XFLAGS=$(grep -v '^#' "scripts/cov/flags/$BASE.txt" 2>/dev/null | tr '\n' ' ')
 sed "s/V@TOP@/Vtop/g; s/@TOP@/${TB}/g" scripts/verilator_cov/sim_main.cpp.tmpl > "$BUILD/sim_main.cpp"
 
 verilator --cc --exe --build --timing --assert \
   --coverage-line --coverage-toggle --coverage-user \
   -j 4 -Wno-fatal -Wno-lint -Wno-style -Wno-UNOPTFLAT -Wno-COVERIGN \
-  +incdir+tb/cov +incdir+tb --top-module "$TB" --prefix Vtop ${VFLAGS:-} \
+  +incdir+tb/cov +incdir+tb --top-module "$TB" --prefix Vtop ${XFLAGS} ${VFLAGS:-} \
   $RTL "tb/$TB.sv" $COV "$BUILD/sim_main.cpp" \
   -o "${TB}_cov" --Mdir "$BUILD/obj" > "$BUILD/build.log" 2>&1 \
   || { echo "BUILD_FAIL $P (see $BUILD/build.log)"; grep -m5 '%Error' "$BUILD/build.log"; exit 1; }
