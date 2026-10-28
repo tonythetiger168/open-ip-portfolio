@@ -9,6 +9,11 @@
 `ifndef TB_OOR
 `define TB_OOR 32'h0004_0000             // lowest address bit that must be 0
 `endif
+`ifdef TB_NO_BAD_CMD
+`define TB_NREJ 2                        // rejection classes: high address, OOR, bad code
+`else
+`define TB_NREJ 3
+`endif
   logic [15:0] sb [NLINES*8];            // expected words, by line*8+beat
   initial for (int i = 0; i < NLINES * 8; i++) sb[i] = '0;   // the DUT zeroes its array
   int n_rd = 0, n_wr = 0, errors = 0;
@@ -90,6 +95,21 @@
     hvalid = 0; hcmd = 0; haddr = 0; hwdata = 0;
     repeat (3) @(negedge clk); rst_n = 1;
     @(negedge clk);
+    // ---- each rejection on its own sets the sticky irq (reset in between;
+    // nothing has been written yet, so the array is still all zero)
+    for (int r = 0; r < `TB_NREJ; r++) begin
+      if (irq !== 1'b0) fail($sformatf("irq set before rejection %0d", r));
+      case (r)
+        0: imm(3'd1, 32'h8000_0000 | mk(1, 1, 1));
+        1: imm(3'd2, `TB_OOR | mk(1, 1, 1));
+        default: imm(3'd6, 0);
+      endcase
+      idle(2);
+      if (irq !== 1'b1) fail($sformatf("irq not set by rejection %0d", r));
+      rst_n = 0; idle(3); rst_n = 1; idle(2);
+    end
+    imm(3'd0, $urandom); idle(2);
+    if (irq !== 1'b0) fail("irq set by a NOP");
     // ---- every bank: write, read back (closed bank, then hits)
     for (int b = 0; b < NBANK; b++) begin
       wrl(mk(b, 1, 0)); rdl(mk(b, 1, 0)); wrl(mk(b, 1, 7), 1); rdl(mk(b, 1, 7));
@@ -154,6 +174,9 @@
     rst_n = 0; idle(3); rst_n = 1; idle(2);
     mrr(0, 8'(CL0 - 5));
     rdl(mk(1, 2, 2));
+    // a full refresh rotation of traffic-free time raises no irq
+    idle(T_REFI * NBANK + 200);
+    if (irq !== 1'b0) fail("irq set with no rejected command since reset");
     if (errors == 0 && n_rd > 0)
       $display("TEST PASSED: %m (%0d reads, %0d writes)", n_rd, n_wr);
     else $display("TEST FAILED: %m (%0d errors)", errors);

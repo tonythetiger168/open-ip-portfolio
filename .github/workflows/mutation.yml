@@ -1,0 +1,77 @@
+name: mutation
+
+# Mutation testing with the full Verilator flow (testbench + bound checker):
+# scripts/mut/run_mut.py --flow cov, 8 mutants per IP, in 8 shards. Reports
+# the kill rate and every surviving mutant; fails only if an unmutated IP does
+# not pass. Weekly, on demand, and on changes to the mutation tooling.
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/mut/**'
+      - '.github/workflows/mutation.yml'
+
+concurrency:
+  group: mutation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  VERILATOR_VERSION: v5.052
+
+jobs:
+  verilator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: ~/verilator
+          key: verilator-${{ env.VERILATOR_VERSION }}-ubuntu-24.04
+      - name: Build Verilator
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git make autoconf g++ flex bison libfl-dev help2man python3
+          git clone -b "$VERILATOR_VERSION" --depth 1 https://github.com/verilator/verilator.git /tmp/verilator
+          cd /tmp/verilator
+          autoconf && ./configure --prefix="$HOME/verilator" && make -j"$(nproc)" && make install
+
+  run:
+    needs: verilator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/verilator
+          key: verilator-${{ env.VERILATOR_VERSION }}-ubuntu-24.04
+          fail-on-cache-miss: true
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y g++ make libfl2 python3-pip
+          pip install --break-system-packages pyslang==12.0.0
+          echo "$HOME/verilator/bin" >> "$GITHUB_PATH"
+      - name: Mutation run (shard ${{ matrix.shard }}/8)
+        run: |
+          set +e
+          python3 scripts/mut/run_mut.py --all --flow cov -n 8 -j 2 --shard ${{ matrix.shard }}/8 > work-mut.txt 2>&1
+          rc=$?
+          cat work-mut.txt
+          { echo '```'; cat work-mut.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-shard-${{ matrix.shard }}
+          path: work/mut/
+          retention-days: 30
