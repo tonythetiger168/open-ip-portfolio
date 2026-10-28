@@ -30,6 +30,7 @@ scripts/cov/             five-metric coverage flow (run_cov.sh, run_all.sh)
 scripts/ci_regression.sh sim + syn + apb regression run by CI
 scripts/package_releases.py  rebuilds releases/ from the current tree
 scripts/gen_filelists.py     rebuilds sim/filelist_<P>.f from the Makefiles
+scripts/mut/run_mut.py       mutation testing of the testbenches (Icarus or the Verilator flow)
 docs/ip/                 one page per IP: ports, register map, coverage
 docs/                    coverage closure, portfolio review, methodology notes
 gen_framework.py         original v1 generator (frozen: out of sync with rtl/ and tb/)
@@ -322,6 +323,10 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
   sim + syn + apb, plus a check that generated files are up to date) and
   `.github/workflows/coverage.yml` (this five-metric flow over all 242
   runs, in 8 shards; any IP that is not CLOSED fails the build).
+  `.github/workflows/mutation.yml` runs `scripts/mut/run_mut.py --flow cov`
+  weekly: 8 operator mutants per core (relational, logical, constant bit,
+  +/-1), each run through the testbench and its checker, with every
+  surviving mutant listed in the job summary.
   The v2.5.1 numbers below are the earlier four-metric flow.
 
 ### Earlier four-metric flow (v2.5.1)
