@@ -188,6 +188,14 @@ module Toggle_Mode_NAND_tb;
     cmd(8'h00);
     dout(8);
     for (int i = 0; i < 8; i++) check(rbuf[i] === shadow[7 * 64 + 4 + i], "data after 00h");
+    // a new read sequence abandoned after one address cycle drops that data:
+    // a later 00h starts a read sequence and does not drive the bus
+    cmd(8'h00); check(irq === 1'b0, "00h after a return to data");
+    addr(8'h02); cmd(8'h00);
+    wclk(2); check(irq === 1'b1, "00h after one address cycle: no irq");
+    cmd(8'h00);
+    re_n = 0; wclk(5); re_n = 1; wclk(5); check(dqs === 1'b0, "data driven after an abandoned read");
+    cmd(8'hFF); wait_ready();
     for (int i = 0; i < 64; i++) wbuf[i] = 8'h0F;
     cmd(8'h80); addr5(0, 8); din(64); cmd(8'h10);
     status(8'h80, "status while programming");
@@ -205,6 +213,7 @@ module Toggle_Mode_NAND_tb;
     cmd(8'h80); addr5(0, 1); din(2); cmd(8'h11); expect_irq("wrong program confirm");
     cmd(8'h60); addr(4); addr(0); addr(0); cmd(8'hD1); expect_irq("wrong erase confirm");
     cmd(8'h00); addr(0); cmd(8'h90);     expect_irq("command inside an address phase");
+    cmd(8'h80); cmd(8'h90);              expect_irq("command before the first address");
     cmd(8'h60); addr(4); cmd(8'h70);     dout(1); expect_irq("70h inside an address phase");
     cmd(8'h90); cmd(8'h90);              expect_irq("90h without address");
     addr(8'h12);                         expect_irq("address with no command");
