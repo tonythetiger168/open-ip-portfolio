@@ -55,12 +55,13 @@
 //    up and nothing unacknowledged, written or owed, the layer stops
 //    taking TLPs and sends PM_Active_State_Request_L1 every FC_GAP clocks
 //    (credits read out are still returned);
-//    PM_Request_Ack -> L1; pm_req low or a TLP written -> L0. A request
-//    received with aspm_ok and the same idle conditions (no TLP written)
-//    is answered by PM_Request_Ack and enters L1; otherwise
-//    it is ignored. In L1 nothing is sent but PM_Request_Ack; a TLP
-//    written, an Ack, Nak or UpdateFC owed, or any packet received other
-//    than a PM DLLP, returns to L0.
+//    PM_Request_Ack -> L1 when nothing is owed (no Ack, Nak or UpdateFC
+//    waiting; otherwise the ack is ignored and the request repeated);
+//    pm_req low or a TLP written -> L0. A request received with aspm_ok
+//    and the same conditions (no TLP written, nothing owed) is answered by
+//    PM_Request_Ack and enters L1; otherwise it is ignored. In L1 nothing
+//    is sent but PM_Request_Ack; a TLP written, a TLP read out or any
+//    packet received other than a PM DLLP returns to L0.
 //    Packets go out between packets in the order Nak, Ack, PM_Request_Ack,
 //    InitFC, PM request, UpdateFC (P, NP, Cpl), TLP.
 //  Not implemented: the physical layer (LTSSM, ordered sets, electrical
@@ -73,7 +74,8 @@
 module PCIe_top #(
   parameter int MAXLEN    = 32,       // bytes in a TLP
   parameter int TXN       = 4,        // unacknowledged TLPs (power of 2)
-  parameter int RXN       = 4,        // TLPs in the receive buffer (power of 2, at least HP + HNP + HC)
+  parameter int RXN       = 4,        // TLPs in the receive buffer (power of 2, at least HP + HNP + HC;
+                                      // RXN * MAXLEN bytes hold DP + DNP + DC credits of 16 bytes)
   parameter int REPLAY_TO = 600,      // replay timer, clocks
   parameter int ACK_LAT   = 16,       // Ack latency, clocks
   parameter int FC_GAP    = 32,       // InitFC and PM request repeat, clocks
@@ -193,7 +195,7 @@ module PCIe_top #(
   assign dl_up = dls == DL_ACTIVE;
   logic [1:0]    pst;                   // ASPM
   logic [PW-1:0] pmt;                   // PM request timer
-  logic          pmreq_p, pmack_p;
+  logic          pmreq_p, pmack_p;  // pmreq_p is only read in P_REQ, and set again on every entry
   assign pm_state = pst;
 
   // ---------------- transmit state ----------------
@@ -208,6 +210,9 @@ module PCIe_top #(
   logic [31:0]   tcrc;
   logic [7:0]    rb [0:TXN*MAXLEN-1];   // replay buffer, MAXLEN bytes a TLP
   logic [LW-1:0] rlen [0:TXN-1];
+  logic [1:0]    sty [0:TXN-1];         // credit type of each slot's TLP, and
+  logic [DNW-1:0] sdn [0:TXN-1];        // its data credits (kept as it is written)
+  logic [7:0]    wfb;                   // first byte of the TLP being written
   logic [11:0]   wr_seq, tx_seq, nsent, ackd;  // next written; next sent; next new; last acknowledged
   logic [BW-1:0] widx;
   logic          rp_req;
@@ -244,9 +249,8 @@ module PCIe_top #(
   // ---------------- transmit ----------------
   wire [11:0]  t_eff = rp_req || ahead(ackd + 12'd1, tx_seq) ? ackd + 12'd1 : tx_seq;
   wire         t_new = t_eff == nsent;
-  wire [7:0]   t_b0 = rb[IW'(t_eff[TW-1:0]) * IW'(MAXLEN)];
-  wire [1:0]   t_ty = ctype(t_b0);
-  wire [DNW-1:0] t_dn = dneed(t_b0[6], rlen[t_eff[TW-1:0]]);
+  wire [1:0]   t_ty = sty[t_eff[TW-1:0]];
+  wire [DNW-1:0] t_dn = sdn[t_eff[TW-1:0]];
   wire         t_cok = (hinf[t_ty] || hok(hcl[t_ty], hcc[t_ty])) && (dinf[t_ty] || dok(dcl[t_ty], dcc[t_ty], t_dn));
   wire         t_tlp = dl_up && pst == P_L0 && t_eff != wr_seq && (!t_new || t_cok);
   wire         t_fc = (dls == DL_FC1 || dls == DL_FC2) && fq != '0;
@@ -279,6 +283,7 @@ module PCIe_top #(
   wire         t_out = nsent != ackd + 12'd1;  // sent, unacknowledged
   // nothing unacknowledged, written or owed
   wire         idle = wr_seq == ackd + 12'd1 && !ack_p && !nak_p && widx == '0;
+  wire         quiet = idle && upd_p == '0;          // L1 is entered only with nothing to send
 
   // ---------------- receive ----------------
   wire [31:0]  r_nb = {rdl[23:0], rx_sym};     // with the byte now
@@ -308,7 +313,7 @@ module PCIe_top #(
     if (!rst_n) begin
       dls <= DL_INACTIVE; fct <= '0; fq <= '0; fgot <= '0; pst <= P_L0; pmt <= '0; pmreq_p <= 1'b0; pmack_p <= 1'b0;
       tst <= T_IDLE; tcnt <= '0; tdt <= '0; tdv <= '0; tdc <= '0; tcur <= '0; tlen <= '0; tcrc <= '0;
-      wr_seq <= '0; tx_seq <= '0; nsent <= '0; ackd <= 12'hFFF; widx <= '0; rp_req <= 1'b0; rnum <= '0;
+      wr_seq <= '0; tx_seq <= '0; nsent <= '0; ackd <= 12'hFFF; widx <= '0; wfb <= '0; rp_req <= 1'b0; rnum <= '0;
       rtmr <= '0; hinf <= '0; dinf <= '0;
       for (int i = 0; i < 3; i++) begin
         hcl[i] <= '0; hcc[i] <= '0; dcl[i] <= '0; dcc[i] <= '0;
@@ -322,8 +327,7 @@ module PCIe_top #(
        ev_nak, ev_replay} <= '0;
     end else begin : b_main
       logic wake;                                   // something leaves L1
-      logic ack_sent;
-      wake = 1'b0; ack_sent = 1'b0;
+      wake = 1'b0;
       retrain <= 1'b0;
       {ev_tlp_bad, ev_tlp_seq, ev_tlp_dup, ev_tlp_null, ev_overflow, ev_dllp_bad, ev_dllp_proto, ev_frame,
        ev_nak, ev_replay} <= '0;
@@ -337,7 +341,7 @@ module PCIe_top #(
       pmt <= pst == P_REQ && pmt != '0 ? pmt - 1'b1 : PW'(FC_GAP);
       if (pst == P_REQ && pmt == '0) pmreq_p <= 1'b1;
       if (pst == P_L0 && pm_req && dl_up && idle && !tlp_valid) begin pst <= P_REQ; pmreq_p <= 1'b1; pmt <= PW'(FC_GAP); end
-      if (pst == P_REQ && (!pm_req || tlp_valid)) begin pst <= P_L0; pmreq_p <= 1'b0; end
+      if (pst == P_REQ && (!pm_req || tlp_valid)) pst <= P_L0;
 
       // ---------------- transmit ----------------
       tx_sym <= 8'h00; tx_k <= 1'b0;
@@ -345,8 +349,8 @@ module PCIe_top #(
         if (t_go && (nak_p || t_ack || pmack_p || t_fc || t_pmr || t_upd)) begin
           tx_sym <= SDP; tx_k <= 1'b1; tst <= T_DLLP; tcnt <= LW'(1);
           tdt <= t_dt; tdv <= t_dv; tdc <= crc16_32(dllp(t_dt, t_dv));
-          if (nak_p) begin nak_p <= 1'b0; ack_p <= 1'b0; ack_f <= 1'b0; ack_t <= '0; ack_sent = 1'b1; end
-          else if (t_ack) begin ack_p <= 1'b0; ack_f <= 1'b0; ack_t <= '0; ack_sent = 1'b1; end
+          if (nak_p) begin nak_p <= 1'b0; ack_p <= 1'b0; ack_f <= 1'b0; ack_t <= '0; end
+          else if (t_ack) begin ack_p <= 1'b0; ack_f <= 1'b0; ack_t <= '0; end
           else if (pmack_p) pmack_p <= 1'b0;
           else if (t_fc) fq[t_ft] <= 1'b0;
           else if (t_pmr) pmreq_p <= 1'b0;
@@ -380,11 +384,14 @@ module PCIe_top #(
         if (rnum == 2'd3) retrain <= 1'b1;
       end else rtmr <= rtmr + 1'b1;
       // writing TLPs into the replay buffer
-      if (tlp_valid && tlp_ready) begin
+      if (tlp_valid && tlp_ready) begin : b_write
+        logic [7:0] fb;
+        fb = widx == '0 ? tlp_data : wfb;
         rb[IW'(wr_seq[TW-1:0]) * IW'(MAXLEN) + IW'(widx)] <= tlp_data;
-        widx <= widx + 1'b1;
+        widx <= widx + 1'b1; wfb <= fb;
         if (tlp_last || widx == BW'(MAXLEN - 1)) begin
           rlen[wr_seq[TW-1:0]] <= LW'(widx) + 1'b1; widx <= '0; wr_seq <= wr_seq + 12'd1;
+          sty[wr_seq[TW-1:0]] <= ctype(fb); sdn[wr_seq[TW-1:0]] <= dneed(fb[6], LW'(widx) + 1'b1);
         end
       end
       if (tlp_valid) wake = 1'b1;
@@ -426,7 +433,6 @@ module PCIe_top #(
             else begin
               nrs <= nrs + 12'd1; nak_s <= 1'b0;
               ack_p <= 1'b1;
-              if (!ack_p || ack_sent) ack_t <= '0;
               rcp <= rwp; rq[rqw[QW-1:0]] <= r_tn; rqt[rqw[QW-1:0]] <= r_ty; rqd[rqw[QW-1:0]] <= r_dn;
               rqw <= rqw + 1'b1;
               rch[r_ty] <= rch[r_ty] + 8'd1; rcd[r_ty] <= rcd[r_ty] + 12'(r_dn);
@@ -482,11 +488,11 @@ module PCIe_top #(
                 if (!dinf[ft]) dcl[ft] <= dat;
               end
             T_PMREQ:
-              if (dl_up && pst != P_L1 && aspm_ok && idle && !tlp_valid) begin
-                pmack_p <= 1'b1; pst <= P_L1; pmreq_p <= 1'b0;
+              if (dl_up && pst != P_L1 && aspm_ok && quiet && !tlp_valid) begin
+                pmack_p <= 1'b1; pst <= P_L1;
               end else if (pst == P_L1) pmack_p <= 1'b1;
             T_PMACK:
-              if (pst == P_REQ && pm_req && !tlp_valid) begin pst <= P_L1; pmreq_p <= 1'b0; end
+              if (pst == P_REQ && pm_req && quiet && !tlp_valid) pst <= P_L1;
             default: ev_dllp_proto <= 1'b1;
           endcase
         end
@@ -503,13 +509,13 @@ module PCIe_top #(
         end
       end
       // L1 left: something to send or received
-      if (pst == P_L1 && (wake || ack_p || nak_p || upd_p != '0)) pst <= P_L0;
+      if (pst == P_L1 && wake) pst <= P_L0;
 
       // the link drops: everything back to the start
       if (!link_up) begin
         dls <= DL_INACTIVE; tst <= T_IDLE; tx_sym <= 8'h00; tx_k <= 1'b0; fq <= '0; fgot <= '0;
-        pst <= P_L0; pmreq_p <= 1'b0; pmack_p <= 1'b0;
-        wr_seq <= '0; tx_seq <= '0; nsent <= '0; ackd <= 12'hFFF; widx <= '0; rp_req <= 1'b0; rnum <= '0;
+        pst <= P_L0; pmack_p <= 1'b0;
+        wr_seq <= '0; tx_seq <= '0; nsent <= '0; ackd <= 12'hFFF; widx <= '0; wfb <= '0; rp_req <= 1'b0; rnum <= '0;
         rtmr <= '0; hinf <= '0; dinf <= '0;
         for (int i = 0; i < 3; i++) begin
           hcl[i] <= '0; hcc[i] <= '0; dcl[i] <= '0; dcc[i] <= '0;
@@ -519,4 +525,7 @@ module PCIe_top #(
         ack_p <= 1'b0; ack_f <= 1'b0; ack_t <= '0; nak_p <= 1'b0; nak_s <= 1'b0; upd_p <= '0;
       end
     end
+`ifdef FORMAL
+  `include "PCIe_props.svh"
+`endif
 endmodule

@@ -139,12 +139,29 @@ module UCIe_top #(
   lsm_t st;
   assign state = st;
 
-  function automatic logic [15:0] crc16(input logic [527:0] d);
+  // CRC-16 (1021, initial value FFFF, bit 527 first) of 528 bits, as a
+  // parallel XOR network: bits 16 + 528k up of CRC_NET mark the data bits
+  // that feed CRC bit k, and bits 15:0 are the part that comes from the
+  // initial value. Built once at elaboration from the serial definition, so
+  // each CRC bit is a balanced XOR tree instead of 528 chained steps.
+  function automatic logic [16*528+15:0] crc_net(input logic [15:0] poly);
+    logic [16*528-1:0] m;                // row k: bits 528k +: 528
     logic [15:0] c;
+    logic [527:0] fm;
+    logic       fb;
     c = 16'hFFFF;
-    for (int i = 527; i >= 0; i--)
-      c = {c[14:0], 1'b0} ^ ((c[15] ^ d[i]) ? 16'h1021 : 16'h0000);
-    crc16 = c;
+    for (int k = 0; k < 16; k++) m[528 * k +: 528] = '0;
+    for (int i = 527; i >= 0; i--) begin
+      fm = m[528 * 15 +: 528]; fm[i] = ~fm[i]; fb = c[15];
+      for (int k = 15; k > 0; k--) m[528 * k +: 528] = m[528 * (k - 1) +: 528];
+      m[527:0] = '0; c = {c[14:0], 1'b0};
+      for (int k = 0; k < 16; k++) if (poly[k]) begin m[528 * k +: 528] = m[528 * k +: 528] ^ fm; c[k] = c[k] ^ fb; end
+    end
+    crc_net = {m, c};
+  endfunction
+  localparam logic [16*528+15:0] CRC_NET = crc_net(16'h1021);
+  function automatic logic [15:0] crc16(input logic [527:0] d);
+    for (int k = 0; k < 16; k++) crc16[k] = CRC_NET[k] ^ ^(d & CRC_NET[16 + 528 * k +: 528]);
   endfunction
 
   // ---------------- link state ----------------
@@ -182,7 +199,8 @@ module UCIe_top #(
     if (!rst_n) begin
       st <= S_RESET;
       oc <= '0; fc <= '0; far_adv <= '0; far_fin <= '0;
-      got_adv <= 1'b0; got_fin <= 1'b0; fin_sent <= 1'b0; req_got <= 1'b0; rsp_got <= 1'b0;
+      got_adv <= 1'b0; got_fin <= 1'b0; fin_sent <= 1'b0; req_got <= 1'b0;
+      rsp_got <= 1'b0;
       l1_wait <= 1'b0; pm_arm <= 1'b0;
       p_adv <= 1'b0; p_fin <= 1'b0; p_rsp <= 1'b0; p_req <= 1'b0; p_l1rsp <= 1'b0; p_pmnak <= 1'b0; p_l1req <= 1'b0;
       ht <= '0;
@@ -337,7 +355,7 @@ module UCIe_top #(
           end
         end
         S_ACTREQ:
-          if (rq && rs) begin n_st = S_ACTIVE; rq = 1'b0; rs = 1'b0; rp_n = as_n; end
+          if (rq && rs) begin n_st = S_ACTIVE; rq = 1'b0; rp_n = as_n; end   // rs: cleared on the way in
         S_ACTIVE:
           if (n_st == S_ACTIVE && !lw && pm_req && pm_arm && sb_l1_ok) begin pk = 1'b1; lw = 1'b1; arm = 1'b0; end
         S_L1:
@@ -387,4 +405,7 @@ module UCIe_top #(
       as <= as_n; rp <= rp_n; ws <= ws_n; exp <= ex_n;
       ack_owed <= ack_n; nak_owed <= nak_n; nak_sent <= nks_n;
     end
+`ifdef FORMAL
+  `include "UCIe_props.svh"
+`endif
 endmodule

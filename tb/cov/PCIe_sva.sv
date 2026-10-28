@@ -109,7 +109,7 @@ module PCIe_sva #(
   bit v_slot_wait, v_rx_full_read;
   bit v_data_stall, v_data_inf, v_data_update, v_ovf_hdr, v_ovf_data, v_fc_mixed, v_ack_coalesced, v_ack_lat;
   bit v_pm_req_sent, v_pm_enter_req, v_pm_enter_ack, v_pm_refused, v_pm_crossed, v_pm_ack_in_l1, v_pm_abort_tlp;
-  bit v_pm_abort_req, v_pm_wake_tlp, v_pm_wake_rx, v_pm_wake_dllp, v_pm_wake_read, v_pm_req_repeat, v_pm_ack_stray;
+  bit v_pm_abort_req, v_pm_wake_tlp, v_pm_wake_rx, v_pm_wake_dllp, v_pm_wake_read, v_pm_req_repeat, v_pm_ack_stray, v_pm_ack_busy;
   // per-step copies for the covergroup (set at posedge, sampled at negedge)
   bit c_tv, c_rv, c_dv;
   int c_tk, c_tn, c_tq, c_rk, c_rn, c_dk;
@@ -361,13 +361,14 @@ module PCIe_sva #(
               if (!dinf[ft]) begin dcl[ft] = d; v_data_update = 1; end
             end
           end else if (t == 8'h23) begin
-            if (o_dls == 3 && o_pst != 2 && aspm_ok && o_idle && !tlp_valid) begin
+            if (o_dls == 3 && o_pst != 2 && aspm_ok && o_idle && !any3(o_updp) && !tlp_valid) begin
               pmak = 1; pst = 2; pmrq = 0; v_pm_enter_ack = 1;
               if (o_pst == 1) v_pm_crossed = 1;
             end else if (o_pst == 2) begin pmak = 1; v_pm_ack_in_l1 = 1; end
             else v_pm_refused = 1;
           end else if (t == 8'h24) begin
-            if (o_pst == 1 && pm_req && !tlp_valid) begin pst = 2; pmrq = 0; v_pm_enter_req = 1; end
+            if (o_pst == 1 && pm_req && o_idle && !any3(o_updp) && !tlp_valid) begin pst = 2; pmrq = 0; v_pm_enter_req = 1; end
+            else if (o_pst == 1 && pm_req && !tlp_valid) v_pm_ack_busy = 1;
             else v_pm_ack_stray = 1;
           end else begin m_dpro = 1; v_unknown_dllp = 1; end
         end
@@ -386,7 +387,7 @@ module PCIe_sva #(
         end
       end
       // ---- L1 left
-      if (o_pst == 2 && (wake || o_ackp || o_nakp || any3(o_updp))) begin
+      if (o_pst == 2 && wake) begin
         pst = 0;
         if (tlp_valid) v_pm_wake_tlp = 1;
         if (rx_end) v_pm_wake_rx = 1;
@@ -510,6 +511,7 @@ module PCIe_sva #(
   `FC(pm_crossed_requests, v_pm_crossed)
   `FC(pm_request_in_l1, v_pm_ack_in_l1)
   `FC(pm_ack_stray, v_pm_ack_stray)
+  `FC(pm_ack_with_something_to_send, v_pm_ack_busy)
   `FC(pm_request_aborted_by_tlp, v_pm_abort_tlp)
   `FC(pm_request_withdrawn, v_pm_abort_req)
   `FC(pm_l1_exit_by_write, v_pm_wake_tlp)
