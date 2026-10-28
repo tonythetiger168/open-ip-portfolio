@@ -60,10 +60,13 @@
   task automatic pre(input logic [31:0] a); cmd(3'd4, a, $urandom); endtask
   // idle clocks; once the controller has been idle 40 clocks (any write data
   // long gone), dq must float: a controller drives dq only for write data
+  // (Icarus only: Verilator is 2-state and reads an undriven dq as 0)
   task automatic idle(input int n);
     for (int i = 0; i < n; i++) begin
       @(negedge clk);
+`ifndef VERILATOR
       if (i >= 40 && hready === 1'b1 && dq !== 'z) fail($sformatf("dq driven while idle: %h", dq));
+`endif
     end
   endtask
   task automatic quiesce; while (hready !== 1'b1) @(negedge clk); endtask
