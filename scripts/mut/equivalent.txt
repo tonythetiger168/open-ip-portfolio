@@ -56,3 +56,9 @@ ML_KEM | h_done <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; step_done reads it only
 ML_KEM | pscl <= 1'b0; | 1'b0 -> 1'b1 | reset value; read only while prun (reset 0), and every step start clears it
 ML_KEM | spend <= 1'b0; | 1'b0 -> 1'b1 | reset value; read only while prun (reset 0), and every step start clears it
 ML_KEM | diff <= 1'b0; | 1'b0 -> 1'b1 | reset value; read only by CSEL, which always follows the CMP that clears it
+Ethernet_RS_FEC | p1long <= 1'b0; p1snz <= 1'b0; p1sl <= '0; | 1'b0 -> 1'b1@1 | reset value; loaded from the BM result on every Chien start, read only while the Chien search runs
+Ethernet_RS_FEC | p1long <= 1'b0; p1snz <= 1'b0; p1sl <= '0; | 1'b0 -> 1'b1@2 | reset value; loaded with the syndrome flag on every Chien start, read only while the Chien search runs
+Ethernet_RS_FEC | p2st <= C_IDLE; p2b <= '0; p2l <= '0; p2w <= '0; p2fix <= 1'b0; p2mark <= 1'b0; p2sl <= '0; | 1'b0 -> 1'b1@1 | reset value; loaded on every correction start, read only while the correction stage runs
+Ethernet_RS_FEC | p2st <= C_IDLE; p2b <= '0; p2l <= '0; p2w <= '0; p2fix <= 1'b0; p2mark <= 1'b0; p2sl <= '0; | 1'b0 -> 1'b1@2 | reset value; loaded on every correction start, read only while the correction stage runs
+Ethernet_RS_FEC | rdq <= '0; eq <= '0; v1 <= 1'b0; f1 <= 1'b0; m1 <= 1'b0; | 1'b0 -> 1'b1@2 | reset value; written on every correction beat that sets v1, and read only when v1 is set
+Ethernet_RS_FEC | rdq <= '0; eq <= '0; v1 <= 1'b0; f1 <= 1'b0; m1 <= 1'b0; | 1'b0 -> 1'b1@3 | reset value; written on every correction beat that sets v1, and read only when v1 is set

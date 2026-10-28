@@ -241,7 +241,8 @@ module Ethernet_RS_FEC_sva (
   `SVA_IMP(a_chien2_free, p2load, !p2st || p2b == 5'd16)
   `SVA_IMP(a_buffer_slot, dacc && p2st, wsl != p2sl)
   `SVA_RST(a_reset, 1'b1, !e_out_valid && !d_out_valid && !ev_corr && !ev_uncorr && !ev_eresync && !ev_dresync
-                          && st_nsym == 4'd0)
+                          && st_nsym == 4'd0 && !e_out_first && !d_out_first && !d_out_bad
+                          && e_out_data == '0 && d_out_data == '0)
 
   // ---------------- functional coverage ----------------
   always @(posedge clk) begin
