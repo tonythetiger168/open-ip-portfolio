@@ -55,15 +55,15 @@ partially-encoded enum, a tie-off that is constant by construction, and the
 upper bits of a counter whose largest load is below the next power of two.
 FSM, SVA and functional coverage have no exclusions.
 
-Totals: 110 line points out of 11622 and 3787 toggle points out of 131078
-for the cores; 477 toggle points out of 98244 for the wrappers.
+Totals: 110 line points out of 11681 and 3791 toggle points out of 131740
+for the cores; 477 toggle points out of 98256 for the wrappers.
 
 Verilator leaves signals wider than 256 bits out of toggle coverage by
 default. An IP with wider buses (UCIe: 544-bit flits) raises the limit in
 `scripts/cov/flags/<P>.txt`, which `run_cov.sh` passes to Verilator for the
 core and wrapper runs, so those bits are scored too.
 
-* Of the 3765 core toggle exclusions, 3675 are in the 24 memory controllers.
+* Of the 3791 core toggle exclusions, 3675 are in the 24 memory controllers.
   Each bank keeps its own timing counters (tRP, tRAS, tRC, tRFC, tREFI), and
   the top bits of every one of them are constant because the largest load
   fits in fewer bits. One regex line in the exclusion file covers each
@@ -172,7 +172,7 @@ all closed). The tables come from `python3 scripts/cov/report.py`.
 | OCP | 31/31 | 308/308 | 11/11 | 11/11 | 77/77 | pass |
 | OCP_IP_Open_Core_Protocol | 48/49 (+1 excl.) | 1086/1098 (+12 excl.) | 15/15 | 13/13 | 75/75 | pass |
 | ONFI | 119/119 | 458/458 | 17/17 | 5/5 | 61/61 | pass |
-| PCIe | 133/133 | 1146/1146 | 22/22 | 7/7 | 80/80 | pass |
+| PCIe | 192/192 | 1804/1804 (+4 excl.) | 22/22 | 8/8 | 127/127 | pass |
 | PWM | 11/11 | 256/276 (+20 excl.) | n/a | 5/5 | 29/29 | pass |
 | QSPI | 46/46 | 156/156 | n/a | 6/6 | 60/60 | pass |
 | RFFE | 70/70 | 236/236 | 16/16 | 10/10 | 83/83 | pass |
@@ -209,7 +209,7 @@ all closed). The tables come from `python3 scripts/cov/report.py`.
 | eMMC | 120/120 | 1622/1622 | 17/17 | 6/6 | 64/64 | pass |
 | eUSB2 | 107/108 (+1 excl.) | 394/394 | 16/16 | 6/6 | 74/74 | pass |
 
-Totals: line 11512/11622 (+110 excluded), toggle 127291/131078 (+3787 excluded), fsm 2507/2507, sva 1453/1453, functional 11483/11483.
+Totals: line 11571/11681 (+110 excluded), toggle 127949/131740 (+3791 excluded), fsm 2507/2507, sva 1454/1454, functional 11530/11530.
 
 For the IPs rebuilt last (UniPro, DisplayPort2, SAS-4, SATA, the clone
 rewrites and the memory family), the checker was also tested with deliberate
@@ -311,7 +311,7 @@ machine, so FSM is n/a.
 | OCP_IP_Open_Core_Protocol_apb | 37/37 | 1074/1086 (+12 excl.) | n/a | 13/13 | 57/57 | pass |
 | OCP_apb | 19/19 | 612/612 | n/a | 7/7 | 23/23 | pass |
 | ONFI_apb | 40/40 | 818/818 | n/a | 15/15 | 72/72 | pass |
-| PCIe_apb | 34/34 | 628/628 | n/a | 12/12 | 91/91 | pass |
+| PCIe_apb | 34/34 | 640/640 | n/a | 14/14 | 91/91 | pass |
 | PWM_apb | 19/19 | 466/466 | n/a | 9/9 | 28/28 | pass |
 | QSPI_apb | 21/21 | 448/448 | n/a | 11/11 | 32/32 | pass |
 | RFFE_apb | 40/40 | 664/664 | n/a | 15/15 | 68/68 | pass |
@@ -348,4 +348,4 @@ machine, so FSM is n/a.
 | eMMC_apb | 19/19 | 412/412 | n/a | 7/7 | 23/23 | pass |
 | eUSB2_apb | 20/20 | 406/406 | n/a | 7/7 | 25/25 | pass |
 
-Totals: line 3737/3737, toggle 97767/98244 (+477 excluded), fsm 0/0, sva 1355/1355, functional 5783/5783.
+Totals: line 3737/3737, toggle 97779/98256 (+477 excluded), fsm 0/0, sva 1357/1357, functional 5783/5783.

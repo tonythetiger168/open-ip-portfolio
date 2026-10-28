@@ -1,36 +1,153 @@
 {
-  "title": "PCIe-style data link layer: TLP framing with sequence numbers and LCRC, Ack/Nak DLLPs with CRC-16, replay buffer and timer, flow-control init (InitFC1/InitFC2) and header credits, on a PIPE-like symbol interface",
+  "title": "PCIe-style data link layer: TLP framing with sequence numbers and LCRC, Ack/Nak DLLPs with CRC-16, replay buffer, replay and Ack latency timers, flow control for Posted / Non-Posted / Completion header and data credits (InitFC1/InitFC2/UpdateFC), ASPM L1 entry and exit, on a PIPE-like symbol interface",
   "code": "0x5043",
-  "version": "2.0",
+  "version": "3.0",
   "tb_clk_ns": 10,
   "tb_timeout": "80ms",
   "regs": [
-    {"name": "CTRL", "kind": "rw", "desc": "Link control",
-     "fields": [{"port": "link_up", "reset": "0", "desc": "physical link up: starts flow-control init; clearing it drops the link (buffers and sequence numbers reset)"}]},
-    {"name": "TX", "kind": "stream_in", "data": ["tlp_data", "tlp_last"], "valid": "tlp_valid", "ready": "tlp_ready",
-     "desc": "TLP byte to send; one write per byte, LAST on the final byte (a TLP is cut after MAXLEN = 32 bytes). The core takes bytes while the link is up and a replay-buffer slot is free",
-     "fdesc": {"tlp_data": "byte", "tlp_last": "last byte of the TLP"}},
-    {"name": "RX", "kind": "stream_out", "data": ["rx_data", "rx_last"], "valid": "rx_valid", "ready": "rx_ready",
-     "desc": "Received TLP byte (head of the core's receive buffer); reading it pops it. TLPs are delivered once their LCRC and sequence number check out; header credits are returned as they are read",
-     "fdesc": {"rx_data": "byte", "rx_last": "last byte of the TLP"}},
-    {"name": "STATUS", "kind": "ro", "desc": "Link state",
-     "fields": [{"port": "dl_up", "desc": "data link up (flow-control init done)"}]}
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Link control",
+      "fields": [
+        {
+          "port": "link_up",
+          "reset": "0",
+          "desc": "physical link up: starts flow-control init; clearing it drops the link (buffers and sequence numbers reset)"
+        },
+        {
+          "port": "pm_req",
+          "reset": "0",
+          "desc": "ASPM: ask for L1 whenever the link is idle (PM_Active_State_Request_L1); a TX write wakes the link"
+        },
+        {
+          "port": "aspm_ok",
+          "reset": "1",
+          "desc": "ASPM: accept L1 requests from the far side when idle"
+        }
+      ]
+    },
+    {
+      "name": "TX",
+      "kind": "stream_in",
+      "data": [
+        "tlp_data",
+        "tlp_last"
+      ],
+      "valid": "tlp_valid",
+      "ready": "tlp_ready",
+      "desc": "TLP byte to send; one write per byte, LAST on the final byte (a TLP is cut after MAXLEN = 32 bytes). The first byte is the TLP header's {Fmt, Type}: it selects the credit type (Posted, Non-Posted, Completion) and whether data credits are used. The core takes bytes in L0 while the link is up and a replay-buffer slot is free",
+      "fdesc": {
+        "tlp_data": "byte",
+        "tlp_last": "last byte of the TLP"
+      }
+    },
+    {
+      "name": "RX",
+      "kind": "stream_out",
+      "data": [
+        "rx_data",
+        "rx_last"
+      ],
+      "valid": "rx_valid",
+      "ready": "rx_ready",
+      "desc": "Received TLP byte (head of the core's receive buffer); reading it pops it. TLPs are delivered once their LCRC and sequence number check out; header and data credits of the TLP's type are returned (UpdateFC) as its last byte is read",
+      "fdesc": {
+        "rx_data": "byte",
+        "rx_last": "last byte of the TLP"
+      }
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Link state",
+      "fields": [
+        {
+          "port": "dl_up",
+          "desc": "data link up (flow-control init done)"
+        },
+        {
+          "port": "pm_state",
+          "desc": "ASPM state: 0 L0, 1 requesting L1, 2 L1"
+        }
+      ]
+    }
   ],
   "irqs": [
-    {"name": "RETRAIN", "port": "retrain", "desc": "the fourth replay without progress: the physical layer should retrain"},
-    {"name": "ERR_TLP", "port": "ev_tlp_bad", "desc": "a TLP failed (bad LCRC, bad EDB, framing, sequence number ahead): a Nak is sent"},
-    {"name": "ERR_SEQ", "port": "ev_tlp_seq", "desc": "a TLP with a sequence number ahead of the expected one"},
-    {"name": "TLP_DUP", "port": "ev_tlp_dup", "desc": "a duplicate TLP (already received): dropped and acknowledged"},
-    {"name": "TLP_NULL", "port": "ev_tlp_null", "desc": "a nullified TLP (EDB with inverted LCRC): dropped silently"},
-    {"name": "ERR_OVERFLOW", "port": "ev_overflow", "desc": "a good TLP with the receive buffer full: dropped, not acknowledged"},
-    {"name": "ERR_DLLP", "port": "ev_dllp_bad", "desc": "a DLLP failed its CRC-16"},
-    {"name": "ERR_PROTO", "port": "ev_dllp_proto", "desc": "a DLLP of unknown type, or an Ack/Nak with reserved bits or a sequence number never sent"},
-    {"name": "ERR_FRAME", "port": "ev_frame", "desc": "a framing error (K symbol out of place, DLLP of the wrong length)"},
-    {"name": "NAK", "port": "ev_nak", "desc": "a Nak was received"},
-    {"name": "REPLAY", "port": "ev_replay", "desc": "the replay timer expired"}
+    {
+      "name": "RETRAIN",
+      "port": "retrain",
+      "desc": "the fourth replay without progress: the physical layer should retrain"
+    },
+    {
+      "name": "ERR_TLP",
+      "port": "ev_tlp_bad",
+      "desc": "a TLP failed (bad LCRC, bad EDB, framing, sequence number ahead): a Nak is sent"
+    },
+    {
+      "name": "ERR_SEQ",
+      "port": "ev_tlp_seq",
+      "desc": "a TLP with a sequence number ahead of the expected one"
+    },
+    {
+      "name": "TLP_DUP",
+      "port": "ev_tlp_dup",
+      "desc": "a duplicate TLP (already received): dropped and acknowledged"
+    },
+    {
+      "name": "TLP_NULL",
+      "port": "ev_tlp_null",
+      "desc": "a nullified TLP (EDB with inverted LCRC): dropped silently"
+    },
+    {
+      "name": "ERR_OVERFLOW",
+      "port": "ev_overflow",
+      "desc": "a good TLP over the header or data credits advertised for its type: dropped, not acknowledged"
+    },
+    {
+      "name": "ERR_DLLP",
+      "port": "ev_dllp_bad",
+      "desc": "a DLLP failed its CRC-16"
+    },
+    {
+      "name": "ERR_PROTO",
+      "port": "ev_dllp_proto",
+      "desc": "a DLLP of unknown type, or an Ack/Nak with reserved bits or a sequence number never sent"
+    },
+    {
+      "name": "ERR_FRAME",
+      "port": "ev_frame",
+      "desc": "a framing error (K symbol out of place, DLLP of the wrong length)"
+    },
+    {
+      "name": "NAK",
+      "port": "ev_nak",
+      "desc": "a Nak was received"
+    },
+    {
+      "name": "REPLAY",
+      "port": "ev_replay",
+      "desc": "the replay timer expired"
+    }
   ],
   "notes": [
     "tx_sym / tx_k and rx_sym / rx_k are the symbol interface (one 8-bit symbol per PCLK, K flag for STP FB, SDP 5C, END FD, EDB FE); they pass through unchanged.",
-    "The core parameters MAXLEN (32), TXN (4 replay slots), RXN (4 receive TLPs), REPLAY_TO (600), FC_GAP (32) and UPD_GAP (1024) keep their defaults."
+    "The core parameters MAXLEN (32), TXN (4 replay slots), RXN (4 receive TLPs), REPLAY_TO (600), ACK_LAT (16), FC_GAP (32), UPD_GAP (1024) and the credits advertised (HP 2, HNP 1, HC 1 headers; DP 4, DNP 2, DC 2 data) keep their defaults.",
+    "Field layouts follow PCIe as we read it; they have not been checked against a compliant device. Not implemented: the physical layer (LTSSM, ordered sets, 8b/10b, scrambling), 128b/130b and flit mode, more than one lane, virtual channels other than VC0, credit scale factors, PM_Active_State_Nak, PCI-PM L1 / L2."
+  ],
+  "features": [
+    "TLP framing: STP, 12-bit sequence number, 1..MAXLEN bytes, LCRC (CRC-32), END / EDB; nullified TLPs.",
+    "Ack / Nak DLLPs with CRC-16; Acks coalesced by an Ack latency timer (ACK_LAT), duplicates acknowledged at once.",
+    "Replay buffer of TXN TLPs, replay on Nak or the replay timer; retrain request after the fourth replay without progress.",
+    "Flow control per credit type (Posted, Non-Posted, Completion) with header and data credits: InitFC1 / InitFC2 handshake, UpdateFC as TLPs are read out and every UPD_GAP clocks, infinite credits, the PCIe modulo credit check.",
+    "Receive overflow detection per type (header and data) and a byte-room guard.",
+    "ASPM L1: PM_Active_State_Request_L1 / PM_Request_Ack in both directions, crossed requests, exit on a write, a received packet, a read, or anything owed.",
+    "Error events for bad LCRC, sequence numbers ahead, duplicates, framing, DLLP CRC and protocol errors."
+  ],
+  "sequence": [
+    "Write CTRL with link_up set (aspm_ok as wanted); poll STATUS until dl_up reads 1.",
+    "Send: write TX once per byte, LAST on the final byte. Receive: on RX_AVAIL read RX until a byte with LAST.",
+    "Set pm_req to let the link enter L1 when idle (STATUS pm_state reads 2); a TX write wakes it.",
+    "On RETRAIN, retrain the physical layer (clear and set link_up)."
   ]
 }

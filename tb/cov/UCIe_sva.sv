@@ -363,7 +363,7 @@ module UCIe_sva #(
   `SVA_INV(a_status, tx_ready == m_ready() && int'(tx_pend) == outstanding())
   `SVA_INV(a_retrain, lp_retrain == o_ret && ev_retrain == o_ret)
   `SVA_INV(a_events, ev_crc == o_crc && ev_replay == o_rep && ev_pmnak == o_pmn && ev_proto == o_pro && ev_lerr == o_ler)
-  `SVA_RST(a_reset, !rst_n, !lt_valid && !rx_valid && !sb_tx_valid && !tx_ready && tx_pend == 0 && state == 3'd0
+  `SVA_RST(a_reset, !rst_n, !lt_valid && lt_flit == 0 && !rx_valid && !rx_stack && rx_data == 0 && !sb_tx_valid && sb_tx_msg == 0 && !tx_ready && tx_pend == 0 && state == 3'd0
                     && cap == 2'b00 && !lp_retrain && !ev_crc && !ev_replay && !ev_retrain && !ev_pmnak && !ev_proto && !ev_lerr)
 
   // ---------------- functional coverage ----------------
