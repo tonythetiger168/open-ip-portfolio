@@ -4,7 +4,8 @@
 module SPI_tb;
   logic clk = 0, rst_n = 0;
   logic sclk = 0, mosi = 0, csn = 1;
-  logic miso;
+  logic miso, irq;
+  int n_irq = 0;
   logic wen = 0, ren = 0;
   logic [3:0] waddr = 0, raddr = 0;
   logic [7:0] wdata = 0, rdata;
@@ -13,7 +14,8 @@ module SPI_tb;
   SPI_top dut (
     .clk(clk), .rst_n(rst_n), .sclk(sclk), .mosi(mosi), .miso(miso),
     .csn(csn), .wen(wen), .waddr(waddr), .wdata(wdata),
-    .ren(ren), .raddr(raddr), .rdata(rdata), .irq());
+    .ren(ren), .raddr(raddr), .rdata(rdata), .irq(irq));
+  always @(posedge clk) if (irq === 1'b1) n_irq++;   // one pulse per byte
 
   always #5 clk = ~clk;
 
@@ -103,6 +105,7 @@ module SPI_tb;
     if (d1 !== 8'h3C) begin errors++; $display("ERROR: SPI MISO xfer1 got=%h exp=3C", d1); end
     if (d2 !== 8'h3C) begin errors++; $display("ERROR: SPI MISO xfer2 got=%h exp=3C", d2); end
     if (got !== 8'hA7) begin errors++; $display("ERROR: SPI MOSI got=%h exp=A7", got); end
+    if (n_irq != 2) begin errors++; $display("ERROR: SPI irq pulses got=%0d exp=2", n_irq); end
 
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ----
