@@ -20,7 +20,7 @@ checkers (tb/cov/<P>_sva.sv) kill more, so this is a lower bound.
 Results: work/mut/<P>.json and a table on stdout (survivors listed with
 their line, so each one is either a TB gap to close or an equivalent mutant).
 """
-import argparse, json, os, random, re, shutil, subprocess, sys, tempfile, time
+import argparse, json, os, random, re, shutil, signal, subprocess, sys, tempfile, time
 from concurrent.futures import ThreadPoolExecutor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -33,6 +33,13 @@ OPS = [
     (r"(?<![<>=!-])>(?![>=])", ">="), (r">=", ">"),
     (r"\+ *1\b(?!')", "+ 2"), (r"- *1\b(?!')", "- 2"),
 ]
+
+
+SKIP = ("`", "localparam", "parameter", "input", "output", "inout", "module",
+        "endmodule", "assert", "$", "genvar", "typedef", "function", "endfunction",
+        "initial")
+# a net / variable declaration is skipped unless it carries an assignment
+DECL = ("logic", "reg", "wire", "bit", "int", "integer")
 
 
 def code_part(line):
@@ -51,12 +58,19 @@ def sites(src):
                 in_block = False
             continue
         s = code.strip()
-        # skip declarations, parameters, preprocessor and assertion text
-        if not s or s.startswith(("`", "localparam", "parameter", "input", "output",
-                                  "inout", "module", "endmodule", "assert", "$")):
+        # skip declarations, parameters, preprocessor, assertion text and the
+        # lint sink (wire _unused = &{...}): mutants there are width changes or
+        # equivalent, not behaviour
+        if not s or s.startswith(SKIP) or "_unused" in s:
             continue
+        if s.split()[0] in DECL and not re.search(r"(?<![=!<>])=(?!=)", s):
+            continue
+        # [...] index / width math: +/-1 there changes a part-select width
+        idx = [(m.start(), m.end()) for m in re.finditer(r"\[[^\[\]]*\]", code)]
         for pat, rep in OPS:
             for m in re.finditer(pat, code):
+                if rep[0] in "+-" and any(a <= m.start() < b for a, b in idx):
+                    continue
                 out.append((ln, m.start(), m.end(), rep))
     return out
 
@@ -101,16 +115,20 @@ def run_one(flow, P, rtl_rel, text, timeout):
             cmd = ["make", "-s", "-f", os.path.join(tmp, f"Makefile.{P}"), "sim"]
         else:
             cmd = ["bash", os.path.join(tmp, "scripts", "cov", "run_cov.sh"), P]
+        # own process group, so a hung simulator is killed with its make / shell
+        pr = subprocess.Popen(cmd, cwd=tmp, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              text=True, start_new_session=True)
         try:
-            r = subprocess.run(cmd, cwd=tmp, timeout=timeout, capture_output=True, text=True)
+            out, _ = pr.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
+            os.killpg(pr.pid, signal.SIGKILL)
+            pr.communicate()
             return "KILLED"   # hang: the TB's watchdog or our timeout
         if flow == "sim":
             if not os.path.exists(os.path.join(tmp, "simv")):
                 return "INVALID"  # did not compile (the tree is fresh, so no stale simv)
-            return "SURVIVED" if "TEST PASSED" in r.stdout + r.stderr else "KILLED"
+            return "SURVIVED" if "TEST PASSED" in out else "KILLED"
         # cov: the testbench plus the bound checker (reference model + SVA)
-        out = r.stdout + r.stderr
         if "BUILD_FAIL" in out or "FSM_GEN_FAIL" in out:
             return "INVALID"
         score = os.path.join(tmp, "work", "cov", P, "score.json")
