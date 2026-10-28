@@ -338,6 +338,13 @@ module UCIe_tb;
     wait_st(ACTIVE, ACTIVE, "crossed L1 exit");
     drain("crossed L1 exit");
     a_pm = 0; b_pm = 0; wait_clk(2);
+    a_pm = 1; b_pm = 1;                              // both wake on the same clock: each
+    wait_st(L1, L1, "L1 for a double wake");         // gets Req.Active before Rsp.Active
+    a_pm = 0; b_pm = 0;
+    a_tv = 1; a_td = rnd512(); a_ts = $urandom; b_tv = 1; b_td = rnd512(); b_ts = $urandom;
+    @(negedge clk);
+    wait_st(ACTIVE, ACTIVE, "double wake");
+    drain("double wake");
     a_on = 1; b_on = 1; p_tx = 100;                  // a request while the far side is busy: PMNAK
     wait_clk(20);
     b_pm = 1;
