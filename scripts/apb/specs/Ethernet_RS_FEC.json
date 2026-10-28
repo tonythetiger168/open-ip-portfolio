@@ -1,0 +1,143 @@
+{
+ "title": "Ethernet RS(544,514) \"KP4\" FEC: encoder and decoder at 32 symbols (320 bits) per clock, one codeword in 17 clocks, with syndrome, riBM, two-pass Chien / Forney correction and uncorrectable-codeword marking",
+ "code": "0x5253",
+ "version": "1.0",
+ "tb_clk_ns": 10,
+ "tb_timeout": "50ms",
+ "regs": [
+  {
+   "name": "CTRL",
+   "kind": "rw",
+   "desc": "Decoder options (taken when a codeword reaches the correction pass)",
+   "fields": [
+    {
+     "port": "cfg_bypass_corr",
+     "reset": "0",
+     "desc": "bypass correction: the data passes unchanged and every codeword with a non-zero syndrome is reported bad"
+    },
+    {
+     "port": "cfg_bypass_ind",
+     "reset": "0",
+     "desc": "bypass indication: uncorrectable codewords are not marked on DEC_OUT.d_out_bad (the UNCORR interrupt still fires)"
+    }
+   ]
+  },
+  {
+   "name": "ENC_IN",
+   "kind": "stream_in",
+   "data": [
+    "e_in_data",
+    "e_in_first"
+   ],
+   "valid": "e_in_valid",
+   "ready": "e_in_ready",
+   "desc": "Encoder input beat: 32 message symbols (beats 0..15) or 2 (beat 16, symbols 0..1); writing the last word sends it",
+   "fdesc": {
+    "e_in_data": "symbols, symbol k at bits 10k + 9 .. 10k",
+    "e_in_first": "beat 0 of a codeword (realigns the beat counter)"
+   }
+  },
+  {
+   "name": "ENC_OUT",
+   "kind": "stream_out",
+   "data": [
+    "e_out_data",
+    "e_out_first"
+   ],
+   "valid": "e_out_valid",
+   "ready": "e_out_ready",
+   "desc": "Encoder output beat: the message passed through, beat 16 with the 30 parity symbols in symbols 2..31; reading the last word pops it",
+   "fdesc": {
+    "e_out_data": "symbols",
+    "e_out_first": "beat 0 of a codeword"
+   }
+  },
+  {
+   "name": "DEC_IN",
+   "kind": "stream_in",
+   "data": [
+    "d_in_data",
+    "d_in_first"
+   ],
+   "valid": "d_in_valid",
+   "ready": "d_in_ready",
+   "desc": "Decoder input beat: 32 received symbols; writing the last word sends it",
+   "fdesc": {
+    "d_in_data": "symbols",
+    "d_in_first": "beat 0 of a codeword (realigns the beat counter)"
+   }
+  },
+  {
+   "name": "DEC_OUT",
+   "kind": "stream_out",
+   "data": [
+    "d_out_data",
+    "d_out_first",
+    "d_out_bad"
+   ],
+   "valid": "d_out_valid",
+   "ready": "d_out_ready",
+   "desc": "Decoder output beat: the corrected symbols; reading the last word pops it",
+   "fdesc": {
+    "d_out_data": "symbols",
+    "d_out_first": "beat 0 of a codeword",
+    "d_out_bad": "the codeword is uncorrectable (unless CTRL.cfg_bypass_ind)"
+   }
+  },
+  {
+   "name": "STATUS",
+   "kind": "ro",
+   "desc": "Last codeword decoded",
+   "fields": [
+    {
+     "port": "st_nsym",
+     "desc": "symbols corrected in the last codeword that reached the correction pass"
+    }
+   ]
+  }
+ ],
+ "irqs": [
+  {
+   "name": "CORR",
+   "port": "ev_corr",
+   "desc": "a codeword was corrected (STATUS.st_nsym symbols)"
+  },
+  {
+   "name": "UNCORR",
+   "port": "ev_uncorr",
+   "desc": "an uncorrectable codeword (with correction bypassed: a codeword with errors)"
+  },
+  {
+   "name": "ERESYNC",
+   "port": "ev_eresync",
+   "desc": "ENC_IN beat 0 (first) in the middle of a codeword: the partial codeword was dropped"
+  },
+  {
+   "name": "DRESYNC",
+   "port": "ev_dresync",
+   "desc": "DEC_IN beat 0 (first) in the middle of a codeword: the partial codeword was dropped"
+  }
+ ],
+ "features": [
+  "RS(544,514) over GF(2^10) (x^10 + x^3 + 1), g(x) = prod (x - alpha^j), j = 0..29, t = 15: the IEEE 802.3 clause 91 / 119 / 172 \"KP4\" FEC codeword used by 100G..1.6T Ethernet.",
+  "32 symbols (320 bits) per clock in and out of both encoder and decoder: one codeword every 17 clocks, at full rate with back-to-back codewords.",
+  "Encoder: systematic, one clock of latency; the parity update for a whole beat is one GF(2)-linear map.",
+  "Decoder: syndromes, reformulated inversionless Berlekamp-Massey (two iterations per clock), a Chien pass that counts the roots (uncorrectable when the LFSR length is above 15 or the roots are not as many), a Chien / Forney pass that corrects; a 4-codeword buffer; 36 clocks from the last beat in to the first beat out.",
+  "Uncorrectable codewords marked on every beat (d_out_bad), correction and indication bypass, per-codeword events and corrected-symbol count, realignment on first, ready / valid flow control that holds the pipeline."
+ ],
+ "notes": [
+  "Through the registers a beat is 11 words: data bits 32k .. 32k + 31 in word k = 0..9 (symbol s is bits 10s .. 10s + 9), then first (and bad) in word 10. The data path is meant to be wired to the PCS directly; the registers serve set-up, status and test.",
+  "Not implemented: the PCS around the FEC (256b/257b transcoding, scrambling, alignment markers, lane distribution, the 2-way codeword interleaving of 200G / 400G), the clause 45 statistics counters (they count the CORR / UNCORR events and STATUS.st_nsym), and the reduced-latency path of correction bypass.",
+  "Throughput: 320 bits per clock carry 302 message bits (514 / 544); one instance at 1 GHz is about 302 Gb/s of FEC payload, so 800G needs three instances (four with interleaving) and 1.6T six (eight)."
+ ],
+ "sequence": [
+  "Set CTRL (both bypasses 0 for normal operation); enable the interrupts wanted.",
+  "Encode: write 17 beats to ENC_IN (first set on beat 0), reading ENC_OUT after each beat (ENC_IN is held while ENC_OUT is full).",
+  "Decode: write 17 beats to DEC_IN; the corrected codeword comes out of DEC_OUT, 17 beats, about 36 clocks after the last beat in; CORR / UNCORR and STATUS.st_nsym report it."
+ ],
+ "verification": [
+  "Test vectors (tb/Ethernet_RS_FEC_vec.hex, `make -f Makefile.Ethernet_RS_FEC vec` rebuilds them) from the reference model scripts/ethfec/rs_ref.py, whose encoder matches the reedsolo library: clean codewords, single errors at both ends, bursts, 1..15 random errors, 15 errors in the parity, errors at beat boundaries, 16..200 errors and a word with an LFSR length above 15. Every message is encoded and every received word decoded and compared.",
+  "Loopback with random messages and 0..40 random symbol errors, back-to-back codewords at full rate (the output must come out back-to-back, at the fixed latency), random input gaps and output back-pressure, both bypasses, realignment, and a reset with codewords in flight.",
+  "The core checker has its own GF(2^10), generator polynomial, symbol-serial LFSR encoder and a classic Berlekamp-Massey / Chien / Forney decoder with a syndrome check of the result, and compares every beat out of the encoder and decoder, the events and the symbol count; plus the ready / valid rules and the stage occupancy the 17-clock schedule relies on."
+ ]
+}
