@@ -32,3 +32,21 @@ AHB | hresp     = 1'b0;#2 | 1'b0 -> 1'b1 | the default branch is the unused four
 Wishbone | q_rsv[0]  <= 1'b0;  q_rsv[1]  <= 1'b0; | 1'b0 -> 1'b1 | reset value of queue entries; each is loaded with the push that makes it valid
 Wishbone | cls_blk   <= 1'b0; | 1'b0 -> 1'b1 | cls_blk clears in the first clock with stb_i low, and stb_i is low while in reset
 ACE_Lite | werr_q  <= 1'b0; | 1'b0 -> 1'b1 | reset value; loaded at every AW accept before bresp or irq reads it
+DDR4 | ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= 1'b0; | 1'b0 -> 1'b1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
+DDR5 | ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; | 1'b0 -> 1'b1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
+GDDR7 | ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= 1'b0; | 1'b0 -> 1'b1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
+DDR6 | auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0; | 1'b0 -> 1'b1@1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
+DDR6 | auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0; | 1'b0 -> 1'b1@2 | reset value; pre_done is cleared in every clock outside D_PRE
+GDDR7 | auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0; | 1'b0 -> 1'b1@1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
+GDDR7 | auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0; | 1'b0 -> 1'b1@2 | reset value; pre_done is cleared in every clock outside D_PRE
+HBM5 | else if (auto_rd)  begin auto_rd <= 1'b0; dstate <= D_RD; end | 1'b0 -> 1'b1 | auto_rd is reloaded at every host accept before it is read again
+LPDDR5 | else if (auto_wr)  begin auto_wr <= 1'b0; dstate <= D_WR; end | 1'b0 -> 1'b1 | auto_wr is reloaded at every host accept before it is read again
+LPDDR5X | else if (auto_rd)  begin auto_rd <= 1'b0; dstate <= D_RD; end | 1'b0 -> 1'b1 | auto_rd is reloaded at every host accept before it is read again
+DDR4_Lite | ld_rrd_v <= 1'b0; ld_wtr_v <= 1'b0; ld_rfc_v <= 1'b0; ref_ack <= 1'b0; | 1'b0 -> 1'b1 | reset values: a timer load or a REF acknowledge in the first clock after reset only delays the first command (ref_pending is already clear)
+D_PHY | tshift    <= {1'b0, tshift[7:1]};#2 | 1'b0 -> 1'b1 | the bit shifted in is never sent: tshift is reloaded or left after 8 bits
+D_PHY | tshift <= {1'b0, tshift[7:1]};#1 | 1'b0 -> 1'b1 | the bit shifted in is never sent: the escape command is decoded from esc_cmd_q
+DisplayPort2 | sym_d = D10_2; sym_k = 1'b0;#1 | 1'b0 -> 1'b1 | the encoder uses k only for K28.x and x.7 symbols; D10.2 encodes the same
+eCPRI_over_Ethernet | rx_push_f    = {1'b0, rx_pay[0], rx_pay[1]}; | 1'b0 -> 1'b1 | bit 16 of the field is not sent in a reset response
+QSPI | end else if (sclk_d && !sclk) begin | && -> || | the next output bit is presented right after the sampling edge instead of at the falling edge; the master samples only on rising edges
+QSPI | io_out <= {2'b00, tx_q[7 - bit_cnt], 1'b0}; | 1'b0 -> 1'b1 | io[0] is an input in standard mode (io_oe = 0010)
+WTB | tsh    <= {B_PRE[6:0], 1'b0}; | 1'b0 -> 1'b1 | the pre-shifted LSB is never sent: tsh is reloaded after the 8th bit
