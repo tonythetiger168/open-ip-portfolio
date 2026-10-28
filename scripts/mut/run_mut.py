@@ -16,6 +16,7 @@ checkers (tb/cov/<P>_sva.sv) kill more, so this is a lower bound.
   python3 scripts/mut/run_mut.py I2C UART          # selected IPs
   python3 scripts/mut/run_mut.py --all -n 12 -j 4  # every IP
   python3 scripts/mut/run_mut.py --all --min 0.8   # exit 1 below 80%
+  python3 scripts/mut/run_mut.py USB --lines 213,508   # every mutant on those lines
 
 Results: work/mut/<P>.json and a table on stdout (survivors listed with
 their line, so each one is either a TB gap to close or an equivalent mutant).
@@ -140,7 +141,7 @@ def run_one(flow, P, rtl_rel, text, timeout):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def one(flow, P, n, seed):
+def one(flow, P, n, seed, lines=None):
     mk = open(os.path.join(ROOT, f"Makefile.{P}")).read()
     S = re.search(r"^S\s*:?=\s*(\S+)", mk, re.M).group(1)
     rtl_rel = f"rtl/{S}_top.sv"
@@ -151,7 +152,11 @@ def one(flow, P, n, seed):
     base = time.time() - t0
     timeout = max(60, 3 * base)
     cand = sites(src)
-    random.Random(f"{seed}:{P}").shuffle(cand)
+    if lines:   # every mutant on the given lines, in order
+        cand = [c for c in cand if c[0] + 1 in lines]
+        n = len(cand)
+    else:
+        random.Random(f"{seed}:{P}").shuffle(cand)
     res = []
     for site in cand:
         if len(res) >= n:
@@ -178,6 +183,8 @@ def main():
     ap.add_argument("--flow", choices=("sim", "cov"), default="sim",
                     help="sim: Icarus testbench only; cov: Verilator run_cov.sh (testbench + checker)")
     ap.add_argument("--shard", default="1/1", help="K/N: every N-th IP starting at the K-th")
+    ap.add_argument("--lines", default="", help="comma-separated rtl line numbers: run every "
+                    "mutant on those lines instead of a random sample (one IP)")
     ap.add_argument("--min", type=float, default=None, help="fail below this score")
     a = ap.parse_args()
     ips = a.ips or []
@@ -186,13 +193,14 @@ def main():
                      if f.startswith("Makefile.") and f != "Makefile.common")
     if not ips:
         ap.error("name IPs or pass --all")
+    lines = {int(x) for x in a.lines.split(",") if x}
     k, n = (int(x) for x in a.shard.split("/"))
     ips = ips[k - 1::n]
     os.makedirs(os.path.join(ROOT, "work", "mut"), exist_ok=True)
     tot_k = tot_m = 0
     bad = []
     with ThreadPoolExecutor(a.j) as ex:
-        for r in ex.map(lambda P: one(a.flow, P, a.n, a.seed), ips):
+        for r in ex.map(lambda P: one(a.flow, P, a.n, a.seed, lines), ips):
             json.dump(r, open(os.path.join(ROOT, "work", "mut", f"{r['ip']}.json"), "w"), indent=1)
             if "error" in r:
                 print(f"{r['ip']:40s} ERROR {r['error']}")
@@ -202,8 +210,8 @@ def main():
             sc = "n/a" if r["score"] is None else f"{100 * r['score']:.0f}%"
             print(f"{r['ip']:40s} {r['killed']:3d}/{r['mutants']:<3d} {sc}", flush=True)
             for m in r["results"]:
-                if m["status"] == "SURVIVED":
-                    print(f"    survived line {m['line']}: {m['from']} -> {m['to']}   {m['code'][:80]}")
+                if m["status"] == "SURVIVED" or lines:
+                    print(f"    {m['status'].lower()} line {m['line']}: {m['from']} -> {m['to']}   {m['code'][:80]}")
             if a.min is not None and r["score"] is not None and r["score"] < a.min:
                 bad.append(r["ip"])
     if tot_m:
