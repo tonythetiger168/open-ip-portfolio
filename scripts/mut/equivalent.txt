@@ -25,3 +25,10 @@ Avalon_MM | (av_burstcount >  8'd16) ? 5'd16 : | > -> >= | burstcount 16 clamps 
 CSI_2 | lb_len <= (wc > LB16) ? LB16 : wc; | > -> >= | wc == LB16 gives LB16 either way
 Ethernet_AVB_TSN | ttc[c] = (open || t >= {3'd0, cyc_rem}) ? cyc_rem : t[23:0]; | >= -> > | t == cyc_rem gives cyc_rem either way
 USB2 | if (s_bm == 8'h80 && s_rq == 8'h08) d_len <= 5'd1; | == -> !=@1 | GET_CONFIGURATION is only accepted with wLength 1, which already gives d_len 1
+SPI | sclk_d <= 1'b0; bit_cnt <= '0; rx_q <= '0; | 1'b0 -> 1'b1 | differs only if sclk is already high when reset is released; mode 0 idles sclk low
+JTAG | sh_byp <= 1'b0; sh_user <= '0; sh_id <= '0; user_q <= '0; upd_tgl <= 1'b0; | 1'b0 -> 1'b1@1 | reset value of the bypass bit; Capture-DR loads it before any Shift-DR reads it
+AHB | valid_q <= 1'b0;#1 | 1'b0 -> 1'b1 | a phantom read data phase in the first clock after reset: write_q is 0 and hrdata is not sampled outside a transfer
+AHB | hresp     = 1'b0;#2 | 1'b0 -> 1'b1 | the default branch is the unused fourth state encoding
+Wishbone | q_rsv[0]  <= 1'b0;  q_rsv[1]  <= 1'b0; | 1'b0 -> 1'b1 | reset value of queue entries; each is loaded with the push that makes it valid
+Wishbone | cls_blk   <= 1'b0; | 1'b0 -> 1'b1 | cls_blk clears in the first clock with stb_i low, and stb_i is low while in reset
+ACE_Lite | werr_q  <= 1'b0; | 1'b0 -> 1'b1 | reset value; loaded at every AW accept before bresp or irq reads it
