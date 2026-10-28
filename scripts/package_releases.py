@@ -11,7 +11,8 @@ A package holds what `make -f Makefile.<P> sim|syn|apb` reads, at the same
 relative paths, plus the IP page and the license:
   Makefile (copy of Makefile.<P>), rtl/<P>_top.sv, rtl/<P>_apb.sv, the DEPS
   files, tb/<P>_tb.sv, tb/<P>_apb_tb.sv and every file they `include,
-  syn/<P>_*, sim/filelist_<P>.f, docs/ip/<P>.md, LICENSE.
+  syn/<P>_*, sim/filelist_<P>.f, docs/ip/<P>.md, LICENSE, and tb/<P>_vec.hex
+  (test vectors) where there is one.
 The coverage flow (Verilator, tb/cov/, scripts/cov/) is not packaged; run it
 from the repository.
 """
@@ -47,7 +48,7 @@ def files_of(P):
     for d, pat in (("syn", rf"{re.escape(S)}(_apb)?(_yosys\.ys|_dc\.tcl|\.sdc)$"),
                    ("sim", rf"filelist_{re.escape(S)}\.f$")):
         out |= {f"{d}/{f}" for f in os.listdir(os.path.join(ROOT, d)) if re.match(pat, f)}
-    for f in (f"docs/ip/{S}.md", "LICENSE"):
+    for f in (f"docs/ip/{S}.md", "LICENSE", f"tb/{S}_vec.hex"):    # test vectors read by the TBs
         if os.path.exists(os.path.join(ROOT, f)):
             out.add(f)
     return S, mk, sorted(out)

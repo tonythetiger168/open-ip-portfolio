@@ -1,0 +1,27 @@
+LINE \| default: lp = L_END; # defensive default: program addresses that no step jumps to (14, 18, 19, 37-39, 53-63)
+LINE \| default: qs <= Q_IDLE; # defensive default: unused qs encoding 2'b11
+LINE \| default: fin = 1'b1; # defensive default: prun is only set for the twelve unit operations, never U_NONE or codes 13-15
+TOGGLE \.eta1\[1\]: # constant 1: eta1 is 3 or 2
+TOGGLE \.du\[[123]\]: # constant: du is 10 or 11
+TOGGLE \.dv\[[123]\]: # constant: dv is 4 or 5
+TOGGLE \.h_l1\[1\]: # constant 0: first hash input lengths are 1, 25, 37 or 49 blocks
+TOGGLE \.h_l2\[2\]: # constant 0: second hash input lengths are 1, 24, 34 or 49 blocks
+TOGGLE \.h_i0\[[4-7]\]: # constant 0: the domain bytes are k + i or 2k, at most 8
+TOGGLE \.h_i1\[[2-7]\]: # constant 0: the second domain byte is a row index, at most 3
+TOGGLE \.k12\[[0167]\]: # constant: 12 k is 24, 36 or 48
+TOGGLE \.ekl\[[01]\]: # constant: |ek| is 25, 37 or 49 blocks
+TOGGLE \.cu_off\[[0267]\]: # constant: du k is 20, 30 or 44
+TOGGLE \.clen\[2\]: # constant 0: |c| is 24, 34 or 49 blocks
+TOGGLE \.dk_ek\[[0167]\]: # constant: DK + 12 k is 73, 85 or 97
+TOGGLE \.dk_h\[[012]\]: # constant: dk's H(ek) is at block 98, 122 or 146
+TOGGLE \.dk_z\[[012]\]: # constant: dk's z is at block 99, 123 or 147
+TOGGLE \.ekb\[[17]\]: # constant 0: ek is at block 0 or 73, 85, 97
+TOGGLE \.mb\[[3-7]\]: # constant 1: m is at block 248 or 255
+TOGGLE \.ob\[[12357]\]: # constant: the ciphertext goes to block 148 or 197
+TOGGLE \.i12\[[0167]\]: # constant: 12 i is 0, 12, 24 or 36
+TOGGLE \.icu\[[67]\]: # constant 0: du i is at most 33
+TOGGLE \.(sti|ssi|ssj)\[[23]\]: # constant: slot numbers T 0-3, S 4-7
+TOGGLE \.rate\[[0-4]\]: # constant: the rates are 72, 136 and 168 bytes
+TOGGLE \.kdom\[[1-7]\]: # constant: the domain bits are 06 or 1F
+TOGGLE \.cbd_n\[[0-4]\]: # constant: 4 or 6 bits per CBD coefficient
+TOGGLE \.cbd_v\[9\]: # constant 0: CBD values are 0..3 or q-3..q-1 (3326..3328)

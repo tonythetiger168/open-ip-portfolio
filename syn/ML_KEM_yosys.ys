@@ -1,0 +1,8 @@
+# ML_KEM synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/ML_KEM_top.sv 
+hierarchy -check -top ML_KEM_top
+proc; opt; fsm; opt; memory -nomap; opt
+techmap; opt
+stat
+write_json ML_KEM_top.json
+write_verilog ML_KEM_top_netlist.v

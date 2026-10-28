@@ -1,0 +1,131 @@
+{
+  "title": "ML-KEM (FIPS 203) key encapsulation engine: KeyGen, Encaps and Decaps with implicit rejection for ML-KEM-512, -768 and -1024, with a Keccak (SHA3 / SHAKE) core, NTT polynomial unit and an 8 KiB key / ciphertext buffer",
+  "code": "0x4D4B",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "200ms",
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Operation and buffer read control",
+      "fields": [
+        {
+          "port": "op",
+          "reset": "0",
+          "desc": "operation: 0 KeyGen, 1 Encaps, 2 Decaps (3 is reserved: START sets ERR)"
+        },
+        {
+          "port": "pset",
+          "reset": "0",
+          "desc": "parameter set: 0 ML-KEM-512, 1 ML-KEM-768, 2 ML-KEM-1024 (3 is reserved: START sets ERR)"
+        },
+        {
+          "port": "hr_en",
+          "reset": "0",
+          "desc": "buffer read: while set and the engine is idle, the word at the pointer is fetched into DATA_OUT and the pointer advances"
+        }
+      ]
+    },
+    {
+      "name": "PTR",
+      "kind": "rw",
+      "desc": "Buffer word address for LOAD",
+      "fields": [
+        {
+          "port": "hp_addr",
+          "reset": "0",
+          "desc": "word address (byte address / 4) in the 8 KiB buffer"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "start",
+          "desc": "run CTRL.op on CTRL.pset; ignored while busy"
+        },
+        {
+          "port": "hp_load",
+          "desc": "load the buffer pointer from PTR"
+        }
+      ]
+    },
+    {
+      "name": "DATA_IN",
+      "kind": "stream_in",
+      "data": [
+        "hw_data"
+      ],
+      "valid": "hw_valid",
+      "ready": "hw_ready",
+      "desc": "Buffer write: the word goes to the pointer (little-endian bytes) and the pointer advances; taken while the engine is idle",
+      "fdesc": {
+        "hw_data": "word"
+      }
+    },
+    {
+      "name": "DATA_OUT",
+      "kind": "stream_out",
+      "data": [
+        "hr_data"
+      ],
+      "valid": "hr_valid",
+      "ready": "hr_ready",
+      "desc": "Buffer read: the word fetched while CTRL.hr_en is set; reading it fetches the next",
+      "fdesc": {
+        "hr_data": "word"
+      }
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Engine state",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "an operation is running (the buffer port is closed)"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DONE",
+      "port": "done",
+      "desc": "the operation finished: results are in the buffer"
+    },
+    {
+      "name": "ERR",
+      "port": "err",
+      "desc": "START with a reserved op or parameter set: nothing was run"
+    }
+  ],
+  "features": [
+    "FIPS 203 ML-KEM.KeyGen_internal, Encaps_internal and Decaps (Algorithms 16, 17, 18) for all three parameter sets; bit-exact against the NIST ACVP vectors.",
+    "Decaps with implicit rejection: the re-encryption, comparison and selection of K or J(z || c) always run in full; whether the ciphertext was rejected is not visible (no flag, the same number of clocks).",
+    "Keccak-f[1600] at one round per clock for SHA3-256, SHA3-512, SHAKE128 and SHAKE256; one byte absorbed or squeezed per clock.",
+    "Polynomial unit: one NTT / inverse NTT butterfly, base-case multiplication pair, addition, CBD or SampleNTT coefficient, or packed coefficient per clock, exact reductions mod q = 3329 by constant multiplication.",
+    "8 KiB byte buffer with an auto-incrementing 32-bit host port; clock counts: KeyGen about 13.7k / 22.3k / 33.2k, Encaps 16.7k / 25.6k / 36.8k, Decaps 24.1k / 35.5k / 49.7k for ML-KEM-512 / 768 / 1024 (Encaps and Decaps vary slightly with rho, through the rejection sampling of A)."
+  ],
+  "notes": [
+    "Buffer map (byte addresses; word address = byte address / 4): 0x0000 ek (384k + 32 bytes; KeyGen output, Encaps input), 0x0620 dk (768k + 96; KeyGen output, Decaps input), 0x1280 c (32 (du k + dv); Encaps output, Decaps input), 0x1EC0 d and 0x1EE0 z (KeyGen inputs, 32 bytes each), 0x1F00 m (Encaps input, 32), 0x1F20 K (shared secret: Encaps and Decaps output, 32). The rest is the engine's scratch.",
+    "The random d, z and m come from the host: the core has no random-number source. The input checks of FIPS 203 7.2 and 7.3 (ek modulus check, dk hash check) are left to the host.",
+    "DATA_OUT prefetches: with CTRL.hr_en set, the word at the pointer is fetched as soon as DATA_OUT is empty, so after the last word wanted one more has been fetched. Clear hr_en and read DATA_OUT once more (or check FLAGS) before loading a new pointer.",
+    "Not implemented: masking or other power / EM side-channel protection beyond the constant operation sequence; fault-attack countermeasures."
+  ],
+  "sequence": [
+    "Write the inputs: PTR = word address, CMD.hp_load = 1, then the words to DATA_IN (for KeyGen d and z; Encaps ek and m; Decaps dk and c).",
+    "CTRL = op | pset << 2, CMD.start = 1; wait for IRQ_STATUS.DONE (or STATUS.busy = 0).",
+    "Read the outputs: PTR = word address, CMD.hp_load = 1, CTRL.hr_en = 1, then read DATA_OUT once per word; clear CTRL.hr_en and read DATA_OUT once more to drop the prefetched word."
+  ],
+  "verification": [
+    "Test vectors (tb/ML_KEM_vec.hex, `make -f Makefile.ML_KEM vec` rebuilds them): 24 random cases from the FIPS 203 model scripts/mlkem/mlkem_ref.py (KeyGen, Encaps, Decaps and Decaps of a modified ciphertext for each parameter set, twice) and 18 NIST ACVP cases (the first two of each KeyGen, Encaps and Decaps group). The model itself passes all 240 vectors of the NIST ACVP ML-KEM keyGen and encapDecap files.",
+    "Implicit rejection: each Decaps of a modified ciphertext must give J(z || c) and take exactly as many clocks as the valid Decaps with the same key.",
+    "The core checker computes every step the engine takes on its own: the Keccak sponge (its own Keccak-f[1600] from the FIPS 202 rotation and round-constant rules) for every byte absorbed and squeezed, and NTT, inverse NTT, base-case multiplication, addition, subtraction, CBD, SampleNTT, encode, decode, copy, compare and select from a copy of their inputs, as FIPS 203 writes them; plus the host port and control rules.",
+    "Exhaustive checks (python3 scripts/formal/exhaust_ml_kem.py): the modular reduction for every input below 2^25, addq and subq for every pair below q, Compress and Decompress for every input and d, the zeta and gamma tables and the Keccak round constants against their definitions."
+  ]
+}
