@@ -1,3 +1,3 @@
-+incdir+.
++incdir+../tb
 ../rtl/WTB_top.sv
 ../tb/WTB_tb.sv

@@ -11,8 +11,7 @@ synthesis, Verilator coverage).
 > not a full-spec, production-hardened controller. Some catalog entries are
 > **parameterized variants of a shared core** rather than independent
 > implementations (e.g. DDR4/DDR5/HBM3 each carry their own copy of one
-> memory-controller design, with their own timing and channel count; the old
-> shared `MEMCH` / `MEMCORE` cores are no longer used by any IP). See
+> memory-controller design, with their own timing and channel count). See
 > [below](#design-organization-cores-vs-variants).
 
 ## Directory layout
@@ -30,6 +29,8 @@ scripts/apb/             APB wrapper generator and register specs (specs/<P>.jso
 scripts/cov/             five-metric coverage flow (run_cov.sh, run_all.sh)
 scripts/ci_regression.sh sim + syn + apb regression run by CI
 scripts/package_releases.py  rebuilds releases/ from the current tree
+scripts/gen_filelists.py     rebuilds sim/filelist_<P>.f from the Makefiles
+scripts/mut/run_mut.py       mutation testing of the testbenches (Icarus or the Verilator flow)
 docs/ip/                 one page per IP: ports, register map, coverage
 docs/                    coverage closure, portfolio review, methodology notes
 gen_framework.py         original v1 generator (frozen: out of sync with rtl/ and tb/)
@@ -250,8 +251,8 @@ HBM3E) are separate files, but grew from one controller design and are
 and channel count and command encoding. The 4 Lite cores (DDR4_Lite,
 LPDDR5X_Lite, HBM3E_Lite, GDDR7_Lite) are a second, larger design (see
 [docs/DDR_Lite_NOTES.md](docs/DDR_Lite_NOTES.md)). A bug in one memory
-controller is therefore likely to exist in its siblings. `rtl/MEMCH_top.sv`
-and `rtl/MEMCORE_top.sv` are the retired shared cores and are not built.
+controller is therefore likely to exist in its siblings. The retired shared
+cores `MEMCH` / `MEMCORE` have been removed (see git history).
 
 Note the distinction from *same-family different implementations*, which are
 **not** counted as clones: e.g. `RFFE` vs `MIPI_RFFE`, `SPMI` vs `MIPI_SPMI`,
@@ -318,8 +319,14 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
   IP's APB4 register wrapper (`rtl/<P>_apb.sv`, register map in
   `docs/ip/<P>.md`): 121 cores and 121 wrappers, 242/242 closed. Results,
   exclusions and how to run: [docs/COVERAGE_CLOSURE.md](docs/COVERAGE_CLOSURE.md).
-  CI (`.github/workflows/regression.yml`) runs the iverilog / yosys
-  regression only; the Verilator coverage flow is run by hand.
+  CI runs both: `.github/workflows/regression.yml` (iverilog / yosys
+  sim + syn + apb, plus a check that generated files are up to date) and
+  `.github/workflows/coverage.yml` (this five-metric flow over all 242
+  runs, in 8 shards; any IP that is not CLOSED fails the build).
+  `.github/workflows/mutation.yml` runs `scripts/mut/run_mut.py --flow cov`
+  weekly: 8 operator mutants per core (relational, logical, constant bit,
+  +/-1), each run through the testbench and its checker, with every
+  surviving mutant listed in the job summary.
   The v2.5.1 numbers below are the earlier four-metric flow.
 
 ### Earlier four-metric flow (v2.5.1)

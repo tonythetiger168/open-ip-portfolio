@@ -7,7 +7,7 @@
 //  8-pixel video/data-island preambles and CTL0-3 codes (4 fixed 10-bit
 //  codes), video period RGB888 active pixels on 3 channels, data island
 //  period with TERC4 4b/10b encoding and packet structure (24-bit header +
-//  4 subpackets x 56 bit, BCH ECC simplified to XOR parity - see comments),
+//  4 subpackets x 56 bit, BCH(32,24) / BCH(64,56) ECC, precomputed - see below),
 //  AVI InfoFrame (type 0x82) sent once per frame, built-in 640x480@60
 //  timing generator (hact=640 hfp=16 hsw=96 hbp=48 / vact=480 vfp=10
 //  vsw=2 vbp=33).

@@ -5,13 +5,15 @@
 module JTAG_tb;
   logic clk = 0, rst_n = 0;
   logic tck = 0, tms = 1, tdi = 0, trst_n = 1;
-  logic tdo;
+  logic tdo, irq;
+  int n_irq = 0;
   logic tdo_s;
   int errors = 0;
 
   JTAG_top dut (
     .clk(clk), .rst_n(rst_n), .tck(tck), .tms(tms), .tdi(tdi),
-    .trst_n(trst_n), .tdo(tdo), .irq());
+    .trst_n(trst_n), .tdo(tdo), .irq(irq));
+  always @(posedge clk) if (irq === 1'b1) n_irq++;   // one pulse per USER update
 
   always #5 clk = ~clk;
 
@@ -160,9 +162,12 @@ module JTAG_tb;
     end
 
     // ---- USER reg write 0xA5 then read back ----
+    if (n_irq != 0) begin errors++; $display("ERROR: JTAG irq before any USER update"); end
     goto_rti;
     load_ir(4'b0010);                      // USER
     scan_dr(8, 32'h0000_00A5, rd);
+    repeat (6) @(posedge clk);
+    if (n_irq != 1) begin errors++; $display("ERROR: JTAG irq pulses after one USER update: %0d", n_irq); end
     goto_rti;
     load_ir(4'b0010);
     scan_dr(8, 32'h0, rd);
