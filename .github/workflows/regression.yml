@@ -21,6 +21,14 @@ jobs:
       - name: Install open toolchain
         run: sudo apt-get update && sudo apt-get install -y iverilog yosys
 
+      - name: Generated files are up to date (APB wrappers, TBs, IP pages, filelists)
+        run: |
+          pip install --break-system-packages pyslang==12.0.0
+          python3 scripts/apb/gen_apb.py --all > /dev/null
+          python3 scripts/gen_filelists.py
+          git status --short
+          git diff --exit-code --stat
+
       - name: Full regression (every protocol, sim + syn + apb, in parallel)
         run: bash scripts/ci_regression.sh
 
