@@ -373,6 +373,10 @@ module OCP_IP_Open_Core_Protocol_tb;
 
     // CHECK 7: error injection -- reserved region -> SResp=ERR -> resp_err + irq
     cpu_read (32'h0000_0100, 5'd1, 32'h0, 1'b1);
+    // a 4-beat read the slave ends on beat 0 (SResp=ERR with SRespLast): the
+    // burst must finish there, so the next read is served normally
+    cpu_read (32'h0000_0100, 5'd4, 32'h0, 1'b1);
+    cpu_read (32'h0000_0010, 5'd1, 32'hDEAD_BEEF, 1'b0);
     cpu_write(32'h0000_0108, 5'd1, 32'hFFFF_FFFF, 1'b0, 1'b1);
     if (irq !== 1'b1) begin
       errors++; $display("ERROR: irq not set after SResp=ERR");
