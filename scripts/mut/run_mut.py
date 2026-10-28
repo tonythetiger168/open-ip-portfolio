@@ -67,7 +67,11 @@ def load_equiv():
         if m:
             code, nth = m.group(1).strip(), int(m.group(2))
         a, b = (x.strip() for x in op.split("->"))
-        eq.setdefault(ip, []).append((code, nth, a, b, reason))
+        occ = None   # to@K: only the K-th match of from on the line
+        m = re.fullmatch(r"(.*)@(\d+)", b)
+        if m:
+            b, occ = m.group(1).strip(), int(m.group(2))
+        eq.setdefault(ip, []).append((code, nth, a, b, occ, reason))
     return eq
 
 
@@ -76,13 +80,15 @@ def equiv_sites(src, cand, entries):
     lines = [code_part(l).strip() for l in src.splitlines()]
     hit, stale = set(), []
     for e in entries:
-        code, nth, a, b, _ = e
+        code, nth, a, b, occ, _ = e
         lns = [i for i, l in enumerate(lines) if l == code_part(code).strip()]
         if (nth is None and len(lns) != 1) or len(lns) < (nth or 1):
             stale.append(e)   # missing, or ambiguous without #N
             continue
         ln = lns[(nth or 1) - 1]
-        m = [c for c in cand if c[0] == ln and src.splitlines()[ln][c[1]:c[2]] == a and c[3] == b]
+        m = sorted(c for c in cand if c[0] == ln and src.splitlines()[ln][c[1]:c[2]] == a and c[3] == b)
+        if occ:
+            m = m[occ - 1:occ]
         if not m:
             stale.append(e)
         hit.update(m)
@@ -201,7 +207,7 @@ def one(flow, P, n, seed, lines=None):
     eq, stale = equiv_sites(src, cand, load_equiv().get(P, []))
     if stale:
         return {"ip": P, "error": "equivalent.txt entries match no mutant: " +
-                "; ".join(f"{c}{'#%d' % k if k else ''} {a} -> {b}" for c, k, a, b, _ in stale)}
+                "; ".join(f"{c}{'#%d' % k if k else ''} {a} -> {b}" for c, k, a, b, _, _ in stale)}
     cand = [c for c in cand if c not in eq]
     if lines:   # every mutant on the given lines, in order
         cand = [c for c in cand if c[0] + 1 in lines]
