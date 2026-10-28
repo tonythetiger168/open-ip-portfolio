@@ -1,0 +1,8 @@
+# Ethernet_RS_FEC synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/Ethernet_RS_FEC_top.sv 
+hierarchy -check -top Ethernet_RS_FEC_top
+proc; opt; fsm; opt; memory -nomap; opt
+techmap; opt
+stat
+write_json Ethernet_RS_FEC_top.json
+write_verilog Ethernet_RS_FEC_top_netlist.v
