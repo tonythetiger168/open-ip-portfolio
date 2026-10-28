@@ -1,3 +1,3 @@
-+incdir+.
++incdir+../tb
 ../rtl/AXI4_Lite_top.sv
 ../tb/AXI4_Lite_tb.sv
