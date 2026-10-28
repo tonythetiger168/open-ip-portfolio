@@ -139,7 +139,14 @@
     near_refresh(REFI / 2); act(a); near_refresh(3); pre(a);              // PRE of an open bank
     near_refresh(REFI / 2); act(a); near_refresh(3); wr(mk(0, 14'h6, 8'h21), 16'h5678); // WR row conflict
     near_refresh(1); idle(REFI / 50 + 400);       // refresh while idle
-    rd(a); rd(mk(0, 14'h6, 8'h21));
+    rd(mk(0, 14'h6, 8'h21)); rd(a);               // the row open before it first
+    // every bank open, then an idle refresh: the same rows afterwards each need
+    // a new ACT (the checker flags a RD / WR to a bank the refresh closed)
+    for (int b = 0; b < NBU; b++) act(mk(b, 14'h9, 8'h00));
+    near_refresh(1); idle(REFI / 50 + 400);
+    for (int b = 0; b < NBU; b++) begin
+      if (b % 2) rd(mk(b, 14'h9, 8'h23)); else wr(mk(b, 14'h9, 8'h23), 16'h0F0F ^ 16'(b));
+    end
     ip_extra();
     // ---- a stream of no-op host commands must not hold off a refresh
     near_refresh(20);
