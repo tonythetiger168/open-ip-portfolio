@@ -1,0 +1,93 @@
+{
+  "title": "Ethernet 400GBASE-R PCS (IEEE 802.3 clause 119) around the RS(544,514) FEC: 256B/257B transcoding, the 58-bit scrambler, alignment marker insertion and lock (16 lanes, Table 119-2), the two-codeword 10-bit symbol interleave, on two Ethernet_RS_FEC cores",
+  "code": "0x4550",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "100ms",
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Configuration",
+      "fields": [
+        {"port": "cfg_bypass_corr", "reset": "0", "desc": "FEC correction off: data passes as received, codewords with errors are reported uncorrectable"},
+        {"port": "cfg_bypass_ind", "reset": "0", "desc": "FEC error indication off: uncorrectable codewords do not corrupt the sync headers"},
+        {"port": "tx_am_sf", "reset": "0", "desc": "the 3 status bits sent in every alignment marker group ({FEC_degraded_SER, 0, 0} in clause 119)"}
+      ]
+    },
+    {
+      "name": "TX_IN",
+      "kind": "stream_in",
+      "data": ["tx_in_data"],
+      "valid": "tx_in_valid",
+      "ready": "tx_in_ready",
+      "desc": "Transmit group: four 66-bit blocks, block j at bits 66j+65:66j (sync header in the low 2 bits, bit 0 sent first); writing TX_IN8 commits it",
+      "fdesc": {"tx_in_data": "four 66-bit blocks"}
+    },
+    {
+      "name": "TX_OUT",
+      "kind": "stream_out",
+      "data": ["tx_out_data", "tx_out_first"],
+      "valid": "tx_out_valid",
+      "ready": "tx_out_ready",
+      "desc": "Transmit beat: 64 symbols of the interleaved codeword pair, symbol n at bits 10n+9:10n (PCS lane n mod 16); TX_OUT20 bit 0 marks the first beat of a pair; reading TX_OUT20 pops it",
+      "fdesc": {"tx_out_data": "64 10-bit symbols", "tx_out_first": "first beat of a pair"}
+    },
+    {
+      "name": "RX_IN",
+      "kind": "stream_in",
+      "data": ["rx_in_data", "rx_in_first"],
+      "valid": "rx_in_valid",
+      "ready": "rx_in_ready",
+      "desc": "Receive beat (de-skewed lanes, same layout as TX_OUT); RX_IN20 bit 0 marks the first beat of a pair; writing RX_IN20 commits it",
+      "fdesc": {"rx_in_data": "64 10-bit symbols", "rx_in_first": "first beat of a pair"}
+    },
+    {
+      "name": "RX_OUT",
+      "kind": "stream_out",
+      "data": ["rx_out_data"],
+      "valid": "rx_out_valid",
+      "ready": "rx_out_ready",
+      "desc": "Receive group, same layout as TX_IN; reading RX_OUT8 pops it",
+      "fdesc": {"rx_out_data": "four 66-bit blocks"}
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Receive state",
+      "fields": [
+        {"port": "rx_am_lock", "desc": "alignment marker lock"},
+        {"port": "rx_am_sf", "desc": "status bits of the last marker group received"},
+        {"port": "st_nsym_a", "desc": "symbols corrected in the last codeword A"},
+        {"port": "st_nsym_b", "desc": "symbols corrected in the last codeword B"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "AM_ERR", "port": "ev_am_err", "desc": "a marker group missing (correctable pair) or off its period"},
+    {"name": "ITB", "port": "ev_itb", "desc": "an invalid transcoded block (its four blocks come out with sync header 11)"},
+    {"name": "CORR_A", "port": "ev_corr_a", "desc": "codeword A corrected"},
+    {"name": "CORR_B", "port": "ev_corr_b", "desc": "codeword B corrected"},
+    {"name": "UNCORR_A", "port": "ev_uncorr_a", "desc": "codeword A uncorrectable"},
+    {"name": "UNCORR_B", "port": "ev_uncorr_b", "desc": "codeword B uncorrectable"},
+    {"name": "RESYNC", "port": "ev_resync", "desc": "RX_IN first beat in the middle of a pair: the pair was dropped"}
+  ],
+  "irq_at_reset": ["TX_OUT_AVAIL"],
+  "features": [
+    "Transmit: 256B/257B transcoding of four 64B/66B blocks (clause 91.5.2.5 rules), the self-synchronizing scrambler 1 + x^39 + x^58 over all 257 bits, the alignment marker group every AMP pairs of codewords (16 lane markers of Table 119-2, 10-bit interleaved, 133-bit PRBS9 pad, 3 status bits; not scrambled), the 10-bit round-robin split into two 514-symbol messages, RS(544,514) encoding of each, and the 10-bit interleave of the two codewords onto 16 PCS lanes (119.2.4.2 to 119.2.4.7); bit-exact with the reference model scripts/ethpcs/pcs_ref.py.",
+    "Receive: the inverse interleave, RS decoding of both codewords (up to 15 symbol errors each), alignment marker lock (found, expected every AMP pairs, lost after three missing groups), marker removal, descrambling and reverse transcoding; uncorrectable codewords and invalid transcoded blocks give blocks with sync header 11.",
+    "Parameter AMP: pairs of codewords per marker period (4096 = 163840 blocks for 400GBASE-R; the wrapper and tests use a small value)."
+  ],
+  "notes": [
+    "The core works on the de-skewed symbol stream: the per-lane block lock, deskew and lane reordering, 64B/66B encoding and decoding, idle deletion (the room for the markers: TX_IN is held during the marker slots) and the 200GBASE-R variant are outside it.",
+    "Through the registers a group takes 9 writes and a beat 21 reads, so the wrapper is for configuration, status and low-rate testing; at line rate the streams are driven directly."
+  ],
+  "sequence": [
+    "Write CTRL; for each group write TX_IN0..TX_IN8 (TX_IN8 commits), and read beats from TX_OUT0..TX_OUT20 (TX_OUT20 pops) when FLAGS says one is available.",
+    "Receive: write each beat to RX_IN0..RX_IN20 (RX_IN20 commits, bit 0 = first beat of a pair); STATUS.rx_am_lock comes up at the first marker group; read groups from RX_OUT0..RX_OUT8."
+  ],
+  "verification": [
+    "Transmit vectors from the reference model (9 pairs, all block mixes and invalid sync headers) compared beat by beat; receive vectors with correctable and uncorrectable codewords, invalid transcoded blocks, a marker group off its period, missing groups, a lock loss and a relock; loopback through both directions with random symbol errors, stalls on every port, bypass modes, realignment and resets in flight.",
+    "The core checker has its own marker table, transcoder, scrambler, PRBS9, GF(2^10) and RS encoder written bit by bit from clause 119, and checks every beat out, every group out, the lock state, status bits and events."
+  ]
+}

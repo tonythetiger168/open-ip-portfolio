@@ -25,7 +25,14 @@ if grep -q 'memory -nomap' "syn/${P}_yosys.ys" 2>/dev/null; then
 else
   FLOW="synth -flatten -top ${P}_top; abc -g AND,NAND,OR,NOR,XOR,XNOR,MUX"
 fi
-yosys -q -l "$W/$P.log" -p "read_verilog -sv rtl/${P}_top.sv; $FLOW; \
+# Sub-blocks that are IPs of their own (Makefile COVLIB, e.g. the RS-FEC cores
+# inside Ethernet_PCS) are read as black boxes: the report is the IP's own
+# logic, and the sub-blocks have their own reports.
+LIBS=""
+for f in $(grep -E '^COVLIB\s*:?=' "Makefile.$P" 2>/dev/null | head -1 | sed 's/.*= *//'); do
+  LIBS="$LIBS read_verilog -sv -lib $f;"
+done
+yosys -q -l "$W/$P.log" -p "$LIBS read_verilog -sv rtl/${P}_top.sv; $FLOW; \
   opt_clean; tee -q -o $W/$P.stat stat; tee -q -o $W/$P.ltp ltp -noff" \
   > /dev/null 2>&1
 python3 - "$P" "$W" <<'PY'

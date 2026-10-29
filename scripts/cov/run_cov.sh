@@ -29,7 +29,11 @@ esac
 S=$(grep -E '^S\s*:?=' "Makefile.$BASE" | head -1 | sed 's/.*= *//')
 DEPS=$(grep -E '^DEPS\s*:?=' "Makefile.$BASE" | head -1 | sed 's/.*= *//')
 RTL="rtl/${S}_top.sv $DEPS"
-SCORED="$RTL"
+# COVLIB: DEPS files that are IPs of their own (closed by their own run):
+# compiled, not scored
+COVLIB=$(grep -E '^COVLIB\s*:?=' "Makefile.$BASE" | head -1 | sed 's/.*= *//')
+SCORED="rtl/${S}_top.sv"
+for f in $DEPS; do case " $COVLIB " in *" $f "*) ;; *) SCORED="$SCORED $f" ;; esac; done
 [ -f "tb/$TB.sv" ] || { echo "NO_TB $P"; exit 2; }
 if [ "$BASE" != "$P" ]; then
   # APB wrapper: the core is compiled but only the wrapper is scored, and only

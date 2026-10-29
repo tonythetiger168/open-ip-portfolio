@@ -1,0 +1,105 @@
+{
+  "title": "Hardware root of trust: device lifecycle (RAW / TEST / DEV / PROD / RMA / SCRAP) in OTP with token-gated transitions, SHA-256 secure boot of the first image with anti-rollback, and HMAC-SHA256 device key derivation (DICE-style) on a sideload port",
+  "code": "0x5254",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "100ms",
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Command operands",
+      "fields": [
+        {"port": "cmd_op", "reset": "0", "desc": "command: 0 read an OTP word, 1 program an OTP word, 2 lifecycle transition (3 is refused with ERR)"},
+        {"port": "cmd_addr", "reset": "0", "desc": "OTP word address for read and program"}
+      ]
+    },
+    {
+      "name": "CMD_DATA",
+      "kind": "rw",
+      "desc": "Command data",
+      "fields": [
+        {"port": "cmd_data", "reset": "0", "desc": "program: the bits to set; transition: the target state in [2:0] (1 TEST, 2 DEV, 3 PROD, 4 RMA, 5 SCRAP)"}
+      ]
+    },
+    {
+      "name": "TOKEN",
+      "kind": "rw",
+      "desc": "Transition token, 128 bits over four words (TOKEN0 is bits 31:0)",
+      "fields": [
+        {"port": "token", "reset": "0", "desc": "token whose SHA-256 must match the stored hash of the transition"}
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {"port": "cmd_start", "desc": "run the command in CTRL; ignored while busy"}
+      ]
+    },
+    {
+      "name": "IMG",
+      "kind": "stream_in",
+      "data": ["img_data", "img_last"],
+      "valid": "img_valid",
+      "ready": "img_ready",
+      "desc": "Boot image word: write the word to IMG, then the last flag to IMG1, which commits it (the first word is the image version)",
+      "fdesc": {"img_data": "image word", "img_last": "last word of the image"}
+    },
+    {
+      "name": "RDATA",
+      "kind": "ro",
+      "desc": "Command result",
+      "fields": [
+        {"port": "cmd_rdata", "desc": "the OTP word of the last read command"}
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Lifecycle and boot state",
+      "fields": [
+        {"port": "cmd_busy", "desc": "a command is running"},
+        {"port": "init_done", "desc": "the lifecycle has been read from the OTP"},
+        {"port": "lc_state", "desc": "0 RAW, 1 TEST, 2 DEV, 3 PROD, 4 RMA, 5 SCRAP, 6 INVALID, 7 escalated"},
+        {"port": "boot_ok", "desc": "the boot image was accepted (or the state boots without verification)"},
+        {"port": "cpu_en", "desc": "the application CPU may run"},
+        {"port": "dbg_en", "desc": "debug is open"},
+        {"port": "key_valid", "desc": "the device key is valid on the sideload port"},
+        {"port": "alert_code", "desc": "cause of the last alert: 1 invalid lifecycle, 2 boot image rejected, 3 wrong token, 4 access refused, 5 OTP readback, 6 escalation, 7 state fault"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "CMD_DONE", "port": "cmd_done", "desc": "a command finished (RDATA holds a read's result)"},
+    {"name": "CMD_ERR", "port": "cmd_err", "desc": "a command was refused or failed"},
+    {"name": "BOOT", "port": "boot_done", "desc": "the boot decision is made (STATUS.boot_ok gives it)"},
+    {"name": "ALERT", "port": "alert", "desc": "an alert was raised (STATUS.alert_code gives the cause)"}
+  ],
+  "pins": ["cpu_en", "dbg_en", "key_valid", "lc_state", "alert", "alert_code"],
+  "irq_at_reset": ["BOOT", "ALERT"],
+  "features": [
+    "Lifecycle in OTP: RAW, TEST, DEV, PROD, RMA and SCRAP, encoded so that every legal transition only sets bits; any other OTP value decodes as INVALID (no boot, no debug, alert). RAW -> TEST, TEST -> DEV / PROD and DEV / PROD -> RMA need a 128-bit token whose SHA-256 matches the stored (or, for RAW, built-in) hash; SCRAP needs none. The new word is programmed, read back, and takes effect at the next reset. Three wrong tokens lock the command port until reset.",
+    "Secure boot in DEV and PROD: the first image is streamed in, hashed with SHA-256 (one round per clock) and compared with the digest in OTP; its version (first word) must be at least the number of anti-rollback bits set. Only then is cpu_en raised. TEST and RMA boot without verification; RAW, SCRAP and INVALID do not boot.",
+    "Device key: after a verified boot, key_out = HMAC-SHA256(UDS, image digest || lifecycle word) on a sideload port (key_out / key_valid pass through the wrapper), never readable through the registers. The UDS is read from OTP only for this and only passes through the hash block, which is cleared afterwards.",
+    "OTP access through the command port: read any word but the UDS; program only words open in the current state (UDS and token hashes in TEST, the boot digest in TEST / DEV, anti-rollback in DEV / PROD, spare words in TEST / DEV / PROD; never the lifecycle or scrap word); each program is read back.",
+    "Escalation input esc (passes through the wrapper): clears the key, cpu_en and dbg_en and stops the core until reset."
+  ],
+  "notes": [
+    "OTP map (32-bit words): 0-7 UDS, 8-15 boot image digest, 16-23 SHA-256 of the test-exit token, 24-31 SHA-256 of the RMA token, 32 lifecycle word, 33 scrap word, 34 anti-rollback (thermometer), 35-63 spare. The OTP macro port (otp_*) passes through the wrapper.",
+    "TOKEN can be read back through the registers: clear it after a transition. The token itself is never stored in the core.",
+    "Each image word takes two register writes (IMG0, then IMG1 with the last flag). For a faster boot, drive the core's image port from a DMA instead.",
+    "Not implemented: side-channel protection of the SHA-256 core; fault-injection hardening beyond the state register check (alert 7); a TRNG for the UDS (it is programmed from outside in TEST)."
+  ],
+  "sequence": [
+    "After reset, wait for STATUS.init_done; STATUS.lc_state gives the lifecycle.",
+    "Secure boot (DEV / PROD): for each image word write IMG0 = word, then IMG1 = last; wait for IRQ_STATUS.BOOT, then STATUS.boot_ok and STATUS.cpu_en.",
+    "OTP read: CTRL = op 0 | addr << 2, CMD = 1, wait for IRQ_STATUS.CMD_DONE, read RDATA (CMD_ERR set if refused).",
+    "Transition: TOKEN0..TOKEN3 = token (TOKEN3 holds bits 127:96, the first bytes hashed), CMD_DATA = target state, CTRL = op 2, CMD = 1, wait for CMD_DONE; check CMD_ERR; clear TOKEN; reset to take the new state."
+  ],
+  "verification": [
+    "Core: tb/Root_of_Trust_tb.sv with an OTP model (random latency, random read data between accesses, a stuck-bit fault) runs every lifecycle state, every legal and illegal transition with right and wrong tokens, the token lockout, programs into open and closed regions, readback failures, and 52 boot cases (image lengths 1-34, 47-49, 63-65, 100, 257 words, rollback, bad digest) against vectors from scripts/rot/gen_vec.py (hashlib / hmac).",
+    "The core checker has its own SHA-256 (constants computed from the primes) and HMAC and recomputes the expected digest, boot decision and device key, plus the lifecycle decode, OTP access rules, escalation and the secret-handling rules (UDS read only for the key, block cleared when idle)."
+  ]
+}
