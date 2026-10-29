@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of MIPI_RFFE_apb_tb: an RFFE master model with a shadow register
 // file predicting every read (register 0, register and extended accesses,
 // broadcast and other slaves' traffic); parity errors, unsupported commands

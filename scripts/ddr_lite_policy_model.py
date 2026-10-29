@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 
 # DDR4_Lite policy model -- cycle-accurate Python mirror of the RTL command
 # engine's scheduling rules.  Runs the S5-equivalent scenario (random traffic

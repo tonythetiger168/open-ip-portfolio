@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of SATA_apb_tb: the core TB's device model (OOB, link layer with
 // fault knobs, command layer with a sector store) runs against the host;
 // ERR is checked through the registers for clean traffic, link-layer and

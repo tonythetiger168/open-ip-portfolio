@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of eMMC_apb_tb: the device model of the core TB (tb/apb/
 // eMMC_apb_models.svh: checks every command frame, answers R3 / R2 / R1,
 // stores CMD24 blocks, sends CMD17 blocks, one-shot faults on a chosen

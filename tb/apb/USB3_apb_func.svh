@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of USB3_apb_tb: the host-side link partner of the core TB (LFPS
 // training, DPH / DPP bulk OUT, ACK / NRDY / LBAD transaction packets, bulk
 // IN with retransmission, a shadow of the bulk buffer checking every IN

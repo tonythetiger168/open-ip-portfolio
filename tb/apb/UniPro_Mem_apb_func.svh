@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of UniPro_Mem_apb_tb: the peer endpoint of the core TB (frames
 // with ESC / COF framing and CRC-16 on rx_sym, a monitor decoding and
 // CRC-checking every DUT frame on tx_sym). PACP set / get, memory write /

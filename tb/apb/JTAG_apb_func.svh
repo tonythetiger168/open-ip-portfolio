@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of JTAG_apb_tb: the TB is the debugger on the JTAG pins (IDCODE,
 // USER and BYPASS scans); each USER update raises USER_UPDATE in PCLK.
   initial begin tck = 0; tms = 1; tdi = 0; trst_n = 0; end   // test reset until ip_func
