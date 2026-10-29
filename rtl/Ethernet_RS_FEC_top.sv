@@ -37,10 +37,11 @@
 //    out), st_nsym holds the symbols corrected in that codeword.
 //  - Flow control: *_out_ready low with *_out_valid high holds the whole
 //    encoder (decoder) and drops *_in_ready; at line rate tie them high.
-//  Not implemented: the PCS around the FEC (256b/257b transcoding,
-//  scrambling, alignment markers, lane distribution and the codeword
-//  interleaving of 200G/400G), the clause 45 statistics counters (built from
-//  the event outputs) and the reduced-latency correction bypass.
+//  The 400GBASE-R PCS around the FEC (256b/257b transcoding, scrambling,
+//  alignment markers, the codeword interleaving) is Ethernet_PCS_top, which
+//  uses two of these cores. Not implemented: the clause 45 statistics
+//  counters (built from the event outputs) and the reduced-latency
+//  correction bypass.
 // ============================================================================
 module Ethernet_RS_FEC_top (
   input  logic         clk,

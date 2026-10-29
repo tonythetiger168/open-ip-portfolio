@@ -49,10 +49,11 @@ reaches the correction pass, two clocks before its first beat comes
 out), st_nsym holds the symbols corrected in that codeword.
 - Flow control: *_out_ready low with *_out_valid high holds the whole
 encoder (decoder) and drops *_in_ready; at line rate tie them high.
-Not implemented: the PCS around the FEC (256b/257b transcoding,
-scrambling, alignment markers, lane distribution and the codeword
-interleaving of 200G/400G), the clause 45 statistics counters (built from
-the event outputs) and the reduced-latency correction bypass.
+The 400GBASE-R PCS around the FEC (256b/257b transcoding, scrambling,
+alignment markers, the codeword interleaving) is Ethernet_PCS_top, which
+uses two of these cores. Not implemented: the clause 45 statistics
+counters (built from the event outputs) and the reduced-latency
+correction bypass.
 
 Features:
 
@@ -63,7 +64,7 @@ Features:
 - Uncorrectable codewords marked on every beat (d_out_bad), correction and indication bypass, per-codeword events and corrected-symbol count, realignment on first, ready / valid flow control that holds the pipeline.
 
 Through the registers a beat is 11 words: data bits 32k .. 32k + 31 in word k = 0..9 (symbol s is bits 10s .. 10s + 9), then first (and bad) in word 10. The data path is meant to be wired to the PCS directly; the registers serve set-up, status and test.
-Not implemented: the PCS around the FEC (256b/257b transcoding, scrambling, alignment markers, lane distribution, the 2-way codeword interleaving of 200G / 400G), the clause 45 statistics counters (they count the CORR / UNCORR events and STATUS.st_nsym), and the reduced-latency path of correction bypass.
+The 400GBASE-R PCS around the FEC (256b/257b transcoding, scrambling, alignment markers, the 2-way codeword interleaving) is the Ethernet_PCS IP, built on two of these cores. Not implemented: the clause 45 statistics counters (they count the CORR / UNCORR events and STATUS.st_nsym), and the reduced-latency path of correction bypass.
 Throughput: 320 bits per clock carry 302 message bits (514 / 544); one instance at 1 GHz is about 302 Gb/s of FEC payload, so 800G needs three instances (four with interleaving) and 1.6T six (eight).
 
 ## Files
@@ -349,7 +350,7 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/Ethernet_RS_FEC_top.sv` | pass | 86/86 | 8658/8658 | 14/14 | 15/15 | 24/24 |
+| core `rtl/Ethernet_RS_FEC_top.sv` | pass | 89/89 | 8658/8658 | 14/14 | 15/15 | 24/24 |
 | wrapper `rtl/Ethernet_RS_FEC_apb.sv` | pass | 124/124 | 5732/5732 | n/a | 35/35 | 167/167 |
 
 Test vectors (tb/Ethernet_RS_FEC_vec.hex, `make -f Makefile.Ethernet_RS_FEC vec` rebuilds them) from the reference model scripts/ethfec/rs_ref.py, whose encoder matches the reedsolo library: clean codewords, single errors at both ends, bursts, 1..15 random errors, 15 errors in the parity, errors at beat boundaries, 16..200 errors and a word with an LFSR length above 15. Every message is encoded and every received word decoded and compared.

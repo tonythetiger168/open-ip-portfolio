@@ -55,8 +55,8 @@ partially-encoded enum, a tie-off that is constant by construction, and the
 upper bits of a counter whose largest load is below the next power of two.
 FSM, SVA and functional coverage have no exclusions.
 
-Totals: 120 line points out of 12330 and 3925 toggle points out of 147876
-for the cores; 477 toggle points out of 104764 for the wrappers.
+Totals: 121 line points out of 12658 and 3933 toggle points out of 162764
+for the cores; 477 toggle points out of 112154 for the wrappers.
 
 Verilator leaves signals wider than 256 bits out of toggle coverage by
 default. An IP with wider buses (UCIe: 544-bit flits, Ethernet_RS_FEC:
@@ -79,6 +79,17 @@ core and wrapper runs, so those bits are scored too.
   same for all three parameter sets: every field is a whole number of
   32-byte blocks and the lengths are fixed by FIPS 203. Its 3 line
   exclusions are defensive `default:` items.
+* The 8 Ethernet_PCS toggle exclusions: bit 6 of the transmit gearbox
+  fill level (and of the level after a beat leaves) is never set, as an
+  exhaustive search of the gearbox states shows
+  (`scripts/formal/exhaust_ethpcs.py`); and the encoders' realignment
+  events, which the PCS cannot cause (it feeds them whole pairs).
+* Ethernet_PCS uses two Ethernet_RS_FEC cores. They are compiled into its
+  run but not scored there (`COVLIB` in `Makefile.Ethernet_PCS`): the
+  RS-FEC is closed by its own run.
+* The Root_of_Trust line exclusion is the `default:` item of its control
+  state machine: it can only be reached through a fault in the state
+  register, and it raises alert 7 and stops the core.
 * The wrapper exclusions are only the core's constant pins, seen again at
   the wrapper's pass-through ports.
 * Verilator does not score toggles inside unpacked memory arrays, such as a
@@ -89,12 +100,14 @@ core and wrapper runs, so those bits are scored too.
 
 Regression run on 2026-10-24, seed 1 (`scripts/cov/run_all.sh 4`, 242 runs,
 all closed), with the PCIe, UCIe, ML_KEM and Ethernet_RS_FEC rows (core and
-wrapper) re-run on 2026-10-28 after their v3.0 / v1.0 changes. The tables come from
+wrapper) re-run on 2026-10-28 after their v3.0 / v1.0 changes, ML_KEM
+again on 2026-10-29 for v1.1, and Root_of_Trust and Ethernet_PCS added on
+2026-10-29. The tables come from
 `python3 scripts/cov/report.py`.
 
 ### Cores
 
-123/123 closed.
+125/125 closed.
 
 | IP | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
@@ -137,6 +150,7 @@ wrapper) re-run on 2026-10-28 after their v3.0 / v1.0 changes. The tables come f
 | DisplayPort2 | 219/219 | 500/500 | 81/81 | 11/11 | 304/304 | pass |
 | Ethernet | 75/75 | 726/726 | 33/33 | 8/8 | 52/52 | pass |
 | Ethernet_AVB_TSN | 61/61 | 2336/2336 | n/a | 11/11 | 89/89 | pass |
+| Ethernet_PCS | 158/158 | 10332/10340 (+8 excl.) | 9/9 | 14/14 | 41/41 | pass |
 | Ethernet_RS_FEC | 86/86 | 8658/8658 | 14/14 | 15/15 | 24/24 | pass |
 | FC | 160/160 | 720/720 | 17/17 | 10/10 | 565/565 | pass |
 | FlexRay | 147/147 | 2312/2312 | 40/40 | 8/8 | 64/64 | pass |
@@ -190,6 +204,7 @@ wrapper) re-run on 2026-10-28 after their v3.0 / v1.0 changes. The tables come f
 | QSPI | 46/46 | 156/156 | n/a | 6/6 | 60/60 | pass |
 | RFFE | 70/70 | 236/236 | 16/16 | 10/10 | 83/83 | pass |
 | RGMII | 23/23 | 624/624 | n/a | 7/7 | 56/56 | pass |
+| Root_of_Trust | 169/170 (+1 excl.) | 4548/4548 | 46/46 | 16/16 | 57/57 | pass |
 | SAS | 142/142 | 1050/1050 | 50/50 | 6/6 | 64/64 | pass |
 | SAS_4__Serial_Attached_SCSI_ | 154/154 | 1618/1618 | 57/57 | 6/6 | 95/95 | pass |
 | SATA | 228/228 | 1474/1474 | 75/75 | 5/5 | 64/64 | pass |
@@ -222,7 +237,7 @@ wrapper) re-run on 2026-10-28 after their v3.0 / v1.0 changes. The tables come f
 | eMMC | 120/120 | 1622/1622 | 17/17 | 6/6 | 64/64 | pass |
 | eUSB2 | 107/108 (+1 excl.) | 394/394 | 16/16 | 6/6 | 74/74 | pass |
 
-Totals: line 12210/12330 (+120 excluded), toggle 143951/147876 (+3925 excluded), fsm 2552/2552, sva 1492/1492, functional 11609/11609.
+Totals: line 12537/12658 (+121 excluded), toggle 158831/162764 (+3933 excluded), fsm 2607/2607, sva 1522/1522, functional 11707/11707.
 
 For the IPs rebuilt last (UniPro, DisplayPort2, SAS-4, SATA, the clone
 rewrites and the memory family), the checker was also tested with deliberate
@@ -235,7 +250,7 @@ The wrapper's coverage scope is the wrapper alone (`u_core` is excluded),
 because the core is closed by its own run above. The wrapper has no state
 machine, so FSM is n/a.
 
-123/123 closed.
+125/125 closed.
 
 | APB wrapper | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
@@ -277,6 +292,7 @@ machine, so FSM is n/a.
 | DigRF_apb | 44/44 | 842/842 | n/a | 16/16 | 95/95 | pass |
 | DisplayPort2_apb | 22/22 | 558/558 | n/a | 7/7 | 33/33 | pass |
 | Ethernet_AVB_TSN_apb | 55/55 | 2140/2140 | n/a | 26/26 | 62/62 | pass |
+| Ethernet_PCS_apb | 156/156 | 5356/5356 | n/a | 44/44 | 211/211 | pass |
 | Ethernet_RS_FEC_apb | 124/124 | 5732/5732 | n/a | 35/35 | 167/167 | pass |
 | Ethernet_apb | 40/40 | 808/808 | n/a | 15/15 | 67/67 | pass |
 | FC_apb | 34/34 | 600/600 | n/a | 13/13 | 71/71 | pass |
@@ -331,6 +347,7 @@ machine, so FSM is n/a.
 | QSPI_apb | 21/21 | 448/448 | n/a | 11/11 | 32/32 | pass |
 | RFFE_apb | 40/40 | 664/664 | n/a | 15/15 | 68/68 | pass |
 | RGMII_apb | 36/36 | 498/498 | n/a | 11/11 | 60/60 | pass |
+| Root_of_Trust_apb | 51/51 | 2034/2034 | n/a | 18/18 | 69/69 | pass |
 | SAS_4__Serial_Attached_SCSI__apb | 20/20 | 406/406 | n/a | 7/7 | 25/25 | pass |
 | SAS_apb | 19/19 | 402/402 | n/a | 7/7 | 23/23 | pass |
 | SATA_apb | 19/19 | 402/402 | n/a | 7/7 | 23/23 | pass |
@@ -363,4 +380,4 @@ machine, so FSM is n/a.
 | eMMC_apb | 19/19 | 412/412 | n/a | 7/7 | 23/23 | pass |
 | eUSB2_apb | 20/20 | 406/406 | n/a | 7/7 | 25/25 | pass |
 
-Totals: line 3900/3900, toggle 104287/104764 (+477 excluded), fsm 0/0, sva 1408/1408, functional 6011/6011.
+Totals: line 4107/4107, toggle 111677/112154 (+477 excluded), fsm 0/0, sva 1470/1470, functional 6291/6291.

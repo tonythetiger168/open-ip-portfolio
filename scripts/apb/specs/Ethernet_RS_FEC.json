@@ -127,7 +127,7 @@
  ],
  "notes": [
   "Through the registers a beat is 11 words: data bits 32k .. 32k + 31 in word k = 0..9 (symbol s is bits 10s .. 10s + 9), then first (and bad) in word 10. The data path is meant to be wired to the PCS directly; the registers serve set-up, status and test.",
-  "Not implemented: the PCS around the FEC (256b/257b transcoding, scrambling, alignment markers, lane distribution, the 2-way codeword interleaving of 200G / 400G), the clause 45 statistics counters (they count the CORR / UNCORR events and STATUS.st_nsym), and the reduced-latency path of correction bypass.",
+  "The 400GBASE-R PCS around the FEC (256b/257b transcoding, scrambling, alignment markers, the 2-way codeword interleaving) is the Ethernet_PCS IP, built on two of these cores. Not implemented: the clause 45 statistics counters (they count the CORR / UNCORR events and STATUS.st_nsym), and the reduced-latency path of correction bypass.",
   "Throughput: 320 bits per clock carry 302 message bits (514 / 544); one instance at 1 GHz is about 302 Gb/s of FEC payload, so 800G needs three instances (four with interleaving) and 1.6T six (eight)."
  ],
  "sequence": [

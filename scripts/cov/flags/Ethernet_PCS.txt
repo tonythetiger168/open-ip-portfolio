@@ -1,0 +1,1 @@
+--coverage-max-width 512
