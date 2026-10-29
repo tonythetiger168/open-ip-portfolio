@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of HDMI_2_1_apb_tb: STATUS follows the hsync / vsync / de pins
 // through a frame (active video, hsync, vsync), the TMDS pins run while hpd
 // is high, and hpd loss raises HPD_LOST until hpd returns.

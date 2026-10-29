@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of DFI_5_0__MC_PHY_Interface__apb_tb: the MC model of the core TB
 // (commands, a per-cycle schedule issuing dfi_wrdata_en / dfi_rddata_en at
 // tphy_wrlat / trddata_en, a shadow array checking every read beat). Init
