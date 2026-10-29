@@ -55,7 +55,7 @@ partially-encoded enum, a tie-off that is constant by construction, and the
 upper bits of a counter whose largest load is below the next power of two.
 FSM, SVA and functional coverage have no exclusions.
 
-Totals: 120 line points out of 12282 and 3925 toggle points out of 145660
+Totals: 120 line points out of 12330 and 3925 toggle points out of 147876
 for the cores; 477 toggle points out of 104764 for the wrappers.
 
 Verilator leaves signals wider than 256 bits out of toggle coverage by
@@ -179,7 +179,7 @@ wrapper) re-run on 2026-10-28 after their v3.0 / v1.0 changes. The tables come f
 | MIPI_SLIMbus | 74/74 | 748/748 | 8/8 | 16/16 | 83/83 | pass |
 | MIPI_SPMI | 86/86 | 756/756 | 23/23 | 7/7 | 98/98 | pass |
 | MIPI_SoundWire | 102/102 | 1024/1024 | 8/8 | 16/16 | 53/53 | pass |
-| ML_KEM | 505/508 (+3 excl.) | 5098/5232 (+134 excl.) | 18/18 | 23/23 | 54/54 | pass |
+| ML_KEM | 553/556 (+3 excl.) | 7314/7448 (+134 excl.) | 31/31 | 23/23 | 54/54 | pass |
 | M_PHY | 119/120 (+1 excl.) | 392/392 | 16/16 | 8/8 | 286/286 | pass |
 | NVMe | 68/68 | 602/602 | 17/17 | 5/5 | 119/119 | pass |
 | OCP | 31/31 | 308/308 | 11/11 | 11/11 | 77/77 | pass |
@@ -222,7 +222,7 @@ wrapper) re-run on 2026-10-28 after their v3.0 / v1.0 changes. The tables come f
 | eMMC | 120/120 | 1622/1622 | 17/17 | 6/6 | 64/64 | pass |
 | eUSB2 | 107/108 (+1 excl.) | 394/394 | 16/16 | 6/6 | 74/74 | pass |
 
-Totals: line 12162/12282 (+120 excluded), toggle 141735/145660 (+3925 excluded), fsm 2539/2539, sva 1492/1492, functional 11609/11609.
+Totals: line 12210/12330 (+120 excluded), toggle 143951/147876 (+3925 excluded), fsm 2552/2552, sva 1492/1492, functional 11609/11609.
 
 For the IPs rebuilt last (UniPro, DisplayPort2, SAS-4, SATA, the clone
 rewrites and the memory family), the checker was also tested with deliberate

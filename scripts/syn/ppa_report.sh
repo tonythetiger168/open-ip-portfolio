@@ -16,8 +16,12 @@ W=work/ppa
 mkdir -p "$W"
 # IPs whose synthesis script keeps memories as RAM macros (memory -nomap) are
 # reported the same way: logic and flip-flops around the RAMs, plus the RAM bits.
+# Registered read ports are split back into an asynchronous port and flip-flops
+# (memory_nordff), so a path ends at the RAM's read register instead of running
+# through the RAM from its write data; resources are not shared (-noshare), as a
+# timing-driven tool would not share a multiplier between two pipeline stages.
 if grep -q 'memory -nomap' "syn/${P}_yosys.ys" 2>/dev/null; then
-  FLOW="synth -flatten -top ${P}_top -run :fine; opt -fast -full; techmap; opt -fast; abc -fast -g AND,NAND,OR,NOR,XOR,XNOR,MUX"
+  FLOW="synth -flatten -noshare -top ${P}_top -run :fine; memory_nordff; opt -fast -full; techmap; opt -fast; abc -fast -g AND,NAND,OR,NOR,XOR,XNOR,MUX"
 else
   FLOW="synth -flatten -top ${P}_top; abc -g AND,NAND,OR,NOR,XOR,XNOR,MUX"
 fi

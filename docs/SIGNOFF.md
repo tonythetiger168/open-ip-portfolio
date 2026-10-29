@@ -28,8 +28,8 @@ not a timing sign-off.
 |---|---|---|---|---|---|---|
 | UCIe 3.0 | clean | 100% / 100% | 40/40 killed (2 equivalent listed) | bounded proof, 5 properties, depth 20 | 53.7 kGE (5244 flip-flops) | 44 gate levels |
 | PCIe 3.0 | clean | 100% / 100% | 40/40 killed | bounded proof, 11 properties, depth 25 | 27.0 kGE (2765 flip-flops) | 64 gate levels |
-| ML-KEM 1.0 | clean | 100% / 100% | 36/40 killed, 4 equivalent listed | exhaustive arithmetic: pass (see below) | 104.0 kGE logic (1750 flip-flops) + 94 kbit RAM | 176 gate levels (RAM read, butterfly, reduction) |
-| Ethernet RS-FEC 1.0 | clean | 100% / 100% | 40/40 killed (6 equivalent listed) | exhaustive arithmetic: pass (see below) | 365.2 kGE (3341 flip-flops) | 82 gate levels |
+| ML-KEM 1.1 | clean | 100% / 100% | 40/40 killed (4 equivalent listed) | exhaustive arithmetic: pass (see below) | 100.7 kGE logic (2891 flip-flops) + 94 kbit RAM | 53 gate levels |
+| Ethernet RS-FEC 1.0 | clean | 100% / 100% | 40/40 killed (6 equivalent listed) | exhaustive arithmetic: pass (see below) | 366.9 kGE (3661 flip-flops) | 82 gate levels |
 
 Formal properties:
 
@@ -72,6 +72,22 @@ Formal properties:
 
 Changes made for this bar:
 
+- ML-KEM 1.1: the polynomial unit is an 8-stage pipeline. An issue stage
+  walks the step and issues one token per clock (up to six reads, a value,
+  up to two writes or an Encode byte); the polynomial store has registered
+  reads; products, the Barrett quotient and the remainder are separate
+  stages, and all tokens write back from the last stage in order. A step
+  ends 8 clocks after its last token. The NTT layer boundaries were checked
+  for read-after-write hazards: the last 8 butterflies of a layer and the
+  first 8 of the next touch disjoint coefficients, in both directions and
+  into the scaling pass. The step parameters are registered at the start of
+  a step, so the program decode is off the datapath. The deepest path went
+  from 176 to 53 gate levels; clock counts grew by about 1%. The PPA flow now
+  splits registered RAM reads out of the RAM cell (memory_nordff) and does
+  not share resources across pipeline stages (-noshare); this also moved the
+  Ethernet RS-FEC figures to 366.9 kGE and 3661 flip-flops (the read
+  registers are now counted), with the same depth.
+
 - UCIe: the 528-bit CRC-16 was a 528-step serial loop (292 gate levels after
   synthesis); it is now a parallel XOR network built at elaboration (44
   levels for the whole design).
@@ -102,16 +118,18 @@ These need tools, data or documents this repository does not have:
   the specifications as we read them but have not been checked against them,
   against another implementation, or with compliance tests or commercial VIP.
 - **Timing closure.** No foundry standard-cell library, no STA with
-  constraints and corners. The deepest paths (ML-KEM 176 levels through the
-  asynchronous RAM read, butterfly and reduction; Ethernet RS-FEC 82; PCIe 64
-  in the transmit scheduler; UCIe 44) would need pipelining for a GHz-class clock in a
+  constraints and corners. The deepest paths (Ethernet RS-FEC 82 levels in
+  the Berlekamp-Massey step; PCIe 64 in the transmit scheduler; ML-KEM 53 in
+  the compress stage; UCIe 44) would need pipelining for a GHz-class clock in a
   modern node.
 - **Memories.** The replay and receive buffers are flip-flop arrays (most of
   the flip-flops counted above); a product would use SRAM macros, with BIST.
-  ML-KEM's buffer and polynomial store are behavioural arrays with several
-  read ports (the NTT reads and writes two coefficients of one polynomial
-  per clock, base-case multiplication reads six); mapping them to SRAM
-  needs banking (by coefficient index per NTT layer) or a slower schedule.
+  ML-KEM's buffer and polynomial store are behavioural arrays. The
+  polynomial store has registered reads (since v1.1) but six read ports and
+  two write ports (base-case multiplication reads six coefficients per
+  clock, the NTT reads and writes two); mapping it to SRAM needs banking
+  (by coefficient index per NTT layer) or a slower schedule. The 8 KiB
+  buffer still has asynchronous reads.
 - **Side channels (ML-KEM).** The operation sequence and clock count depend
   only on the parameter set and the public seed rho, and the Decaps
   rejection is not visible; there is no masking against power or EM
