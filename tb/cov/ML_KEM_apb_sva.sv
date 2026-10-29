@@ -86,7 +86,7 @@ module ML_KEM_apb_sva (
 
   function automatic logic [31:0] m_read(input logic [9:0] i);
     case (i)
-      0: return 32'h4D4B0100;
+      0: return 32'h4D4B0101;
       1: return m_w[1];
       2: return m_w[2];
       3: return 32'({m_state_DATA_OUT, m_state_DATA_IN});

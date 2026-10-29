@@ -4,9 +4,12 @@
 tables are cut out of rtl/ML_KEM_top.sv as they are, wrapped in a test
 module, and compared with their definitions for every input they can get
 (Verilator):
-  mred(x) == x mod q            for every x < 2^25 (products are < 2^24)
+  mred(x) == x mod q            for every x < 2^25 (products and sums of two are
+                                < 2^25); mred is the quotient stage mquo and the
+                                remainder stage mrem of the pipeline, composed
   addq, subq                    for every a, b < q
-  compress_d, decompress_d      for every input, d in {1, 4, 5, 10, 11}
+  compress_d, decompress_d      for every input, d in {1, 4, 5, 10, 11} (compress is
+                                the stages cquo and cmask composed)
   pop3                          for every input
   zeta(i), gamma(i)             17^BitRev7(i), 17^(2 BitRev7(i) + 1) mod q
   KRC                           the 24 round constants from the LFSR of FIPS 202
@@ -26,10 +29,17 @@ def cut(pat, end):
 
 
 parts = [cut(r"  localparam logic \[11:0\] Q = ", ';')]
-for f in ['mred', 'addq', 'subq', 'compress', 'decompress', 'pop3', 'zeta', 'gamma']:
+for f in ['mquo', 'mrem', 'addq', 'subq', 'cquo', 'cmask', 'decompress', 'pop3', 'zeta', 'gamma']:
     parts.append(cut(r'  function automatic logic \[\d+:0\] ' + f + r'\(', 'endfunction'))
 parts.append(cut(r'  localparam logic \[64\*24-1:0\] KRC', '};'))
 test = r'''
+  // the pipeline stages composed
+  function automatic logic [11:0] mred(input logic [24:0] x);
+    mred = mrem(x, mquo(x));
+  endfunction
+  function automatic logic [11:0] compress(input logic [11:0] x, input logic [3:0] d);
+    compress = cmask(cquo(x, d), d);
+  endfunction
   function automatic int brv7(input int i);
     brv7 = 0;
     for (int b = 0; b < 7; b++) if (i & (1 << b)) brv7 |= 1 << (6 - b);
@@ -41,8 +51,14 @@ test = r'''
   int bad = 0;
   int ds [0:4] = '{1, 4, 5, 10, 11};
   initial begin
-    for (int x = 0; x < (1 << 25); x++)
+    for (int x = 0; x < (1 << 25); x++) begin
       if (int'(mred(25'(x))) != x % 3329) begin if (bad < 5) $display("mred %0d", x); bad++; end
+      // the pipeline keeps 12 quotient bits for products of two values below q, 13 for
+      // sums of two such products
+      if (x <= 3328 * 3328 && mquo(25'(x)) >= 14'd4096 || x <= 2 * 3328 * 3328 && mquo(25'(x)) >= 14'd8192) begin
+        if (bad < 5) $display("mquo width %0d", x); bad++;
+      end
+    end
     $display("mred: 2^25 inputs");
     for (int a = 0; a < 3329; a++)
       for (int b = 0; b < 3329; b++) begin

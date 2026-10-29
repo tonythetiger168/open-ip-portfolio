@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // ============================================================================
-// ML_KEM_top v1.0: ML-KEM (FIPS 203) key encapsulation engine for the three
+// ML_KEM_top v1.1: ML-KEM (FIPS 203) key encapsulation engine for the three
 // parameter sets ML-KEM-512, -768 and -1024: KeyGen, Encaps and Decaps
 // (with implicit rejection), the internal algorithms of FIPS 203 section 6
 // (the random d, z and m come from the host).
@@ -23,7 +23,8 @@
 //    SHA3-512, SHAKE128 and SHAKE256 (one byte absorbed or squeezed per
 //    clock); one NTT butterfly, base-case multiplication pair, addition,
 //    sample or packed coefficient per clock on ten 256-coefficient
-//    polynomials; exact constant-divisor reductions mod q = 3329.
+//    polynomials, through an 8-stage pipeline (v1.1; the polynomial store
+//    has registered reads); exact constant-divisor reductions mod q = 3329.
 //  - Side channels: the sequence of operations and its length depend only
 //    on the parameter set and the public matrix seed rho (rejection
 //    sampling of A); in Decaps the re-encryption, the comparison and the
@@ -70,11 +71,13 @@ module ML_KEM_top (
   typedef enum logic [2:0] {L_NEXT, L_J, L_I, L_JMP, L_END} lp_t;
 
   // ---------------- arithmetic mod q ----------------
-  // x mod q for x < 2^25: floor(x / q) = floor(x * 20642679 / 2^36) exactly
-  function automatic logic [11:0] mred(input logic [24:0] x);
-    logic [13:0] p;
-    p = 14'((50'(x) * 50'd20642679) >> 36);
-    mred = 12'(x - 25'(p) * 25'(Q));
+  // x mod q for x < 2^25 is mrem(x, mquo(x)): floor(x / q) = floor(x * 20642679 / 2^36)
+  // exactly. The pipeline computes the quotient and the remainder in separate stages.
+  function automatic logic [13:0] mquo(input logic [24:0] x);
+    mquo = 14'((50'(x) * 50'd20642679) >> 36);
+  endfunction
+  function automatic logic [11:0] mrem(input logic [24:0] x, input logic [13:0] p);
+    mrem = 12'(x - 25'(p) * 25'(Q));
   endfunction
   function automatic logic [11:0] addq(input logic [11:0] a, input logic [11:0] b);
     logic [12:0] s;
@@ -84,14 +87,16 @@ module ML_KEM_top (
   function automatic logic [11:0] subq(input logic [11:0] a, input logic [11:0] b);
     subq = a >= b ? a - b : a + Q - b;
   endfunction
-  // Compress_d(x) = round(2^d x / q) mod 2^d: floor(n / q) = floor(n * 10321340 / 2^35)
-  // exactly for n < 2^23
-  function automatic logic [11:0] compress(input logic [11:0] x, input logic [3:0] d);
+  // Compress_d(x) = round(2^d x / q) mod 2^d is cmask(cquo(x, d), d): floor(n / q) =
+  // floor(n * 10321340 / 2^35) exactly for n < 2^23; the pipeline takes the quotient and
+  // the mask in separate stages
+  function automatic logic [11:0] cquo(input logic [11:0] x, input logic [3:0] d);
     logic [22:0] n;
-    logic [11:0] r;
     n = (23'(x) << d) + 23'd1664;
-    r = 12'((47'(n) * 47'd10321340) >> 35);
-    compress = r & ((12'd1 << d) - 12'd1);
+    cquo = 12'((47'(n) * 47'd10321340) >> 35);
+  endfunction
+  function automatic logic [11:0] cmask(input logic [11:0] r, input logic [3:0] d);
+    cmask = r & ((12'd1 << d) - 12'd1);
   endfunction
   // Decompress_d(y) = round(q y / 2^d)
   function automatic logic [11:0] decompress(input logic [11:0] y, input logic [3:0] d);
@@ -711,12 +716,37 @@ module ML_KEM_top (
   end
 
   // ---------------- polynomial unit ----------------
-  logic        prun;
+  // An issue stage walks the step (counters, the bit buffer of Decode and
+  // CBD, the byte stream of the samplers) and issues one token per clock: up
+  // to six polynomial reads, a value, and up to two coefficient writes or an
+  // Encode byte. The polynomial store has registered reads; the arithmetic
+  // runs in eight stages (products, Barrett quotient, remainder, butterfly
+  // or second product, quotient, remainder, accumulate) and every token
+  // writes back from the last one, in issue order. A step is done when its
+  // last token has been written (PLAT clocks after it was issued).
+  localparam int PLAT = 8;
+  // the step's parameters, held while it runs (the program decode is not on the datapath)
+  uop_t        c_op;
+  logic [3:0]  c_dst, c_a, c_b, c_d;
+  logic        c_eta3, c_cmp, c_clr;
+  logic [7:0]  c_ma, c_mb;
+  logic [5:0]  c_len;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      c_op <= U_NONE; c_dst <= '0; c_a <= '0; c_b <= '0; c_d <= '0; c_eta3 <= 1'b0; c_cmp <= 1'b0; c_clr <= 1'b0;
+      c_ma <= '0; c_mb <= '0; c_len <= '0;
+    end else if (ugo) begin
+      c_op <= u_op; c_dst <= u_dst; c_a <= u_a; c_b <= u_b; c_d <= u_d; c_eta3 <= u_eta3; c_cmp <= u_cmp;
+      c_clr <= u_clr; c_ma <= u_ma; c_mb <= u_mb; c_len <= u_len;
+    end
+  end
+  logic        prun;                    // issuing
+  logic [3:0]  pdrn;                    // clocks since the last token was issued
   logic [8:0]  pcnt;                    // coefficient / butterfly / pair index
   logic [2:0]  plyr;                    // NTT layer
   logic        pscl;                    // INTT: the final scaling pass
-  logic [17:0] bb;                      // bit buffer (encode, decode, CBD)
-  logic [4:0]  nb;
+  logic [17:0] bb;                      // bit buffer (decode, CBD)
+  logic [4:0]  nb;                      // bits in bb; Encode: bits the packer will hold
   logic [10:0] pbc;                     // bytes done
   logic [7:0]  sb0, sb1;                // SampleNTT: bytes of the group
   logic [1:0]  sbc;
@@ -727,7 +757,7 @@ module ML_KEM_top (
   logic [7:0]  bj, blen;
   logic [6:0]  bz;
   always_comb begin
-    if (u_op == U_NTT) begin
+    if (c_op == U_NTT) begin
       blen = 8'd128 >> plyr;
       bj = 8'((8'(bi) >> (3'd7 - plyr)) << (4'd8 - 4'(plyr))) + 8'(bi & 7'(blen - 8'd1));
       bz = 7'((7'd1 << plyr) + (bi >> (3'd7 - plyr)));
@@ -737,82 +767,79 @@ module ML_KEM_top (
       bz = 7'((8'd1 << (3'd7 - plyr)) - 8'd1 - 8'(bi >> (plyr + 3'd1)));
     end
   end
-  wire  [11:0] fa = pm[{u_dst, bj}];
-  wire  [11:0] fb = pm[{u_dst, bj + blen}];
-  wire  [11:0] zt = zeta(bz);
-  wire  [11:0] ct = mred(25'(zt) * 25'(fb));                      // Cooley-Tukey
-  wire  [11:0] gs = mred(25'(zt) * 25'(subq(fb, fa)));            // Gentleman-Sande
-  wire  [11:0] fs = pm[{u_dst, pcnt[7:0]}];
-  wire  [11:0] scl = mred(25'(fs) * 25'd3303);                   // 128^-1 mod q
-  // base-case multiplication of pair bi
-  wire  [11:0] a0 = pm[{u_a, bi, 1'b0}], a1 = pm[{u_a, bi, 1'b1}];
-  wire  [11:0] b0 = pm[{u_b, bi, 1'b0}], b1 = pm[{u_b, bi, 1'b1}];
-  wire  [11:0] m11 = mred(25'(a1) * 25'(b1));
-  wire  [11:0] c0 = mred(25'(a0) * 25'(b0) + 25'(m11) * 25'(gamma(bi)));
-  wire  [11:0] c1 = mred(25'(a0) * 25'(b1) + 25'(a1) * 25'(b0));
-  wire  [11:0] d0 = pm[{u_dst, bi, 1'b0}], d1 = pm[{u_dst, bi, 1'b1}];
-  // coefficient-wise
-  wire  [11:0] xa = pm[{u_a, pcnt[7:0]}], xb = pm[{u_b, pcnt[7:0]}];
   // packing
-  wire  [11:0] enc_v = u_cmp ? compress(xa, u_d) : xa;
-  wire  [11:0] dec_r = 12'(bb) & ((12'd1 << u_d) - 12'd1);
-  wire  [11:0] dec_q = u_d == 4'd12 && dec_r >= Q ? dec_r - Q : dec_r;
-  wire  [11:0] dec_v = u_cmp ? decompress(dec_q, u_d) : dec_q;
-  wire  [4:0]  cbd_n = u_eta3 ? 5'd6 : 5'd4;
-  wire  [11:0] cbd_v = subq(12'(pop3(bb[2:0], u_eta3)), 12'(pop3(u_eta3 ? bb[5:3] : {1'b0, bb[3:2]}, u_eta3)));
+  wire  [11:0] dec_r = 12'(bb) & ((12'd1 << c_d) - 12'd1);
+  wire  [11:0] dec_q = c_d == 4'd12 && dec_r >= Q ? dec_r - Q : dec_r;
+  wire  [4:0]  cbd_n = c_eta3 ? 5'd6 : 5'd4;
+  wire  [11:0] cbd_v = subq(12'(pop3(bb[2:0], c_eta3)), 12'(pop3(c_eta3 ? bb[5:3] : {1'b0, bb[3:2]}, c_eta3)));
   // SampleNTT: the group's two candidates
   wire  [7:0]  hs_byte = kbyte;
   wire  [11:0] sd1 = {sb1[3:0], sb0};
   wire  [11:0] sd2 = {hs_byte, sb1[7:4]};
   // buffer access
-  wire  [12:0] p_ra = {u_ma, 5'd0} + 13'(pbc);
-  wire  [12:0] p_rb = {u_mb, 5'd0} + 13'(pbc);
+  wire  [12:0] p_ra = {c_ma, 5'd0} + 13'(pbc);
+  wire  [12:0] p_rb = {c_mb, 5'd0} + 13'(pbc);
   logic [7:0]  p_rd_a, p_rd_b;           // mem[p_ra], mem[p_rb]
-  wire         last_b = pbc == {u_len, 5'd0} - 11'd1;
+  wire         last_b = pbc == {c_len, 5'd0} - 11'd1;
   always_comb begin
     hs_ready = 1'b0;
-    if (prun && u_op == U_CBD) hs_ready = nb < cbd_n;
-    if (prun && u_op == U_SAMP) hs_ready = !spend;
+    if (prun && c_op == U_CBD) hs_ready = nb < cbd_n;
+    if (prun && c_op == U_SAMP) hs_ready = !spend;
   end
-  // polynomial writes: two ports
-  logic        pw0, pw1;
-  logic [11:0] pw0_a, pw1_a, pw0_d, pw1_d;
-  // buffer write from the unit
-  logic        pmw;
-  logic [12:0] pmw_a;
-  logic [7:0]  pmw_d;
+  // the token issued this clock
+  typedef struct packed {
+    logic        w0, w1;                // coefficient writes
+    logic [11:0] a0, a1;                // their addresses
+    logic        ld, em;                // Encode: load a coefficient / write a byte
+    logic [2:0]  sh;                    // Encode: where the loaded bits go in the packer (fewer than 8 held)
+    logic [12:0] ba;                    // Encode: byte address
+    logic        sc;                    // INTT scaling pass
+  } tok_t;
+  logic        iv;
+  tok_t        it;
+  logic [11:0] ival;                    // CBD, SampleNTT, Decode: the value
+  logic [71:0] ira;                     // polynomial reads, 12 bits each
+  logic        bmw;                     // buffer write from the issue stage (Copy, Select)
+  logic [7:0]  bmw_d;
   always_comb begin
-    pw0 = 1'b0; pw1 = 1'b0; pw0_a = '0; pw1_a = '0; pw0_d = '0; pw1_d = '0;
-    pmw = 1'b0; pmw_a = '0; pmw_d = '0;
+    iv = 1'b0; it = '0; ival = '0; bmw = 1'b0; bmw_d = '0;
+    ira = '0;
     if (prun)
-      case (u_op)
-        U_CBD: if (nb >= cbd_n) begin pw0 = 1'b1; pw0_a = {u_dst, pcnt[7:0]}; pw0_d = cbd_v; end
+      case (c_op)
+        U_CBD: if (nb >= cbd_n) begin iv = 1'b1; it.w0 = 1'b1; it.a0 = {c_dst, pcnt[7:0]}; ival = cbd_v; end
         U_SAMP:
-          if (spend) begin pw0 = 1'b1; pw0_a = {u_dst, pcnt[7:0]}; pw0_d = sval; end
-          else if (hs_valid && sbc == 2'd2 && sd1 < Q) begin pw0 = 1'b1; pw0_a = {u_dst, pcnt[7:0]}; pw0_d = sd1; end
+          if (spend) begin iv = 1'b1; it.w0 = 1'b1; it.a0 = {c_dst, pcnt[7:0]}; ival = sval; end
+          else if (hs_valid && sbc == 2'd2 && sd1 < Q) begin
+            iv = 1'b1; it.w0 = 1'b1; it.a0 = {c_dst, pcnt[7:0]}; ival = sd1;
+          end
         U_NTT, U_INTT:
-          if (pscl) begin pw0 = 1'b1; pw0_a = {u_dst, pcnt[7:0]}; pw0_d = scl; end
-          else begin
-            pw0 = 1'b1; pw0_a = {u_dst, bj}; pw1 = 1'b1; pw1_a = {u_dst, bj + blen};
-            if (u_op == U_NTT) begin pw0_d = addq(fa, ct); pw1_d = subq(fa, ct); end
-            else begin pw0_d = addq(fa, fb); pw1_d = gs; end
+          if (pscl) begin
+            iv = 1'b1; it.sc = 1'b1; it.w0 = 1'b1; it.a0 = {c_dst, pcnt[7:0]}; ira[0 +: 12] = {c_dst, pcnt[7:0]};
+          end else begin
+            iv = 1'b1; it.w0 = 1'b1; it.w1 = 1'b1; it.a0 = {c_dst, bj}; it.a1 = {c_dst, bj + blen};
+            ira[0 +: 12] = {c_dst, bj}; ira[12 +: 12] = {c_dst, bj + blen};
           end
         U_BMUL: begin
-          pw0 = 1'b1; pw0_a = {u_dst, bi, 1'b0}; pw0_d = u_clr ? c0 : addq(d0, c0);
-          pw1 = 1'b1; pw1_a = {u_dst, bi, 1'b1}; pw1_d = u_clr ? c1 : addq(d1, c1);
+          iv = 1'b1; it.w0 = 1'b1; it.w1 = 1'b1; it.a0 = {c_dst, bi, 1'b0}; it.a1 = {c_dst, bi, 1'b1};
+          ira[0 +: 12] = {c_a, bi, 1'b0}; ira[12 +: 12] = {c_a, bi, 1'b1}; ira[24 +: 12] = {c_b, bi, 1'b0}; ira[36 +: 12] = {c_b, bi, 1'b1};
+          ira[48 +: 12] = {c_dst, bi, 1'b0}; ira[60 +: 12] = {c_dst, bi, 1'b1};
         end
-        U_ADD: begin pw0 = 1'b1; pw0_a = {u_dst, pcnt[7:0]}; pw0_d = addq(xa, xb); end
-        U_SUB: begin pw0 = 1'b1; pw0_a = {u_dst, pcnt[7:0]}; pw0_d = subq(xa, xb); end
-        U_DEC: if (5'(u_d) <= nb) begin pw0 = 1'b1; pw0_a = {u_dst, pcnt[7:0]}; pw0_d = dec_v; end
-        U_ENC: if (nb >= 5'd8) begin pmw = 1'b1; pmw_a = p_rb; pmw_d = bb[7:0]; end
-        U_COPY: begin pmw = 1'b1; pmw_a = p_rb; pmw_d = p_rd_a; end
-        U_CSEL: begin pmw = 1'b1; pmw_a = p_rb; pmw_d = diff ? p_rd_a : p_rd_b; end
+        U_ADD, U_SUB: begin
+          iv = 1'b1; it.w0 = 1'b1; it.a0 = {c_dst, pcnt[7:0]}; ira[0 +: 12] = {c_a, pcnt[7:0]}; ira[24 +: 12] = {c_b, pcnt[7:0]};
+        end
+        U_ENC:
+          if (nb >= 5'd8) begin iv = 1'b1; it.em = 1'b1; it.ba = p_rb; end
+          else if (!pcnt[8]) begin iv = 1'b1; it.ld = 1'b1; it.sh = nb[2:0]; ira[0 +: 12] = {c_a, pcnt[7:0]}; end
+        U_DEC: if (5'(c_d) <= nb) begin iv = 1'b1; it.w0 = 1'b1; it.a0 = {c_dst, pcnt[7:0]}; ival = dec_q; end
+        U_COPY: begin bmw = 1'b1; bmw_d = p_rd_a; end
+        U_CSEL: begin bmw = 1'b1; bmw_d = diff ? p_rd_a : p_rd_b; end
         default: ;
       endcase
   end
+  // issue stage
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      prun <= 1'b0; pcnt <= '0; plyr <= '0; bb <= '0; nb <= '0; pbc <= '0;
+      prun <= 1'b0; pdrn <= '0; pcnt <= '0; plyr <= '0; bb <= '0; nb <= '0; pbc <= '0;
       sb0 <= '0; sb1 <= '0; sbc <= '0; sval <= '0;
       pscl <= 1'b0;
       spend <= 1'b0;
@@ -820,6 +847,10 @@ module ML_KEM_top (
       diff <= 1'b0;
     end else begin
       p_done <= 1'b0;
+      if (pdrn != '0) begin
+        pdrn <= pdrn + 4'd1;
+        if (pdrn == 4'(PLAT)) begin pdrn <= '0; p_done <= 1'b1; end
+      end
       if (ugo) begin
         prun <= u_op != U_NONE;
         pcnt <= '0; plyr <= '0; pscl <= 1'b0; bb <= '0; nb <= '0; pbc <= '0; sbc <= '0; spend <= 1'b0;
@@ -827,7 +858,7 @@ module ML_KEM_top (
       end else if (prun) begin : b_run
         logic fin;
         fin = 1'b0;
-        case (u_op)
+        case (c_op)
           U_CBD:
             if (nb >= cbd_n) begin
               bb <= bb >> cbd_n; nb <= nb - cbd_n; pcnt <= pcnt + 9'd1;
@@ -852,7 +883,7 @@ module ML_KEM_top (
               if (pcnt == 9'd127) begin
                 pcnt <= '0; plyr <= plyr + 3'd1;
                 if (plyr == 3'd6) begin
-                  if (u_op == U_NTT) fin = 1'b1;
+                  if (c_op == U_NTT) fin = 1'b1;
                   else pscl <= 1'b1;
                 end
               end
@@ -860,21 +891,116 @@ module ML_KEM_top (
           U_BMUL: begin pcnt <= pcnt + 9'd1; fin = pcnt == 9'd127; end
           U_ADD, U_SUB: begin pcnt <= pcnt + 9'd1; fin = pcnt == 9'd255; end
           U_ENC:
-            if (nb >= 5'd8) begin bb <= bb >> 8; nb <= nb - 5'd8; pbc <= pbc + 11'd1; end
-            else if (!pcnt[8]) begin bb <= bb | (18'(enc_v) << nb); nb <= nb + 5'(u_d); pcnt <= pcnt + 9'd1; end
+            if (nb >= 5'd8) begin nb <= nb - 5'd8; pbc <= pbc + 11'd1; end
+            else if (!pcnt[8]) begin nb <= nb + 5'(c_d); pcnt <= pcnt + 9'd1; end
             else fin = 1'b1;
           U_DEC:
-            if (5'(u_d) <= nb) begin
-              bb <= bb >> u_d; nb <= nb - 5'(u_d); pcnt <= pcnt + 9'd1; fin = pcnt == 9'd255;
+            if (5'(c_d) <= nb) begin
+              bb <= bb >> c_d; nb <= nb - 5'(c_d); pcnt <= pcnt + 9'd1; fin = pcnt == 9'd255;
             end else begin bb <= bb | (18'(p_rd_a) << nb); nb <= nb + 5'd8; pbc <= pbc + 11'd1; end
           U_COPY, U_CSEL: begin pbc <= pbc + 11'd1; fin = last_b; end
           U_CMP: begin diff <= diff | (p_rd_a != p_rd_b); pbc <= pbc + 11'd1; fin = last_b; end
           default: fin = 1'b1;
         endcase
-        if (fin) begin prun <= 1'b0; p_done <= 1'b1; end
+        if (fin) begin prun <= 1'b0; pdrn <= 4'd1; end
       end
     end
   end
+
+  // arithmetic pipeline: stage n registers hold what stage n - 1 computed
+  logic [PLAT:1] sv;                    // token valid
+  localparam int TW = 45;                // bits of tok_t
+  logic [PLAT*TW-1:0] st;               // the tokens, stage n at [TW (n - 1) +: TW]
+  logic [11:0] r0, r1, r2, r3, r4, r5;  // stage 1: the polynomial reads
+  logic [11:0] z1, val1;                // stage 1: zeta or gamma, the issued value
+  logic [23:0] m2a, m3a;                // products to reduce: below q^2
+  logic [24:0] m2b, m3b;                //   and sums of two, below 2 q^2
+  logic [23:0] m2c, m3c, m4c;           // Basemul: a0 b0
+  logic [11:0] v2, v3, v4;              // single-value results
+  logic [11:0] fa2, fa3, fa4;           // butterfly: the first input
+  logic [11:0] g2, g3, g4;              // Basemul: gamma
+  logic [11:0] d0[2:7], d1[2:7];        // Basemul: the accumulator
+  logic [11:0] q3a;                     // quotients: below q
+  logic [12:0] q3b, q6;                 //   and below 2 q
+  logic [11:0] r4a, r4b;
+  logic [24:0] y5, y6;                  // Basemul: a0 b0 + (a1 b1 mod q) gamma
+  logic [11:0] o0[5:PLAT], o1[5:PLAT];  // the values to write
+  logic [17:0] pk;                      // Encode: the packer
+  wire         bm = c_op == U_BMUL;
+  tok_t        tl;                      // the last stage's token
+  assign tl = st[(PLAT - 1) * TW +: TW];
+  wire         sc1 = st[0], sc4 = st[3 * TW];   // the scaling flag (bit 0 of a token) in stages 1 and 4
+  wire         _unused = tl.sc;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) sv <= '0;
+    else sv <= {sv[PLAT-1:1], iv};
+  end
+  always_ff @(posedge clk) begin
+    st <= {st[(PLAT - 1) * TW - 1:0], it};
+    // 1: reads (the store's registered outputs), constants
+    r0 <= pm[ira[0 +: 12]]; r1 <= pm[ira[12 +: 12]]; r2 <= pm[ira[24 +: 12]]; r3 <= pm[ira[36 +: 12]]; r4 <= pm[ira[48 +: 12]]; r5 <= pm[ira[60 +: 12]];
+    z1 <= bm ? gamma(bi) : zeta(bz);
+    val1 <= ival;
+    // 2: products; the single-value operations
+    m2a <= '0; m2b <= '0; m2c <= '0;
+    case (c_op)
+      U_NTT: m2a <= 24'(z1) * 24'(r1);
+      U_INTT: m2a <= sc1 ? 24'(r0) * 24'd3303 : 24'(z1) * 24'(subq(r1, r0));   // 128^-1 mod q
+      U_BMUL: begin
+        m2a <= 24'(r1) * 24'(r3);
+        m2b <= 25'(r0) * 25'(r3) + 25'(r1) * 25'(r2);
+        m2c <= 24'(r0) * 24'(r2);
+      end
+      default: ;
+    endcase
+    case (c_op)
+      U_INTT: v2 <= addq(r0, r1);
+      U_ADD: v2 <= addq(r0, r2);
+      U_SUB: v2 <= subq(r0, r2);
+      U_ENC: v2 <= c_cmp ? cquo(r0, c_d) : r0;
+      U_DEC: v2 <= c_cmp ? decompress(val1, c_d) : val1;
+      default: v2 <= val1;
+    endcase
+    fa2 <= r0; g2 <= z1; d0[2] <= r4; d1[2] <= r5;
+    // 3: Barrett quotients
+    q3a <= 12'(mquo(25'(m2a))); q3b <= 13'(mquo(m2b));
+    m3a <= m2a; m3b <= m2b; m3c <= m2c;
+    v3 <= c_op == U_ENC && c_cmp ? cmask(v2, c_d) : v2;
+    fa3 <= fa2; g3 <= g2;
+    // 4: remainders
+    r4a <= mrem(25'(m3a), 14'(q3a)); r4b <= mrem(m3b, 14'(q3b));
+    m4c <= m3c; v4 <= v3; fa4 <= fa3; g4 <= g3;
+    // 5: butterflies; Basemul: a0 b0 + (a1 b1 mod q) gamma
+    case (c_op)
+      U_NTT: begin o0[5] <= addq(fa4, r4a); o1[5] <= subq(fa4, r4a); end
+      U_INTT: begin o0[5] <= sc4 ? r4a : v4; o1[5] <= r4a; end
+      U_BMUL: begin o0[5] <= '0; o1[5] <= r4b; end
+      default: begin o0[5] <= v4; o1[5] <= '0; end
+    endcase
+    y5 <= 25'(m4c) + 25'(r4a) * 25'(g4);
+    // 6, 7: its reduction
+    q6 <= 13'(mquo(y5)); y6 <= y5;
+    o0[6] <= o0[5]; o1[6] <= o1[5]; o1[7] <= o1[6];
+    o0[7] <= bm ? mrem(y6, 14'(q6)) : o0[6];
+    for (int n = 3; n <= 7; n++) begin d0[n] <= d0[n - 1]; d1[n] <= d1[n - 1]; end
+    // 8: Basemul accumulates
+    o0[8] <= bm && !c_clr ? addq(d0[7], o0[7]) : o0[7];
+    o1[8] <= bm && !c_clr ? addq(d1[7], o1[7]) : o1[7];
+  end
+  // writes from the last stage
+  wire  [11:0] pw0_a = tl.a0, pw1_a = tl.a1;
+  wire         pw0 = sv[PLAT] && tl.w0, pw1 = sv[PLAT] && tl.w1;
+  wire  [11:0] pw0_d = o0[PLAT], pw1_d = o1[PLAT];
+  // Encode: the packer takes the loaded coefficients and writes the bytes
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) pk <= '0;
+    else if (ugo) pk <= '0;
+    else if (sv[PLAT] && tl.ld) pk <= pk | (18'(o0[PLAT]) << tl.sh);
+    else if (sv[PLAT] && tl.em) pk <= pk >> 8;
+  end
+  wire         pmw = sv[PLAT] && tl.em || bmw;
+  wire  [12:0] pmw_a = sv[PLAT] && tl.em ? tl.ba : p_rb;
+  wire  [7:0]  pmw_d = sv[PLAT] && tl.em ? pk[7:0] : bmw_d;
 
   // ---------------- memories ----------------
   assign h_rd = mem[h_ra];
@@ -890,6 +1016,8 @@ module ML_KEM_top (
     if (mw) mem[mw_a] <= mw_d;
     if (hw_valid && hw_ready)
       for (int i = 0; i < 4; i++) mem[{hptr, 2'(i)}] <= hw_data[8 * i +: 8];
+  end
+  always_ff @(posedge clk) begin
     if (pw0) pm[pw0_a] <= pw0_d;
     if (pw1) pm[pw1_a] <= pw1_d;
   end

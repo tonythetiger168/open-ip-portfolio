@@ -1,13 +1,13 @@
 # ML-KEM (FIPS 203) key encapsulation engine: KeyGen, Encaps and Decaps with implicit rejection for ML-KEM-512, -768 and -1024, with a Keccak (SHA3 / SHAKE) core, NTT polynomial unit and an 8 KiB key / ciphertext buffer
 
-Protocol IP `ML_KEM`, version 1.0. Apache-2.0.
+Protocol IP `ML_KEM`, version 1.1. Apache-2.0.
 
 | Item | Value |
 |---|---|
 | Core | `ML_KEM_top` (`rtl/ML_KEM_top.sv`) |
 | Register interface | APB4 slave `ML_KEM_apb`, 32-bit data, 12-bit byte address, zero wait states |
 | Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
-| ID register | 0x4D4B0100 (code 0x4D4B, version 1.0) |
+| ID register | 0x4D4B0101 (code 0x4D4B, version 1.1) |
 | Registers | 11 words, 0x000 to 0x028 |
 | Interrupts | 5 sources into one level-high `irq` |
 | Data streams | DATA_IN (to the core), DATA_OUT (from the core) |
@@ -15,7 +15,7 @@ Protocol IP `ML_KEM`, version 1.0. Apache-2.0.
 
 ## Overview
 
-ML_KEM_top v1.0: ML-KEM (FIPS 203) key encapsulation engine for the three parameter sets ML-KEM-512, -768 and -1024: KeyGen, Encaps and Decaps (with implicit rejection), the internal algorithms of FIPS 203 section 6 (the random d, z and m come from the host).
+ML_KEM_top v1.1: ML-KEM (FIPS 203) key encapsulation engine for the three parameter sets ML-KEM-512, -768 and -1024: KeyGen, Encaps and Decaps (with implicit rejection), the internal algorithms of FIPS 203 section 6 (the random d, z and m come from the host).
 
 - Host side: a byte buffer of 8 KiB, read and written as 32-bit words
 (little-endian) through an auto-incrementing pointer (hp_load /
@@ -35,7 +35,8 @@ pulse. A reserved op or pset pulses err instead.
 SHA3-512, SHAKE128 and SHAKE256 (one byte absorbed or squeezed per
 clock); one NTT butterfly, base-case multiplication pair, addition,
 sample or packed coefficient per clock on ten 256-coefficient
-polynomials; exact constant-divisor reductions mod q = 3329.
+polynomials, through an 8-stage pipeline (v1.1; the polynomial store
+has registered reads); exact constant-divisor reductions mod q = 3329.
 - Side channels: the sequence of operations and its length depend only
 on the parameter set and the public matrix seed rho (rejection
 sampling of A); in Decaps the re-encryption, the comparison and the
@@ -50,8 +51,8 @@ Features:
 - FIPS 203 ML-KEM.KeyGen_internal, Encaps_internal and Decaps (Algorithms 16, 17, 18) for all three parameter sets; bit-exact against the NIST ACVP vectors.
 - Decaps with implicit rejection: the re-encryption, comparison and selection of K or J(z || c) always run in full; whether the ciphertext was rejected is not visible (no flag, the same number of clocks).
 - Keccak-f[1600] at one round per clock for SHA3-256, SHA3-512, SHAKE128 and SHAKE256; one byte absorbed or squeezed per clock.
-- Polynomial unit: one NTT / inverse NTT butterfly, base-case multiplication pair, addition, CBD or SampleNTT coefficient, or packed coefficient per clock, exact reductions mod q = 3329 by constant multiplication.
-- 8 KiB byte buffer with an auto-incrementing 32-bit host port; clock counts: KeyGen about 13.7k / 22.3k / 33.2k, Encaps 16.7k / 25.6k / 36.8k, Decaps 24.1k / 35.5k / 49.7k for ML-KEM-512 / 768 / 1024 (Encaps and Decaps vary slightly with rho, through the rejection sampling of A).
+- Polynomial unit: one NTT / inverse NTT butterfly, base-case multiplication pair, addition, CBD or SampleNTT coefficient, or packed coefficient per clock, through an 8-stage pipeline (registered reads of the polynomial store, products, Barrett quotient and remainder in separate stages); exact reductions mod q = 3329 by constant multiplication. Deepest path 53 gate levels in the repository's PPA flow (scripts/syn/ppa_report.sh).
+- 8 KiB byte buffer with an auto-incrementing 32-bit host port; clock counts: KeyGen about 13.8k / 22.6k / 33.6k, Encaps 16.8k / 26.0k / 37.3k, Decaps 24.3k / 36.1k / 50.4k for ML-KEM-512 / 768 / 1024 (Encaps and Decaps vary slightly with rho, through the rejection sampling of A).
 
 Buffer map (byte addresses; word address = byte address / 4): 0x0000 ek (384k + 32 bytes; KeyGen output, Encaps input), 0x0620 dk (768k + 96; KeyGen output, Decaps input), 0x1280 c (32 (du k + dv); Encaps output, Decaps input), 0x1EC0 d and 0x1EE0 z (KeyGen inputs, 32 bytes each), 0x1F00 m (Encaps input, 32), 0x1F20 K (shared secret: Encaps and Decaps output, 32). The rest is the engine's scratch.
 The random d, z and m come from the host: the core has no random-number source. The input checks of FIPS 203 7.2 and 7.3 (ek modulus check, dk hash check) are left to the host.
@@ -124,7 +125,7 @@ Pins of `ML_KEM_apb`. Widths of the pass-through pins are at the default paramet
 
 | Offset | Name | Access | Reset | Description |
 |---|---|---|---|---|
-| 0x000 | ID | RO | 0x4D4B0100 | IP identification: code, major and minor version |
+| 0x000 | ID | RO | 0x4D4B0101 | IP identification: code, major and minor version |
 | 0x004 | IRQ_STATUS | W1C | 0x00000000 | Sticky interrupt bits, write 1 to clear |
 | 0x008 | IRQ_ENABLE | RW | 0x00000000 | Interrupt enables; irq = \|(IRQ_STATUS & IRQ_ENABLE) |
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
@@ -144,7 +145,7 @@ Unlisted bits read 0 and ignore writes. Reset "core": the register reads the cor
 |---|---|---|---|---|---|
 | ID | 31:16 | CODE | RO | 0x4D4B | IP code |
 | ID | 15:8 | MAJOR | RO | 0x01 | major version |
-| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| ID | 7:0 | MINOR | RO | 0x01 | minor version |
 | IRQ_STATUS | 4:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
 | IRQ_ENABLE | 4:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
 | FLAGS | 1:0 | one bit per stream flag | RO | 0x0 | see FLAGS |
@@ -185,7 +186,7 @@ A bit is set while its source is active, stays set until written with 1, and a s
 
 ## Programming sequence
 
-1. Release PRESETN. Read ID (0x000) and check it is 0x4D4B0100.
+1. Release PRESETN. Read ID (0x000) and check it is 0x4D4B0101.
 2. Write 0x1F to IRQ_STATUS (0x004) to clear any stale bits.
 3. Configure the core: write CTRL (0x014), PTR (0x018). Reset values are in the register map; PSTRB selects the bytes written.
 4. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x1F enables all).
@@ -243,7 +244,7 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/ML_KEM_top.sv` | pass | 508/508 (+3 excl.) | 5232/5232 (+134 excl.) | 18/18 | 23/23 | 54/54 |
+| core `rtl/ML_KEM_top.sv` | pass | 556/556 (+3 excl.) | 7448/7448 (+134 excl.) | 31/31 | 23/23 | 54/54 |
 | wrapper `rtl/ML_KEM_apb.sv` | pass | 39/39 | 776/776 | n/a | 16/16 | 61/61 |
 
 Test vectors (tb/ML_KEM_vec.hex, `make -f Makefile.ML_KEM vec` rebuilds them): 24 random cases from the FIPS 203 model scripts/mlkem/mlkem_ref.py (KeyGen, Encaps, Decaps and Decaps of a modified ciphertext for each parameter set, twice) and 18 NIST ACVP cases (the first two of each KeyGen, Encaps and Decaps group). The model itself passes all 240 vectors of the NIST ACVP ML-KEM keyGen and encapDecap files.

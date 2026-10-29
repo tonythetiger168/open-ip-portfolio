@@ -7,7 +7,8 @@ module ML_KEM_top__fsm_cov (
   input logic c_clk,
   input logic r_rst_n,
   input logic [1:0] s_qs,
-  input logic [1:0] s_hst
+  input logic [1:0] s_hst,
+  input logic [3:0] s_c_op
 );
   // ---- FSM ML_KEM_top.qs: 3 states, 4 arcs ----
   fsm_st__qs__Q_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_qs == 2'd0);
@@ -29,6 +30,20 @@ module ML_KEM_top__fsm_cov (
   fsm_arc__hst__K_PERM__K_SQZ: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hst == 2'd2 ##1 s_hst == 2'd3);
   fsm_arc__hst__K_SQZ__K_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hst == 2'd3 ##1 s_hst == 2'd0);
   fsm_arc__hst__K_SQZ__K_PERM: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_hst == 2'd3 ##1 s_hst == 2'd2);
+  // ---- FSM ML_KEM_top.c_op: 13 states, 0 arcs ----
+  fsm_st__c_op__U_NONE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_c_op == 4'd0);
+  fsm_st__c_op__U_CBD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_c_op == 4'd1);
+  fsm_st__c_op__U_SAMP: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_c_op == 4'd2);
+  fsm_st__c_op__U_NTT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_c_op == 4'd3);
+  fsm_st__c_op__U_INTT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_c_op == 4'd4);
+  fsm_st__c_op__U_BMUL: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_c_op == 4'd5);
+  fsm_st__c_op__U_ADD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_c_op == 4'd6);
+  fsm_st__c_op__U_SUB: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_c_op == 4'd7);
+  fsm_st__c_op__U_ENC: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_c_op == 4'd8);
+  fsm_st__c_op__U_DEC: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_c_op == 4'd9);
+  fsm_st__c_op__U_COPY: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_c_op == 4'd10);
+  fsm_st__c_op__U_CMP: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_c_op == 4'd11);
+  fsm_st__c_op__U_CSEL: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_c_op == 4'd12);
 endmodule
 
-bind ML_KEM_top ML_KEM_top__fsm_cov u_fsm_cov (.c_clk(clk), .r_rst_n(rst_n), .s_qs(qs), .s_hst(hst));
+bind ML_KEM_top ML_KEM_top__fsm_cov u_fsm_cov (.c_clk(clk), .r_rst_n(rst_n), .s_qs(qs), .s_hst(hst), .s_c_op(c_op));

@@ -1,7 +1,7 @@
 {
   "title": "ML-KEM (FIPS 203) key encapsulation engine: KeyGen, Encaps and Decaps with implicit rejection for ML-KEM-512, -768 and -1024, with a Keccak (SHA3 / SHAKE) core, NTT polynomial unit and an 8 KiB key / ciphertext buffer",
   "code": "0x4D4B",
-  "version": "1.0",
+  "version": "1.1",
   "tb_clk_ns": 10,
   "tb_timeout": "200ms",
   "regs": [
@@ -108,8 +108,8 @@
     "FIPS 203 ML-KEM.KeyGen_internal, Encaps_internal and Decaps (Algorithms 16, 17, 18) for all three parameter sets; bit-exact against the NIST ACVP vectors.",
     "Decaps with implicit rejection: the re-encryption, comparison and selection of K or J(z || c) always run in full; whether the ciphertext was rejected is not visible (no flag, the same number of clocks).",
     "Keccak-f[1600] at one round per clock for SHA3-256, SHA3-512, SHAKE128 and SHAKE256; one byte absorbed or squeezed per clock.",
-    "Polynomial unit: one NTT / inverse NTT butterfly, base-case multiplication pair, addition, CBD or SampleNTT coefficient, or packed coefficient per clock, exact reductions mod q = 3329 by constant multiplication.",
-    "8 KiB byte buffer with an auto-incrementing 32-bit host port; clock counts: KeyGen about 13.7k / 22.3k / 33.2k, Encaps 16.7k / 25.6k / 36.8k, Decaps 24.1k / 35.5k / 49.7k for ML-KEM-512 / 768 / 1024 (Encaps and Decaps vary slightly with rho, through the rejection sampling of A)."
+    "Polynomial unit: one NTT / inverse NTT butterfly, base-case multiplication pair, addition, CBD or SampleNTT coefficient, or packed coefficient per clock, through an 8-stage pipeline (registered reads of the polynomial store, products, Barrett quotient and remainder in separate stages); exact reductions mod q = 3329 by constant multiplication. Deepest path 53 gate levels in the repository's PPA flow (scripts/syn/ppa_report.sh).",
+    "8 KiB byte buffer with an auto-incrementing 32-bit host port; clock counts: KeyGen about 13.8k / 22.6k / 33.6k, Encaps 16.8k / 26.0k / 37.3k, Decaps 24.3k / 36.1k / 50.4k for ML-KEM-512 / 768 / 1024 (Encaps and Decaps vary slightly with rho, through the rejection sampling of A)."
   ],
   "notes": [
     "Buffer map (byte addresses; word address = byte address / 4): 0x0000 ek (384k + 32 bytes; KeyGen output, Encaps input), 0x0620 dk (768k + 96; KeyGen output, Decaps input), 0x1280 c (32 (du k + dv); Encaps output, Decaps input), 0x1EC0 d and 0x1EE0 z (KeyGen inputs, 32 bytes each), 0x1F00 m (Encaps input, 32), 0x1F20 K (shared secret: Encaps and Decaps output, 32). The rest is the engine's scratch.",

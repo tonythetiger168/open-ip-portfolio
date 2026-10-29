@@ -23,7 +23,7 @@ module ML_KEM_apb (
   output logic        PSLVERR,
   output logic        irq
 );
-  localparam logic [31:0] ID_VALUE = 32'h4D4B0100;
+  localparam logic [31:0] ID_VALUE = 32'h4D4B0101;
 
   // ---------------- APB decode ----------------
   wire        acc     = PSEL & PENABLE;
