@@ -440,11 +440,12 @@ module SGMII_tb;
     start(2, 0, 1, 16'hBFFF);
     wait_link();
     if (lp_ability !== 16'hFFFF || !full_duplex) fail("all abilities");
-    adv = 16'h01A0;
-    // half duplex partner
+    // half duplex on both sides (also drops FD and pause from our abilities)
+    adv = 16'h0040;
     start(7, 0, 1, 16'h0040);
     wait_link();
     if (full_duplex || lp_ability !== 16'h4040) fail("half duplex partner");
+    adv = 16'h01A0;
     // ---- SGMII: speeds and link ----
     for (int s = 0; s < 3; s++) begin
       start(s * 3, 1, 1, 16'h8001 | (16'(s) << 10) | (s == 2 ? 16'h1000 : 16'h0));

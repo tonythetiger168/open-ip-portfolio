@@ -1,6 +1,6 @@
 # PTP: structural constants of the parser offsets and the message type.
-TOGGLE PTP_tsu\.l3\[(0|5|6|7)\](:|$) # constant: the IP header starts at byte 14 or 18 (802.1Q)
-TOGGLE PTP_tsu\.i_l3\[(0|[5-9]|10)\](:|$) # constant: zero-extended l3 (14 or 18)
+TOGGLE PTP_tsu\.l3\[(0|1|5|6|7)\](:|$) # constant: the IP header starts at byte 14 or 18 (802.1Q); bit 1 is 1 in both
+TOGGLE PTP_tsu\.i_l3\[(0|1|[5-9]|10)\](:|$) # constant: zero-extended l3 (14 or 18)
 TOGGLE PTP_tsu\.(l4|p0)\[(0|7)\](:|$) # constant: even offsets below 128 (at most 18 + 60 + 8 = 86)
 TOGGLE PTP_tsu\.(i_l4|i_p0)\[(0|[7-9]|10)\](:|$) # constant: zero-extended l4 / p0
 TOGGLE PTP_tsu\.q_type\[(2|3)\](:|$) # constant 0: only event messages (types 0..3) are timestamped

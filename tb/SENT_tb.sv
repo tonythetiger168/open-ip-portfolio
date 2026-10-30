@@ -369,6 +369,20 @@ module SENT_tb;
       tx_stop();
       check_ev($sformatf("loopback %0d", n));
     end
+    // every data nibble count in every pause mode, all-ones frames first
+    // (the longest frame: the tick sum passes 255)
+    cfg_crc_legacy = 0; cfg_tx_low_ticks = 5;
+    for (int n = 1; n <= 6; n++)
+      for (int pm = 0; pm < 3; pm++) begin
+        cfg_tx_nibbles = n; cfg_rx_nibbles = n;
+        cfg_tx_pause_mode = pm; cfg_rx_pause = pm != 0;
+        cfg_tx_pause = pm == 1 ? 11'(12 + 50 * n) : 11'(250 + 20 * n);
+        tx_status = 4'hF; tx_data = 24'hFF_FFFF;
+        tx_en = 1;
+        tx_frames(2);
+        tx_stop();
+        check_ev($sformatf("nibbles %0d pause mode %0d", n, pm));
+      end
     cfg_crc_legacy = 0; cfg_tx_low_ticks = 5; cfg_tx_nibbles = 6; cfg_rx_nibbles = 6;
     cfg_tx_pause_mode = 0; cfg_rx_pause = 0;
     // pause limits: fixed 0 (12), 2047 (768); constant length too short (12), too long (768);
@@ -396,7 +410,9 @@ module SENT_tb;
       cfg_crc_legacy = lg;                                  // only while the line is idle
       tx_en = 1;
       for (int i = 0; i < (lg ? 3 : 7); i++) begin
-        ser_send(i % 3 != 0, i % 3 == 2, 8'($urandom), 16'($urandom));
+        // 8-bit IDs FF, 00, FF and 16-bit data FFFF, 0000, FFFF: every bit falls
+        ser_send(i % 3 != 0, i % 3 == 2, i == 1 ? 8'hFF : i == 4 ? 8'h00 : 8'($urandom),
+                 i == 2 ? 16'hFFFF : i == 5 ? 16'h0000 : 16'($urandom));
         while (ser_tx_busy) begin @(posedge tx_frame_start); @(negedge clk); #1 tx_status = $urandom; tx_data = $urandom; end
         tx_frames(i % 2);                                   // a frame or none between messages
       end
