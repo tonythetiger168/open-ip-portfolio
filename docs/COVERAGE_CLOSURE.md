@@ -55,8 +55,8 @@ partially-encoded enum, a tie-off that is constant by construction, and the
 upper bits of a counter whose largest load is below the next power of two.
 FSM, SVA and functional coverage have no exclusions.
 
-Totals: 122 line points out of 12722 and 3936 toggle points out of 164527
-for the cores; 478 toggle points out of 112611 for the wrappers.
+Totals: 122 line points out of 12732 and 3939 toggle points out of 166290
+for the cores; 479 toggle points out of 113068 for the wrappers.
 
 Verilator leaves signals wider than 256 bits out of toggle coverage by
 default. An IP with wider buses (UCIe: 544-bit flits, Ethernet_RS_FEC:
@@ -108,10 +108,8 @@ Regression run on 2026-10-24, seed 1 (`scripts/cov/run_all.sh 4`, 242 runs,
 all closed), with the PCIe, UCIe, ML_KEM and Ethernet_RS_FEC rows (core and
 wrapper) re-run on 2026-10-28 after their v3.0 / v1.0 changes, ML_KEM
 again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
-2026-10-29, and TRNG added on 2026-10-30 (its line and toggle counts from
-a Verilator 5.020 build with the checker's assertions run at the clock
-edge, every cover point hit; the CI coverage job with 5.052 confirms the
-row CLOSED). The tables come from
+2026-10-29, and TRNG added on 2026-10-30 (from the CI coverage job). The
+tables come from
 `python3 scripts/cov/report.py`.
 
 ### Cores
@@ -221,7 +219,7 @@ row CLOSED). The tables come from
 | SDIO | 92/93 (+1 excl.) | 1342/1342 | 30/30 | 5/5 | 67/67 | pass |
 | SPI | 15/15 | 108/108 | n/a | 5/5 | 46/46 | pass |
 | SPMI | 44/44 | 162/162 | 12/12 | 6/6 | 62/62 | pass |
-| TRNG | 63/64 (+1 excl.) | 1760/1763 (+3 excl.) | 15/15 | 13/13 | 38/38 | pass |
+| TRNG | 73/74 (+1 excl.) | 3520/3526 (+6 excl.) | 15/15 | 13/13 | 38/38 | pass |
 | TileLink__TL_UL_TL_C_ | 22/22 | 382/386 (+4 excl.) | 4/4 | 7/7 | 68/68 | pass |
 | Toggle_Mode_NAND | 98/98 | 246/246 | 31/31 | 7/7 | 75/75 | pass |
 | UALink | 70/70 | 1722/1722 | 8/8 | 5/5 | 108/108 | pass |
@@ -247,7 +245,7 @@ row CLOSED). The tables come from
 | eMMC | 120/120 | 1622/1622 | 17/17 | 6/6 | 64/64 | pass |
 | eUSB2 | 107/108 (+1 excl.) | 394/394 | 16/16 | 6/6 | 74/74 | pass |
 
-Totals: line 12600/12722 (+122 excluded), toggle 160591/164527 (+3936 excluded), fsm 2622/2622, sva 1535/1535, functional 11745/11745.
+Totals: line 12610/12732 (+122 excluded), toggle 162351/166290 (+3939 excluded), fsm 2622/2622, sva 1535/1535, functional 11745/11745.
 
 For the IPs rebuilt last (UniPro, DisplayPort2, SAS-4, SATA, the clone
 rewrites and the memory family), the checker was also tested with deliberate
@@ -365,7 +363,7 @@ machine, so FSM is n/a.
 | SD_apb | 19/19 | 404/404 | n/a | 7/7 | 23/23 | pass |
 | SPI_apb | 21/21 | 440/440 | n/a | 11/11 | 28/28 | pass |
 | SPMI_apb | 28/28 | 518/518 | n/a | 8/8 | 42/42 | pass |
-| TRNG_apb | 34/34 | 456/457 (+1 excl.) | n/a | 16/16 | 50/50 | pass |
+| TRNG_apb | 36/36 | 912/914 (+2 excl.) | n/a | 16/16 | 50/50 | pass |
 | TileLink__TL_UL_TL_C__apb | 19/19 | 660/664 (+4 excl.) | n/a | 7/7 | 23/23 | pass |
 | Toggle_Mode_NAND_apb | 20/20 | 426/426 | n/a | 7/7 | 25/25 | pass |
 | UALink_apb | 19/19 | 792/792 | n/a | 7/7 | 27/27 | pass |
@@ -391,4 +389,4 @@ machine, so FSM is n/a.
 | eMMC_apb | 19/19 | 412/412 | n/a | 7/7 | 23/23 | pass |
 | eUSB2_apb | 20/20 | 406/406 | n/a | 7/7 | 25/25 | pass |
 
-Totals: line 4141/4141, toggle 112133/112611 (+478 excluded), fsm 0/0, sva 1486/1486, functional 6341/6341.
+Totals: line 4143/4143, toggle 112589/113068 (+479 excluded), fsm 0/0, sva 1486/1486, functional 6341/6341.
