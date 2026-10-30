@@ -1,0 +1,8 @@
+# PTP synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/PTP_top.sv 
+hierarchy -check -top PTP_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json PTP_top.json
+write_verilog PTP_top_netlist.v

@@ -79,3 +79,5 @@ xSPI | ck_d <= 1'b0; csn_d <= 1'b1; st <= S_CMD; cmd <= '0; op <= '0; cnt <= '0;
 xSPI | ck_d <= 1'b0; csn_d <= 1'b1; st <= S_CMD; cmd <= '0; op <= '0; cnt <= '0; odd <= 1'b0; | 1'b1 -> 1'b0 | csn_d reset value: a frame end seen in the first clock after reset finds the FSM in S_CMD with no edges, which does nothing
 xSPI | dq_o <= '0; dq_oe <= 1'b0; dqs_o <= 1'b0; dqs_oe <= 1'b0; | 1'b0 -> 1'b1@2 | dqs_o reset value: DQS is not driven until a read reaches its latency, and that edge sets dqs_o to 0 first
 SGMII | wire        ones4 = {2'd0, cg[3]} + {2'd0, cg[2]} + {2'd0, cg[1]} + {2'd0, cg[0]} > 3'd2; | > -> >= | ones4 is only used when the 4-bit sub-block is unbalanced (not two ones), where > 2 and >= 2 agree
+CAN_XL | wire        rs_skip = rs_ok && tq_cnt > t1 && early > {2'b0, sjw}; | > -> >=@2 | at early == SJW rs_end is also true, and rs_end takes priority in the timing counter, so rs_skip is never used there
+PTP | st <= P_IDLE; kind <= K_NONE; idx <= '0; crc <= '1; bad <= 1'b0; et <= '0; | 1'b0 -> 1'b1 | bad reset value: bad is read only in P_DATA, and the SFD that enters P_DATA clears it

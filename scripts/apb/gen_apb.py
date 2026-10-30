@@ -103,6 +103,8 @@ def core_ports(path, top):
 def param_names(params):
     out = []
     for p in params:
+        if p.startswith("localparam"):        # derived in the core, not overridable
+            continue
         m = re.search(r"(\w+)\s*=", p)
         if m:
             out.append(m.group(1))
