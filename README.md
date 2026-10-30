@@ -170,7 +170,7 @@ setup_tools.sh           installs iverilog / yosys if missing
 
 | Protocol | Build | Standalone package |
 |---|---|---|
-| CXL | `make -f Makefile.CXL sim` | [open_ip_CXL.zip](releases/open_ip_CXL.zip) |
+| CXL 3.0 (256-byte flits, CXL.io, HDM-DB back-invalidation) | `make -f Makefile.CXL sim` | [open_ip_CXL.zip](releases/open_ip_CXL.zip) |
 | Interlaken v1.2 | `make -f Makefile.Interlaken_v1_2 sim` | [open_ip_Interlaken_v1_2.zip](releases/open_ip_Interlaken_v1_2.zip) |
 | JESD204C | `make -f Makefile.JESD204C sim` | [open_ip_JESD204C.zip](releases/open_ip_JESD204C.zip) |
 | PCIe | `make -f Makefile.PCIe sim` | [open_ip_PCIe.zip](releases/open_ip_PCIe.zip) |
@@ -332,7 +332,7 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
   +/-1), each run through the testbench and its checker, with every
   surviving mutant listed in the job summary.
   The v2.5.1 numbers below are the earlier four-metric flow.
-- **Sign-off checks beyond coverage** (UCIe, PCIe, ML-KEM, Ethernet RS-FEC,
+- **Sign-off checks beyond coverage** (UCIe, PCIe, CXL, ML-KEM, Ethernet RS-FEC,
   Ethernet PCS, Root of Trust so far): lint, mutation, formal (bounded proofs; exhaustive checks of the
   ML-KEM and RS-FEC arithmetic and the PCS functions and gearboxes), area and logic depth, and the list of what a production
   sign-off would still need: [docs/SIGNOFF.md](docs/SIGNOFF.md).
