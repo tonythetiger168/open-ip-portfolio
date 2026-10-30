@@ -989,6 +989,10 @@ module CAN_XL_tb;
     cfg_dbrp = 2; cfg_dtseg1 = 15; cfg_dtseg2 = 7; cfg_dsjw = 3;           // data slower than nominal
     reset_all();
     a_send(rnd_xl(20)); b_send(rnd_cc()); wait_ready(1, 1);
+    cfg_brp = 2; cfg_tseg1 = 6; cfg_tseg2 = 3; cfg_sjw = 2;               // even settings
+    cfg_dbrp = 1; cfg_dtseg1 = 4; cfg_dtseg2 = 2; cfg_dsjw = 2;
+    reset_all();
+    a_send(rnd_xl(20)); b_send(rnd_cc()); wait_ready(1, 1);
     cfg_brp = 63; cfg_tseg1 = 15; cfg_tseg2 = 7; cfg_sjw = 3;             // the longest bits
     cfg_dbrp = 63; cfg_dtseg1 = 15; cfg_dtseg2 = 7; cfg_dsjw = 3;
     reset_all();

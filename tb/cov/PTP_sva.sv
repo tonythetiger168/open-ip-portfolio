@@ -50,7 +50,7 @@ module PTP_sva_tsu #(
   int           mh, mt;
   bit           m_ovf;
   int           v_why;
-  bit           v_end, v_vlan, v_jumbo, v_borrow, v_carry, v_full_pop, v_cut_pre, v_skip, v_sfd_first;
+  bit           v_end, v_vlan, v_jumbo, v_borrow, v_carry, v_full_pop, v_pop, v_cut_pre, v_skip, v_sfd_first;
 
   function automatic logic [7:0] by(input int i);
     return i < n ? fb[i] : 8'h00;
@@ -66,7 +66,7 @@ module PTP_sva_tsu #(
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       mode <= M_IDLE; n <= 0; bad <= 0; ssec <= '0; sns <= '0; mh <= 0; mt <= 0; m_ovf <= 0;
-      v_push = 0; v_end = 0; v_why = -1; v_kind = 0; v_type = 0; v_ihl = 0;
+      v_push = 0; v_pop = 0; v_end = 0; v_why = -1; v_kind = 0; v_type = 0; v_ihl = 0;
     end else begin
       int l3, l4, p0, et, why, kind, ihl;
       bit en, vl;
@@ -74,7 +74,7 @@ module PTP_sva_tsu #(
       longint ns;
       logic [47:0] sec;
       v_push = 0; v_end = 0; v_why = -1; v_vlan = 0; v_jumbo = 0; v_borrow = 0; v_carry = 0;
-      v_full_pop = 0; v_cut_pre = 0; v_skip = 0; v_sfd_first = 0;
+      v_full_pop = 0; v_pop = 0; v_cut_pre = 0; v_skip = 0; v_sfd_first = 0;
       m_ovf <= 0;
       case (mode)
         M_IDLE, M_PRE:
@@ -151,7 +151,7 @@ module PTP_sva_tsu #(
             end
           end
       endcase
-      if (q_pop && cnt != 0) mh <= mh + 1;
+      if (q_pop && cnt != 0) begin mh <= mh + 1; v_pop = 1; end
     end
   end
 
@@ -190,7 +190,7 @@ module PTP_sva_tsu #(
   `FC(fifo_full, cnt == DEPTH)
   `FC(fifo_overflow, q_ovf)
   `FC(push_into_full_with_pop, v_full_pop)
-  `FC(pop_and_push, v_push && q_pop && cnt != 0)
+  `FC(pop_and_push, v_push && v_pop)   // same clock (both model flags of one edge)
   `FC(pop_when_empty, q_pop && cnt == 0)
   `FC(preamble_cut, v_cut_pre)
   `FC(no_sfd, v_skip)

@@ -651,6 +651,14 @@ module PTP_tb;
       drain(0); drain(1);
       pps_en = 0;
     end
+    // bit 0 of the event time falls (odd, then even, at a whole ns rate),
+    // and the latencies drop to zero and back
+    cfg_inc_frac = 0;
+    do_set(48'd5, 30'd1001); event_pulse(1);
+    do_set(48'd5, 30'd2000); event_pulse(1);
+    cfg_rx_lat_ns = 0; cfg_tx_lat_ns = 0;
+    cyc(2);
+    cfg_rx_lat_ns = 16'd300; cfg_tx_lat_ns = 16'd500;
     k = n_ts[0] + n_ts[1];
     f = ev_frame(0); f.body = 11'd2047; send(0, f); send(1, f);     // 2065 bytes
     drain(0); drain(1);
