@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of Toggle_Mode_NAND_apb_tb: a toggle-mode NAND host model (SDR
 // command / address on we_n, DDR data in on dqs, DDR data out on re_n with
 // dqs echoed) and a shadow array predicting every page read. Read ID, page

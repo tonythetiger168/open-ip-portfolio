@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of I2S_Audio_apb_tb: serial loopback (sd_out -> sd_in) through the
 // TX / RX registers in every format and depth, master and slave (TB clocks),
 // a dropped slave bclk pulse (FSYNC_ERR), TX and RX overflow and underrun.

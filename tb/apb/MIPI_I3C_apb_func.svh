@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of MIPI_I3C_apb_tb: an I3C controller model plus a second
 // (competing) open-drain target on the bus. Legacy I2C register access,
 // ENTDAA (lost arbitration, parity error, success), RSTDAA, GETPID, unknown

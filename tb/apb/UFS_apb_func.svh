@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of UFS_apb_tb: the link partner of the core TB (training answer,
 // COMMAND UPIUs sent bit-serially on rx_p, every RESPONSE / DATA UPIU checked
 // for CRC-32, EOF, task tag, status / sense and data against a shadow of the
