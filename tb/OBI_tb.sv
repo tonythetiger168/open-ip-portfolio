@@ -338,6 +338,8 @@ module OBI_tb;
     wait_idle();
 
     // ---- reset with responses outstanding ----
+    xfer(1, 32'h40, 4'hF, 32'h1234_5678);      // random traffic may have written it
+    wait_idle();
     rr_free = 0; rready = 0;
     @(negedge clk); req = 1; we = 0; addr = 32'h40; atop = 0; prot = 3'b111;
     repeat (3) @(negedge clk);
