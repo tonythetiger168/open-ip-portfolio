@@ -20,14 +20,15 @@ synthesis, Verilator coverage).
 rtl/                     <P>_top.sv core and <P>_apb.sv APB4 wrapper per protocol
 tb/                      self-checking testbenches (print TEST PASSED/FAILED)
 tb/apb/                  IP-specific parts of the wrapper testbenches
+tb/func/                 pin-level / cycle-exact functional tests (DDR4, LPDDR4, Avalon-MM, 1-Wire)
 tb/cov/                  Verilator coverage checkers (<P>_sva.sv, <P>_apb_sva.sv)
 syn/                     per-protocol Yosys scripts, DC TCL, SDC constraints
 sim/                     per-protocol simulator filelists
-Makefile.<PROTOCOL>      per-protocol entry: make -f Makefile.<P> sim|syn|apb
+Makefile.<PROTOCOL>      per-protocol entry: make -f Makefile.<P> sim|syn|apb[|func]
 releases/                standalone per-protocol packages: open_ip_<P>.zip
 scripts/apb/             APB wrapper generator and register specs (specs/<P>.json)
 scripts/cov/             five-metric coverage flow (run_cov.sh, run_all.sh)
-scripts/ci_regression.sh sim + syn + apb regression run by CI
+scripts/ci_regression.sh sim + syn + apb + func regression run by CI
 scripts/package_releases.py  rebuilds releases/ from the current tree
 scripts/gen_filelists.py     rebuilds sim/filelist_<P>.f from the Makefiles
 scripts/mut/run_mut.py       mutation testing of the testbenches (Icarus or the Verilator flow)
@@ -304,7 +305,10 @@ make -f Makefile.I2C syn        # -> 0 errors, cell count report
 # APB4 register wrapper: wrapper test + synthesis
 make -f Makefile.I2C apb        # -> TEST PASSED: I2C_apb
 
-# full regression (what CI runs): sim + syn + apb for all 125 IPs, in parallel (~50 min on 4 cores)
+# pin-level functional test, where tb/func has one (the TB plays the device)
+make -f Makefile.DDR4 func      # -> TEST PASSED: DDR4_func
+
+# full regression (what CI runs): sim + syn + apb (+ func) for all 125 IPs, in parallel (~50 min on 4 cores)
 bash scripts/ci_regression.sh   # logs in work/ci_*.log
 
 # five-metric coverage (Verilator)

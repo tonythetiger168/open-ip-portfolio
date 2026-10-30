@@ -20,6 +20,11 @@ apb:
 	./simv_apb
 	mkdir -p work && cd work && $(SYN) ../syn/$(S)_apb_yosys.ys
 
+# pin-level / cycle-exact functional test (tb/func)
+func:
+	$(SIM) $(VFLAGS) -I tb/func -o simv_func rtl/$(S)_top.sv $(DEPS) tb/func/func_ddr4_tb.sv
+	./simv_func
+
 clean:
-	rm -f simv simv_apb *.vcd work/*.json work/*_netlist.v
-.PHONY: all sim syn apb clean
+	rm -f simv simv_apb simv_func *.vcd work/*.json work/*_netlist.v
+.PHONY: all sim syn apb func clean
