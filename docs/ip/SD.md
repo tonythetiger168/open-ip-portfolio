@@ -19,9 +19,15 @@ SD protocol Open IP -- SD memory card host: CMD0/CMD8/ACMD41/CMD2/CMD3/CMD7 init
 - Block length is 32 bytes (256 bits) instead of the SD-native 512 bytes.
 - 4-bit bus mode from the start (bus-width switch via ACMD6 is skipped;
 the host is born in 4-bit mode, documented deviation).
-- sd_clk is generated from clk by an even divider (parameter SD_CLK_DIV);
-all host logic runs in the clk domain and advances one bus bit per
-sd_clk period (internal "tick" aligned with the sd_clk rising edge).
+- sd_clk is generated from clk by an even divider: ID_CLK_DIV during
+card identification (CMD0 .. CMD3, which must run at 400 kHz or less:
+the default 128 meets that for clk up to 51.2 MHz) and SD_CLK_DIV once
+the card has published its RCA (from CMD7 on). All host logic runs in
+the clk domain and advances one bus bit per sd_clk period (internal
+"tick" on the sd_clk rising edge, where CMD / DAT are sampled); the
+CMD / DAT drivers change on the sd_clk falling edge.
+- The response start bit is looked for from the 2nd sd_clk after the
+command end bit (N_CR = 2, the minimum) up to 64 clocks.
 - CMD7's R1b busy on DAT0 is simplified to plain R1 (no busy wait).
 - Response / data-start / CRC-status / busy timeout is 64 sd_clk cycles.
 - The host autonomously repeats demo rounds: CMD24 write of an internal
@@ -44,7 +50,7 @@ err_crc16. The host then waits for the card to release DAT0 busy.
 - Errors during init restart it with CMD0; errors in a round return to
 the idle gap, which restarts the round.
 
-sd_clk (PCLK / 4), cmd and dat[3:0] (bidirectional, need pull-ups) are the SD bus; they pass through unchanged. The host initialises the card and runs its write / read-back rounds on its own after reset.
+sd_clk (PCLK / ID_CLK_DIV = PCLK / 128 during card identification, which keeps it at 400 kHz or less for PCLK up to 51.2 MHz; PCLK / SD_CLK_DIV = PCLK / 4 from CMD7 on), cmd and dat[3:0] (bidirectional, need pull-ups) are the SD bus; they pass through unchanged. CMD and DAT change on the sd_clk falling edge and are sampled on the rising edge; a response is looked for from N_CR = 2 clocks after the command. The host initialises the card and runs its write / read-back rounds on its own after reset.
 Blocks are 32 bytes (the slice's simplification of 512).
 
 ## Files
@@ -67,6 +73,7 @@ How to run the tests and the coverage flow: see [Running and verifying](#running
 | Parameter | Type | Default |
 |---|---|---|
 | `SD_CLK_DIV` | int | `4` |
+| `ID_CLK_DIV` | int | `128` |
 
 ## Wrapper pins
 

@@ -9,7 +9,7 @@
     {"name": "ERR", "port": "irq", "desc": "a response, CRC status, read block or busy phase failed (framing, CRC7, index, card-status error bits, R7 contents, negative CRC status, CRC16, end bit, read compare, timeout); the host retries"}
   ],
   "notes": [
-    "sd_clk (PCLK / 4), cmd and dat[3:0] (bidirectional, need pull-ups) are the SD bus; they pass through unchanged. The host initialises the card and runs its write / read-back rounds on its own after reset.",
+    "sd_clk (PCLK / ID_CLK_DIV = PCLK / 128 during card identification, which keeps it at 400 kHz or less for PCLK up to 51.2 MHz; PCLK / SD_CLK_DIV = PCLK / 4 from CMD7 on), cmd and dat[3:0] (bidirectional, need pull-ups) are the SD bus; they pass through unchanged. CMD and DAT change on the sd_clk falling edge and are sampled on the rising edge; a response is looked for from N_CR = 2 clocks after the command. The host initialises the card and runs its write / read-back rounds on its own after reset.",
     "Blocks are 32 bytes (the slice's simplification of 512)."
   ]
 }

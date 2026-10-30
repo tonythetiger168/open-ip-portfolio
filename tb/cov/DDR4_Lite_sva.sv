@@ -50,6 +50,7 @@ module DDR4_Lite_sva (
   end
   wire [1:0] pin_bank = q_ba;
 
+`define LITE_ACT_HI_ZERO
   `include "lite_chk.svh"
 
   // clock and clock-enable pins
