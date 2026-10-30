@@ -1,0 +1,37 @@
+{
+  "title": "EtherCAT slave controller frame processing: on-the-fly datagram execution, 1 KB process RAM, two FMMUs, FCS regeneration",
+  "code": "0xEC47",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "50ms",
+  "regs": [
+    {"name": "MEM_ADDR", "kind": "rw", "desc": "ESC address for CMD.host_rd / host_wr",
+     "fields": [{"port": "host_addr", "desc": "0x0010..0x0011 station address, 0x0600..0x061F FMMU 0 / 1, 0x1000..0x13FF process RAM"}]},
+    {"name": "MEM_WDATA", "kind": "rw", "desc": "ESC write data",
+     "fields": [{"port": "host_wdata", "desc": "octet written by CMD.host_wr"}]},
+    {"name": "CMD", "kind": "cmd", "desc": "Commands",
+     "fields": [{"port": "host_wr", "desc": "1 = write MEM_WDATA at MEM_ADDR (dropped if a frame writes the same octet in that clock)"},
+                {"port": "host_rd", "desc": "1 = read MEM_ADDR into MEM_RDATA"}]},
+    {"name": "MEM_RDATA", "kind": "ro", "desc": "ESC read data",
+     "fields": [{"port": "host_rdata", "desc": "octet read by CMD.host_rd"}]},
+    {"name": "FRAME", "kind": "stream_out", "data": ["fr_fcs_ok", "fr_ecat", "fr_dgrams", "fr_wkc"], "valid": "fr_done",
+     "desc": "Frame report, one per forwarded frame; reading it frees it",
+     "fdesc": {"fr_fcs_ok": "received FCS correct", "fr_ecat": "EtherCAT datagram frame",
+               "fr_dgrams": "datagrams processed (modulo 256)", "fr_wkc": "this station's working counter increments, saturating at 255"}}
+  ],
+  "irqs": [],
+  "features": [
+    "Datagrams executed as the frame passes (5-clock latency): APRD / APWR / APRW, FPRD / FPWR / FPRW, BRD / BWR / BRW, LRD / LWR / LRW, ARMW / FRMW, NOP",
+    "Working counter and ADP increment, BRD / BRW OR of read data, any number of datagrams per frame",
+    "Two octet-granular FMMUs for logical addressing, 1 KB process RAM, station address register",
+    "FCS recomputed over the forwarded frame; a bad received FCS is passed on inverted"
+  ],
+  "notes": [
+    "rx_dv / rx_d carry the frame from the destination address to the FCS, one octet per PCLK; tx_dv / tx_d forward it. Frames need 5 idle clocks between them.",
+    "Not implemented: distributed clocks, SyncManagers, AL state machine, EEPROM / SII, mailbox, bit-granular FMMUs, VLAN tags, multiple ports."
+  ],
+  "sequence": [
+    "Write the station address (0x0010..0x0011) and FMMUs (0x0600..) through MEM_ADDR / MEM_WDATA / CMD.host_wr, preload the process RAM the same way.",
+    "On IRQ FRAME_AVAIL read FRAME for each frame; read process data with CMD.host_rd and MEM_RDATA."
+  ]
+}
