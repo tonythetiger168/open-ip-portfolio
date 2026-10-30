@@ -1,0 +1,89 @@
+{
+  "title": "SMBus 3.x target with the PMBus 1.3 command layer: PEC, clock stretching, STATUS_CML fault reporting, WRITE_PROTECT, SMBALERT# with the Alert Response Address, spike filter, SDA hold time, bus timeout",
+  "code": "0x5342",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "400ms",
+  "regs": [
+    {
+      "name": "VOUT",
+      "kind": "ro",
+      "desc": "Output-voltage set point commanded over PMBus",
+      "fields": [
+        {
+          "port": "vout_command",
+          "desc": "VOUT_COMMAND (21h), linear 16-bit mantissa, exponent from VOUT_MODE (-9)"
+        }
+      ]
+    },
+    {
+      "name": "CTRL",
+      "kind": "ro",
+      "desc": "On / off control commanded over PMBus",
+      "fields": [
+        {
+          "port": "operation",
+          "desc": "OPERATION (01h); bit 7 = on"
+        },
+        {
+          "port": "on_off_config",
+          "desc": "ON_OFF_CONFIG (02h)"
+        }
+      ]
+    },
+    {
+      "name": "TELEMETRY",
+      "kind": "rw",
+      "desc": "Measured output voltage, returned by READ_VOUT (8Bh)",
+      "fields": [
+        {
+          "port": "read_vout",
+          "reset": "0",
+          "desc": "READ_VOUT value"
+        }
+      ]
+    },
+    {
+      "name": "FAULT",
+      "kind": "cmd",
+      "desc": "Power-stage faults",
+      "fields": [
+        {
+          "port": "vout_ov",
+          "desc": "write 1: a VOUT overvoltage fault; latched into STATUS_BYTE / STATUS_WORD and SMBALERT# until CLEAR_FAULTS"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "CML",
+      "port": "irq_cml",
+      "desc": "a STATUS_CML bit was set (unsupported command, invalid data, PEC failure, bus timeout)"
+    },
+    {
+      "name": "UPD",
+      "port": "irq_upd",
+      "desc": "the host wrote OPERATION, ON_OFF_CONFIG or VOUT_COMMAND"
+    },
+    {
+      "name": "TO",
+      "port": "irq_to",
+      "desc": "SCL was held low for TIMEOUT clocks in a transfer; the target released the bus"
+    }
+  ],
+  "features": [
+    "SMBus 3.x target at address ADDR (default 0x5A): Send Byte, Write Byte / Word, Read Byte / Word and Block Read, each with an optional PEC byte (CRC-8).",
+    "PMBus 1.3 commands OPERATION, ON_OFF_CONFIG, CLEAR_FAULTS, WRITE_PROTECT, CAPABILITY, VOUT_MODE, VOUT_COMMAND, STATUS_BYTE, STATUS_WORD, STATUS_CML, READ_VOUT, PMBUS_REVISION and MFR_ID.",
+    "Fault reporting in STATUS_CML (unsupported command, invalid data, PEC failed, other communication fault) with the matching byte NACKed; a write only takes effect at STOP when it was complete and error-free.",
+    "SMBALERT# with the Alert Response Address (0x0C): the target returns its address, releases SMBALERT# when it wins the arbitration, and pulls it again on a new fault.",
+    "Bus timing: SCL / SDA spike filter of FILT clocks, SDA changed HOLD clocks after SCL falls, SCL stretched for STRETCH clocks after each address ACK, tTIMEOUT after TIMEOUT clocks of SCL low."
+  ],
+  "notes": [
+    "scl and sda are the bus inputs; scl_o, sda_o and smbalert_n are open-drain outputs (0 pulls the line low). They pass through unchanged.",
+    "Not implemented: the SMBus Address Resolution Protocol (fixed address), Host Notify, Quick Command, Block Write and the PMBus fault-response, limit and telemetry commands beyond READ_VOUT."
+  ],
+  "tb_params": {
+    "TIMEOUT": "3000"
+  }
+}
