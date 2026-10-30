@@ -1,0 +1,8 @@
+# MIL_STD_1553 synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/MIL_STD_1553_top.sv 
+hierarchy -check -top MIL_STD_1553_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json MIL_STD_1553_top.json
+write_verilog MIL_STD_1553_top_netlist.v
