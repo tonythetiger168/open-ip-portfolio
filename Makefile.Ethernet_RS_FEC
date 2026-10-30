@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+# Ethernet_RS_FEC Open IP -- sim & synthesis entry points
+S      := Ethernet_RS_FEC
+DEPS   := 
+SIM    ?= iverilog
+VFLAGS := -g2012 -Wall
+SYN    ?= yosys
+
+all: sim syn
+
+sim:
+	$(SIM) $(VFLAGS) -o simv rtl/$(S)_top.sv $(DEPS) tb/$(S)_tb.sv
+	./simv
+
+syn:
+	mkdir -p work && cd work && $(SYN) ../syn/$(S)_yosys.ys
+
+apb:
+	$(SIM) $(VFLAGS) -I tb -o simv_apb rtl/$(S)_top.sv $(DEPS) rtl/$(S)_apb.sv tb/$(S)_apb_tb.sv
+	./simv_apb
+	mkdir -p work && cd work && $(SYN) ../syn/$(S)_apb_yosys.ys
+
+# test vectors (tb/Ethernet_RS_FEC_vec.hex) from the RS(544,514) reference model
+vec:
+	python3 scripts/ethfec/gen_vec.py tb/$(S)_vec.hex
+
+clean:
+	rm -f simv simv_apb *.vcd work/*.json work/*_netlist.v
+.PHONY: all sim syn apb vec clean

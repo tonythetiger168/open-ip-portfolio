@@ -14,8 +14,11 @@ module PCIe_apb #(
   parameter int TXN = 4,
   parameter int RXN = 4,
   parameter int REPLAY_TO = 600,
+  parameter int ACK_LAT = 16,
   parameter int FC_GAP = 32,
-  parameter int UPD_GAP = 1024
+  parameter int UPD_GAP = 1024,
+  parameter int HP = 2, HNP = 1, HC = 1,
+  parameter int DP = 4, DNP = 2, DC = 2
 ) (
   input  logic        PCLK,
   input  logic        PRESETN,
@@ -34,7 +37,7 @@ module PCIe_apb #(
   input logic [7:0] rx_sym,
   input logic rx_k
 );
-  localparam logic [31:0] ID_VALUE = 32'h50430200;
+  localparam logic [31:0] ID_VALUE = 32'h50430300;
 
   // ---------------- APB decode ----------------
   wire        acc     = PSEL & PENABLE;
@@ -59,6 +62,9 @@ module PCIe_apb #(
   logic          c_rx_ready;
   logic [7:0]    c_rx_data;
   logic          c_rx_last;
+  logic          c_pm_req;
+  logic          c_aspm_ok;
+  logic [1:0]    c_pm_state;
   logic          c_dl_up;
   logic          c_retrain;
   logic          c_ev_tlp_bad;
@@ -71,7 +77,7 @@ module PCIe_apb #(
   logic          c_ev_frame;
   logic          c_ev_nak;
   logic          c_ev_replay;
-  PCIe_top #(.MAXLEN(MAXLEN), .TXN(TXN), .RXN(RXN), .REPLAY_TO(REPLAY_TO), .FC_GAP(FC_GAP), .UPD_GAP(UPD_GAP)) u_core (
+  PCIe_top #(.MAXLEN(MAXLEN), .TXN(TXN), .RXN(RXN), .REPLAY_TO(REPLAY_TO), .ACK_LAT(ACK_LAT), .FC_GAP(FC_GAP), .UPD_GAP(UPD_GAP), .HP(HP), .DP(DP)) u_core (
     .clk(PCLK),
     .rst_n(PRESETN),
     .link_up(c_link_up),
@@ -87,6 +93,9 @@ module PCIe_apb #(
     .rx_ready(c_rx_ready),
     .rx_data(c_rx_data),
     .rx_last(c_rx_last),
+    .pm_req(c_pm_req),
+    .aspm_ok(c_aspm_ok),
+    .pm_state(c_pm_state),
     .dl_up(c_dl_up),
     .retrain(c_retrain),
     .ev_tlp_bad(c_ev_tlp_bad),
@@ -104,7 +113,7 @@ module PCIe_apb #(
   // ---------------- registers ----------------
   logic [13:0] irq_status, irq_enable, irq_set;
   logic [31:0] scratch;
-  logic [0:0] r_CTRL;   // 12'h014 CTRL
+  logic [2:0] r_CTRL;   // 12'h014 CTRL
   logic [8:0] h_TX;   // 12'h018 TX holding register
   logic [8:0] h_RX;   // 12'h01C RX holding register
   logic full_TX;
@@ -113,7 +122,7 @@ module PCIe_apb #(
   always_ff @(posedge PCLK or negedge PRESETN) begin
     if (!PRESETN) begin
       irq_status <= '0; irq_enable <= '0; scratch <= '0;
-      r_CTRL <= 1'h0;
+      r_CTRL <= 3'h4;
       h_TX <= '0;
       h_RX <= '0;
       full_TX <= 1'b0;
@@ -122,7 +131,7 @@ module PCIe_apb #(
       irq_status <= (irq_status & ~((wr && hit[1]) ? PWDATA[13:0] & wmask[13:0] : '0)) | irq_set;
       if (wr && hit[2]) irq_enable <= (irq_enable & ~wmask[13:0]) | (PWDATA[13:0] & wmask[13:0]);
       if (wr && hit[4]) scratch <= (scratch & ~wmask) | (PWDATA & wmask);
-      if (wr && hit[5]) r_CTRL <= (r_CTRL & ~wmask[0:0]) | (PWDATA[0:0] & wmask[0:0]);
+      if (wr && hit[5]) r_CTRL <= (r_CTRL & ~wmask[2:0]) | (PWDATA[2:0] & wmask[2:0]);
       if (wr && hit[6] && !full_TX) h_TX <= (h_TX & ~wmask[8:0]) | (PWDATA[8:0] & wmask[8:0]);
       if (wr && hit[6] && !full_TX) full_TX <= 1'b1;
       else if (full_TX && c_tlp_ready) full_TX <= 1'b0;
@@ -135,7 +144,9 @@ module PCIe_apb #(
   end
 
   // ---------------- core inputs ----------------
-  assign c_link_up = r_CTRL;
+  assign c_link_up = r_CTRL[0:0];
+  assign c_pm_req = r_CTRL[1:1];
+  assign c_aspm_ok = r_CTRL[2:2];
   assign c_tlp_data[7:0] = h_TX[7:0];
   assign c_tlp_last = h_TX[8:8];
   assign c_tlp_valid = full_TX;
@@ -175,7 +186,7 @@ module PCIe_apb #(
       10'd5: apb_rdata = 32'(r_CTRL);
       10'd6: apb_rdata = 32'(h_TX);
       10'd7: apb_rdata = 32'(h_RX);
-      10'd8: apb_rdata = 32'({c_dl_up});
+      10'd8: apb_rdata = 32'({c_pm_state, c_dl_up});
       default: apb_rdata = '0;
     endcase
   end

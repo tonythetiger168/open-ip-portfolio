@@ -1,0 +1,2 @@
+TOGGLE \.sb_tx_msg\[(1[1-5])\]: # constant 0: message codes are 01..07, so CODE[7:3] is always 0
+TOGGLE \.sb_tx_msg\[[2-7]\]: # constant 0: DATA[7:2] is reserved and sent as 0 (only AdvCap / FinCap use DATA[1:0])

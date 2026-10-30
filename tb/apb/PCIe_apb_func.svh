@@ -8,7 +8,9 @@
 // checker checks every RX read against that), TX written while full and
 // before the link is up, RX back-pressure, popped as it captures and read
 // empty, CTRL and STATUS, each event interrupt (from BFM packets, a Nak, the
-// replay timer and a retrain), every stream event and interrupt bit.
+// replay timer and a retrain), every stream event and interrupt bit, typed
+// overflow (header credits), ASPM L1 entered from CTRL.pm_req and from the
+// peer's request, refused, and woken by a TX write.
 localparam int MAXLEN = 32, RXN = 4;
 localparam logic [7:0] STP = 8'hFB, SDP = 8'h5C, ENDS = 8'hFD, EDB = 8'hFE;
 
@@ -19,6 +21,8 @@ wire  [7:0]  p_tx_sym, p_rx_data;
 wire         p_tx_k, p_tlp_ready, p_rx_valid, p_rx_last, p_dl_up, p_retrain;
 wire         p_ev_tlp_bad, p_ev_tlp_seq, p_ev_tlp_dup, p_ev_tlp_null, p_ev_overflow, p_ev_dllp_bad;
 wire         p_ev_dllp_proto, p_ev_frame, p_ev_nak, p_ev_replay;
+logic        p_pm_req = 0, p_aspm_ok = 1;
+wire  [1:0]  p_pm_state;
 // BFM in the peer's place
 bit          bfm = 0;
 logic [7:0]  b_sym = 0;
@@ -32,7 +36,7 @@ PCIe_top u_peer (
   .dl_up(p_dl_up), .retrain(p_retrain), .ev_tlp_bad(p_ev_tlp_bad), .ev_tlp_seq(p_ev_tlp_seq),
   .ev_tlp_dup(p_ev_tlp_dup), .ev_tlp_null(p_ev_tlp_null), .ev_overflow(p_ev_overflow),
   .ev_dllp_bad(p_ev_dllp_bad), .ev_dllp_proto(p_ev_dllp_proto), .ev_frame(p_ev_frame), .ev_nak(p_ev_nak),
-  .ev_replay(p_ev_replay));
+  .ev_replay(p_ev_replay), .pm_req(p_pm_req), .aspm_ok(p_aspm_ok), .pm_state(p_pm_state));
 
 // what the DUT must hand to RX, {last, byte}: written at the peer or sent
 // by the BFM
@@ -111,18 +115,21 @@ endtask
 task automatic back(input bit nak, input logic [11:0] seq);
   bdllp(nak ? 8'h10 : 8'h00, 8'h00, {4'd0, seq[11:8]}, seq[7:0]);
 endtask
-task automatic bfc(input logic [7:0] t, input logic [7:0] hdr);
-  bdllp(t, {2'b00, hdr[7:2]}, {hdr[1:0], 6'd0}, 8'd0);
+// flow control DLLP t for P, NP and Cpl: hdr header, dat data credits
+task automatic bfc3(input logic [7:0] t, input logic [7:0] hdr, input logic [11:0] dat = 0);
+  for (int i = 0; i < 3; i++) bdllp(t | 8'(i << 4), {2'b00, hdr[7:2]}, {hdr[1:0], 2'b00, dat[11:8]}, dat[7:0]);
 endtask
 // a TLP of n random bytes; mode 0 good, 1 bad LCRC, 2 nullified, 3 a K
-// symbol inside; accept: the DUT must deliver it
+// symbol inside; accept: the DUT must deliver it; fb: the first byte (credit
+// type), else random with idle after it until the DUT has read it out
 logic [7:0]  bt [$];
-task btlp(input logic [11:0] seq, input int n, input int mode = 0, input bit accept = 0);
+task btlp(input logic [11:0] seq, input int n, input int mode = 0, input bit accept = 0, input int fb = -1);
   logic [31:0] c;
   logic [7:0]  x;
   bt.delete();
   bt.push_back({4'd0, seq[11:8]}); bt.push_back(seq[7:0]);
   for (int i = 0; i < n; i++) bt.push_back(8'($urandom));
+  if (fb >= 0) bt[2] = 8'(fb);
   c = '1;
   for (int j = 0; j < bt.size(); j++) begin
     x = bt[j];
@@ -138,6 +145,7 @@ task btlp(input logic [11:0] seq, input int n, input int mode = 0, input bit acc
   for (int i = 3; i >= 0; i--) bq.push_back({1'b0, c[8 * i +: 8]});
   bq.push_back({1'b1, mode == 2 ? EDB : ENDS});
   bq.push_back(9'h000);
+  if (fb < 0) repeat (4 * n) bq.push_back(9'h000);
   if (accept) for (int j = 2; j < bt.size(); j++) begin ps[pst % 8192] = {j == bt.size() - 1, bt[j]}; pst++; end
 endtask
 
@@ -184,7 +192,7 @@ task automatic ip_func;
   rd(A_FLAGS);
   if (rdv[1:0] !== 2'b01) fail($sformatf("FLAGS %h with TX waiting", rdv));
   // link up with the peer
-  wr(A_CTRL, 1);
+  wr(A_CTRL, 5);
   p_link = 1;
   poll(A_STATUS, 1, 1, 2000);
   cycles(200);
@@ -207,16 +215,37 @@ task automatic ip_func;
   if (psh != pst) fail($sformatf("RX missed %0d bytes", pst - psh));
   irq_expect(IRQ_TX_DONE);
   irq_expect(IRQ_RX_AVAIL);
+  // ASPM: the DUT asks, the peer refuses (STATUS pm_state 1), then accepts
+  // (2); a TX write wakes both; the peer asks and the DUT accepts
+  p_aspm_ok = 0;
+  wr(A_CTRL, 7);
+  poll(A_STATUS, 6, 2, 500);
+  cycles(100);
+  p_aspm_ok = 1;
+  poll(A_STATUS, 6, 4, 500);
+  h_tlp(4);
+  poll(A_STATUS, 6, 0, 200);
+  wr(A_CTRL, 5);
+  cycles(300);
+  p_pm_req = 1;
+  poll(A_STATUS, 6, 4, 500);
+  cycles(30);
+  if (p_pm_state != 2'd2) fail("peer not in L1");
+  p_pm_req = 0;
+  h_tlp(2);
+  poll(A_STATUS, 6, 0, 200);
+  cycles(300);
+  if (hqh != hqt) fail($sformatf("peer missed %0d bytes", hqt - hqh));
 
   // BFM in the peer's place: flow-control init with infinite credit
   link_down();
   rd(A_STATUS);
   if (rdv !== 0) fail($sformatf("STATUS %h with the link down", rdv));
   bfm = 1;
-  wr(A_CTRL, 1);
+  wr(A_CTRL, 5);
   cycles(50);
-  bfc(8'h40, 8'd0);
-  bfc(8'hC0, 8'd0);
+  bfc3(8'h40, 8'd0);
+  bfc3(8'hC0, 8'd0);
   bwait();
   poll(A_STATUS, 1, 1, 200);
   // TLPs to the DUT: good, duplicate, ahead, bad LCRC, nullified, K inside
@@ -241,9 +270,13 @@ task automatic ip_func;
   irq_expect(IRQ_ERR_FRAME);
   irq_expect(IRQ_ERR_DLLP);
   irq_expect(IRQ_ERR_PROTO);
-  // overflow: RX not read; RXN + 1 more TLPs (the last is dropped)
-  for (int i = 0; i < RXN; i++) btlp(12'(2 + i), MAXLEN, 0, 1);
-  btlp(12'(2 + RXN), MAXLEN);
+  // overflow: RX not read; two Posted messages, a Non-Posted read and a
+  // Completion fill the buffer; a second Completion is dropped
+  btlp(12'd2, MAXLEN, 0, 1, 8'h10);
+  btlp(12'd3, MAXLEN, 0, 1, 8'h30);
+  btlp(12'd4, MAXLEN, 0, 1, 8'h00);
+  btlp(12'd5, MAXLEN, 0, 1, 8'h0A);
+  btlp(12'(2 + RXN), MAXLEN, 0, 0, 8'h0A);
   bwait();
   cycles(20);
   irq_expect(IRQ_ERR_OVERFLOW);
@@ -276,7 +309,7 @@ task automatic ip_func;
   if (irq) fail("irq high with nothing pending");
   // up again with the peer: TX_DONE drives the pin
   wr(A_IRQ_ENABLE, 1 << IRQ_TX_DONE);
-  wr(A_CTRL, 1);
+  wr(A_CTRL, 5);
   p_link = 1;
   poll(A_STATUS, 1, 1, 2000);
   h_tlp(3);

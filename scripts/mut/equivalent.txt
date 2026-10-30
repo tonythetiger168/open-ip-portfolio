@@ -50,3 +50,19 @@ eCPRI_over_Ethernet | rx_push_f    = {1'b0, rx_pay[0], rx_pay[1]}; | 1'b0 -> 1'b
 QSPI | end else if (sclk_d && !sclk) begin | && -> || | the next output bit is presented right after the sampling edge instead of at the falling edge; the master samples only on rising edges
 QSPI | io_out <= {2'b00, tx_q[7 - bit_cnt], 1'b0}; | 1'b0 -> 1'b1 | io[0] is an input in standard mode (io_oe = 0010)
 WTB | tsh    <= {B_PRE[6:0], 1'b0}; | 1'b0 -> 1'b1 | the pre-shifted LSB is never sent: tsh is reloaded after the 8th bit
+UCIe | for (int k = 15; k > 0; k--) m[528 * k +: 528] = m[528 * (k - 1) +: 528]; | > -> >= | constant function: the extra k = 0 step writes row 0, which the next statement clears
+UCIe | rsp_got <= 1'b0; | 1'b0 -> 1'b1 | reset value; cleared on every entry to ACTREQ, the only state that reads it
+ML_KEM | h_done <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; step_done reads it only while a hash step runs, and none runs after reset
+ML_KEM | pscl <= 1'b0; | 1'b0 -> 1'b1 | reset value; read only while prun (reset 0), and every step start clears it
+ML_KEM | spend <= 1'b0; | 1'b0 -> 1'b1 | reset value; read only while prun (reset 0), and every step start clears it
+ML_KEM | diff <= 1'b0; | 1'b0 -> 1'b1 | reset value; read only by CSEL, which always follows the CMP that clears it
+Ethernet_RS_FEC | p1long <= 1'b0; p1snz <= 1'b0; p1sl <= '0; | 1'b0 -> 1'b1@1 | reset value; loaded from the BM result on every Chien start, read only while the Chien search runs
+Ethernet_RS_FEC | p1long <= 1'b0; p1snz <= 1'b0; p1sl <= '0; | 1'b0 -> 1'b1@2 | reset value; loaded with the syndrome flag on every Chien start, read only while the Chien search runs
+Ethernet_RS_FEC | p2st <= C_IDLE; p2b <= '0; p2l <= '0; p2w <= '0; p2fix <= 1'b0; p2mark <= 1'b0; p2sl <= '0; | 1'b0 -> 1'b1@1 | reset value; loaded on every correction start, read only while the correction stage runs
+Ethernet_RS_FEC | p2st <= C_IDLE; p2b <= '0; p2l <= '0; p2w <= '0; p2fix <= 1'b0; p2mark <= 1'b0; p2sl <= '0; | 1'b0 -> 1'b1@2 | reset value; loaded on every correction start, read only while the correction stage runs
+Ethernet_RS_FEC | rdq <= '0; eq <= '0; v1 <= 1'b0; f1 <= 1'b0; m1 <= 1'b0; | 1'b0 -> 1'b1@2 | reset value; written on every correction beat that sets v1, and read only when v1 is set
+Ethernet_RS_FEC | rdq <= '0; eq <= '0; v1 <= 1'b0; f1 <= 1'b0; m1 <= 1'b0; | 1'b0 -> 1'b1@3 | reset value; written on every correction beat that sets v1, and read only when v1 is set
+Root_of_Trust | otp_req <= 1'b0; otp_we <= 1'b0; otp_addr <= '0; otp_wdata <= '0; | 1'b0 -> 1'b1@2 | otp_we reset value: the OTP takes otp_we only with otp_req, which resets to 0, and every one of the ten places that raises otp_req sets otp_we with it
+Ethernet_PCS | wire          temit = (tlast ? tfill >= 10'd40 : tfill >= 10'd640) && te_rdy; | >= -> >@2 | a fill of exactly 640 before the last beat of a pair cannot occur: it would need 257 x n = 640 x (beats + 1) with fewer than 17 beats, and 257 is prime (scripts/formal/exhaust_ethpcs.py enumerates the reachable fills)
+Ethernet_PCS | rpb <= '0; rpc <= '0; rsh <= '1; rlk <= R_HUNT; amacc <= 1'b0; | 1'b0 -> 1'b1 | amacc reset value: amacc is only read at block 7 of a pair, and block 0 overwrites it (rpb == 0 term) after reset, where rpb starts at 0
+Ethernet_PCS | if (!ramslot && (lock || rpb >= 6'd8)) rsh <= rdsc[314:257]; | >= -> > | skipping the descrambler history update at block 8 while out of lock: lock changes only at block 7, so block 9 of the same pair always overwrites all 58 bits before any block is descrambled for output

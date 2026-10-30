@@ -1,0 +1,2 @@
+# 544-bit flits and 512-bit payloads: score their toggles too
+--coverage-max-width 1024

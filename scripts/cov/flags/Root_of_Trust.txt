@@ -1,0 +1,2 @@
+# the 512-bit hash block register and the 256-bit key: score their toggles too
+--coverage-max-width 512
