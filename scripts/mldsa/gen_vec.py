@@ -59,6 +59,62 @@ def verify_case(out, ps, pk, msg, sig, mu=None):
     return ok
 
 
+def attempts(sk, msg, p, rnd=bytes(32)):
+    st = {}
+    m.sign(sk, msg, rnd, p, None, st)
+    return st
+
+
+def targeted(out, rng, rb, p, pk, sk):
+    """ML-DSA-44 Sign cases for the rarer rejections: too many hints, exactly
+    omega hints after a row, ||<<c t0>>|| >= gamma2 (a private key whose t0
+    row 0 is aligned with the first attempt's c), an empty and the longest
+    message, and Verify of hint encodings that set every hint index."""
+    om = p['omega']
+    for want in ('hints', 'omega'):
+        while True:
+            msg = rb(rng.randrange(1, 64))
+            st = attempts(sk, msg, p)
+            hit = any('hints' in w for w in st['why']) if want == 'hints' else \
+                any(om in r for r in st['rows'])
+            if hit and st['tries'] <= 4:
+                break
+        sign_case(out, 0, sk, msg, bytes(32))
+    # t0: row 0 of sk set so that coefficient 0 of c t0 is 4000 tau; the other rows 0
+    e8 = 128 + m.eta_bytes(p) * (p['k'] + p['l'])
+    while True:
+        msg = rb(rng.randrange(1, 64))
+        c = attempts(sk, msg, p)['c'][0]
+        t = [0] * 256
+        for j in range(256):
+            if c[j]:
+                v = 4000 * (1 if c[j] == 1 else -1) * (1 if j == 0 else -1)
+                t[(256 - j) % 256] = v
+        rows = [t] + [[0] * 256 for _ in range(p['k'] - 1)]
+        sk2 = sk[:e8] + b''.join(m.bit_pack(r, 4095, 4096) for r in rows)
+        st = attempts(sk2, msg, p)
+        if 'ct0' in st['why'][0] and st['tries'] <= 4:
+            break
+    sign_case(out, 0, sk2, msg, bytes(32))
+    sign_case(out, 0, sk, b'', bytes(32))
+    # the longest M' (16384 bytes), and a Verify of a 12345-byte one
+    while True:
+        msg = rb(16384)
+        if attempts(sk, msg, p)['tries'] <= 2:
+            break
+    sig = sign_case(out, 0, sk, msg, bytes(32))
+    msg = rb(12345)
+    assert verify_case(out, 0, pk, msg, m.sign(sk, msg, bytes(32), p))
+    # hint encodings that name every index 0..255 (64 per signature, 16 per row)
+    hb = p['lam'] // 4 + 32 * m.zbits(p) * p['l']
+    for v in range(4):
+        y = bytearray(om + p['k'])
+        for r in range(p['k']):
+            y[16 * r:16 * r + 16] = bytes(range(64 * v + 16 * r, 64 * v + 16 * r + 16))
+            y[om + r] = 16 * (r + 1)
+        verify_case(out, 0, pk, msg, sig[:hb] + bytes(y))
+
+
 def main():
     path = sys.argv[1]
     n = int(sys.argv[2]) if len(sys.argv) > 2 else 1
@@ -103,6 +159,12 @@ def main():
                 bad[hb + p['omega'] - 1] = 0
             verify_case(out, ps, pk, msg, bytes(bad))
             assert not verify_case(out, ps, pk, msg + b'\x00', sig)
+            bad = bytearray(sig)                                                       # z[0][0] = gamma1
+            bad[cl] = bad[cl + 1] = 0
+            bad[cl + 2] &= 0xFC if zb == 576 else 0xF0
+            assert not verify_case(out, ps, pk, msg, bytes(bad))
+            if ps == 0:
+                targeted(out, rng, rb, p, pk, sk)
     for f in sys.argv[3:]:
         for g in json.load(open(f))['testGroups']:
             if g.get('signatureInterface', 'internal') != 'internal':

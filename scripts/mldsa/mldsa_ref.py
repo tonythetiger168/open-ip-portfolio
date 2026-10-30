@@ -381,18 +381,33 @@ def sign(sk, msg, rnd, p, mu=None, stats=None):
             w.append(intt(acc))
         w1 = [[high_bits(x, p) for x in poly] for poly in w]
         ct = H(mu + w1_encode(w1, p), p['lam'] // 4)
-        ch = ntt(sample_in_ball(ct, p))
+        cc = sample_in_ball(ct, p)
+        if stats is not None:
+            stats.setdefault('c', []).append(cc)
+        ch = ntt(cc)
         cs1 = [intt(pmul(ch, s)) for s in s1h]
         cs2 = [intt(pmul(ch, s)) for s in s2h]
         z = [padd(a, b) for a, b in zip(y, cs1)]
         wm = [psub(a, b) for a, b in zip(w, cs2)]
         r0 = [[low_bits(x, p) for x in poly] for poly in wm]
         kappa += l
-        if inf_norm(z) >= p['g1'] - p['beta'] or max(abs(x) for poly in r0 for x in poly) >= p['g2'] - p['beta']:
-            continue
         ct0 = [intt(pmul(ch, t)) for t in t0h]
         h = [[make_hint((Q - a) % Q, (b + a) % Q, p) for a, b in zip(pa, pb)] for pa, pb in zip(ct0, wm)]
-        if inf_norm(ct0) >= p['g2'] or sum(map(sum, h)) > p['omega']:
+        # every check of the attempt (the result is the same as stopping at the first)
+        why = set()
+        if inf_norm(z) >= p['g1'] - p['beta']:
+            why.add('z')
+        if max(abs(x) for poly in r0 for x in poly) >= p['g2'] - p['beta']:
+            why.add('r0')
+        if inf_norm(ct0) >= p['g2']:
+            why.add('ct0')
+        rows = [sum(map(sum, h[:i + 1])) for i in range(k)]
+        if rows[-1] > p['omega']:
+            why.add('hints')
+        if stats is not None:
+            stats.setdefault('why', []).append(why)
+            stats.setdefault('rows', []).append(rows)
+        if why:
             continue
         if stats is not None:
             stats['tries'] = tries

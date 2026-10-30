@@ -90,16 +90,16 @@ module ML_DSA_top (
     subq = a >= b ? a - b : 23'(24'(a) + 24'(Q) - 24'(b));
   endfunction
   // x mod q by folding 2^23 = 2^13 - 1 three times (one pipeline stage each):
-  // x < 2^47 -> < 2^37 + 2^23 -> < 2^28 + 2^23 -> < 2 q, then one subtraction
-  function automatic logic [37:0] fold1(input logic [46:0] x);
-    fold1 = (38'(x[46:23]) << 13) - 38'(x[46:23]) + 38'(x[22:0]);
+  // x < 2^46 -> < 2^36 -> < 2^27 -> < 2 q, then one subtraction
+  function automatic logic [35:0] fold1(input logic [45:0] x);
+    fold1 = (36'(x[45:23]) << 13) - 36'(x[45:23]) + 36'(x[22:0]);
   endfunction
-  function automatic logic [28:0] fold2(input logic [37:0] y);
-    fold2 = (29'(y[37:23]) << 13) - 29'(y[37:23]) + 29'(y[22:0]);
+  function automatic logic [26:0] fold2(input logic [35:0] y);
+    fold2 = (27'(y[35:23]) << 13) - 27'(y[35:23]) + 27'(y[22:0]);
   endfunction
-  function automatic logic [22:0] fold3(input logic [28:0] z);
+  function automatic logic [22:0] fold3(input logic [26:0] z);
     logic [23:0] u;
-    u = (24'(z[28:23]) << 13) - 24'(z[28:23]) + 24'(z[22:0]);
+    u = (24'(z[26:23]) << 13) - 24'(z[26:23]) + 24'(z[22:0]);
     fold3 = u >= 24'(Q) ? 23'(u - 24'(Q)) : u[22:0];
   endfunction
   // |x| of x mod q taken in (-(q-1)/2, (q-1)/2]
@@ -109,9 +109,10 @@ module ML_DSA_top (
   // Decompose: the quotient r1 = floor((x + gamma2 - 1) / (2 gamma2)) before the
   // wrap fix-up; 2 gamma2 = 93 * 2^11 (ML-DSA-44) or 1023 * 2^9
   function automatic logic [5:0] dquo(input logic [22:0] x, input logic g32);
-    logic [23:0] n;
-    n = 24'(x) + (g32 ? 24'd261887 : 24'd95231);
-    dquo = g32 ? 6'((40'(n[23:9]) * 40'd32801) >> 25) : 6'((40'(n[23:11]) * 40'd2819) >> 18);
+    logic [23:0] n32, n88;
+    n32 = (24'(x) + 24'd261887) >> 9;
+    n88 = (24'(x) + 24'd95231) >> 11;
+    dquo = g32 ? 6'((40'(n32) * 40'd32801) >> 25) : 6'((40'(n88) * 40'd2819) >> 18);
   endfunction
   // and r0 = x - r1 2 gamma2, with r1 = m (r+ - r0 = q - 1) folded to r1 = 0, r0 - 1
   function automatic logic [24:0] drem(input logic [22:0] x, input logic [5:0] r1, input logic g32);
@@ -121,6 +122,19 @@ module ML_DSA_top (
   endfunction
   function automatic logic [5:0] dhi(input logic [5:0] r1, input logic g32);
     dhi = r1 == (g32 ? 6'd16 : 6'd44) ? 6'd0 : r1;
+  endfunction
+  // UseHint from Decompose's r1 and r0: r1 + 1 or r1 - 1 mod m by the sign of r0
+  function automatic logic [5:0] uhint(input logic h, input logic [5:0] r1, input logic [24:0] r0, input logic g32);
+    logic [5:0] m1;
+    m1 = g32 ? 6'd15 : 6'd43;
+    uhint = !h ? r1 : !r0[24] && r0 != '0 ? (r1 == m1 ? 6'd0 : r1 + 6'd1) : (r1 == 6'd0 ? m1 : r1 - 6'd1);
+  endfunction
+  // Power2Round: t1 = (r + 2^12 - 1) >> 13, and t0 encoded as 2^12 - (r - t1 2^13)
+  function automatic logic [9:0] p2h(input logic [22:0] r);
+    p2h = 10'((24'(r) + 24'd4095) >> 13);
+  endfunction
+  function automatic logic [12:0] p2l(input logic [22:0] r, input logic [9:0] t1);
+    p2l = 13'(25'd4096 - 25'(r) + (25'(t1) << 13));
   endfunction
   function automatic logic [1599:0] keccak_round(input logic [1599:0] s, input logic [63:0] rc);
     logic [63:0] c0, c1, c2, c3, c4, d0, d1, d2, d3, d4;
@@ -531,13 +545,13 @@ module ML_DSA_top (
   wire  [14:0] zbytes = 15'(zbits) << 5;
   wire  [14:0] w1bytes = 15'(w1bits) << 5;
   wire  [14:0] pklen = 15'd32 + 15'd320 * 15'(k);
-  wire  [14:0] sk_s1 = A_SK + 15'd128 + ebytes * 15'(ci);
-  wire  [14:0] sk_s2 = A_SK + 15'd128 + ebytes * (15'(l) + 15'(ci));
-  wire  [14:0] sk_t0 = A_SK + 15'd128 + ebytes * (15'(l) + 15'(k)) + 15'd416 * 15'(ci);
-  wire  [14:0] pk_t1 = A_PK + 15'd32 + 15'd320 * 15'(ci);
-  wire  [14:0] sig_z = A_SIG + 15'(ctl) + zbytes * 15'(ci);
-  wire  [14:0] sig_h = A_SIG + 15'(ctl) + zbytes * 15'(l);
-  wire  [14:0] w1_i = A_W1 + w1bytes * 15'(ci);
+  wire  [13:0] sk_s1 = 14'( A_SK + 15'd128 + ebytes * 15'(ci));
+  wire  [13:0] sk_s2 = 14'( A_SK + 15'd128 + ebytes * (15'(l) + 15'(ci)));
+  wire  [13:0] sk_t0 = 14'( A_SK + 15'd128 + ebytes * (15'(l) + 15'(k)) + 15'd416 * 15'(ci));
+  wire  [13:0] pk_t1 = 14'( A_PK + 15'd32 + 15'd320 * 15'(ci));
+  wire  [13:0] sig_z = 14'( A_SIG + 15'(ctl) + zbytes * 15'(ci));
+  wire  [13:0] sig_h = 14'( A_SIG + 15'(ctl) + zbytes * 15'(l));
+  wire  [13:0] w1_i = 14'( A_W1 + w1bytes * 15'(ci));
   wire  [14:0] w1len = w1bytes * 15'(k);
   wire  [15:0] kci = kap + 16'(ci);                       // ExpandMask counter kappa + r
   wire  [5:0]  s_s1i = {3'd0, ci}, s_s1j = {3'd0, cj}, s_s2 = {3'd1, ci}, s_t0 = {3'd2, ci},
@@ -547,7 +561,8 @@ module ML_DSA_top (
   // each step: a hash command, a polynomial unit command, or both (a
   // sampler fed by SHAKE), then what follows
   logic        h_on, h_strm, h_w3, h_128;
-  logic [14:0] h_a1, h_l1, h_a2, h_l2, h_oa;
+  logic [13:0] h_a1, h_oa;              // hash input and output areas below MSG
+  logic [14:0] h_l1, h_a2, h_l2;
   logic [1:0]  h_ni;
   logic [7:0]  h_i0, h_i1, h_ol;
   uop_t        u_op;
@@ -556,9 +571,10 @@ module ML_DSA_top (
   fn_t         u_fn;
   logic [4:0]  u_n;
   logic [19:0] u_off;
-  logic [14:0] u_ma, u_mb, u_len;
+  logic [13:0] u_ma, u_mb;             // the poly unit's buffer areas are below MSG
+  logic [6:0]  u_len;
   lp_t         lp;
-  logic [6:0]  back;
+  logic [5:0]  back;
   always_comb begin
     h_on = 1'b0; h_strm = 1'b0; h_w3 = 1'b0; h_128 = 1'b0; h_a1 = '0; h_l1 = '0; h_a2 = '0; h_l2 = '0;
     h_ni = 2'd0; h_i0 = '0; h_i1 = '0; h_oa = '0; h_ol = '0;
@@ -567,90 +583,90 @@ module ML_DSA_top (
     lp = L_NEXT; back = '0;
     case (pc)
       // ---- KeyGen: (rho, rho', K) = H(xi || k || l)
-      7'd0: begin h_on = 1'b1; h_a1 = A_XI; h_l1 = 15'd32; h_ni = 2'd2; h_i0 = 8'(k); h_i1 = 8'(l);
-                  h_oa = A_HO; h_ol = 8'd128; end
-      7'd1: begin u_op = U_COPY; u_ma = A_HO; u_mb = A_PK; u_len = 15'd32; end
-      7'd2: begin u_op = U_COPY; u_ma = A_HO; u_mb = A_SK; u_len = 15'd32; end
-      7'd3: begin u_op = U_COPY; u_ma = A_HO + 15'd96; u_mb = A_SK + 15'd32; u_len = 15'd32; end
-      7'd4: begin h_on = 1'b1; h_strm = 1'b1; h_a1 = A_HO + 15'd32; h_l1 = 15'd64; h_ni = 2'd2; h_i0 = 8'(ci);
+      7'd0: begin h_on = 1'b1; h_a1 = 14'(A_XI); h_l1 = 15'd32; h_ni = 2'd2; h_i0 = 8'(k); h_i1 = 8'(l);
+                  h_oa = 14'(A_HO); h_ol = 8'd128; end
+      7'd1: begin u_op = U_COPY; u_ma = 14'(A_HO); u_mb = 14'(A_PK); u_len = 7'd32; end
+      7'd2: begin u_op = U_COPY; u_ma = 14'(A_HO); u_mb = 14'(A_SK); u_len = 7'd32; end
+      7'd3: begin u_op = U_COPY; u_ma = 14'(A_HO + 15'd96); u_mb = 14'(A_SK + 15'd32); u_len = 7'd32; end
+      7'd4: begin h_on = 1'b1; h_strm = 1'b1; h_a1 = 14'(A_HO + 15'd32); h_l1 = 15'd64; h_ni = 2'd2; h_i0 = 8'(ci);
                   u_op = U_SS; u_dst = s_s1i; end                                   // s1[i]
-      7'd5: begin u_op = U_ENC; u_a = s_s1i; u_fn = F_OFF; u_off = 20'(eta); u_n = ebits; u_mb = sk_s1; end
-      7'd6: begin u_op = U_NTT; u_dst = s_s1i; lp = L_IL; back = 7'd4; end
-      7'd7: begin h_on = 1'b1; h_strm = 1'b1; h_w3 = 1'b1; h_128 = 1'b1; h_a1 = A_HO; h_l1 = 15'd32; h_ni = 2'd2;
+      7'd5: begin u_op = U_ENC; u_a = s_s1i; u_fn = F_OFF; u_off = 20'(eta); u_n = ebits; u_mb = 14'(sk_s1); end
+      7'd6: begin u_op = U_NTT; u_dst = s_s1i; lp = L_IL; back = 6'd4; end
+      7'd7: begin h_on = 1'b1; h_strm = 1'b1; h_w3 = 1'b1; h_128 = 1'b1; h_a1 = 14'(A_HO); h_l1 = 15'd32; h_ni = 2'd2;
                   h_i0 = 8'(cj); h_i1 = 8'(ci); u_op = U_SA; u_dst = P_ACC; u_b = s_s1j; u_clr = cj == 3'd0;
-                  lp = L_JL; back = 7'd7; end                                       // t^ = A^ s1^
+                  lp = L_JL; back = 6'd7; end                                       // t^ = A^ s1^
       7'd8: begin u_op = U_INTT; u_dst = P_ACC; end
-      7'd9: begin h_on = 1'b1; h_strm = 1'b1; h_a1 = A_HO + 15'd32; h_l1 = 15'd64; h_ni = 2'd2;
+      7'd9: begin h_on = 1'b1; h_strm = 1'b1; h_a1 = 14'(A_HO + 15'd32); h_l1 = 15'd64; h_ni = 2'd2;
                   h_i0 = 8'(l) + 8'(ci); u_op = U_SS; u_dst = P_TMP; end            // s2[i]
-      7'd10: begin u_op = U_ENC; u_a = P_TMP; u_fn = F_OFF; u_off = 20'(eta); u_n = ebits; u_mb = sk_s2; end
+      7'd10: begin u_op = U_ENC; u_a = P_TMP; u_fn = F_OFF; u_off = 20'(eta); u_n = ebits; u_mb = 14'(sk_s2); end
       7'd11: begin u_op = U_ADD; u_dst = P_ACC; u_a = P_ACC; u_b = P_TMP; end
-      7'd12: begin u_op = U_ENC; u_a = P_ACC; u_fn = F_P2H; u_n = 5'd10; u_mb = pk_t1; end       // t1
-      7'd13: begin u_op = U_ENC; u_a = P_ACC; u_fn = F_P2L; u_off = 20'd4096; u_n = 5'd13; u_mb = sk_t0;
-                   lp = L_IK; back = 7'd7; end                                      // t0
-      7'd14: begin h_on = 1'b1; h_a1 = A_PK; h_l1 = pklen; h_oa = A_SK + 15'd64; h_ol = 8'd64; lp = L_END; end  // tr
+      7'd12: begin u_op = U_ENC; u_a = P_ACC; u_fn = F_P2H; u_n = 5'd10; u_mb = 14'(pk_t1); end       // t1
+      7'd13: begin u_op = U_ENC; u_a = P_ACC; u_fn = F_P2L; u_off = 20'd4096; u_n = 5'd13; u_mb = 14'(sk_t0);
+                   lp = L_IK; back = 6'd7; end                                      // t0
+      7'd14: begin h_on = 1'b1; h_a1 = 14'(A_PK); h_l1 = pklen; h_oa = 14'(A_SK + 15'd64); h_ol = 8'd64; lp = L_END; end  // tr
       // ---- Sign: s1^, s2^, t0^ from sk
-      7'd16: begin u_op = U_DEC; u_ma = sk_s1; u_fn = F_OFF; u_off = 20'(eta); u_n = ebits; u_dst = s_s1i; end
-      7'd17: begin u_op = U_NTT; u_dst = s_s1i; lp = L_IL; back = 7'd16; end
-      7'd18: begin u_op = U_DEC; u_ma = sk_s2; u_fn = F_OFF; u_off = 20'(eta); u_n = ebits; u_dst = s_s2; end
-      7'd19: begin u_op = U_NTT; u_dst = s_s2; lp = L_IK; back = 7'd18; end
-      7'd20: begin u_op = U_DEC; u_ma = sk_t0; u_fn = F_OFF; u_off = 20'd4096; u_n = 5'd13; u_dst = s_t0; end
-      7'd21: begin u_op = U_NTT; u_dst = s_t0; lp = L_IK; back = 7'd20; end
-      7'd22: begin h_on = !extm; h_a1 = A_SK + 15'd64; h_l1 = 15'd64; h_a2 = A_MSG; h_l2 = mln;
-                   h_oa = A_MU; h_ol = 8'd64; end                                   // mu = H(tr || M')
-      7'd23: begin u_op = U_COPY; u_ma = A_SK + 15'd32; u_mb = A_KC; u_len = 15'd32; end
-      7'd24: begin h_on = 1'b1; h_a1 = A_KC; h_l1 = 15'd128; h_oa = A_RPP; h_ol = 8'd64; end   // rho'' = H(K || rnd || mu)
+      7'd16: begin u_op = U_DEC; u_ma = 14'(sk_s1); u_fn = F_OFF; u_off = 20'(eta); u_n = ebits; u_dst = s_s1i; end
+      7'd17: begin u_op = U_NTT; u_dst = s_s1i; lp = L_IL; back = 6'd16; end
+      7'd18: begin u_op = U_DEC; u_ma = 14'(sk_s2); u_fn = F_OFF; u_off = 20'(eta); u_n = ebits; u_dst = s_s2; end
+      7'd19: begin u_op = U_NTT; u_dst = s_s2; lp = L_IK; back = 6'd18; end
+      7'd20: begin u_op = U_DEC; u_ma = 14'(sk_t0); u_fn = F_OFF; u_off = 20'd4096; u_n = 5'd13; u_dst = s_t0; end
+      7'd21: begin u_op = U_NTT; u_dst = s_t0; lp = L_IK; back = 6'd20; end
+      7'd22: begin h_on = !extm; h_a1 = 14'(A_SK + 15'd64); h_l1 = 15'd64; h_a2 = A_MSG; h_l2 = mln;
+                   h_oa = 14'(A_MU); h_ol = 8'd64; end                                   // mu = H(tr || M')
+      7'd23: begin u_op = U_COPY; u_ma = 14'(A_SK + 15'd32); u_mb = 14'(A_KC); u_len = 7'd32; end
+      7'd24: begin h_on = 1'b1; h_a1 = 14'(A_KC); h_l1 = 15'd128; h_oa = 14'(A_RPP); h_ol = 8'd64; end   // rho'' = H(K || rnd || mu)
       // the rejection loop
-      7'd25: begin h_on = 1'b1; h_strm = 1'b1; h_w3 = 1'b1; h_a1 = A_RPP; h_l1 = 15'd64; h_ni = 2'd2;
+      7'd25: begin h_on = 1'b1; h_strm = 1'b1; h_w3 = 1'b1; h_a1 = 14'(A_RPP); h_l1 = 15'd64; h_ni = 2'd2;
                    h_i0 = kci[7:0]; h_i1 = kci[15:8]; u_op = U_SY; u_n = zbits; u_dst = s_yi; end   // y[i]
-      7'd26: begin u_op = U_NTT; u_dst = s_yi; lp = L_IL; back = 7'd25; end
-      7'd27: begin h_on = 1'b1; h_strm = 1'b1; h_w3 = 1'b1; h_128 = 1'b1; h_a1 = A_SK; h_l1 = 15'd32; h_ni = 2'd2;
+      7'd26: begin u_op = U_NTT; u_dst = s_yi; lp = L_IL; back = 6'd25; end
+      7'd27: begin h_on = 1'b1; h_strm = 1'b1; h_w3 = 1'b1; h_128 = 1'b1; h_a1 = 14'(A_SK); h_l1 = 15'd32; h_ni = 2'd2;
                    h_i0 = 8'(cj); h_i1 = 8'(ci); u_op = U_SA; u_dst = s_w; u_b = s_yj; u_clr = cj == 3'd0;
-                   lp = L_JL; back = 7'd27; end                                     // w^ = A^ y^
+                   lp = L_JL; back = 6'd27; end                                     // w^ = A^ y^
       7'd28: begin u_op = U_INTT; u_dst = s_w; end
-      7'd29: begin u_op = U_ENC; u_a = s_w; u_fn = F_HB; u_n = w1bits; u_mb = w1_i; lp = L_IK; back = 7'd27; end
-      7'd30: begin h_on = 1'b1; h_a1 = A_MU; h_l1 = 15'd64; h_a2 = A_W1; h_l2 = w1len;
-                   h_oa = A_SIG; h_ol = 8'(ctl); end                                // c~ = H(mu || w1Encode(w1))
-      7'd31: begin h_on = 1'b1; h_strm = 1'b1; h_a1 = A_SIG; h_l1 = 15'(ctl); u_op = U_SIB; end
+      7'd29: begin u_op = U_ENC; u_a = s_w; u_fn = F_HB; u_n = w1bits; u_mb = 14'(w1_i); lp = L_IK; back = 6'd27; end
+      7'd30: begin h_on = 1'b1; h_a1 = 14'(A_MU); h_l1 = 15'd64; h_a2 = A_W1; h_l2 = w1len;
+                   h_oa = 14'(A_SIG); h_ol = 8'(ctl); end                                // c~ = H(mu || w1Encode(w1))
+      7'd31: begin h_on = 1'b1; h_strm = 1'b1; h_a1 = 14'(A_SIG); h_l1 = 15'(ctl); u_op = U_SIB; end
       7'd32: begin u_op = U_CLD; u_dst = P_C; end
       7'd33: begin u_op = U_NTT; u_dst = P_C; end
       7'd34: begin u_op = U_PMUL; u_dst = P_TMP; u_a = P_C; u_b = s_s1i; end
       7'd35: begin u_op = U_INTT; u_dst = P_TMP; end
-      7'd36: begin h_on = 1'b1; h_strm = 1'b1; h_w3 = 1'b1; h_a1 = A_RPP; h_l1 = 15'd64; h_ni = 2'd2;
+      7'd36: begin h_on = 1'b1; h_strm = 1'b1; h_w3 = 1'b1; h_a1 = 14'(A_RPP); h_l1 = 15'd64; h_ni = 2'd2;
                    h_i0 = kci[7:0]; h_i1 = kci[15:8]; u_op = U_SY; u_n = zbits; u_add = 1'b1; u_dst = P_TMP;
                    u_b = P_TMP; end                                                 // z = y + <<c s1>>
-      7'd37: begin u_op = U_ENC; u_a = P_TMP; u_fn = F_OFF; u_off = g1; u_n = zbits; u_chk = 1'b1; u_mb = sig_z;
-                   lp = L_IL; back = 7'd34; end
-      7'd38: begin u_op = U_FILL; u_mb = sig_h; u_len = 15'(omega) + 15'(k); end
+      7'd37: begin u_op = U_ENC; u_a = P_TMP; u_fn = F_OFF; u_off = g1; u_n = zbits; u_chk = 1'b1; u_mb = 14'(sig_z);
+                   lp = L_IL; back = 6'd34; end
+      7'd38: begin u_op = U_FILL; u_mb = 14'(sig_h); u_len = omega + 7'(k); end
       7'd39: begin u_op = U_PMUL; u_dst = P_TMP; u_a = P_C; u_b = s_s2; end
       7'd40: begin u_op = U_INTT; u_dst = P_TMP; end
       7'd41: begin u_op = U_SUB; u_dst = s_w; u_a = s_w; u_b = P_TMP; end         // w - <<c s2>>
       7'd42: begin u_op = U_PMUL; u_dst = P_TMP; u_a = P_C; u_b = s_t0; end
       7'd43: begin u_op = U_INTT; u_dst = P_TMP; end                               // <<c t0>>
-      7'd44: begin u_op = U_HINT; u_a = s_w; u_b = P_TMP; u_ma = sig_h; lp = L_IK; back = 7'd39; end
-      7'd45: begin lp = L_REJ; back = 7'd25; end
+      7'd44: begin u_op = U_HINT; u_a = s_w; u_b = P_TMP; u_ma = 14'(sig_h); lp = L_IK; back = 6'd39; end
+      7'd45: begin lp = L_REJ; back = 6'd25; end
       // ---- Verify
-      7'd48: begin h_on = !extm; h_a1 = A_PK; h_l1 = pklen; h_oa = A_TR; h_ol = 8'd64; end   // tr
-      7'd49: begin h_on = !extm; h_a1 = A_TR; h_l1 = 15'd64; h_a2 = A_MSG; h_l2 = mln;
-                   h_oa = A_MU; h_ol = 8'd64; end                                   // mu
-      7'd50: begin u_op = U_DEC; u_ma = sig_z; u_fn = F_OFF; u_off = g1; u_n = zbits; u_chk = 1'b1; u_dst = s_yi; end
-      7'd51: begin u_op = U_NTT; u_dst = s_yi; lp = L_IL; back = 7'd50; end
-      7'd52: begin h_on = 1'b1; h_strm = 1'b1; h_a1 = A_SIG; h_l1 = 15'(ctl); u_op = U_SIB; end
+      7'd48: begin h_on = !extm; h_a1 = 14'(A_PK); h_l1 = pklen; h_oa = 14'(A_TR); h_ol = 8'd64; end   // tr
+      7'd49: begin h_on = !extm; h_a1 = 14'(A_TR); h_l1 = 15'd64; h_a2 = A_MSG; h_l2 = mln;
+                   h_oa = 14'(A_MU); h_ol = 8'd64; end                                   // mu
+      7'd50: begin u_op = U_DEC; u_ma = 14'(sig_z); u_fn = F_OFF; u_off = g1; u_n = zbits; u_chk = 1'b1; u_dst = s_yi; end
+      7'd51: begin u_op = U_NTT; u_dst = s_yi; lp = L_IL; back = 6'd50; end
+      7'd52: begin h_on = 1'b1; h_strm = 1'b1; h_a1 = 14'(A_SIG); h_l1 = 15'(ctl); u_op = U_SIB; end
       7'd53: begin u_op = U_CLD; u_dst = P_C; end
       7'd54: begin u_op = U_NTT; u_dst = P_C; end
-      7'd55: begin h_on = 1'b1; h_strm = 1'b1; h_w3 = 1'b1; h_128 = 1'b1; h_a1 = A_PK; h_l1 = 15'd32; h_ni = 2'd2;
+      7'd55: begin h_on = 1'b1; h_strm = 1'b1; h_w3 = 1'b1; h_128 = 1'b1; h_a1 = 14'(A_PK); h_l1 = 15'd32; h_ni = 2'd2;
                    h_i0 = 8'(cj); h_i1 = 8'(ci); u_op = U_SA; u_dst = P_ACC; u_b = s_yj; u_clr = cj == 3'd0;
-                   lp = L_JL; back = 7'd55; end                                     // A^ z^
-      7'd56: begin u_op = U_DEC; u_ma = pk_t1; u_fn = F_SHL; u_n = 5'd10; u_dst = P_TMP; end   // t1 2^d
+                   lp = L_JL; back = 6'd55; end                                     // A^ z^
+      7'd56: begin u_op = U_DEC; u_ma = 14'(pk_t1); u_fn = F_SHL; u_n = 5'd10; u_dst = P_TMP; end   // t1 2^d
       7'd57: begin u_op = U_NTT; u_dst = P_TMP; end
       7'd58: begin u_op = U_PMUL; u_dst = P_TMP; u_a = P_C; u_b = P_TMP; end
       7'd59: begin u_op = U_SUB; u_dst = P_ACC; u_a = P_ACC; u_b = P_TMP; end
       7'd60: begin u_op = U_INTT; u_dst = P_ACC; end                               // w'Approx
-      7'd61: begin u_op = U_HDEC; u_ma = sig_h; end                                // h[i]
-      7'd62: begin u_op = U_ENC; u_a = P_ACC; u_fn = F_UH; u_n = w1bits; u_mb = w1_i; lp = L_IK; back = 7'd55; end
-      7'd63: begin u_op = U_HZ; u_ma = sig_h; end
-      7'd64: begin h_on = 1'b1; h_a1 = A_MU; h_l1 = 15'd64; h_a2 = A_W1; h_l2 = w1len;
-                   h_oa = A_CT2; h_ol = 8'(ctl); end                                // c~'
-      7'd65: begin u_op = U_CMP; u_ma = A_SIG; u_mb = A_CT2; u_len = 15'(ctl); lp = L_END; end
+      7'd61: begin u_op = U_HDEC; u_ma = 14'(sig_h); end                                // h[i]
+      7'd62: begin u_op = U_ENC; u_a = P_ACC; u_fn = F_UH; u_n = w1bits; u_mb = 14'(w1_i); lp = L_IK; back = 6'd55; end
+      7'd63: begin u_op = U_HZ; u_ma = 14'(sig_h); end
+      7'd64: begin h_on = 1'b1; h_a1 = 14'(A_MU); h_l1 = 15'd64; h_a2 = A_W1; h_l2 = w1len;
+                   h_oa = 14'(A_CT2); h_ol = 8'(ctl); end                                // c~'
+      7'd65: begin u_op = U_CMP; u_ma = 14'(A_SIG); u_mb = 14'(A_CT2); u_len = ctl; lp = L_END; end
       default: lp = L_END;
     endcase
   end
@@ -682,12 +698,12 @@ module ML_DSA_top (
             qs <= Q_ISSUE;
             case (lp)
               L_NEXT: pc <= pc + 7'd1;
-              L_JL: if (cj != lm1) begin cj <= cj + 3'd1; pc <= back; end else begin cj <= '0; pc <= pc + 7'd1; end
-              L_IL: if (ci != lm1) begin ci <= ci + 3'd1; pc <= back; end else begin ci <= '0; pc <= pc + 7'd1; end
-              L_IK: if (ci != km1) begin ci <= ci + 3'd1; pc <= back; end else begin ci <= '0; pc <= pc + 7'd1; end
+              L_JL: if (cj != lm1) begin cj <= cj + 3'd1; pc <= 7'(back); end else begin cj <= '0; pc <= pc + 7'd1; end
+              L_IL: if (ci != lm1) begin ci <= ci + 3'd1; pc <= 7'(back); end else begin ci <= '0; pc <= pc + 7'd1; end
+              L_IK: if (ci != km1) begin ci <= ci + 3'd1; pc <= 7'(back); end else begin ci <= '0; pc <= pc + 7'd1; end
               L_REJ: begin
                 tries <= tries + 16'd1;
-                if (bad) begin kap <= kap + 16'(l); pc <= back; end
+                if (bad) begin kap <= kap + 16'(l); pc <= 7'(back); end
                 else begin qs <= Q_IDLE; done <= 1'b1; end
               end
               default: begin qs <= Q_IDLE; done <= 1'b1; fail <= opr == OP_VF && bad; end
@@ -711,7 +727,7 @@ module ML_DSA_top (
   wire  [7:0]  rate = h_128 ? 8'd168 : 8'd136;
   wire  [7:0]  kbyte = kst[{kpos, 3'b000} +: 8];
   // input byte: from the buffer, or an immediate byte
-  wire  [14:0] h_ra = (kseg == 2'd0 ? h_a1 : h_a2) + kidx;
+  wire  [14:0] h_ra = (kseg == 2'd0 ? 15'(h_a1) : h_a2) + kidx;
   wire  [14:0] klen = kseg == 2'd0 ? h_l1 : h_l2;
   logic [7:0]  h_rd;                    // mem[h_ra]
   wire         k_in = kseg == 2'd2 ? kidx < 15'(h_ni) : kidx < klen;
@@ -784,7 +800,8 @@ module ML_DSA_top (
   fn_t         c_fn;
   logic [4:0]  c_n;
   logic [19:0] c_off;
-  logic [14:0] c_ma, c_mb, c_len;
+  logic [13:0] c_ma, c_mb;
+  logic [6:0]  c_len;
   logic [2:0]  c_i;                     // the row (hint steps)
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -800,11 +817,12 @@ module ML_DSA_top (
   logic [8:0]  pcnt;                    // coefficient / butterfly index
   logic [2:0]  plyr;                    // NTT layer
   logic        pscl;                    // INTT: the final scaling pass
-  logic [43:0] bb;                      // bit buffer (Decode, ExpandMask)
+  logic [39:0] bb;                      // bit buffer (Decode, ExpandMask: at most 16 + 24 bits)
   logic [5:0]  nb;                      // bits in bb; Encode: bits the packer will hold
-  logic [14:0] pbc;                     // bytes done
-  logic [7:0]  hidx;                    // hint index (Sign: hints written; Verify: hints read)
-  logic [7:0]  hend, hprev;             // HintBitUnpack: the row's end, the last index read
+  logic [9:0]  pbc;                     // bytes done (at most 640)
+  logic [6:0]  hidx;                    // hint index (Sign: hints made, up to omega + 1; Verify: hints read)
+  logic [6:0]  hend;                    // HintBitUnpack: the row's end
+  logic [7:0]  hprev;                   // HintBitUnpack: the last index read
   logic        hph, hfst;               // HintBitUnpack: the row's end is read, no index read yet
   logic [255:0] hv;                     // Verify: the row's hints
   logic [255:0] cnz, cng;               // SampleInBall: c[i] != 0, c[i] = -1
@@ -844,27 +862,27 @@ module ML_DSA_top (
   wire  [3:0]  sn0 = hs_data[3:0], sn1 = hs_data[7:4];
   wire         so0 = hb_ok(sn0, e4), so1 = hb_ok(sn1, e4) && !(so0 && pcnt == 9'd255);
   // bit buffer: a coefficient leaves when n bits are held; bytes come in while fewer remain
-  wire  [43:0] bmask = (44'd1 << c_n) - 44'd1;
+  wire  [19:0] bmask = 20'((21'd1 << c_n) - 21'd1);
   wire         bemit = nb >= 6'(c_n) && !pcnt[8];
-  wire  [5:0]  nbe = bemit ? nb - 6'(c_n) : nb;                  // after this clock's coefficient
-  wire  [43:0] bbe = bemit ? bb >> c_n : bb;
-  wire  [22:0] bval = 23'(bb & bmask);
+  wire  [4:0]  nbe = 5'(bemit ? nb - 6'(c_n) : nb);             // after this clock's coefficient (at most 22)
+  wire  [21:0] bbe = 22'(bemit ? bb >> c_n : bb);
+  wire  [19:0] bval = bb[19:0] & bmask;
   // Decode: the coefficient from its n-bit field
-  wire  [22:0] dec_v = c_fn == F_SHL ? bval << 13 : subq(23'(c_off), bval);
+  wire  [22:0] dec_v = c_fn == F_SHL ? 23'(bval) << 13 : subq(23'(c_off), 23'(bval));
   // Decode check (z): |gamma1 - v| >= gamma1 - beta, i.e. v <= beta or v >= 2 gamma1 - beta
-  wire         dec_f = c_chk && (bval <= 23'(beta) || bval >= 23'(c_off) * 23'd2 - 23'(beta));
+  wire         dec_f = c_chk && (bval <= 20'(beta) || 21'(bval) >= 21'(c_off) * 21'd2 - 21'(beta));
   // buffer access
   logic [7:0]  p_rd_a, p_rd_b;
-  wire  [14:0] p_ra = c_op == U_HDEC ? c_ma + (hph ? 15'(hidx) : 15'(omega) + 15'(c_i)) :
-                      c_op == U_HZ ? c_ma + 15'(hidx) : c_ma + pbc;
-  wire  [14:0] p_rb = c_mb + pbc;
-  wire         last_b = pbc == c_len - 15'd1;
+  wire  [13:0] p_ra = c_op == U_HDEC ? c_ma + (hph ? 14'(hidx) : 14'(omega) + 14'(c_i)) :
+                      c_op == U_HZ ? c_ma + 14'(hidx) : c_ma + 14'(pbc);
+  wire  [13:0] p_rb = c_mb + 14'(pbc);
+  wire         last_b = pbc == 10'(c_len) - 10'd1;
   always_comb begin
     hs_ready = 1'b0;
     if (prun)
       case (c_op)
         U_SA, U_SS, U_SIB: hs_ready = 1'b1;
-        U_SY: hs_ready = nbe < 6'(c_n);
+        U_SY: hs_ready = nbe < c_n && !(bemit && pcnt == 9'd255);   // no bytes after the last coefficient
         default: ;
       endcase
   end
@@ -874,13 +892,13 @@ module ML_DSA_top (
     logic [13:0] a0, a1;                // their addresses
     logic        ld, em;                // Encode: load a coefficient / write a byte
     logic [2:0]  sh;                    // Encode: where the loaded bits go in the packer
-    logic [14:0] ba;                    // Encode, hints: byte address
+    logic [13:0] ba;                    // Encode, hints: byte address
     logic        sc;                    // INTT scaling pass
     logic        hn, he;                // MakeHint coefficient, end of the row
     logic        uh;                    // UseHint: the hint bit
     logic        fb;                    // Decode: the check failed
   } tok_t;
-  localparam int TW = 55;               // bits of tok_t
+  localparam int TW = 54;               // bits of tok_t
   logic        iv;
   tok_t        it;
   logic [22:0] iv0, iv1;                // values from the issue stage
@@ -913,7 +931,7 @@ module ML_DSA_top (
           end
         U_SY:
           if (bemit) begin
-            iv = 1'b1; it.w0 = 1'b1; it.a0 = {c_dst, pcnt[7:0]}; iv0 = subq(23'(g1), bval); irb = {c_b, pcnt[7:0]};
+            iv = 1'b1; it.w0 = 1'b1; it.a0 = {c_dst, pcnt[7:0]}; iv0 = subq(23'(g1), 23'(bval)); irb = {c_b, pcnt[7:0]};
           end
         U_CLD: begin
           iv = 1'b1; it.w0 = 1'b1; it.a0 = {c_dst, pcnt[7:0]};
@@ -931,7 +949,7 @@ module ML_DSA_top (
         U_HINT: begin
           iv = 1'b1;
           if (!pcnt[8]) begin it.hn = 1'b1; it.a0 = {6'd0, pcnt[7:0]}; ira = {c_a, pcnt[7:0]}; irb = {c_b, pcnt[7:0]}; end
-          else begin it.he = 1'b1; it.ba = c_ma + 15'(omega) + 15'(c_i); end
+          else begin it.he = 1'b1; it.ba = c_ma + 14'(omega) + 14'(c_i); end
         end
         U_COPY: begin bmw = 1'b1; bmw_d = p_rd_a; end
         U_FILL: bmw = 1'b1;
@@ -983,19 +1001,19 @@ module ML_DSA_top (
             end
           U_SY, U_DEC: begin
             if (bemit) begin pcnt <= pcnt + 9'd1; fin = pcnt == 9'd255; end
-            bb <= bbe; nb <= nbe;
+            bb <= 40'(bbe); nb <= 6'(nbe);
             if (c_op == U_SY && hs_valid && hs_ready) begin
-              bb <= bbe | (44'(hs_n == 2'd3 ? hs_data : {16'd0, hs_data[7:0]}) << nbe);
-              nb <= nbe + (hs_n == 2'd3 ? 6'd24 : 6'd8);
+              bb <= 40'(bbe) | (40'(hs_n == 2'd3 ? hs_data : {16'd0, hs_data[7:0]}) << nbe);
+              nb <= 6'(nbe) + (hs_n == 2'd3 ? 6'd24 : 6'd8);
             end
-            if (c_op == U_DEC && nbe < 6'(c_n)) begin
-              bb <= bbe | (44'(p_rd_a) << nbe); nb <= nbe + 6'd8; pbc <= pbc + 15'd1;
+            if (c_op == U_DEC && nbe < c_n) begin
+              bb <= 40'(bbe) | (40'(p_rd_a) << nbe); nb <= 6'(nbe) + 6'd8; pbc <= pbc + 10'd1;
             end
           end
           U_ENC:
             if (nb >= 6'd8 || !pcnt[8]) begin
               nb <= (nb >= 6'd8 ? nb - 6'd8 : nb) + (!pcnt[8] && (nb >= 6'd8 ? nb - 6'd8 : nb) < 6'd8 ? 6'(c_n) : 6'd0);
-              if (nb >= 6'd8) pbc <= pbc + 15'd1;
+              if (nb >= 6'd8) pbc <= pbc + 10'd1;
               if (!pcnt[8] && (nb >= 6'd8 ? nb - 6'd8 : nb) < 6'd8) pcnt <= pcnt + 9'd1;
             end else fin = 1'b1;
           U_HINT: begin pcnt <= pcnt + 9'd1; fin = pcnt[8]; end
@@ -1011,27 +1029,27 @@ module ML_DSA_top (
           U_HDEC:
             if (!hph) begin
               hph <= 1'b1;
-              hend <= p_rd_a < hidx || p_rd_a > 8'(omega) ? hidx : p_rd_a;
+              hend <= p_rd_a < 8'(hidx) || p_rd_a > 8'(omega) ? hidx : 7'(p_rd_a);
             end else if (hidx == hend) fin = 1'b1;
             else begin
-              hv[p_rd_a] <= 1'b1; hprev <= p_rd_a; hfst <= 1'b0; hidx <= hidx + 8'd1;
+              hv[p_rd_a] <= 1'b1; hprev <= p_rd_a; hfst <= 1'b0; hidx <= hidx + 7'd1;
             end
           U_HZ:
-            if (hidx == 8'(omega)) fin = 1'b1;
-            else hidx <= hidx + 8'd1;
-          U_FILL, U_COPY, U_CMP: begin pbc <= pbc + 15'd1; fin = last_b; end
+            if (hidx == omega) fin = 1'b1;
+            else hidx <= hidx + 7'd1;
+          U_FILL, U_COPY, U_CMP: begin pbc <= pbc + 10'd1; fin = last_b; end
           default: fin = 1'b1;
         endcase
         if (fin) begin prun <= 1'b0; pdrn <= 3'd1; end
       end
       // the last stage's hint bytes count here too
-      if (hcnt) hidx <= hidx + 8'd1;
+      if (hcnt) hidx <= hidx + 7'd1;
     end
   end
   // checks made in the issue stage: hint encoding (Verify), c~ = c~' (Verify)
-  wire  hdec_bad = prun && c_op == U_HDEC && (!hph ? p_rd_a < hidx || p_rd_a > 8'(omega)
+  wire  hdec_bad = prun && c_op == U_HDEC && (!hph ? p_rd_a < 8'(hidx) || p_rd_a > 8'(omega)
                                                     : hidx != hend && !hfst && hprev >= p_rd_a);
-  wire  hz_bad = prun && c_op == U_HZ && hidx != 8'(omega) && p_rd_a != 8'd0;
+  wire  hz_bad = prun && c_op == U_HZ && hidx != omega && p_rd_a != 8'd0;
   wire  cmp_bad = prun && c_op == U_CMP && p_rd_a != p_rd_b;
 
   // arithmetic pipeline: stage n registers hold what stage n - 1 computed
@@ -1041,12 +1059,12 @@ module ML_DSA_top (
   logic [45:0] p2;                      // 2: the product
   logic [22:0] e2, f2, a2, d2;          // 2: value paths (the value, a second value), butterfly a, accumulator
   logic        k2;                      // 2: Hint: |ct0| >= gamma2
-  logic [37:0] y3;
+  logic [35:0] y3;
   logic [22:0] e3, f3, a3, d3;
   logic [5:0]  q3e, q3f;                // Decompose quotients
   logic [9:0]  h3;                      // Power2Round: t1
   logic        k3;
-  logic [28:0] y4;
+  logic [26:0] y4;
   logic [22:0] e4v, f4, a4, d4;
   logic [5:0]  q4e, q4f;
   logic [24:0] r4;                      // Decompose: r0 of the value
@@ -1057,11 +1075,10 @@ module ML_DSA_top (
   logic        x5, k5;                  // 5: MakeHint, the check failed
   logic [22:0] o0, o1;                  // 6: the values to write
   logic        x6, k6;
-  logic [27:0] pk;                      // Encode: the packer
-  tok_t        t1, t4, t5, tl;          // the tokens of stages 1, 4, 5 and the last
-  assign t1 = st[0 +: TW];
-  assign t4 = st[3 * TW +: TW];
-  assign t5 = st[4 * TW +: TW];
+  logic [23:0] pk;                      // Encode: the packer (fewer than 8 bits held, then up to 20 loaded)
+  tok_t        tl;                      // the last stage's token
+  // flags of the tokens in stages 1, 4 and 5 (sc is bit 4 of a token, uh bit 1)
+  wire         sc1 = st[4], uh4 = st[3 * TW + 1], sc5 = st[4 * TW + 4];
   assign tl = st[(PLAT - 1) * TW +: TW];
   wire  [22:0] g2m = g32 ? 23'd261888 : 23'd95232;   // gamma2
   always_ff @(posedge clk or negedge rst_n) begin
@@ -1076,7 +1093,7 @@ module ML_DSA_top (
     // 2: the product; the value paths
     case (c_op)
       U_NTT: p2 <= 46'(z1) * 46'(rb1);
-      U_INTT: p2 <= t1.sc ? 46'(ra1) * 46'd8347681 : 46'(z1) * 46'(subq(rb1, ra1));   // 256^-1 mod q
+      U_INTT: p2 <= sc1 ? 46'(ra1) * 46'd8347681 : 46'(z1) * 46'(subq(rb1, ra1));   // 256^-1 mod q
       U_PMUL: p2 <= 46'(ra1) * 46'(rb1);
       U_SA: p2 <= 46'(va1) * 46'(rb1);
       default: p2 <= '0;
@@ -1092,16 +1109,16 @@ module ML_DSA_top (
     k2 <= absq(rb1) >= g2m;
     a2 <= ra1; d2 <= rd1;
     // 3: first fold; Decompose quotients, Power2Round t1
-    y3 <= fold1(47'(p2));
+    y3 <= fold1(p2);
     q3e <= dquo(e2, g32); q3f <= dquo(f2, g32);
-    h3 <= 10'((24'(e2) + 24'd4095) >> 13);
+    h3 <= p2h(e2);
     e3 <= e2; f3 <= f2; a3 <= a2; d3 <= d2; k3 <= k2;
     // 4: second fold; Decompose remainders, Encode offset form
     y4 <= fold2(y3);
     r4 <= drem(e3, q3e, g32);
     q4e <= dhi(q3e, g32); q4f <= dhi(q3f, g32);
     h4 <= h3;
-    o4 <= c_fn == F_P2L ? 23'(25'd4096 - 25'(e3) + (25'(h3) << 13)) : subq(23'(c_off), e3);
+    o4 <= c_fn == F_P2L ? 23'(p2l(e3, h3)) : subq(23'(c_off), e3);
     e4v <= e3; f4 <= f3; a4 <= a3; d4 <= d3;
     // the checks: z (Encode): |z| >= gamma1 - beta; Hint: |r0| >= gamma2 - beta or |ct0| >= gamma2
     k4 <= c_op == U_ENC ? absq(e3) >= 23'(c_off) - 23'(beta) : k3 || sabs(drem(e3, q3e, g32)) >= 25'(g2m) - 25'(beta);
@@ -1111,9 +1128,7 @@ module ML_DSA_top (
       F_OFF, F_P2L: e5 <= o4;
       F_P2H: e5 <= 23'(h4);
       F_HB: e5 <= 23'(q4e);
-      F_UH: e5 <= !t4.uh ? 23'(q4e) :
-                  !r4[24] && r4 != '0 ? (q4e == (g32 ? 6'd15 : 6'd43) ? 23'd0 : 23'(q4e) + 23'd1) :
-                  (q4e == 6'd0 ? (g32 ? 23'd15 : 23'd43) : 23'(q4e) - 23'd1);
+      F_UH: e5 <= 23'(uhint(uh4, q4e, r4, g32));
       default: e5 <= e4v;
     endcase
     if (c_op != U_ENC) e5 <= e4v;
@@ -1123,7 +1138,7 @@ module ML_DSA_top (
     // 6: butterflies, accumulation
     case (c_op)
       U_NTT: begin o0 <= addq(a5, m5); o1 <= subq(a5, m5); end
-      U_INTT: begin o0 <= t5.sc ? m5 : e5; o1 <= m5; end
+      U_INTT: begin o0 <= sc5 ? m5 : e5; o1 <= m5; end
       U_PMUL: begin o0 <= m5; o1 <= '0; end
       U_SA: begin o0 <= c_clr ? m5 : addq(m5, d5); o1 <= '0; end
       default: begin o0 <= e5; o1 <= f5; end
@@ -1138,15 +1153,15 @@ module ML_DSA_top (
     if (!rst_n) pk <= '0;
     else if (ugo) pk <= '0;
     else if (sv[PLAT] && (tl.ld || tl.em))
-      pk <= (tl.em ? pk >> 8 : pk) | (tl.ld ? 28'(o0 & 23'((24'd1 << c_n) - 24'd1)) << tl.sh : 28'd0);
+      pk <= (tl.em ? pk >> 8 : pk) | (tl.ld ? 24'(o0 & 23'((24'd1 << c_n) - 24'd1)) << tl.sh : 24'd0);
   end
   // MakeHint at the last stage: the index byte while fewer than omega, then the row's end
-  wire         hwr = sv[PLAT] && tl.hn && x6 && hidx < 8'(omega);
-  assign       hcnt = sv[PLAT] && tl.hn && x6 && hidx != 8'hFF;
-  wire         hovf = sv[PLAT] && tl.hn && x6 && hidx >= 8'(omega);
+  wire         hwr = sv[PLAT] && tl.hn && x6 && hidx < omega;
+  assign       hcnt = sv[PLAT] && tl.hn && x6 && hidx <= omega;
+  wire         hovf = sv[PLAT] && tl.hn && x6 && hidx >= omega;
   wire         pmw = sv[PLAT] && (tl.em || tl.he) || hwr || bmw;
-  wire  [14:0] pmw_a = sv[PLAT] && tl.em ? tl.ba : sv[PLAT] && tl.he ? tl.ba : hwr ? c_ma + 15'(hidx) : p_rb;
-  wire  [7:0]  pmw_d = sv[PLAT] && tl.em ? pk[7:0] : sv[PLAT] && tl.he ? hidx : hwr ? tl.a0[7:0] : bmw_d;
+  wire  [13:0] pmw_a = sv[PLAT] && (tl.em || tl.he) ? tl.ba : hwr ? c_ma + 14'(hidx) : p_rb;
+  wire  [7:0]  pmw_d = sv[PLAT] && tl.em ? pk[7:0] : sv[PLAT] && tl.he ? 8'(hidx) : hwr ? tl.a0[7:0] : bmw_d;
   // the reject / fail flag
   wire         set_bad = hdec_bad || hz_bad || cmp_bad || hovf ||
                          sv[PLAT] && (tl.fb || (tl.hn || tl.ld && c_chk) && k6);
@@ -1158,16 +1173,16 @@ module ML_DSA_top (
 
   // ---------------- memories ----------------
   assign h_rd = mem[h_ra];
-  assign p_rd_a = mem[p_ra];
-  assign p_rd_b = mem[p_rb];
+  assign p_rd_a = mem[15'(p_ra)];
+  assign p_rd_b = mem[15'(p_rb)];
   wire        mw = h_wr || pmw;
-  wire [14:0] mw_a = h_wr ? h_oa + 15'(kout) : pmw_a;
+  wire [13:0] mw_a = h_wr ? h_oa + 14'(kout) : pmw_a;
   wire [7:0]  mw_d = h_wr ? kbyte : pmw_d;
   assign hw_ready = !busy;
   assign hr_valid = hr_en && !busy;
   assign hr_data = {mem[{hptr, 2'd3}], mem[{hptr, 2'd2}], mem[{hptr, 2'd1}], mem[{hptr, 2'd0}]};
   always_ff @(posedge clk) begin
-    if (mw) mem[mw_a] <= mw_d;
+    if (mw) mem[15'(mw_a)] <= mw_d;
     if (hw_valid && hw_ready)
       for (int i = 0; i < 4; i++) mem[{hptr, 2'(i)}] <= hw_data[8 * i +: 8];
   end
