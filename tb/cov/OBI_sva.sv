@@ -98,37 +98,46 @@ module OBI_sva #(parameter int NOUT = 4, IDW = 4, parameter logic [9:0] PROT_BAS
   `SVA_RST(a_rst, 1'b1, !gnt && !rvalid && !irq_dec && !irq_prot && !irq_atop && !irq_par)
 
   // ---------------- functional coverage ----------------
-  function automatic logic [1:0] dcls(input logic [31:0] d);
-    return d == 0 ? 2'd0 : d == 32'hFFFF_FFFF ? 2'd1 : (d == 32'h5555_5555 || d == 32'hAAAA_AAAA) ? 2'd2 : 2'd3;
+  // classes computed at the clock edge, sampled half a clock later (-1: idle)
+  function automatic int dcls(input logic [31:0] d);
+    return d == 0 ? 0 : d == 32'hFFFF_FFFF ? 1 : (d == 32'h5555_5555 || d == 32'hAAAA_AAAA) ? 2 : 3;
   endfunction
-  covergroup cg_req @(posedge clk);
+  int k_kind, k_err, k_amo, k_sc, k_be, k_priv, k_kd, k_wd, k_rd, k_stall;
+  always @(posedge clk) begin
+    k_kind = -1; k_err = -1; k_amo = -1; k_sc = -1; k_be = -1; k_priv = -1; k_kd = -1;
+    k_wd = -1; k_rd = -1; k_stall = -1;
+    if (rst_n && acc) begin
+      k_kind = c_bad ? 0 : c_lr ? 1 : c_sc ? 2 : c_amo ? 3 : we ? 4 : 5;
+      // request class x responses already waiting
+      k_kd = 4 * (c_bad ? 0 : atop[5] ? 1 : we ? 2 : 3) + m_n;
+      if (c_bad) k_err = c_dec ? 0 : c_prv ? 1 : 2;
+      if (c_amo && !c_bad) k_amo = op;
+      if (c_sc && !c_bad) k_sc = c_scok;
+      if (we && !atop[5] && !c_bad) k_be = be;
+      if (addr[31:10] == 0 && addr[9:0] >= PROT_BASE) k_priv = prot[2:1];
+      if (we && !c_bad) k_wd = dcls(wdata);
+    end
+    if (rst_n && pop && !err) k_rd = dcls(rdata);
+    if (rst_n && rvalid) k_stall = rready;
+  end
+  covergroup cg_req @(negedge clk);
     option.per_instance = 1;
-    cp_kind: coverpoint (c_bad ? 3'd0 : c_lr ? 3'd1 : c_sc ? 3'd2 : c_amo ? 3'd3 : we ? 3'd4 : 3'd5) iff (rst_n && acc)
-      { bins error = {0}; bins lr = {1}; bins sc = {2}; bins amo = {3}; bins write = {4}; bins read = {5}; }
-    cp_err: coverpoint (c_dec ? 2'd0 : c_prv ? 2'd1 : 2'd2) iff (rst_n && acc && c_bad)
-      { bins dec = {0}; bins prot = {1}; bins atop = {2}; }
-    cp_amo: coverpoint op iff (rst_n && acc && c_amo && !c_bad)
-      { bins swap = {5'h01}; bins add = {5'h00}; bins xor_ = {5'h04}; bins and_ = {5'h0C}; bins or_ = {5'h08};
-        bins min = {5'h10}; bins max = {5'h14}; bins minu = {5'h18}; bins maxu = {5'h1C}; }
-    cp_sc: coverpoint c_scok iff (rst_n && acc && c_sc && !c_bad) { bins fail = {0}; bins ok = {1}; }
-    cp_be: coverpoint be iff (rst_n && acc && we && !atop[5] && !c_bad)
-      { bins none = {4'h0}; bins b0 = {4'h1}; bins b1 = {4'h2}; bins b2 = {4'h4}; bins b3 = {4'h8};
-        bins lo = {4'h3}; bins hi = {4'hC}; bins all = {4'hF}; bins other = default; }
-    cp_priv: coverpoint prot[2:1] iff (rst_n && acc && addr[31:10] == 0 && addr[9:0] >= PROT_BASE)
-      { bins user = {2'b00}; bins sup = {2'b01}; bins res = {2'b10}; bins mach = {2'b11}; }
-    cp_depth: coverpoint m_n iff (rst_n && acc) { bins d[] = {[0:NOUT-1]}; }
-    x_kind_depth: cross cp_kind, cp_depth;
-    cp_wdata: coverpoint dcls(wdata) iff (rst_n && acc && we && !c_bad)
-      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_kind: coverpoint k_kind { bins error = {0}; bins lr = {1}; bins sc = {2}; bins amo = {3}; bins write = {4}; bins read = {5}; }
+    cp_err: coverpoint k_err { bins dec = {0}; bins prot = {1}; bins atop = {2}; }
+    cp_amo: coverpoint k_amo
+      { bins swap = {1}; bins add = {0}; bins xor_ = {4}; bins and_ = {12}; bins or_ = {8};
+        bins min = {16}; bins max = {20}; bins minu = {24}; bins maxu = {28}; }
+    cp_sc: coverpoint k_sc { bins fail = {0}; bins ok = {1}; }
+    cp_be: coverpoint k_be
+      { bins none = {0}; bins b0 = {1}; bins b1 = {2}; bins b2 = {4}; bins b3 = {8};
+        bins lo = {3}; bins hi = {12}; bins all = {15}; bins other = {5, 6, 7, 9, 10, 11, 13, 14}; }
+    cp_priv: coverpoint k_priv { bins user = {0}; bins sup = {1}; bins res = {2}; bins mach = {3}; }
+    cp_kind_depth: coverpoint k_kd { bins kd[] = {[0:4*NOUT-1]}; }
+    cp_wdata: coverpoint k_wd { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint k_rd { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_stall: coverpoint k_stall { bins stall = {0}; bins take = {1}; }
   endgroup
   cg_req u_cg_req = new;
-  covergroup cg_rsp @(posedge clk);
-    option.per_instance = 1;
-    cp_rdata: coverpoint dcls(rdata) iff (rst_n && pop && !err)
-      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
-    cp_stall: coverpoint rready iff (rst_n && rvalid) { bins stall = {0}; bins take = {1}; }
-  endgroup
-  cg_rsp u_cg_rsp = new;
 
   `FC(full_fifo_req_waits, req && m_n == NOUT)
   `FC(accept_and_pop, acc && pop)
