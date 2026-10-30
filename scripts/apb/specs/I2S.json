@@ -21,6 +21,6 @@
     {"name": "FRAME", "port": "irq", "desc": "LRCK changed (a channel slot started)"}
   ],
   "notes": [
-    "bclk, lrck, sdin and sdout are the I2S pins; they pass through unchanged. BCLK and LRCK are sampled on clk: each BCLK phase must last at least two clocks."
+    "bclk, lrck, sdin and sdout are the I2S pins; they pass through unchanged. BCLK and LRCK are sampled on clk, so PCLK must run at 7 x BCLK or more (8 x recommended): SDOUT changes up to two PCLK periods after a BCLK falling edge, and the I2S transmitter limit (valid 0.8 T after the previous rising edge) leaves 0.3 T for that and the pad delay. SDIN is sampled in the PCLK cycle after the BCLK rise, so the master must hold it one PCLK past the rise (any master that changes SDIN on the falling edge does)."
   ]
 }
