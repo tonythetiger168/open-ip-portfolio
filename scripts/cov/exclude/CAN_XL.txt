@@ -1,0 +1,9 @@
+# CAN_XL: constant bits of the 15-bit bit-position arithmetic.
+TOGGLE CAN_XL_top\.(tx_crc_st|crc_st)\[(7|8|9|1[0-4])\](:|$) # constant 0: a CC CRC starts by de-stuffed bit 103 (< 128)
+TOGGLE CAN_XL_top\.tx_crc_ls\[(7|8|9|1[0-4])\](:|$) # constant 0: a CC CRC ends by de-stuffed bit 117 (< 128)
+TOGGLE CAN_XL_top\.tx_crc_ls\[1\](:|$) # constant 0: the CC CRC ends at 33 or 53 + 8 x data bytes
+TOGGLE CAN_XL_top\.dat_st\[(3|6|7|8|9|1[0-4])\](:|$) # constant: the CC data field starts at 19 or 39
+TOGGLE CAN_XL_top\.(tx_xend|x_cst)\[[12]\](:|$) # constant 0: the FCRC starts at 97 + 8 x data bytes (low bits 001)
+TOGGLE CAN_XL_top\.tx_last\[1\](:|$) # constant 0: the last bit is 132 + 8 x bytes (XL) or 33 / 53 + 8 x bytes (CC)
+TOGGLE CAN_XL_top\.body_last\[1\](:|$) # constant 0: 132 + 8 x bytes (XL), 33 / 53 + 8 x bytes (CC), or 0x7FF0 while unknown
+TOGGLE CAN_XL_top\.fix_last\[[0-2]\](:|$) # constant 0: the last fixed-stuffed bit is 128 + 8 x bytes, or 0x7FF0 while unknown
