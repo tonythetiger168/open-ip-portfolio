@@ -10,7 +10,12 @@
 //  - Register map: docs/ip/eMMC.md
 // ============================================================================
 module eMMC_apb #(
-  parameter int BIT_CLKS = 1
+  parameter int CLK_DIV = 2,
+  parameter int ID_CLK_DIV = 128,
+  parameter int RST_LOW = 64,
+  parameter int RST_WAIT = 16384,
+  parameter int RD_TIMEOUT = 2600000,
+  parameter int BUSY_TIMEOUT = 6500000
 ) (
   input  logic        PCLK,
   input  logic        PRESETN,
@@ -24,11 +29,12 @@ module eMMC_apb #(
   output logic        PREADY,
   output logic        PSLVERR,
   output logic        irq,
+  output logic emmc_clk,
   inout logic cmd,
   inout logic [7:0] dat,
-  input logic emmc_rst_n
+  output logic emmc_rst_n
 );
-  localparam logic [31:0] ID_VALUE = 32'h654D0200;
+  localparam logic [31:0] ID_VALUE = 32'h654D0300;
 
   // ---------------- APB decode ----------------
   wire        acc     = PSEL & PENABLE;
@@ -45,10 +51,10 @@ module eMMC_apb #(
 
   // ---------------- core ----------------
   logic          c_irq;
-  eMMC_top #(.BIT_CLKS(BIT_CLKS)) u_core (
-    .emmc_clk(PCLK),
+  eMMC_top #(.CLK_DIV(CLK_DIV), .ID_CLK_DIV(ID_CLK_DIV), .RST_LOW(RST_LOW), .RST_WAIT(RST_WAIT), .RD_TIMEOUT(RD_TIMEOUT), .BUSY_TIMEOUT(BUSY_TIMEOUT)) u_core (
+    .clk(PCLK),
     .rst_n(PRESETN),
-    .clk(1'b0),
+    .emmc_clk(emmc_clk),
     .cmd(cmd),
     .dat(dat),
     .emmc_rst_n(emmc_rst_n),
