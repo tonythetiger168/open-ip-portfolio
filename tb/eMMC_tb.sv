@@ -388,6 +388,9 @@ module eMMC_tb;
     reset_host();  fault(card.F_CRC7, 7, "R1 (CMD7)");  wait_init("after CMD7 crc");
     reset_host();  fault(card.F_STAT, 7, "R1 status (CMD7)"); wait_init("after CMD7 status");
     reset_host();  fault(card.F_MUTE, 7, "no R1 (CMD7)");     wait_init("after CMD7 mute");
+    reset_host();  fault(card.F_IDX, 7, "R1 index (CMD7)");   wait_init("after CMD7 index");
+    reset_host();  fault(card.F_END, 7, "R1 end bit (CMD7)"); wait_init("after CMD7 end bit");
+    reset_host();  fault(card.F_TXB, 7, "R1 tx bit (CMD7)");  wait_init("after CMD7 tx bit");
     // CMD7's R1b busy held past BUSY_TIMEOUT: one error, then the round runs
     reset_host();  fault(card.F_SELBUSY, 7, "CMD7 busy timeout");
     check(dut.init_done && dut.err_timeout, "CMD7 busy timeout flags");

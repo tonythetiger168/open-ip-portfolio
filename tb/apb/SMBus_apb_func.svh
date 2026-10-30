@@ -5,7 +5,7 @@
 // registers (VOUT, CTRL from the host's writes; READ_VOUT from TELEMETRY;
 // STATUS_BYTE from FAULT), SMBALERT# and the Alert Response Address.
 // Covered through the registers: CML, UPD and TO, each raised on its own,
-// cleared with a write-1, masked, and left pending into reset.
+// cleared with a write-1, raised while masked, and UPD left pending into reset.
 logic scl_m = 1, sda_m = 1;
 always @* begin scl = scl_m & scl_o; sda = sda_m & sda_o; end
 localparam int QQ = 30;
@@ -126,8 +126,15 @@ task automatic ip_func;
   wr(A_IRQ_STATUS, IRQ_ALL);
   s_high(); q();
   s_write(8'h03, 0, 0);
-  // masked, then left pending into reset
+  // masked: a timeout (TO and CML) raises no irq; then UPD left pending into reset
   wr(A_IRQ_ENABLE, 0);
+  s_start(); s_wbyte(8'hB4, 1);
+  repeat (3100) @(negedge PCLK);
+  if (irq) fail("irq with TO and CML masked");
+  rd_exp(A_IRQ_STATUS, (32'(1) << IRQ_TO) | (32'(1) << IRQ_CML));
+  wr(A_IRQ_STATUS, IRQ_ALL);
+  s_high(); q();
+  s_write(8'h03, 0, 0);
   s_write(8'h21, 2, 16'h0101);
   if (irq) fail("irq with UPD masked");
   rd_exp(A_IRQ_STATUS, 32'(1) << IRQ_UPD);

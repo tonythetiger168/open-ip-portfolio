@@ -30,7 +30,9 @@ endtask
 
 task automatic ip_func;
   logic [7:0] t, m, got;
+`ifndef VERILATOR   // Verilator does not keep Z through the wrapper port (tb/SPI_tb.sv checks it on the core)
   if (miso !== 1'bz) fail("MISO driven while CSn is high");
+`endif
   rd_exp(A_FLAGS, 0);
   wr(A_RX, 32'hFF);                                      // read-only: ignored
   rd_exp(A_RX, 0);
