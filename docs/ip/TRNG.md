@@ -286,8 +286,8 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/TRNG_top.sv` | pass | 64/64 (+1 excl.) | 1763/1763 (+3 excl.) | 15/15 | 13/13 | 38/38 |
-| wrapper `rtl/TRNG_apb.sv` | pass | 34/34 | 457/457 (+1 excl.) | n/a | 16/16 | 50/50 |
+| core `rtl/TRNG_top.sv` | pass | 74/74 (+1 excl.) | 3526/3526 (+6 excl.) | 15/15 | 13/13 | 38/38 |
+| wrapper `rtl/TRNG_apb.sv` | pass | 36/36 | 914/914 (+2 excl.) | n/a | 16/16 | 50/50 |
 
 Core: tb/TRNG_tb.sv drives the ring oscillator inputs from a noise model (random, stuck, runs of ones and zeros) and reads with random back-pressure. Its own model runs both health tests on every raw sample and predicts each failure, flag, counter and high-water mark; it hashes the samples each seed is made of with its own SHA-256 (first checked against hashlib vectors from scripts/trng/gen_vec.py) and compares every output word. Cases: every block count, both sources, bypass, sampling every clock to every 256 clocks, each test failing in START, RUN, HASH and OUT, cutoffs of 0 and 1, both tests at once, counter saturation, en dropped in every state, reset mid-output.
 The core checker is a separate cycle model from the ports (synchronizer, LFSR, divider, health tests, control timing) with its own SHA-256 (constants from the primes); it checks every raw sample, state, flag, counter and output word, and that no sample data is left in the buffers when the core is not collecting.
