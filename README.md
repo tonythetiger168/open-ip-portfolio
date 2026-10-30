@@ -1,6 +1,6 @@
 # open-ip-portfolio
 
-Open-source SystemVerilog protocol IP portfolio (Apache-2.0) — **125 protocol
+Open-source SystemVerilog protocol IP portfolio (Apache-2.0) — **126 protocol
 IPs**, each with a synthesizable RTL core, an APB4 register wrapper, self-checking
 testbenches for both, a coverage checker (reference model, SVA and functional
 coverage), and open-toolchain build flows (Icarus Verilog simulation, Yosys
@@ -37,7 +37,7 @@ gen_framework.py         original v1 generator (frozen: out of sync with rtl/ an
 setup_tools.sh           installs iverilog / yosys if missing
 ```
 
-## Protocol catalog (125)
+## Protocol catalog (126)
 
 ### AMBA & ARM interconnect (16)
 
@@ -212,12 +212,13 @@ setup_tools.sh           installs iverilog / yosys if missing
 |---|---|---|
 | Bluetooth 5 | `make -f Makefile.Bluetooth5 sim` | [open_ip_Bluetooth5.zip](releases/open_ip_Bluetooth5.zip) |
 
-### Security & crypto (4)
+### Security & crypto (5)
 
 | Protocol | Build | Standalone package |
 |---|---|---|
 | CSE | `make -f Makefile.CSE sim` | [open_ip_CSE.zip](releases/open_ip_CSE.zip) |
 | Crypto (Security Engine) | `make -f Makefile.Crypto___Security_Engine sim` | [open_ip_Crypto___Security_Engine.zip](releases/open_ip_Crypto___Security_Engine.zip) |
+| ML-DSA (FIPS 204 post-quantum signatures) | `make -f Makefile.ML_DSA sim` | [open_ip_ML_DSA.zip](releases/open_ip_ML_DSA.zip) |
 | ML-KEM (FIPS 203 post-quantum KEM) | `make -f Makefile.ML_KEM sim` | [open_ip_ML_KEM.zip](releases/open_ip_ML_KEM.zip) |
 | Root of Trust (lifecycle, secure boot, DICE key) | `make -f Makefile.Root_of_Trust sim` | [open_ip_Root_of_Trust.zip](releases/open_ip_Root_of_Trust.zip) |
 
@@ -240,7 +241,7 @@ setup_tools.sh           installs iverilog / yosys if missing
 
 ## Design organization: cores vs. variants
 
-The catalog has **125 entries, each with its own RTL core** in
+The catalog has **126 entries, each with its own RTL core** in
 `rtl/<P>_top.sv`. Up to v2.5.1, 29 entries were byte-level renamed copies of
 5 shared templates (CHI, UART, CAN, the 2-wire serial shifter and the frame
 echo template). All of them have since been rewritten as implementations of
@@ -304,13 +305,13 @@ make -f Makefile.I2C syn        # -> 0 errors, cell count report
 # APB4 register wrapper: wrapper test + synthesis
 make -f Makefile.I2C apb        # -> TEST PASSED: I2C_apb
 
-# full regression (what CI runs): sim + syn + apb for all 125 IPs, in parallel (~50 min on 4 cores)
+# full regression (what CI runs): sim + syn + apb for all 126 IPs, in parallel (~50 min on 4 cores)
 bash scripts/ci_regression.sh   # logs in work/ci_*.log
 
 # five-metric coverage (Verilator)
 bash scripts/cov/run_cov.sh I2C        # one core  -> RESULT: CLOSED
 bash scripts/cov/run_cov.sh I2C_apb    # its wrapper
-bash scripts/cov/run_all.sh 4          # all 250 runs, 4 in parallel
+bash scripts/cov/run_all.sh 4          # all 252 runs, 4 in parallel
 
 # standalone package workflow (core + wrapper, sim / syn / apb)
 unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
@@ -321,20 +322,20 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
 - **Five-metric closure (Verilator 5.052):** every IP's testbench reaches
   100% line, toggle, FSM, SVA and functional coverage, and so does every
   IP's APB4 register wrapper (`rtl/<P>_apb.sv`, register map in
-  `docs/ip/<P>.md`): 125 cores and 125 wrappers, 250/250 closed. Results,
+  `docs/ip/<P>.md`): 126 cores and 126 wrappers, 252/252 closed. Results,
   exclusions and how to run: [docs/COVERAGE_CLOSURE.md](docs/COVERAGE_CLOSURE.md).
   CI runs both: `.github/workflows/regression.yml` (iverilog / yosys
   sim + syn + apb, plus a check that generated files are up to date) and
-  `.github/workflows/coverage.yml` (this five-metric flow over all 250
+  `.github/workflows/coverage.yml` (this five-metric flow over all 252
   runs, in 8 shards; any IP that is not CLOSED fails the build).
   `.github/workflows/mutation.yml` runs `scripts/mut/run_mut.py --flow cov`
   weekly: 8 operator mutants per core (relational, logical, constant bit,
   +/-1), each run through the testbench and its checker, with every
   surviving mutant listed in the job summary.
   The v2.5.1 numbers below are the earlier four-metric flow.
-- **Sign-off checks beyond coverage** (UCIe, PCIe, ML-KEM, Ethernet RS-FEC,
+- **Sign-off checks beyond coverage** (UCIe, PCIe, ML-KEM, ML-DSA, Ethernet RS-FEC,
   Ethernet PCS, Root of Trust so far): lint, mutation, formal (bounded proofs; exhaustive checks of the
-  ML-KEM and RS-FEC arithmetic and the PCS functions and gearboxes), area and logic depth, and the list of what a production
+  ML-KEM, ML-DSA and RS-FEC arithmetic and the PCS functions and gearboxes), area and logic depth, and the list of what a production
   sign-off would still need: [docs/SIGNOFF.md](docs/SIGNOFF.md).
 
 ### Earlier four-metric flow (v2.5.1)

@@ -90,6 +90,15 @@ core and wrapper runs, so those bits are scored too.
 * The Root_of_Trust line exclusion is the `default:` item of its control
   state machine: it can only be reached through a fault in the state
   register, and it raises alert 7 and stops the core.
+* The 615 ML_DSA toggle exclusions are bits of values fixed by the FIPS 204
+  parameter sets (k, l, eta, gamma1, gamma2, beta, tau, omega and the byte
+  lengths and buffer addresses derived from them, the hash areas and
+  rates, the polynomial slot groups), and the high bits of the Sign attempt
+  counter and of kappa: 8 or more attempts need a rare message and about
+  0.4M clocks each, while the retry path is covered with up to 4 attempts.
+  Its 4 line exclusions are three defensive `default:` items and zeta
+  index 0, which the NTT never uses. The wrapper excludes the same attempt
+  counter bits (26 points).
 * The wrapper exclusions are only the core's constant pins, seen again at
   the wrapper's pass-through ports.
 * Verilator does not score toggles inside unpacked memory arrays, such as a
@@ -102,12 +111,12 @@ Regression run on 2026-10-24, seed 1 (`scripts/cov/run_all.sh 4`, 242 runs,
 all closed), with the PCIe, UCIe, ML_KEM and Ethernet_RS_FEC rows (core and
 wrapper) re-run on 2026-10-28 after their v3.0 / v1.0 changes, ML_KEM
 again on 2026-10-29 for v1.1, and Root_of_Trust and Ethernet_PCS added on
-2026-10-29. The tables come from
+2026-10-29 and ML_DSA on 2026-10-30. The tables come from
 `python3 scripts/cov/report.py`.
 
 ### Cores
 
-125/125 closed.
+126/126 closed.
 
 | IP | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
@@ -193,6 +202,7 @@ again on 2026-10-29 for v1.1, and Root_of_Trust and Ethernet_PCS added on
 | MIPI_SLIMbus | 74/74 | 748/748 | 8/8 | 16/16 | 83/83 | pass |
 | MIPI_SPMI | 86/86 | 756/756 | 23/23 | 7/7 | 98/98 | pass |
 | MIPI_SoundWire | 102/102 | 1024/1024 | 8/8 | 16/16 | 53/53 | pass |
+| ML_DSA | 651/655 (+4 excl.) | 9587/10202 (+615 excl.) | 43/43 | 34/34 | 78/78 | pass |
 | ML_KEM | 553/556 (+3 excl.) | 7314/7448 (+134 excl.) | 31/31 | 23/23 | 54/54 | pass |
 | M_PHY | 119/120 (+1 excl.) | 392/392 | 16/16 | 8/8 | 286/286 | pass |
 | NVMe | 68/68 | 602/602 | 17/17 | 5/5 | 119/119 | pass |
@@ -250,7 +260,7 @@ The wrapper's coverage scope is the wrapper alone (`u_core` is excluded),
 because the core is closed by its own run above. The wrapper has no state
 machine, so FSM is n/a.
 
-125/125 closed.
+126/126 closed.
 
 | APB wrapper | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
@@ -336,6 +346,7 @@ machine, so FSM is n/a.
 | MIPI_SLIMbus_apb | 40/40 | 996/996 | n/a | 18/18 | 72/72 | pass |
 | MIPI_SPMI_apb | 19/19 | 396/396 | n/a | 7/7 | 23/23 | pass |
 | MIPI_SoundWire_apb | 44/44 | 1114/1114 | n/a | 21/21 | 91/91 | pass |
+| ML_DSA_apb | 42/42 | 858/884 (+26 excl.) | n/a | 18/18 | 63/63 | pass |
 | ML_KEM_apb | 39/39 | 776/776 | n/a | 16/16 | 61/61 | pass |
 | M_PHY_apb | 36/36 | 542/542 | n/a | 14/14 | 60/60 | pass |
 | NVMe_apb | 32/32 | 868/868 | n/a | 14/14 | 43/43 | pass |
