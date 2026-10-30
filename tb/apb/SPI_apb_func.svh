@@ -3,7 +3,7 @@
 // first) drives csn / sclk / mosi and samples miso.
 // Covered through the registers: TX written and read back, shifted out on
 // MISO; RX holding the byte shifted in; BYTE once per byte; a transfer cut
-// by CSn restarting the bit count; a partial write dropped with PSLVERR.
+// by CSn restarting the bit count; MISO high-Z while CSn is high; a partial write dropped with PSLVERR.
 initial begin csn = 1; sclk = 0; mosi = 0; end
 // one byte: mosi out, miso in; stop after n bits (8: a whole byte)
 task automatic xfer(input logic [7:0] o, output logic [7:0] i, input int n);
@@ -30,6 +30,7 @@ endtask
 
 task automatic ip_func;
   logic [7:0] t, m, got;
+  if (miso !== 1'bz) fail("MISO driven while CSn is high");
   rd_exp(A_FLAGS, 0);
   wr(A_RX, 32'hFF);                                      // read-only: ignored
   rd_exp(A_RX, 0);
