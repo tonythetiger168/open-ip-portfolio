@@ -1,4 +1,4 @@
 LINE \| default: begin st <= S_FAIL; alert <= 1'b1; blk <= '0; dig <= '0; end # defensive default: unused state encodings (a state register upset by a fault) go to FAIL with an alert
-TOGGLE \.apt_c\[10\]$ # count 1024 needs a whole window of one value, but the repetition count test (cutoff at most 255) fails a run of 255 first: the highest reachable count is about 1020
-TOGGLE \.apt_nx\[10\]$ # as apt_c[10]: the window count cannot reach 1024 while the repetition count test runs
-TOGGLE \.apt_hw\[10\]$ # as apt_c[10]: the high-water mark of the window count cannot reach 1024
+TOGGLE \.apt_c\[10\]: # count 1024 needs a whole window of one value, but the repetition count test (cutoff at most 255) fails a run of 255 first: the highest reachable count is about 1020
+TOGGLE \.apt_nx\[10\]: # as apt_c[10]: the window count cannot reach 1024 while the repetition count test runs
+TOGGLE \.apt_hw\[10\]: # as apt_c[10]: the high-water mark of the window count cannot reach 1024
