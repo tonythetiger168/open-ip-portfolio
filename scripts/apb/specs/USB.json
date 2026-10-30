@@ -1,5 +1,5 @@
 {
-  "title": "USB 1.1 full-speed device: NRZI / bit stuffing / EOP on dp-dm, CRC5 / CRC16, ACK / NAK / STALL, DATA0/1 toggles, EP0 control (GET_DESCRIPTOR, SET_ADDRESS, SET/GET_CONFIGURATION, a vendor preset) and an EP1 interrupt-IN counter",
+  "title": "USB 1.1 full-speed device: NRZI / bit stuffing / EOP on dp-dm, CRC5 / CRC16, ACK / NAK / STALL, DATA0/1 toggles, EP0 control (GET_DESCRIPTOR of the device and of configuration 0 with its interface and endpoint, GET_STATUS, SET_ADDRESS, SET/GET_CONFIGURATION, a vendor preset) and an EP1 interrupt-IN counter",
   "code": "0x5531",
   "version": "2.0",
   "tb_clk_ns": 10,

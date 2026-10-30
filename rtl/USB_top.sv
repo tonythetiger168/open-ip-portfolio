@@ -12,10 +12,14 @@
 //                 handshakes ACK/NAK/STALL,
 //                 DATA0/DATA1 toggle synchronization (retransmit on lost ACK,
 //                 discard-but-ACK on duplicated data)
-//   * EP0       : standard requests GET_DESCRIPTOR(device, 18 bytes, sent in
-//                 8-byte packets, truncated to wLength), SET_ADDRESS (takes
-//                 effect after the status stage), SET_CONFIGURATION(0/1),
-//                 GET_CONFIGURATION; vendor request 0x40/0x01 presets the EP1
+//   * EP0       : standard requests GET_DESCRIPTOR(device, 18 bytes, or
+//                 configuration 0: configuration + interface + EP1 IN
+//                 endpoint descriptors, 25 bytes; sent in 8-byte packets,
+//                 truncated to wLength), GET_STATUS (device; interface 0 and
+//                 EP1 IN once configured; EP0: two zero bytes, as the device
+//                 is bus powered without remote wakeup or halt), SET_ADDRESS
+//                 (takes effect after the status stage), SET_CONFIGURATION
+//                 (0/1), GET_CONFIGURATION; vendor request 0x40/0x01 presets the EP1
 //                 counter to {wIndex, wValue}; anything else is answered with
 //                 a protocol STALL until the next SETUP
 //   * EP1       : interrupt IN, 4-byte transfer counter (incremented on ACK),
@@ -63,6 +67,7 @@ module USB_top #(
   localparam int RST_CLKS   = RST_BITS*BIT_CLKS;
   localparam int RSW        = $clog2(RST_CLKS + 1);
   localparam logic [4:0] DESC_LEN = 5'd18;
+  localparam logic [4:0] CONF_LEN = 5'd25;      // wTotalLength of configuration 0
 
   // ------------------------------------------------------------------
   // tri-state pads
@@ -93,21 +98,44 @@ module USB_top #(
     crc16_byte = r;
   endfunction
 
-  // 18-byte device descriptor
-  function automatic logic [7:0] desc_byte(input logic [4:0] i);
-    case (i)
-      5'd0:    desc_byte = 8'h12;  // bLength=18
-      5'd1:    desc_byte = 8'h01;  // bDescriptorType=DEVICE
-      5'd2:    desc_byte = 8'h00;  // bcdUSB 2.00
-      5'd3:    desc_byte = 8'h02;
-      5'd7:    desc_byte = 8'h08;  // bMaxPacketSize0=8
-      5'd8:    desc_byte = 8'h09;  // idVendor 0x1209
-      5'd9:    desc_byte = 8'h12;
-      5'd10:   desc_byte = 8'h01;  // idProduct 0x0001
-      5'd13:   desc_byte = 8'h01;  // bcdDevice 1.00
-      5'd17:   desc_byte = 8'h01;  // bNumConfigurations=1
-      default: desc_byte = 8'h00;  // class/subclass/protocol, strings
-    endcase
+  // 18-byte device descriptor (sel 0), or the 25 bytes of configuration 0
+  // (sel 1): configuration, interface and endpoint descriptors
+  function automatic logic [7:0] desc_byte(input logic sel, input logic [4:0] i);
+    if (!sel)
+      case (i)
+        5'd0:    desc_byte = 8'h12;  // bLength=18
+        5'd1:    desc_byte = 8'h01;  // bDescriptorType=DEVICE
+        5'd2:    desc_byte = 8'h00;  // bcdUSB 2.00
+        5'd3:    desc_byte = 8'h02;
+        5'd7:    desc_byte = 8'h08;  // bMaxPacketSize0=8
+        5'd8:    desc_byte = 8'h09;  // idVendor 0x1209
+        5'd9:    desc_byte = 8'h12;
+        5'd10:   desc_byte = 8'h01;  // idProduct 0x0001
+        5'd13:   desc_byte = 8'h01;  // bcdDevice 1.00
+        5'd17:   desc_byte = 8'h01;  // bNumConfigurations=1
+        default: desc_byte = 8'h00;  // class/subclass/protocol, strings
+      endcase
+    else
+      case (i)
+        5'd0:    desc_byte = 8'h09;  // CONFIGURATION: bLength=9
+        5'd1:    desc_byte = 8'h02;  //   bDescriptorType=CONFIGURATION
+        5'd2:    desc_byte = 8'h19;  //   wTotalLength=25
+        5'd4:    desc_byte = 8'h01;  //   bNumInterfaces=1
+        5'd5:    desc_byte = 8'h01;  //   bConfigurationValue=1
+        5'd7:    desc_byte = 8'h80;  //   bmAttributes: bus powered
+        5'd8:    desc_byte = 8'h32;  //   bMaxPower=100 mA
+        5'd9:    desc_byte = 8'h09;  // INTERFACE: bLength=9
+        5'd10:   desc_byte = 8'h04;  //   bDescriptorType=INTERFACE
+        5'd13:   desc_byte = 8'h01;  //   bNumEndpoints=1
+        5'd14:   desc_byte = 8'hFF;  //   bInterfaceClass=vendor specific
+        5'd18:   desc_byte = 8'h07;  // ENDPOINT: bLength=7
+        5'd19:   desc_byte = 8'h05;  //   bDescriptorType=ENDPOINT
+        5'd20:   desc_byte = 8'h81;  //   bEndpointAddress=EP1 IN
+        5'd21:   desc_byte = 8'h03;  //   bmAttributes=interrupt
+        5'd22:   desc_byte = 8'h04;  //   wMaxPacketSize=4
+        5'd24:   desc_byte = 8'h0A;  //   bInterval=10 ms
+        default: desc_byte = 8'h00;  // string indexes, alternate setting
+      endcase
   endfunction
 
   // ==================================================================
@@ -341,7 +369,7 @@ module USB_top #(
   //   byte index 0 = SYNC, 1 = PID, 2.. payload, then CRC16 (data packets)
   // ==================================================================
   localparam logic [2:0] TK_HS = 3'd0, TK_ZLP = 3'd1, TK_DESC = 3'd2, TK_CFG = 3'd3,
-                         TK_CNT = 3'd4;
+                         TK_CNT = 3'd4, TK_STS = 3'd5;
   logic [TAW-1:0]  wait_cnt;
   logic [BTW-1:0]  tbt;
   logic [2:0]      t_ones;
@@ -360,6 +388,7 @@ module USB_top #(
   logic [3:0]      tx_n;       // payload bytes
   logic            cfg;        // configured (SET_CONFIGURATION 1)
   logic [4:0]      d_len, d_off;  // control IN data stage length / progress
+  logic            dsel;          // descriptor sent: 0 device, 1 configuration
   logic [31:0]     ep1_cnt;
 
   wire [3:0] last_ptr = (tx_kind == TK_HS) ? 4'd1 : tx_n + 4'd3;
@@ -372,8 +401,9 @@ module USB_top #(
                                           tx_pid[2:1], 1'b1, tx_pid[0]};
     else if (pay_i < tx_n)
       case (tx_kind)
-        TK_DESC: t_byte = desc_byte(d_off + {1'b0, pay_i});   // d_off steady while sending
+        TK_DESC: t_byte = desc_byte(dsel, d_off + {1'b0, pay_i});   // d_off steady while sending
         TK_CFG:  t_byte = {7'd0, cfg};
+        TK_STS:  t_byte = 8'h00;     // not self powered, no remote wakeup / halt
         default: t_byte = ep1_cnt[8*pay_i[1:0] +: 8];
       endcase
     else if (pay_i == tx_n)    t_byte = ~tx_crc[7:0];
@@ -477,7 +507,7 @@ module USB_top #(
   typedef enum logic [1:0] {CS_IDLE, CS_TX, CS_WACK} cs_t;
   // EP0 control transfer in progress
   typedef enum logic [2:0] {RQ_NONE, RQ_DESC, RQ_CFGGET, RQ_ADDR, RQ_CFGSET,
-                            RQ_CNTSET, RQ_STALL} rq_t;
+                            RQ_CNTSET, RQ_STALL, RQ_STS} rq_t;
   cs_t            cs;
   rq_t            rq;
   logic [6:0]     dev_addr, new_addr;
@@ -500,11 +530,17 @@ module USB_top #(
   wire [15:0] s_idx = {rx_buf[5], rx_buf[4]};
   wire [15:0] s_len = {rx_buf[7], rx_buf[6]};
 
-  // decode a SETUP request
+  // decode a SETUP request (c: configured, for the interface / EP1 status)
   function automatic rq_t setup_rq(input logic [7:0] bm, input logic [7:0] rq_,
                                    input logic [15:0] val, input logic [15:0] idx,
-                                   input logic [15:0] len);
-    if (bm == 8'h80 && rq_ == 8'h06 && val == 16'h0100)       setup_rq = RQ_DESC;
+                                   input logic [15:0] len, input logic c);
+    if (bm == 8'h80 && rq_ == 8'h06 && (val == 16'h0100 || val == 16'h0200))
+                                                              setup_rq = RQ_DESC;
+    else if (rq_ == 8'h00 && val == 16'h0 && len == 16'd2 &&
+             (bm == 8'h80 && idx == 16'h0 ||
+              bm == 8'h81 && idx == 16'h0 && c ||
+              bm == 8'h82 && (idx == 16'h0000 || idx == 16'h0080 || idx == 16'h0081 && c)))
+                                                              setup_rq = RQ_STS;
     else if (bm == 8'h80 && rq_ == 8'h08 && val == 16'h0 && idx == 16'h0 && len == 16'd1)
                                                               setup_rq = RQ_CFGGET;
     else if (bm == 8'h00 && rq_ == 8'h05 && val < 16'd128 && idx == 16'h0 && len == 16'h0)
@@ -539,6 +575,7 @@ module USB_top #(
       new_cnt    <= 32'd0;
       d_len      <= 5'd0;
       d_off      <= 5'd0;
+      dsel       <= 1'b0;
       expect_ack <= 1'b0;
       exp_data   <= 1'b0;
       exp_setup  <= 1'b0;
@@ -580,6 +617,8 @@ module USB_top #(
                       send(TK_DESC, ep0in_tgl ? PID_DATA1 : PID_DATA0, d_n, 1'b1);
                     RQ_CFGGET:
                       send(TK_CFG, ep0in_tgl ? PID_DATA1 : PID_DATA0, d_n, 1'b1);
+                    RQ_STS:
+                      send(TK_STS, ep0in_tgl ? PID_DATA1 : PID_DATA0, d_n, 1'b1);
                     RQ_ADDR, RQ_CFGSET, RQ_CNTSET:            // status stage
                       send(TK_ZLP, ep0in_tgl ? PID_DATA1 : PID_DATA0, 4'd0, 1'b1);
                     default: send(TK_HS, PID_STALL, 4'd0, 1'b0);
@@ -614,11 +653,14 @@ module USB_top #(
                     new_addr  <= s_val[6:0];
                     new_cfg   <= s_val[0];
                     new_cnt   <= {s_idx, s_val};
-                    d_len     <= (s_len > 16'd18) ? DESC_LEN : s_len[4:0];
+                    dsel      <= s_val[9];
+                    if (s_val[9]) d_len <= (s_len > 16'd25) ? CONF_LEN : s_len[4:0];
+                    else          d_len <= (s_len > 16'd18) ? DESC_LEN : s_len[4:0];
                     rq        <= (rx_plen != 5'd8) ? RQ_STALL :
-                                 setup_rq(s_bm, s_rq, s_val, s_idx, s_len);
+                                 setup_rq(s_bm, s_rq, s_val, s_idx, s_len, cfg);
                     if (s_bm == 8'h80 && s_rq == 8'h08) d_len <= 5'd1;
-                  end else if (rq == RQ_DESC || rq == RQ_CFGGET)
+                    if (s_rq == 8'h00) d_len <= 5'd2;
+                  end else if (rq == RQ_DESC || rq == RQ_CFGGET || rq == RQ_STS)
                     rq <= RQ_NONE;                    // OUT status stage done
                 end
               end
