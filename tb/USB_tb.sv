@@ -3,9 +3,11 @@
 // Self-checking testbench for USB_top (USB 1.1 FS device, EP0 + EP1 IN)
 // The TB is the host: it drives tokens / data / handshakes on dp/dm at bit
 // level (NRZI, bit stuffing, CRC5 / CRC16, EOP) and decodes the device's
-// answers. Covered: enumeration (GET_DESCRIPTOR in 8-byte packets, short and
-// zero-length packets, SET_ADDRESS taking effect after the status stage,
-// SET/GET_CONFIGURATION), EP1 counter (NAK until configured, preset by the
+// answers. Covered: enumeration (GET_DESCRIPTOR of the device and of the
+// configuration with its interface and endpoint descriptors, in 8-byte
+// packets, short and zero-length packets; GET_STATUS of the device,
+// interface 0 and both endpoints; SET_ADDRESS taking effect after the
+// status stage, SET/GET_CONFIGURATION), EP1 counter (NAK until configured, preset by the
 // vendor request, increment on ACK only, DATA0/1 toggling, retransmit on lost
 // ACK), protocol STALLs, duplicate data, every receive error class (CRC5,
 // CRC16, stuffing, PID check, sync, truncation), ACK timeout, host NAK, bus
@@ -54,6 +56,18 @@ module USB_tb;
       8: desc = 8'h09;  9: desc = 8'h12; 10: desc = 8'h01; 13: desc = 8'h01;
       17: desc = 8'h01;
       default: desc = 8'h00;
+    endcase
+  endfunction
+  // configuration 0: configuration, interface (vendor class, one endpoint)
+  // and EP1 IN interrupt endpoint descriptors (USB 2.0 9.6.3 .. 9.6.6)
+  function automatic logic [7:0] conf(input int i);
+    case (i)
+      0: conf = 8'h09;  1: conf = 8'h02;  2: conf = 8'h19;  4: conf = 8'h01;
+      5: conf = 8'h01;  7: conf = 8'h80;  8: conf = 8'h32;
+      9: conf = 8'h09; 10: conf = 8'h04; 13: conf = 8'h01; 14: conf = 8'hFF;
+      18: conf = 8'h07; 19: conf = 8'h05; 20: conf = 8'h81; 21: conf = 8'h03;
+      22: conf = 8'h04; 24: conf = 8'h0A;
+      default: conf = 8'h00;
     endcase
   endfunction
 
@@ -215,19 +229,20 @@ module USB_tb;
     rx_pkt(); expect_pid(expect_, "out");
   endtask
 
-  // control read: GET_DESCRIPTOR(device) with wLength
-  task automatic get_desc(input int wlen);
+  // control read: GET_DESCRIPTOR(device, or configuration with c) with wLength
+  task automatic get_desc(input int wlen, input bit c = 0);
     logic [63:0] s;                  // SETUP bytes, byte 0 at [7:0]
     int got, total;
-    s = pack8(8'h80, 8'h06, 8'h00, 8'h01, 8'h00, 8'h00, 8'(wlen), 8'(wlen >> 8));
+    s = pack8(8'h80, 8'h06, 8'h00, c ? 8'h02 : 8'h01, 8'h00, 8'h00, 8'(wlen), 8'(wlen >> 8));
     setup8(s);
-    total = (wlen > 18) ? 18 : wlen;
+    total = (wlen > (c ? 25 : 18)) ? (c ? 25 : 18) : wlen;
     got = 0;
     do begin
       in_tx(0);
       expect_pid(h_t0 ? DATA1 : DATA0, "descriptor toggle");
       for (int i = 0; i < r_n; i++)
-        if (r_buf[i] !== desc(got + i)) fail($sformatf("descriptor byte %0d", got + i));
+        if (r_buf[i] !== (c ? conf(got + i) : desc(got + i)))
+          fail($sformatf("%s descriptor byte %0d", c ? "configuration" : "device", got + i));
       got += r_n; h_t0 = !h_t0;
     end while (r_n == 8 && got < total);
     if (got != total) fail($sformatf("descriptor length %0d exp %0d", got, total));
@@ -248,6 +263,22 @@ module USB_tb;
   task automatic set_addr(input logic [6:0] a);
     ctl_write(8'h00, 8'h05, {9'h0, a}, 16'h0);
     A = a;
+  endtask
+
+  // GET_STATUS to recipient bm (0x80 device, 0x81 interface, 0x82 endpoint)
+  // and wIndex; ok: two zero bytes expected, else a STALL
+  task automatic get_status(input logic [7:0] bm, input logic [15:0] idx, input bit ok);
+    logic [63:0] s;                  // SETUP bytes, byte 0 at [7:0]
+    s = pack8(bm, 8'h00, 8'h00, 8'h00, idx[7:0], idx[15:8], 8'h02, 8'h00);
+    setup8(s);
+    in_tx(0);
+    if (!ok) expect_pid(STALL, $sformatf("get_status %h/%h", bm, idx));
+    else begin
+      expect_pid(DATA1, "get_status");
+      if (r_n != 2 || r_buf[0] !== 8'h00 || r_buf[1] !== 8'h00)
+        fail($sformatf("get_status %h/%h value", bm, idx));
+      out_tx(0, DATA1, 0, ACK);
+    end
   endtask
 
   task automatic get_cfg(input logic exp_v);
@@ -310,6 +341,19 @@ module USB_tb;
     get_desc(5);
     get_desc(13);
     for (int i = 0; i < 4; i++) get_desc(1 + $urandom % 30);
+    // configuration descriptor set: header first (wLength 9), then whole
+    get_desc(9, 1);
+    get_desc(25, 1);
+    get_desc(255, 1);
+    get_desc(16, 1);
+    for (int i = 0; i < 4; i++) get_desc(1 + $urandom % 30, 1);
+    // GET_STATUS before configuration: device and EP0 answer, interface 0
+    // and EP1 IN do not exist yet
+    get_status(8'h80, 16'h0000, 1);
+    get_status(8'h82, 16'h0000, 1);
+    get_status(8'h82, 16'h0080, 1);
+    get_status(8'h81, 16'h0000, 0);
+    get_status(8'h82, 16'h0081, 0);
     set_addr(7'h2A);
     token(IN, 7'h00, 0); rx_pkt(20); expect_pid(NONE, "old address answered");
     get_desc(18);
@@ -317,6 +361,10 @@ module USB_tb;
     get_cfg(0);
     ctl_write(8'h00, 8'h09, 16'h0001, 16'h0);       // SET_CONFIGURATION 1
     get_cfg(1);
+    // configured: interface 0 and EP1 IN status too
+    get_status(8'h81, 16'h0000, 1);
+    get_status(8'h82, 16'h0081, 1);
+    get_status(8'h80, 16'h0000, 1);
 
     // ---------------- EP1 counter
     cnt_exp = 0; h_t1 = 0;
@@ -348,14 +396,31 @@ module USB_tb;
     ep1_read(); ep1_read();                           // wraps to 0
 
     // ---------------- protocol stalls / duplicates
-    s = pack8(8'h80, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00, 8'h02, 8'h00);   // GET_STATUS
+    s = pack8(8'h80, 8'h0A, 8'h00, 8'h00, 8'h00, 8'h00, 8'h01, 8'h00);   // GET_INTERFACE
     setup8(s);
     in_tx(0); expect_pid(STALL, "unsupported request IN");
     out_tx(0, DATA1, 0, STALL);
+    // GET_STATUS with a field off: wLength, wValue, unknown interface /
+    // endpoint, other recipient
+    get_status(8'h81, 16'h0001, 0);
+    get_status(8'h82, 16'h0001, 0);
+    get_status(8'h82, 16'h0082, 0);
+    get_status(8'h80, 16'h0001, 0);
+    get_status(8'h83, 16'h0000, 0);
+    s = pack8(8'h80, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00, 8'h01, 8'h00);   // wLength 1
+    setup8(s); in_tx(0); expect_pid(STALL, "get_status wLength 1");
+    s = pack8(8'h80, 8'h00, 8'h01, 8'h00, 8'h00, 8'h00, 8'h02, 8'h00);   // wValue 1
+    setup8(s); in_tx(0); expect_pid(STALL, "get_status wValue 1");
+    // GET_DESCRIPTOR of a configuration index other than 0, or of a string
+    s = pack8(8'h80, 8'h06, 8'h01, 8'h02, 8'h00, 8'h00, 8'h09, 8'h00);
+    setup8(s); in_tx(0); expect_pid(STALL, "configuration 1 descriptor");
+    s = pack8(8'h80, 8'h06, 8'h00, 8'h03, 8'h00, 8'h00, 8'h09, 8'h00);
+    setup8(s); in_tx(0); expect_pid(STALL, "string descriptor");
     for (int i = 0; i < 8; i++) begin                 // random unsupported requests
       s = {$urandom, $urandom};
       s[7:0] = (i % 2) ? 8'h00 : 8'h80;
-      if (s[15:8] == 8'h05 || s[15:8] == 8'h06 || s[15:8] == 8'h08 || s[15:8] == 8'h09)
+      if (s[15:8] == 8'h00 || s[15:8] == 8'h05 || s[15:8] == 8'h06 || s[15:8] == 8'h08 ||
+          s[15:8] == 8'h09)
         s[15:8] = 8'h0C;
       setup8(s);
       in_tx(0); expect_pid(STALL, "random request");
