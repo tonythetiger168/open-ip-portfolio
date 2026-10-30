@@ -78,3 +78,4 @@ xSPI | b_pp <= 1'b0; bptr <= '0; blim <= '0; pv <= '0; dummy <= DUMMY; err_code 
 xSPI | ck_d <= 1'b0; csn_d <= 1'b1; st <= S_CMD; cmd <= '0; op <= '0; cnt <= '0; odd <= 1'b0; | 1'b0 -> 1'b1@1 | ck_d reset value: edges only count with CS# low, and ck_d follows CK one clock after reset, before any frame
 xSPI | ck_d <= 1'b0; csn_d <= 1'b1; st <= S_CMD; cmd <= '0; op <= '0; cnt <= '0; odd <= 1'b0; | 1'b1 -> 1'b0 | csn_d reset value: a frame end seen in the first clock after reset finds the FSM in S_CMD with no edges, which does nothing
 xSPI | dq_o <= '0; dq_oe <= 1'b0; dqs_o <= 1'b0; dqs_oe <= 1'b0; | 1'b0 -> 1'b1@2 | dqs_o reset value: DQS is not driven until a read reaches its latency, and that edge sets dqs_o to 0 first
+SGMII | wire        ones4 = {2'd0, cg[3]} + {2'd0, cg[2]} + {2'd0, cg[1]} + {2'd0, cg[0]} > 3'd2; | > -> >= | ones4 is only used when the 4-bit sub-block is unbalanced (not two ones), where > 2 and >= 2 agree
