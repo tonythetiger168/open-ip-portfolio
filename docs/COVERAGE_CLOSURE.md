@@ -55,8 +55,8 @@ partially-encoded enum, a tie-off that is constant by construction, and the
 upper bits of a counter whose largest load is below the next power of two.
 FSM, SVA and functional coverage have no exclusions.
 
-Totals: 121 line points out of 12658 and 3933 toggle points out of 162764
-for the cores; 477 toggle points out of 112154 for the wrappers.
+Totals: 121 line points out of 12724 and 3943 toggle points out of 169646
+for the cores; 477 toggle points out of 113160 for the wrappers.
 
 Verilator leaves signals wider than 256 bits out of toggle coverage by
 default. An IP with wider buses (UCIe: 544-bit flits, Ethernet_RS_FEC:
@@ -90,6 +90,10 @@ core and wrapper runs, so those bits are scored too.
 * The Root_of_Trust line exclusion is the `default:` item of its control
   state machine: it can only be reached through a fault in the state
   register, and it raises alert 7 and stops the core.
+* The 10 SHA3 toggle exclusions are constant bits: the domain byte is
+  0x06 (SHA3) or 0x1F (SHAKE), so bits 1 and 2 never fall and bits 5-7
+  never rise; and bit 1 of the last rate lane (17, 16, 12, 8, 20 or 16) is
+  always clear.
 * The wrapper exclusions are only the core's constant pins, seen again at
   the wrapper's pass-through ports.
 * Verilator does not score toggles inside unpacked memory arrays, such as a
@@ -101,13 +105,13 @@ core and wrapper runs, so those bits are scored too.
 Regression run on 2026-10-24, seed 1 (`scripts/cov/run_all.sh 4`, 242 runs,
 all closed), with the PCIe, UCIe, ML_KEM and Ethernet_RS_FEC rows (core and
 wrapper) re-run on 2026-10-28 after their v3.0 / v1.0 changes, ML_KEM
-again on 2026-10-29 for v1.1, and Root_of_Trust and Ethernet_PCS added on
-2026-10-29. The tables come from
+again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
+2026-10-29, and SHA3 added on 2026-10-30. The tables come from
 `python3 scripts/cov/report.py`.
 
 ### Cores
 
-125/125 closed.
+126/126 closed.
 
 | IP | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
@@ -210,6 +214,7 @@ again on 2026-10-29 for v1.1, and Root_of_Trust and Ethernet_PCS added on
 | SATA | 228/228 | 1474/1474 | 75/75 | 5/5 | 64/64 | pass |
 | SD | 137/137 | 1850/1850 | 18/18 | 7/7 | 71/71 | pass |
 | SDIO | 92/93 (+1 excl.) | 1342/1342 | 30/30 | 5/5 | 67/67 | pass |
+| SHA3 | 66/66 | 6872/6882 (+10 excl.) | 19/19 | 11/11 | 87/87 | pass |
 | SPI | 15/15 | 108/108 | n/a | 5/5 | 46/46 | pass |
 | SPMI | 44/44 | 162/162 | 12/12 | 6/6 | 62/62 | pass |
 | TileLink__TL_UL_TL_C_ | 22/22 | 382/386 (+4 excl.) | 4/4 | 7/7 | 68/68 | pass |
@@ -237,7 +242,7 @@ again on 2026-10-29 for v1.1, and Root_of_Trust and Ethernet_PCS added on
 | eMMC | 120/120 | 1622/1622 | 17/17 | 6/6 | 64/64 | pass |
 | eUSB2 | 107/108 (+1 excl.) | 394/394 | 16/16 | 6/6 | 74/74 | pass |
 
-Totals: line 12537/12658 (+121 excluded), toggle 158831/162764 (+3933 excluded), fsm 2607/2607, sva 1522/1522, functional 11707/11707.
+Totals: line 12603/12724 (+121 excluded), toggle 165703/169646 (+3943 excluded), fsm 2626/2626, sva 1533/1533, functional 11794/11794.
 
 For the IPs rebuilt last (UniPro, DisplayPort2, SAS-4, SATA, the clone
 rewrites and the memory family), the checker was also tested with deliberate
@@ -250,7 +255,7 @@ The wrapper's coverage scope is the wrapper alone (`u_core` is excluded),
 because the core is closed by its own run above. The wrapper has no state
 machine, so FSM is n/a.
 
-125/125 closed.
+126/126 closed.
 
 | APB wrapper | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
@@ -353,6 +358,7 @@ machine, so FSM is n/a.
 | SATA_apb | 19/19 | 402/402 | n/a | 7/7 | 23/23 | pass |
 | SDIO_apb | 19/19 | 404/404 | n/a | 7/7 | 23/23 | pass |
 | SD_apb | 19/19 | 404/404 | n/a | 7/7 | 23/23 | pass |
+| SHA3_apb | 44/44 | 1006/1006 | n/a | 15/15 | 66/66 | pass |
 | SPI_apb | 21/21 | 440/440 | n/a | 11/11 | 28/28 | pass |
 | SPMI_apb | 28/28 | 518/518 | n/a | 8/8 | 42/42 | pass |
 | TileLink__TL_UL_TL_C__apb | 19/19 | 660/664 (+4 excl.) | n/a | 7/7 | 23/23 | pass |
@@ -380,4 +386,4 @@ machine, so FSM is n/a.
 | eMMC_apb | 19/19 | 412/412 | n/a | 7/7 | 23/23 | pass |
 | eUSB2_apb | 20/20 | 406/406 | n/a | 7/7 | 25/25 | pass |
 
-Totals: line 4107/4107, toggle 111677/112154 (+477 excluded), fsm 0/0, sva 1470/1470, functional 6291/6291.
+Totals: line 4151/4151, toggle 112683/113160 (+477 excluded), fsm 0/0, sva 1485/1485, functional 6357/6357.

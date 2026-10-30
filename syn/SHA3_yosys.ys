@@ -1,0 +1,8 @@
+# SHA3 synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/SHA3_top.sv 
+hierarchy -check -top SHA3_top
+proc; opt; fsm; opt
+techmap; opt
+stat
+write_json SHA3_top.json
+write_verilog SHA3_top_netlist.v
