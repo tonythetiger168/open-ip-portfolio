@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+# AES_GCM Open IP -- sim & synthesis entry points
+S      := AES_GCM
+DEPS   := 
+SIM    ?= iverilog
+VFLAGS := -g2012 -Wall
+SYN    ?= yosys
+
+all: sim syn
+
+sim:
+	$(SIM) $(VFLAGS) -I tb -o simv rtl/$(S)_top.sv $(DEPS) tb/$(S)_tb.sv
+	./simv
+
+syn:
+	mkdir -p work && cd work && $(SYN) ../syn/$(S)_yosys.ys
+
+# test cases (tb/AES_GCM_vec.svh): NIST CAVP / Wycheproof known answers and
+# random cases, checked against scripts/aes_gcm/gcm_ref.py
+vec:
+	python3 scripts/aes_gcm/gen_vec.py > tb/$(S)_vec.svh
+
+apb:
+	$(SIM) $(VFLAGS) -I tb -o simv_apb rtl/$(S)_top.sv $(DEPS) rtl/$(S)_apb.sv tb/$(S)_apb_tb.sv
+	./simv_apb
+	mkdir -p work && cd work && $(SYN) ../syn/$(S)_apb_yosys.ys
+
+# gate-level simulation: the core synthesized to 2-input gates (core TB
+# parameter LEN_W = 14 set on the netlist), run with the core testbench
+gls:
+	mkdir -p work/gls
+	$(SYN) -q -p "read_verilog -sv rtl/$(S)_top.sv; chparam -set LEN_W 14 $(S)_top; synth -flatten -top $(S)_top; abc -g AND,NAND,OR,NOR,XOR,XNOR,MUX; opt_clean; write_verilog -noattr work/gls/$(S)_gl.v"
+	sed 's/$(S)_top #(.LEN_W(LW)) u_dut/$(S)_top u_dut/' tb/$(S)_tb.sv > work/gls/$(S)_gl_tb.sv
+	$(SIM) $(VFLAGS) -I tb -o work/gls/simv work/gls/$(S)_gl.v work/gls/$(S)_gl_tb.sv
+	vvp work/gls/simv
+
+	rm -f simv simv_apb *.vcd work/*.json work/*_netlist.v
+.PHONY: all sim syn apb vec gls clean

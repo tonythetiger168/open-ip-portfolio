@@ -216,6 +216,7 @@ setup_tools.sh           installs iverilog / yosys if missing
 
 | Protocol | Build | Standalone package |
 |---|---|---|
+| AES-GCM (SP 800-38D, AES-128 / AES-256) | `make -f Makefile.AES_GCM sim` | [open_ip_AES_GCM.zip](releases/open_ip_AES_GCM.zip) |
 | CSE | `make -f Makefile.CSE sim` | [open_ip_CSE.zip](releases/open_ip_CSE.zip) |
 | Crypto (Security Engine) | `make -f Makefile.Crypto___Security_Engine sim` | [open_ip_Crypto___Security_Engine.zip](releases/open_ip_Crypto___Security_Engine.zip) |
 | ML-KEM (FIPS 203 post-quantum KEM) | `make -f Makefile.ML_KEM sim` | [open_ip_ML_KEM.zip](releases/open_ip_ML_KEM.zip) |
