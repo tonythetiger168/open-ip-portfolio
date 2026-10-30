@@ -11,7 +11,10 @@
 // ============================================================================
 module CXL_apb #(
   parameter int LINES = 16,
-  parameter int RQD = 4
+  parameter int RQD = 4,
+  parameter int WQD = 2,
+  parameter int SFE = 4,
+  parameter int IOD = 2
 ) (
   input  logic        PCLK,
   input  logic        PRESETN,
@@ -24,199 +27,125 @@ module CXL_apb #(
   output logic [31:0] PRDATA,
   output logic        PREADY,
   output logic        PSLVERR,
-  output logic        irq
+  output logic        irq,
+  input logic rx_valid,
+  input logic [63:0] rx_data,
+  output logic tx_valid,
+  input logic tx_ready,
+  output logic [63:0] tx_data,
+  output logic io_rx_valid,
+  input logic io_rx_ready,
+  output logic [63:0] io_rx_data,
+  output logic io_rx_last,
+  input logic io_tx_valid,
+  output logic io_tx_ready,
+  input logic [63:0] io_tx_data
 );
-  localparam logic [31:0] ID_VALUE = 32'h43580200;
+  localparam logic [31:0] ID_VALUE = 32'h43580300;
 
   // ---------------- APB decode ----------------
   wire        acc     = PSEL & PENABLE;
   wire        wr      = acc & PWRITE;
   wire        rd      = acc & ~PWRITE;
   wire [31:0] wmask   = {{8{PSTRB[3]}}, {8{PSTRB[2]}}, {8{PSTRB[1]}}, {8{PSTRB[0]}}};
-  logic [15:0] hit;
+  logic [8:0] hit;
   always_comb begin
     hit = '0;
-    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd16) hit[PADDR[11:2]] = 1'b1;
+    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd9) hit[PADDR[11:2]] = 1'b1;
   end
   assign PREADY  = acc;
   assign PSLVERR = acc & ~|hit;
 
   // ---------------- core ----------------
   logic [15:0]   c_hdm_base;
-  logic          c_req_valid;
-  logic          c_req_ready;
-  logic [3:0]    c_req_opcode;
-  logic [1:0]    c_req_meta_field;
-  logic [1:0]    c_req_meta_value;
-  logic [2:0]    c_req_snp_type;
-  logic [15:0]   c_req_tag;
-  logic [15:0]   c_req_addr;
-  logic          c_rwd_valid;
-  logic          c_rwd_ready;
-  logic [3:0]    c_rwd_opcode;
-  logic [1:0]    c_rwd_meta_field;
-  logic [1:0]    c_rwd_meta_value;
-  logic [2:0]    c_rwd_snp_type;
-  logic [15:0]   c_rwd_tag;
-  logic [15:0]   c_rwd_addr;
-  logic          c_rwd_poison;
-  logic [63:0]   c_rwd_data;
-  logic [7:0]    c_rwd_be;
-  logic          c_ndr_valid;
-  logic          c_ndr_ready;
-  logic [1:0]    c_ndr_opcode;
-  logic [15:0]   c_ndr_tag;
-  logic [1:0]    c_ndr_meta_value;
-  logic [1:0]    c_ndr_devload;
-  logic          c_drs_valid;
-  logic          c_drs_ready;
-  logic [15:0]   c_drs_tag;
-  logic [1:0]    c_drs_meta_value;
-  logic [1:0]    c_drs_devload;
-  logic          c_drs_poison;
-  logic [63:0]   c_drs_data;
-  logic          c_drs_last;
+  logic          c_bi_en;
+  logic          c_bi_valid;
+  logic          c_bi_ready;
+  logic [1:0]    c_bi_op;
+  logic [3:0]    c_bi_line;
+  logic          c_bi_done;
+  logic [1:0]    c_bi_state;
+  logic [4:0]    c_sf_cnt;
   logic          c_ev_range;
   logic          c_ev_opcode;
   logic          c_ev_proto;
   logic          c_ev_poison;
-  CXL_top #(.LINES(LINES), .RQD(RQD)) u_core (
+  logic          c_ev_crc;
+  logic          c_ev_seq;
+  logic          c_ev_fmt;
+  logic          c_ev_ovf;
+  CXL_top #(.LINES(LINES), .RQD(RQD), .WQD(WQD), .SFE(SFE), .IOD(IOD)) u_core (
     .clk(PCLK),
     .rst_n(PRESETN),
     .hdm_base(c_hdm_base),
-    .req_valid(c_req_valid),
-    .req_ready(c_req_ready),
-    .req_opcode(c_req_opcode),
-    .req_meta_field(c_req_meta_field),
-    .req_meta_value(c_req_meta_value),
-    .req_snp_type(c_req_snp_type),
-    .req_tag(c_req_tag),
-    .req_addr(c_req_addr),
-    .rwd_valid(c_rwd_valid),
-    .rwd_ready(c_rwd_ready),
-    .rwd_opcode(c_rwd_opcode),
-    .rwd_meta_field(c_rwd_meta_field),
-    .rwd_meta_value(c_rwd_meta_value),
-    .rwd_snp_type(c_rwd_snp_type),
-    .rwd_tag(c_rwd_tag),
-    .rwd_addr(c_rwd_addr),
-    .rwd_poison(c_rwd_poison),
-    .rwd_data(c_rwd_data),
-    .rwd_be(c_rwd_be),
-    .ndr_valid(c_ndr_valid),
-    .ndr_ready(c_ndr_ready),
-    .ndr_opcode(c_ndr_opcode),
-    .ndr_tag(c_ndr_tag),
-    .ndr_meta_value(c_ndr_meta_value),
-    .ndr_devload(c_ndr_devload),
-    .drs_valid(c_drs_valid),
-    .drs_ready(c_drs_ready),
-    .drs_tag(c_drs_tag),
-    .drs_meta_value(c_drs_meta_value),
-    .drs_devload(c_drs_devload),
-    .drs_poison(c_drs_poison),
-    .drs_data(c_drs_data),
-    .drs_last(c_drs_last),
+    .bi_en(c_bi_en),
+    .rx_valid(rx_valid),
+    .rx_data(rx_data),
+    .tx_valid(tx_valid),
+    .tx_ready(tx_ready),
+    .tx_data(tx_data),
+    .io_rx_valid(io_rx_valid),
+    .io_rx_ready(io_rx_ready),
+    .io_rx_data(io_rx_data),
+    .io_rx_last(io_rx_last),
+    .io_tx_valid(io_tx_valid),
+    .io_tx_ready(io_tx_ready),
+    .io_tx_data(io_tx_data),
+    .bi_valid(c_bi_valid),
+    .bi_ready(c_bi_ready),
+    .bi_op(c_bi_op),
+    .bi_line(c_bi_line),
+    .bi_done(c_bi_done),
+    .bi_state(c_bi_state),
+    .sf_cnt(c_sf_cnt),
     .ev_range(c_ev_range),
     .ev_opcode(c_ev_opcode),
     .ev_proto(c_ev_proto),
-    .ev_poison(c_ev_poison)
+    .ev_poison(c_ev_poison),
+    .ev_crc(c_ev_crc),
+    .ev_seq(c_ev_seq),
+    .ev_fmt(c_ev_fmt),
+    .ev_ovf(c_ev_ovf)
   );
 
   // ---------------- registers ----------------
-  logic [9:0] irq_status, irq_enable, irq_set;
+  logic [11:0] irq_status, irq_enable, irq_set;
   logic [31:0] scratch;
-  logic [15:0] r_CTRL;   // 12'h014 CTRL
-  logic [31:0] h_REQ0;   // 12'h018 REQ0 holding register
-  logic [10:0] h_REQ1;   // 12'h01C REQ1 holding register
-  logic [31:0] h_RWD0;   // 12'h020 RWD0 holding register
-  logic [31:0] h_RWD1;   // 12'h024 RWD1 holding register
-  logic [31:0] h_RWD2;   // 12'h028 RWD2 holding register
-  logic [19:0] h_RWD3;   // 12'h02C RWD3 holding register
-  logic [21:0] h_NDR;   // 12'h030 NDR holding register
-  logic [31:0] h_DRS0;   // 12'h034 DRS0 holding register
-  logic [31:0] h_DRS1;   // 12'h038 DRS1 holding register
-  logic [21:0] h_DRS2;   // 12'h03C DRS2 holding register
-  logic full_REQ;
-  logic full_RWD;
-  logic avail_NDR;
-  logic avail_DRS;
+  logic [16:0] r_CTRL;   // 12'h014 CTRL
+  logic [5:0] h_BI;   // 12'h018 BI holding register
+  logic [1:0] h_BIDONE;   // 12'h01C BIDONE holding register
+  logic full_BI;
+  logic avail_BIDONE;
 
   always_ff @(posedge PCLK or negedge PRESETN) begin
     if (!PRESETN) begin
       irq_status <= '0; irq_enable <= '0; scratch <= '0;
-      r_CTRL <= 16'h0;
-      h_REQ0 <= '0;
-      h_REQ1 <= '0;
-      h_RWD0 <= '0;
-      h_RWD1 <= '0;
-      h_RWD2 <= '0;
-      h_RWD3 <= '0;
-      h_NDR <= '0;
-      h_DRS0 <= '0;
-      h_DRS1 <= '0;
-      h_DRS2 <= '0;
-      full_REQ <= 1'b0;
-      full_RWD <= 1'b0;
-      avail_NDR <= 1'b0;
-      avail_DRS <= 1'b0;
+      r_CTRL <= 17'h0;
+      h_BI <= '0;
+      h_BIDONE <= '0;
+      full_BI <= 1'b0;
+      avail_BIDONE <= 1'b0;
     end else begin
-      irq_status <= (irq_status & ~((wr && hit[1]) ? PWDATA[9:0] & wmask[9:0] : '0)) | irq_set;
-      if (wr && hit[2]) irq_enable <= (irq_enable & ~wmask[9:0]) | (PWDATA[9:0] & wmask[9:0]);
+      irq_status <= (irq_status & ~((wr && hit[1]) ? PWDATA[11:0] & wmask[11:0] : '0)) | irq_set;
+      if (wr && hit[2]) irq_enable <= (irq_enable & ~wmask[11:0]) | (PWDATA[11:0] & wmask[11:0]);
       if (wr && hit[4]) scratch <= (scratch & ~wmask) | (PWDATA & wmask);
-      if (wr && hit[5]) r_CTRL <= (r_CTRL & ~wmask[15:0]) | (PWDATA[15:0] & wmask[15:0]);
-      if (wr && hit[6] && !full_REQ) h_REQ0 <= (h_REQ0 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
-      if (wr && hit[7] && !full_REQ) h_REQ1 <= (h_REQ1 & ~wmask[10:0]) | (PWDATA[10:0] & wmask[10:0]);
-      if (wr && hit[7] && !full_REQ) full_REQ <= 1'b1;
-      else if (full_REQ && c_req_ready) full_REQ <= 1'b0;
-      if (wr && hit[8] && !full_RWD) h_RWD0 <= (h_RWD0 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
-      if (wr && hit[9] && !full_RWD) h_RWD1 <= (h_RWD1 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
-      if (wr && hit[10] && !full_RWD) h_RWD2 <= (h_RWD2 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
-      if (wr && hit[11] && !full_RWD) h_RWD3 <= (h_RWD3 & ~wmask[19:0]) | (PWDATA[19:0] & wmask[19:0]);
-      if (wr && hit[11] && !full_RWD) full_RWD <= 1'b1;
-      else if (full_RWD && c_rwd_ready) full_RWD <= 1'b0;
-      if (c_ndr_valid && (!avail_NDR || (rd && hit[12]))) begin
-        h_NDR[15:0] <= c_ndr_tag[15:0];
-        h_NDR[17:16] <= c_ndr_opcode[1:0];
-        h_NDR[19:18] <= c_ndr_meta_value[1:0];
-        h_NDR[21:20] <= c_ndr_devload[1:0];
-        avail_NDR <= 1'b1;
-      end else if (rd && hit[12]) avail_NDR <= 1'b0;
-      if (c_drs_valid && (!avail_DRS || (rd && hit[15]))) begin
-        h_DRS0[31:0] <= c_drs_data[31:0];
-        h_DRS1[31:0] <= c_drs_data[63:32];
-        h_DRS2[15:0] <= c_drs_tag[15:0];
-        h_DRS2[17:16] <= c_drs_meta_value[1:0];
-        h_DRS2[19:18] <= c_drs_devload[1:0];
-        h_DRS2[20:20] <= c_drs_poison;
-        h_DRS2[21:21] <= c_drs_last;
-        avail_DRS <= 1'b1;
-      end else if (rd && hit[15]) avail_DRS <= 1'b0;
+      if (wr && hit[5]) r_CTRL <= (r_CTRL & ~wmask[16:0]) | (PWDATA[16:0] & wmask[16:0]);
+      if (wr && hit[6] && !full_BI) h_BI <= (h_BI & ~wmask[5:0]) | (PWDATA[5:0] & wmask[5:0]);
+      if (wr && hit[6] && !full_BI) full_BI <= 1'b1;
+      else if (full_BI && c_bi_ready) full_BI <= 1'b0;
+      if (c_bi_done && (!avail_BIDONE || (rd && hit[7]))) begin
+        h_BIDONE[1:0] <= c_bi_state[1:0];
+        avail_BIDONE <= 1'b1;
+      end else if (rd && hit[7]) avail_BIDONE <= 1'b0;
     end
   end
 
   // ---------------- core inputs ----------------
   assign c_hdm_base = r_CTRL[15:0];
-  assign c_req_addr[15:0] = h_REQ0[15:0];
-  assign c_req_tag[15:0] = h_REQ0[31:16];
-  assign c_req_opcode[3:0] = h_REQ1[3:0];
-  assign c_req_meta_field[1:0] = h_REQ1[5:4];
-  assign c_req_meta_value[1:0] = h_REQ1[7:6];
-  assign c_req_snp_type[2:0] = h_REQ1[10:8];
-  assign c_rwd_addr[15:0] = h_RWD0[15:0];
-  assign c_rwd_tag[15:0] = h_RWD0[31:16];
-  assign c_rwd_data[31:0] = h_RWD1[31:0];
-  assign c_rwd_data[63:32] = h_RWD2[31:0];
-  assign c_rwd_be[7:0] = h_RWD3[7:0];
-  assign c_rwd_opcode[3:0] = h_RWD3[11:8];
-  assign c_rwd_meta_field[1:0] = h_RWD3[13:12];
-  assign c_rwd_meta_value[1:0] = h_RWD3[15:14];
-  assign c_rwd_snp_type[2:0] = h_RWD3[18:16];
-  assign c_rwd_poison = h_RWD3[19:19];
-  assign c_req_valid = full_REQ;
-  assign c_rwd_valid = full_RWD;
-  assign c_ndr_ready = ~avail_NDR | (rd & hit[12]);
-  assign c_drs_ready = ~avail_DRS | (rd & hit[15]);
+  assign c_bi_en = r_CTRL[16:16];
+  assign c_bi_line[3:0] = h_BI[3:0];
+  assign c_bi_op[1:0] = h_BI[5:4];
+  assign c_bi_valid = full_BI;
 
   // ---------------- interrupts and flags ----------------
   always_comb begin
@@ -225,15 +154,17 @@ module CXL_apb #(
     irq_set[1] = c_ev_opcode;
     irq_set[2] = c_ev_proto;
     irq_set[3] = c_ev_poison;
-    irq_set[4] = full_REQ & c_req_ready;
-    irq_set[5] = wr & (hit[6] | hit[7]) & full_REQ;
-    irq_set[6] = full_RWD & c_rwd_ready;
-    irq_set[7] = wr & (hit[8] | hit[9] | hit[10] | hit[11]) & full_RWD;
-    irq_set[8] = c_ndr_valid & (~avail_NDR | (rd & hit[12]));
-    irq_set[9] = c_drs_valid & (~avail_DRS | (rd & hit[15]));
+    irq_set[4] = c_ev_crc;
+    irq_set[5] = c_ev_seq;
+    irq_set[6] = c_ev_fmt;
+    irq_set[7] = c_ev_ovf;
+    irq_set[8] = full_BI & c_bi_ready;
+    irq_set[9] = wr & (hit[6]) & full_BI;
+    irq_set[10] = c_bi_done & (~avail_BIDONE | (rd & hit[7]));
+    irq_set[11] = c_bi_done & avail_BIDONE & ~(rd & hit[7]);
   end
   assign irq = |(irq_status & irq_enable);
-  wire [3:0] flags = {avail_DRS, avail_NDR, full_RWD, full_REQ};
+  wire [1:0] flags = {avail_BIDONE, full_BI};
 
   // ---------------- read mux ----------------
   logic [31:0] apb_rdata;
@@ -246,16 +177,9 @@ module CXL_apb #(
       10'd3: apb_rdata = 32'(flags);
       10'd4: apb_rdata = scratch;
       10'd5: apb_rdata = 32'(r_CTRL);
-      10'd6: apb_rdata = 32'(h_REQ0);
-      10'd7: apb_rdata = 32'(h_REQ1);
-      10'd8: apb_rdata = 32'(h_RWD0);
-      10'd9: apb_rdata = 32'(h_RWD1);
-      10'd10: apb_rdata = 32'(h_RWD2);
-      10'd11: apb_rdata = 32'(h_RWD3);
-      10'd12: apb_rdata = 32'(h_NDR);
-      10'd13: apb_rdata = 32'(h_DRS0);
-      10'd14: apb_rdata = 32'(h_DRS1);
-      10'd15: apb_rdata = 32'(h_DRS2);
+      10'd6: apb_rdata = 32'(h_BI);
+      10'd7: apb_rdata = 32'(h_BIDONE);
+      10'd8: apb_rdata = 32'({c_sf_cnt});
       default: apb_rdata = '0;
     endcase
   end
