@@ -365,7 +365,7 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
   waiver-adjusted closure remains 100%
 - Highlights: real AES-128 (CSE, NIST vectors) reused by HDCP 2.3;
   real SHA-256+HMAC (Crypto, RFC 4231 vectors); parameterized serial bit
-  rate (`BIT_CLKS`) on SAS/SATA/SDIO/UFS/eMMC/SAS-4 with functional
+  rate (`BIT_CLKS`) on SAS/SATA/SDIO/UFS/SAS-4 with functional
   coverage at BIT_CLKS=4; `ram_style="block"` attributes on large memories
 - Known limitation: verification covers the open-source flow only
   (iverilog/Verilator/yosys); no commercial tools (VCS/DC) available in
