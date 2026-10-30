@@ -1,0 +1,8 @@
+# OBI synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/OBI_top.sv 
+hierarchy -check -top OBI_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json OBI_top.json
+write_verilog OBI_top_netlist.v
