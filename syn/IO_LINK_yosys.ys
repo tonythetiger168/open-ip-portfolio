@@ -1,0 +1,8 @@
+# IO_LINK synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/IO_LINK_top.sv 
+hierarchy -check -top IO_LINK_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json IO_LINK_top.json
+write_verilog IO_LINK_top_netlist.v
