@@ -1,6 +1,6 @@
 # open-ip-portfolio
 
-Open-source SystemVerilog protocol IP portfolio (Apache-2.0) — **125 protocol
+Open-source SystemVerilog protocol IP portfolio (Apache-2.0) — **136 protocol
 IPs**, each with a synthesizable RTL core, an APB4 register wrapper, self-checking
 testbenches for both, a coverage checker (reference model, SVA and functional
 coverage), and open-toolchain build flows (Icarus Verilog simulation, Yosys
@@ -38,7 +38,7 @@ gen_framework.py         original v1 generator (frozen: out of sync with rtl/ an
 setup_tools.sh           installs iverilog / yosys if missing
 ```
 
-## Protocol catalog (125)
+## Protocol catalog (136)
 
 ### AMBA & ARM interconnect (16)
 
@@ -154,20 +154,23 @@ setup_tools.sh           installs iverilog / yosys if missing
 | I2S | `make -f Makefile.I2S sim` | [open_ip_I2S.zip](releases/open_ip_I2S.zip) |
 | I2S Audio | `make -f Makefile.I2S_Audio sim` | [open_ip_I2S_Audio.zip](releases/open_ip_I2S_Audio.zip) |
 
-### Ethernet & networking (8)
+### Ethernet & networking (11)
 
 | Protocol | Build | Standalone package |
 |---|---|---|
+| EtherCAT (ESC frame processing) | `make -f Makefile.ETHERCAT sim` | not yet packaged |
 | Ethernet | `make -f Makefile.Ethernet sim` | [open_ip_Ethernet.zip](releases/open_ip_Ethernet.zip) |
 | Ethernet AVB/TSN | `make -f Makefile.Ethernet_AVB_TSN sim` | [open_ip_Ethernet_AVB_TSN.zip](releases/open_ip_Ethernet_AVB_TSN.zip) |
 | Ethernet PCS (802.3 cl. 119, 400GBASE-R: 256b/257b, scrambler, AM, FEC interleave) | `make -f Makefile.Ethernet_PCS sim` | [open_ip_Ethernet_PCS.zip](releases/open_ip_Ethernet_PCS.zip) |
 | Ethernet RS(544,514) FEC (KP4, 100G..1.6T) | `make -f Makefile.Ethernet_RS_FEC sim` | [open_ip_Ethernet_RS_FEC.zip](releases/open_ip_Ethernet_RS_FEC.zip) |
 | GMII | `make -f Makefile.GMII sim` | [open_ip_GMII.zip](releases/open_ip_GMII.zip) |
+| IEEE 1588 PTP (hardware clock, timestamps) | `make -f Makefile.PTP sim` | not yet packaged |
 | MDIO | `make -f Makefile.MDIO sim` | [open_ip_MDIO.zip](releases/open_ip_MDIO.zip) |
 | RGMII | `make -f Makefile.RGMII sim` | [open_ip_RGMII.zip](releases/open_ip_RGMII.zip) |
+| SGMII / 1000BASE-X PCS | `make -f Makefile.SGMII sim` | not yet packaged |
 | XGMII | `make -f Makefile.XGMII sim` | [open_ip_XGMII.zip](releases/open_ip_XGMII.zip) |
 
-### Chip-to-chip & die-to-die (8)
+### Chip-to-chip & die-to-die (9)
 
 | Protocol | Build | Standalone package |
 |---|---|---|
@@ -175,21 +178,23 @@ setup_tools.sh           installs iverilog / yosys if missing
 | Interlaken v1.2 | `make -f Makefile.Interlaken_v1_2 sim` | [open_ip_Interlaken_v1_2.zip](releases/open_ip_Interlaken_v1_2.zip) |
 | JESD204C | `make -f Makefile.JESD204C sim` | [open_ip_JESD204C.zip](releases/open_ip_JESD204C.zip) |
 | PCIe | `make -f Makefile.PCIe sim` | [open_ip_PCIe.zip](releases/open_ip_PCIe.zip) |
+| RapidIO (logical / transport endpoint) | `make -f Makefile.RAPIDIO sim` | not yet packaged |
 | TileLink (TL-UL / TL-C) | `make -f Makefile.TileLink__TL_UL_TL_C_ sim` | [open_ip_TileLink__TL_UL_TL_C_.zip](releases/open_ip_TileLink__TL_UL_TL_C_.zip) |
 | UALink | `make -f Makefile.UALink sim` | [open_ip_UALink.zip](releases/open_ip_UALink.zip) |
 | UCIe | `make -f Makefile.UCIe sim` | [open_ip_UCIe.zip](releases/open_ip_UCIe.zip) |
 | UEC | `make -f Makefile.UEC sim` | [open_ip_UEC.zip](releases/open_ip_UEC.zip) |
 
-### Other on-chip interconnect (6)
+### Other on-chip interconnect (7)
 
 | Protocol | Build | Standalone package |
 |---|---|---|
 | Avalon-MM | `make -f Makefile.Avalon_MM sim` | [open_ip_Avalon_MM.zip](releases/open_ip_Avalon_MM.zip) |
 | Avalon-ST | `make -f Makefile.Avalon_ST sim` | [open_ip_Avalon_ST.zip](releases/open_ip_Avalon_ST.zip) |
+| OBI (OpenHW Bus Interface) | `make -f Makefile.OBI sim` | not yet packaged |
 | OCP | `make -f Makefile.OCP sim` | [open_ip_OCP.zip](releases/open_ip_OCP.zip) |
 | OCP-IP (Open Core Protocol) | `make -f Makefile.OCP_IP_Open_Core_Protocol sim` | [open_ip_OCP_IP_Open_Core_Protocol.zip](releases/open_ip_OCP_IP_Open_Core_Protocol.zip) |
-| WTB | `make -f Makefile.WTB sim` | [open_ip_WTB.zip](releases/open_ip_WTB.zip) |
 | Wishbone | `make -f Makefile.Wishbone sim` | [open_ip_Wishbone.zip](releases/open_ip_Wishbone.zip) |
+| WTB | `make -f Makefile.WTB sim` | [open_ip_WTB.zip](releases/open_ip_WTB.zip) |
 
 ### High-speed serial & fronthaul (3)
 
@@ -199,13 +204,17 @@ setup_tools.sh           installs iverilog / yosys if missing
 | HSI | `make -f Makefile.HSI sim` | [open_ip_HSI.zip](releases/open_ip_HSI.zip) |
 | eCPRI over Ethernet | `make -f Makefile.eCPRI_over_Ethernet sim` | [open_ip_eCPRI_over_Ethernet.zip](releases/open_ip_eCPRI_over_Ethernet.zip) |
 
-### Automotive & industrial (3)
+### Automotive & industrial (7)
 
 | Protocol | Build | Standalone package |
 |---|---|---|
 | CAN | `make -f Makefile.CAN sim` | [open_ip_CAN.zip](releases/open_ip_CAN.zip) |
+| CAN XL | `make -f Makefile.CAN_XL sim` | not yet packaged |
 | FlexRay | `make -f Makefile.FlexRay sim` | [open_ip_FlexRay.zip](releases/open_ip_FlexRay.zip) |
+| IO-Link (SDCI) | `make -f Makefile.IO_LINK sim` | not yet packaged |
 | LIN | `make -f Makefile.LIN sim` | [open_ip_LIN.zip](releases/open_ip_LIN.zip) |
+| MIL-STD-1553B | `make -f Makefile.MIL_STD_1553 sim` | not yet packaged |
+| SAE J2716 SENT | `make -f Makefile.SENT sim` | not yet packaged |
 
 ### Wireless (1)
 
@@ -222,7 +231,7 @@ setup_tools.sh           installs iverilog / yosys if missing
 | ML-KEM (FIPS 203 post-quantum KEM) | `make -f Makefile.ML_KEM sim` | [open_ip_ML_KEM.zip](releases/open_ip_ML_KEM.zip) |
 | Root of Trust (lifecycle, secure boot, DICE key) | `make -f Makefile.Root_of_Trust sim` | [open_ip_Root_of_Trust.zip](releases/open_ip_Root_of_Trust.zip) |
 
-### Low-speed & board-level (8)
+### Low-speed & board-level (10)
 
 | Protocol | Build | Standalone package |
 |---|---|---|
@@ -232,8 +241,10 @@ setup_tools.sh           installs iverilog / yosys if missing
 | JTAG | `make -f Makefile.JTAG sim` | [open_ip_JTAG.zip](releases/open_ip_JTAG.zip) |
 | PWM | `make -f Makefile.PWM sim` | [open_ip_PWM.zip](releases/open_ip_PWM.zip) |
 | QSPI | `make -f Makefile.QSPI sim` | [open_ip_QSPI.zip](releases/open_ip_QSPI.zip) |
+| SMBus / PMBus | `make -f Makefile.SMBus sim` | not yet packaged |
 | SPI | `make -f Makefile.SPI sim` | [open_ip_SPI.zip](releases/open_ip_SPI.zip) |
 | UART | `make -f Makefile.UART sim` | [open_ip_UART.zip](releases/open_ip_UART.zip) |
+| xSPI (JESD251) | `make -f Makefile.xSPI sim` | not yet packaged |
 
 > ¹ **HDCP 2.3 requires a separate license from DCP LLC for any commercial
 > implementation** — this repository contains no such license and no device
@@ -241,7 +252,7 @@ setup_tools.sh           installs iverilog / yosys if missing
 
 ## Design organization: cores vs. variants
 
-The catalog has **125 entries, each with its own RTL core** in
+The catalog has **136 entries, each with its own RTL core** in
 `rtl/<P>_top.sv`. Up to v2.5.1, 29 entries were byte-level renamed copies of
 5 shared templates (CHI, UART, CAN, the 2-wire serial shifter and the frame
 echo template). All of them have since been rewritten as implementations of
@@ -308,13 +319,13 @@ make -f Makefile.I2C apb        # -> TEST PASSED: I2C_apb
 # pin-level functional test, where tb/func has one (the TB plays the device)
 make -f Makefile.DDR4 func      # -> TEST PASSED: DDR4_func
 
-# full regression (what CI runs): sim + syn + apb (+ func) for all 125 IPs, in parallel (~50 min on 4 cores)
+# full regression (what CI runs): sim + syn + apb (+ func) for all 136 IPs, in parallel (~50 min on 4 cores)
 bash scripts/ci_regression.sh   # logs in work/ci_*.log
 
 # five-metric coverage (Verilator)
 bash scripts/cov/run_cov.sh I2C        # one core  -> RESULT: CLOSED
 bash scripts/cov/run_cov.sh I2C_apb    # its wrapper
-bash scripts/cov/run_all.sh 4          # all 250 runs, 4 in parallel
+bash scripts/cov/run_all.sh 4          # all 272 runs, 4 in parallel
 
 # standalone package workflow (core + wrapper, sim / syn / apb)
 unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
@@ -325,11 +336,11 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
 - **Five-metric closure (Verilator 5.052):** every IP's testbench reaches
   100% line, toggle, FSM, SVA and functional coverage, and so does every
   IP's APB4 register wrapper (`rtl/<P>_apb.sv`, register map in
-  `docs/ip/<P>.md`): 125 cores and 125 wrappers, 250/250 closed. Results,
+  `docs/ip/<P>.md`): 136 cores and 136 wrappers, 272/272 closed. Results,
   exclusions and how to run: [docs/COVERAGE_CLOSURE.md](docs/COVERAGE_CLOSURE.md).
   CI runs both: `.github/workflows/regression.yml` (iverilog / yosys
   sim + syn + apb, plus a check that generated files are up to date) and
-  `.github/workflows/coverage.yml` (this five-metric flow over all 250
+  `.github/workflows/coverage.yml` (this five-metric flow over all 272
   runs, in 8 shards; any IP that is not CLOSED fails the build).
   `.github/workflows/mutation.yml` runs `scripts/mut/run_mut.py --flow cov`
   weekly: 8 operator mutants per core (relational, logical, constant bit,
