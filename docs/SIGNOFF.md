@@ -32,6 +32,7 @@ not a timing sign-off.
 | Ethernet RS-FEC 1.0 | clean | 100% / 100% | 40/40 killed (6 equivalent listed) | exhaustive arithmetic: pass (see below) | 366.9 kGE (3661 flip-flops) | 82 gate levels |
 | Ethernet PCS 1.0 | clean | 100% / 100% | 40/40 killed (3 equivalent listed) | exhaustive functions and gearboxes: pass (see below) | 63.4 kGE (2773 flip-flops) + 2 RS-FEC cores | 40 gate levels (82 in the RS-FEC) |
 | Root of Trust 1.0 | clean | 100% / 100% | 40/40 killed (1 equivalent listed) | bounded proof, 13 properties, depth 24 | 27.2 kGE (1783 flip-flops) | 74 gate levels |
+| TRNG 1.0 | clean | 100% / 100% | 40/40 killed, Icarus flow (13 equivalent listed) | bounded proof, 7 properties, depth 20 | 21.4 kGE (1431 flip-flops) | 74 gate levels |
 
 Formal properties:
 
@@ -60,6 +61,18 @@ Formal properties:
   image is taken only in DEV or PROD before the boot decision. The OTP
   data, commands, tokens, image words and the escalation input are all
   free: the OTP may return anything, and any command sequence is tried.
+- **TRNG** (`formal/TRNG_props.svh`, 7 properties, 8-sample window): shadow
+  counters written in the property file follow every tested raw sample
+  (the current run and the count of the window's first value since the
+  start). A run reaching the repetition cutoff, or a count reaching the
+  proportion cutoff, stops the core at the next clock; the core never stops
+  without such a sample; nothing is collected or output before a full
+  window has passed; a raised alert flag means the core is stopped; stopped
+  or starting means no output and no sample data in the collection, output
+  or hash registers. The ring oscillators, the configuration, the cutoffs
+  (changing at any clock), en and ready are all free. A seed (512 samples)
+  lies beyond the bound, so the output side is checked by the simulation
+  checker, which recomputes every seed with its own SHA-256.
 
 - **ML-KEM**: no SAT proof: the 8 KiB buffer and the 2560 x 12-bit
   polynomial store are too large for the open solver flow. Instead
@@ -114,6 +127,15 @@ Changes made for this bar:
   RS-FEC) are compiled in but not scored in the coverage of the IP that
   uses them, are skipped by the FSM extraction, and are read as black
   boxes by the area report (their area is in their own row).
+- TRNG 1.0 is new: an SP 800-90B noise source with repetition count and
+  adaptive proportion tests, a start-up test and SHA-256 conditioning, to
+  seed the Root of Trust and a DRBG later. Mutation testing (Icarus flow:
+  the testbench alone; Verilator 5.052 could not be built in this session,
+  so the checker-backed `--flow cov` run is left to CI's weekly job) found
+  three test gaps, now closed: no test started the core with en held high
+  through reset, no test looked at the outputs during reset, and no test
+  compared the raw samples with the ring oscillator inputs (the testbench
+  now checks every one against the synchronized XOR three clocks earlier).
 - Root of Trust 1.0 is new. Mutation testing found a read-strobe register
   that only repeated `otp_req`: removed, the OTP handshake now uses
   `otp_req` / `otp_ack` directly. It also found two test gaps, now closed:

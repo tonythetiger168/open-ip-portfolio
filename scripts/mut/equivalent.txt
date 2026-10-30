@@ -66,3 +66,16 @@ Root_of_Trust | otp_req <= 1'b0; otp_we <= 1'b0; otp_addr <= '0; otp_wdata <= '0
 Ethernet_PCS | wire          temit = (tlast ? tfill >= 10'd40 : tfill >= 10'd640) && te_rdy; | >= -> >@2 | a fill of exactly 640 before the last beat of a pair cannot occur: it would need 257 x n = 640 x (beats + 1) with fewer than 17 beats, and 257 is prime (scripts/formal/exhaust_ethpcs.py enumerates the reachable fills)
 Ethernet_PCS | rpb <= '0; rpc <= '0; rsh <= '1; rlk <= R_HUNT; amacc <= 1'b0; | 1'b0 -> 1'b1 | amacc reset value: amacc is only read at block 7 of a pair, and block 0 overwrites it (rpb == 0 term) after reset, where rpb starts at 0
 Ethernet_PCS | if (!ramslot && (lock || rpb >= 6'd8)) rsh <= rdsc[314:257]; | >= -> > | skipping the descrambler history update at block 8 while out of lock: lock changes only at block 7, so block 9 of the same pair always overwrites all 58 bits before any block is descrambled for output
+TRNG | ro_s1 <= 1'b0; ro_s2 <= 1'b0; | 1'b0 -> 1'b1@2 | ro_s2 reset value: the earliest sample is taken at the second clock after reset, when ro_s2 already holds what ro_s1 had
+TRNG | st <= S_IDLE; en_q <= 1'b0; src_l <= 1'b0; byp_l <= 1'b0; nblk <= 3'd1; fips_l <= 1'b0; | 1'b0 -> 1'b1@2 | src_l reset value: read only while sampling, and loaded when en rises, before the first sample
+TRNG | st <= S_IDLE; en_q <= 1'b0; src_l <= 1'b0; byp_l <= 1'b0; nblk <= 3'd1; fips_l <= 1'b0; | 1'b0 -> 1'b1@3 | byp_l reset value: read only in RUN, and loaded when en rises
+TRNG | st <= S_IDLE; en_q <= 1'b0; src_l <= 1'b0; byp_l <= 1'b0; nblk <= 3'd1; fips_l <= 1'b0; | 1'b0 -> 1'b1@4 | fips_l reset value: seen only through es_ok and ent_valid, both low until en has risen and loaded it
+TRNG | rct_a <= 1'b0; rct_n <= '0; apt_a <= 1'b0; apt_c <= '0; apt_i <= '0; | 1'b0 -> 1'b1@1 | rct_a reset value: rct_n = 0 makes the first sample start a new run whatever rct_a holds
+TRNG | rct_a <= 1'b0; rct_n <= '0; apt_a <= 1'b0; apt_c <= '0; apt_i <= '0; | 1'b0 -> 1'b1@2 | apt_a reset value: apt_i = 0 makes the first sample the window's reference whatever apt_a holds
+TRNG | sha_go <= 1'b0; sha_init <= 1'b0; | 1'b0 -> 1'b1@1 | sha_go reset value: the SHA-256 core is held clear in IDLE, which takes priority, and the control reads sha_go only in HASH
+TRNG | sha_go <= 1'b0; sha_init <= 1'b0; | 1'b0 -> 1'b1@2 | sha_init reset value: read only together with sha_go
+TRNG | hh <= '0; srnd <= 7'd64; sha_done <= 1'b0; | 1'b0 -> 1'b1 | sha_done reset value: cleared at the next clock, and read (through sha_busy) only in HASH
+TRNG | if (rct_nx > rct_hw) rct_hw <= rct_nx; | > -> >= | on equality the mark is written with the value it already holds
+TRNG | if (apt_nx > apt_hw) apt_hw <= apt_nx; | > -> >= | on equality the mark is written with the value it already holds
+TRNG | lfsr <= '0; dcnt <= '0; raw_valid <= 1'b0; raw_bit <= 1'b0; | 1'b0 -> 1'b1@2 | raw_bit reset value: qualified by raw_valid, and every raw_valid pulse comes with a new raw_bit
+TRNG | default: begin st <= S_FAIL; alert <= 1'b1; blk <= '0; dig <= '0; end | 1'b1 -> 1'b0 | defensive default for the unused state encodings 6 and 7, which no input sequence reaches (the line is excluded from coverage for the same reason)

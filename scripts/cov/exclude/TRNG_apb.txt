@@ -1,0 +1,1 @@
+TOGGLE \.c_apt_hw\[10\]$ # the core's adaptive proportion high-water mark cannot reach 1024 (see scripts/cov/exclude/TRNG.txt: the repetition count test fails a run of 255 first)
