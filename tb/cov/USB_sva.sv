@@ -16,7 +16,7 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
   localparam int BC = BIT_CLKS, SP = BIT_CLKS / 2 - 1, TA = 4 * BIT_CLKS, ATO = 32 * BIT_CLKS;
   localparam int RSTC = 32 * BIT_CLKS;
   // control request in progress
-  localparam int NONE = 0, DESC = 1, CFGGET = 2, ADDR = 3, CFGSET = 4, CNTSET = 5, STALL = 6;
+  localparam int NONE = 0, DESC = 1, CFGGET = 2, ADDR = 3, CFGSET = 4, CNTSET = 5, STALL = 6, STS = 7;
 
   function automatic logic [4:0] crc5(input logic [10:0] v);
     logic [4:0] c = 5'h1F;
@@ -30,6 +30,12 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
   function automatic logic [7:0] desc(input int i);
     logic [7:0] d [18] = '{8'h12, 8'h01, 8'h00, 8'h02, 8'h00, 8'h00, 8'h00, 8'h08, 8'h09,
                            8'h12, 8'h01, 8'h00, 8'h00, 8'h01, 8'h00, 8'h00, 8'h00, 8'h01};
+    return d[i];
+  endfunction
+  function automatic logic [7:0] conf(input int i);
+    logic [7:0] d [25] = '{8'h09, 8'h02, 8'h19, 8'h00, 8'h01, 8'h01, 8'h00, 8'h80, 8'h32,
+                           8'h09, 8'h04, 8'h00, 8'h00, 8'h01, 8'hFF, 8'h00, 8'h00, 8'h00,
+                           8'h07, 8'h05, 8'h81, 8'h03, 8'h04, 8'h00, 8'h0A};
     return d[i];
   endfunction
 
@@ -48,7 +54,7 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
   // ---------------- device
   int          cs, rq, ack_t, d_len, d_off, tk, tn, toff;
   logic [6:0]  addr, n_addr;
-  logic        cfg, n_cfg, exp_data, exp_setup, pstall, t0, t1, to, expect_ack, m_irq;
+  logic        cfg, n_cfg, exp_data, exp_setup, pstall, t0, t1, to, expect_ack, m_irq, dsel;
   logic [31:0] cnt, n_cnt;
   // ---------------- transmitter
   logic        m_oe, tx_go, tx_go_d, oe_q;
@@ -60,7 +66,8 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
   logic v_desc_multi, v_desc_short, v_desc_zlp, v_addr, v_cfg1, v_cfg0, v_cfgget, v_cnt,
         v_stall_rq, v_stall_out, v_stall_ep, v_nak, v_ep1, v_ack_to, v_nak_retry, v_dup,
         v_bad_tok, v_bad_dat, v_stuff, v_bad_pid, v_bad_sync, v_trunc, v_other_addr,
-        v_long_data, v_setup_short, v_brst, v_stuff_tx, v_sof, v_wack_other, v_stuff_eop;
+        v_long_data, v_setup_short, v_brst, v_stuff_tx, v_sof, v_wack_other, v_stuff_eop,
+        v_conf_multi, v_conf_full, v_sts_dev, v_sts_if, v_sts_ep0, v_sts_ep1;
 
   // per-step copies for the covergroup (set at posedge, sampled at negedge)
   logic        c_tv, c_rv, c_qv, c_dv, c_av;
@@ -96,8 +103,9 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
     b[0] = {~pid, pid};
     for (int i = 0; i < n; i++) begin
       case (kind)
-        2: b[1+i] = desc(toff + i);
+        2: b[1+i] = dsel ? conf(toff + i) : desc(toff + i);
         3: b[1+i] = {7'd0, cfg};
+        5: b[1+i] = 8'h00;
         default: b[1+i] = cnt[8*i +: 8];
       endcase
       c = crc16(c, b[1+i]);
@@ -166,7 +174,7 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
       for (int i = 0; i < 8; i++) p_buf[i] = 0;
       cs = 0; rq = NONE; ack_t = 0; d_len = 0; d_off = 0; tk = 0; tn = 0; toff = 0;
       addr = 0; n_addr = 0; cfg = 0; n_cfg = 0; exp_data = 0; exp_setup = 0; pstall = 0;
-      t0 = 0; t1 = 0; to = 0; expect_ack = 0; m_irq = 0; cnt = 0; n_cnt = 0;
+      t0 = 0; t1 = 0; to = 0; expect_ack = 0; m_irq = 0; cnt = 0; n_cnt = 0; dsel = 0;
       m_oe = 0; tx_go = 0; tx_go_d = 0; oe_q = 0; nsym = 0; si = 0; wait_c = 0; busy = 0; tx_done_q = 0;
       m_line = 2'b10;
       {c_tv, c_rv, c_qv, c_dv, c_av, c_dbad, c_a0} = '0; c_tpid = 0; c_rpid = 0; c_dpid = 0; c_ep = 0; c_q = 0;
@@ -175,7 +183,8 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
       {v_desc_multi, v_desc_short, v_desc_zlp, v_addr, v_cfg1, v_cfg0, v_cfgget, v_cnt,
        v_stall_rq, v_stall_out, v_stall_ep, v_nak, v_ep1, v_ack_to, v_nak_retry, v_dup,
        v_bad_tok, v_bad_dat, v_stuff, v_bad_pid, v_bad_sync, v_trunc, v_other_addr,
-       v_long_data, v_setup_short, v_brst, v_stuff_tx, v_sof, v_wack_other, v_stuff_eop} = '0;
+       v_long_data, v_setup_short, v_brst, v_stuff_tx, v_sof, v_wack_other, v_stuff_eop,
+       v_conf_multi, v_conf_full, v_sts_dev, v_sts_if, v_sts_ep0, v_sts_ep1} = '0;
       l = {dp, dm};
       rx_en = busy == 0;
       oe_q  = m_oe;
@@ -203,6 +212,7 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
                     CFGGET: begin
                       respond(3, t0 ? 4'hB : 4'h3, d_len - d_off, 1); v_cfgget = 1;
                     end
+                    STS: respond(5, t0 ? 4'hB : 4'h3, d_len - d_off, 1);
                     ADDR, CFGSET, CNTSET: respond(1, t0 ? 4'hB : 4'h3, 0, 1);
                     default: begin respond(0, 4'hE, 0, 0); v_stall_rq = 1; end
                   endcase
@@ -237,9 +247,21 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
                     idx = {p_buf[5], p_buf[4]}; len = {p_buf[7], p_buf[6]};
                     t0 = 1; d_off = 0;
                     n_addr = val[6:0]; n_cfg = val[0]; n_cnt = {idx, val};
-                    d_len = len > 18 ? 18 : len[4:0];
+                    dsel = val[9];
+                    if (val[9]) d_len = len > 25 ? 25 : len[4:0];
+                    else        d_len = len > 18 ? 18 : len[4:0];
                     if (p_plen != 8) begin rq = STALL; v_setup_short = 1; end
-                    else if (bm == 8'h80 && rqb == 8'h06 && val == 16'h0100) rq = DESC;
+                    else if (bm == 8'h80 && rqb == 8'h06 && (val == 16'h0100 || val == 16'h0200)) rq = DESC;
+                    else if (rqb == 8'h00 && val == 0 && len == 2 && bm == 8'h80 && idx == 0) begin
+                      rq = STS; v_sts_dev = 1;
+                    end else if (rqb == 8'h00 && val == 0 && len == 2 && bm == 8'h81 && idx == 0 && cfg) begin
+                      rq = STS; v_sts_if = 1;
+                    end else if (rqb == 8'h00 && val == 0 && len == 2 && bm == 8'h82 &&
+                                 (idx == 16'h0000 || idx == 16'h0080)) begin
+                      rq = STS; v_sts_ep0 = 1;
+                    end else if (rqb == 8'h00 && val == 0 && len == 2 && bm == 8'h82 && idx == 16'h0081 && cfg) begin
+                      rq = STS; v_sts_ep1 = 1;
+                    end
                     else if (bm == 8'h80 && rqb == 8'h08 && val == 0 && idx == 0 && len == 1)
                       rq = CFGGET;
                     else if (bm == 8'h00 && rqb == 8'h05 && val < 128 && idx == 0 && len == 0)
@@ -249,8 +271,9 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
                     else if (bm == 8'h40 && rqb == 8'h01 && len == 0) rq = CNTSET;
                     else rq = STALL;
                     if (bm == 8'h80 && rqb == 8'h08) d_len = 1;
+                    if (rqb == 8'h00) d_len = 2;
                     c_qv = 1; c_q = rq;
-                  end else if (rq == DESC || rq == CFGGET) rq = NONE;
+                  end else if (rq == DESC || rq == CFGGET || rq == STS) rq = NONE;
                 end
               end
             end
@@ -273,7 +296,8 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
                   rq = NONE;
                 end
                 default: begin
-                  t0 = !t0; d_off += tn; v_desc_multi = tk == 2 && d_off > 8;
+                  t0 = !t0; d_off += tn; v_desc_multi = tk == 2 && !dsel && d_off > 8;
+                  v_conf_multi = tk == 2 && dsel && d_off > 8; v_conf_full = tk == 2 && dsel && d_off == 25;
                 end
               endcase
             end else v_nak_retry = p_pid == 4'hA;
@@ -337,7 +361,7 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
       { bins ack = {4'h2}; bins nak = {4'hA}; bins stall = {4'hE}; bins data0 = {4'h3}; bins data1 = {4'hB}; }
     cp_req: coverpoint c_q iff (rst_n && c_qv)
       { bins get_desc = {DESC}; bins get_cfg = {CFGGET}; bins set_addr = {ADDR}; bins set_cfg = {CFGSET};
-        bins vendor = {CNTSET}; bins stall = {STALL}; }
+        bins vendor = {CNTSET}; bins stall = {STALL}; bins get_status = {STS}; }
     cp_data: coverpoint {c_dpid == 4'hB, c_dbad} iff (rst_n && c_dv)
       { bins data0_ok = {2'b00}; bins data0_dup = {2'b01}; bins data1_ok = {2'b10}; bins data1_dup = {2'b11}; }
     cp_addr: coverpoint c_a0 iff (rst_n && c_av) { bins default_addr = {1}; bins assigned = {0}; }
@@ -351,6 +375,12 @@ module USB_sva #(parameter int BIT_CLKS = 4) (
   `FC(set_configuration_1, v_cfg1)
   `FC(set_configuration_0, v_cfg0)
   `FC(get_configuration, v_cfgget)
+  `FC(get_config_descriptor_multi_packet, v_conf_multi)
+  `FC(get_config_descriptor_complete, v_conf_full)
+  `FC(get_status_device, v_sts_dev)
+  `FC(get_status_interface, v_sts_if)
+  `FC(get_status_ep0, v_sts_ep0)
+  `FC(get_status_ep1, v_sts_ep1)
   `FC(vendor_counter_preset, v_cnt)
   `FC(ep0_protocol_stall, v_stall_rq)
   `FC(out_stalled, v_stall_out)

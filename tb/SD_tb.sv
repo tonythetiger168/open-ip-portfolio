@@ -69,9 +69,16 @@ module sd_card (
     cid_val[0] = 1'b1;
   endfunction
 
+  // the card drives on the sd_clk falling edge and samples on the rising
+  // edge (the host drives on the falling edge too)
   task automatic bitw(input int k);
     repeat (k) @(negedge sd_clk);
   endtask
+  task automatic bitr(input int k);
+    repeat (k) @(posedge sd_clk);
+  endtask
+  // N_CR of each response: 2 (the minimum) .. 5 clocks after the end bit
+  int ncr = 2, ncr_max = 5, n_ncr2 = 0;
 
   // drive a response MSB first on CMD
   logic [135:0] rsp;
@@ -103,17 +110,19 @@ module sd_card (
     logic [5:0] idx;
     logic [31:0] arg;
     int flt;
-    @(negedge sd_clk);
+    @(posedge sd_clk);
     if (cmd === 1'b0 && !coe) begin
       f = 0;
-      for (int i = 46; i >= 0; i--) begin bitw(1); f[i] = cmd; end
+      for (int i = 46; i >= 0; i--) begin bitr(1); f[i] = cmd; end
       idx = f[45:40]; arg = f[39:8];
       n_cmds++;
       if (!f[46] || !f[0] || crc7({80'h0, f[47:8]}, 40) != f[7:1]) bad_frames++;
       else begin
         flt = (fault_cmd == idx) ? fault : F_NONE;
         if (flt != F_NONE) begin fault = F_NONE; fault_cmd = -1; end
-        bitw(5);
+        ncr = $urandom_range(ncr_max, 2);
+        if (ncr == 2) n_ncr2++;
+        bitw(ncr);
         if (flt != F_MUTE) case (idx)
           6'd0: polls = 0;
           6'd8: begin
@@ -163,13 +172,15 @@ module sd_card (
     if (wr_go) begin
       wr_go = 0;
       t = 0;
-      while (dat !== 4'h0 && t < 200) begin @(negedge sd_clk); t++; end
-      for (int j = 0; j < 64; j++) begin bitw(1); d[255 - 4 * j -: 4] = dat; end
+      // the start bits are sampled on a rising edge (the host may drive
+      // them at this very falling edge)
+      do begin @(posedge sd_clk); t++; end while (dat !== 4'h0 && t < 200);
+      for (int j = 0; j < 64; j++) begin bitr(1); d[255 - 4 * j -: 4] = dat; end
       for (int i = 15; i >= 0; i--) begin
-        bitw(1);
+        bitr(1);
         for (int k = 0; k < 4; k++) c[k][i] = dat[k];
       end
-      bitw(1); e = dat;
+      bitr(1); e = dat;
       ok = e == 4'hF && dfault != F_WCRC;
       for (int k = 0; k < 4; k++) if (c[k] != crc16(d, k)) ok = 0;
       if (ok) mem[dblk] = d;
@@ -225,6 +236,28 @@ module SD_tb;
 
   int irqs = 0;
   always @(posedge irq) irqs++;
+
+  // bus timing monitors: every sd_clk period is ID_CLK_DIV (128) clocks
+  // until the RCA is published and SD_CLK_DIV (4) after; identification commands (CMD0 .. CMD3) never go out at the
+  // fast rate; the CMD / DAT pins change only where sd_clk falls
+  int pcnt = 0, n_id = 0, n_fast = 0;
+  logic seen = 0;
+  logic [6:0] pins_q;
+  always @(negedge clk) begin
+    if (!rst_n) begin pcnt = 0; seen = 0; end
+    else begin
+      pcnt++;
+      if (dut.tick) begin
+        if (seen) check(pcnt == (dut.fast ? 4 : 128), "sd_clk period");
+        if (dut.fast) n_fast++; else n_id++;
+        seen = 1; pcnt = 0;
+      end
+      if (dut.state == 3'd0 && dut.cur <= 4'd5) check(!dut.fast, "identification at the fast rate");
+    end
+    if ({dut.cmd_oe_p, dut.cmd_out_p, dut.dat_oe_p, dut.dat_out_p} !== pins_q && rst_n)
+      check(sd_clk === 1'b0, "CMD / DAT changed while sd_clk is high");
+    pins_q = {dut.cmd_oe_p, dut.cmd_out_p, dut.dat_oe_p, dut.dat_out_p};
+  end
 
   task automatic wait_rounds(input int n, input string what);
     int t, m0;
@@ -349,6 +382,12 @@ module SD_tb;
     reset_host();  wait (dut.state == 3'd2 && dut.cur == 4'd4 && dut.bit_cnt > 8'd20);
     reset_host();  wait_init("after reset in R2");
 
+    // ---- a card that always answers at N_CR = 2 ----
+    card.ncr_max = 2;
+    reset_host(); wait_init("N_CR = 2");
+    wait_rounds(3, "N_CR = 2 rounds");
+    card.ncr_max = 5;
+
     // ---- standard capacity card: byte addressing; other RCA / CID ----
     card.ccs = 0; card.rca = ~card.rca; card.cid_base = ~card.cid_base;
     reset_host(); wait_init("standard capacity");
@@ -363,6 +402,7 @@ module SD_tb;
     wait_rounds(2, "past the wrap");
     check(dut.round == 8'd1, "round wrapped");
     check(card.bad_frames == 0 && card.bad_args == 0, "host command frames / arguments");
+    check(card.n_ncr2 > 20 && n_id > 1000 && n_fast > 1000, "N_CR = 2 responses / both clock rates seen");
 
     if (errors == 0) $display("TEST PASSED: SD");
     else             $display("TEST FAILED: %0d errors", errors);

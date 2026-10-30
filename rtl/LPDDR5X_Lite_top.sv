@@ -19,7 +19,11 @@
 //     exactly CL / CWL clocks after RD / WR; sticky irq on rejected
 //     commands and on a refresh overrun (a bank falling due again before it
 //     was served, which needs a tREFI shorter than one engine operation / 8)
-// Documented abstractions: the 2-clock LPDDR CA bus is shown as a
+// Documented abstractions: the MR files are controller-side only (MRW and
+// FSPW change the controller's CL / CWL and put no MRW on the pins, so the
+// device's mode registers must be set to match outside this model); ACT
+// drives RAS_n / CAS_n / WE_n (row bits A16..A14) = 0 and RD / WR drive
+// A12 = 1 (BL8, no chop); the 2-clock LPDDR CA bus is shown as a
 // JEDEC-style command subset on DDR4-like pin names; no WCK2CK sync,
 // read-path WCK or frequency change (DVFS is the latency registers only);
 // no DLL (LPDDR has none); SDR dqs; array inside the model; one command
@@ -206,13 +210,14 @@ module LPDDR5X_Lite_top #(
           ba <= eng_bank; addr <= 14'h0000;
         end
         ENG_ACT: begin                    // ACT (row on addr)
-          cs_n <= 1'b0; act_n <= 1'b0; ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;
+          // with ACT_n low, RAS_n/CAS_n/WE_n are row bits A16/A15/A14 (0)
+          cs_n <= 1'b0; act_n <= 1'b0; ras_n <= 1'b0; cas_n <= 1'b0; we_n <= 1'b0;
           ba <= eng_bank; addr <= {5'h00, eng_row};
         end
         ENG_TRCD: if (lat_cnt == 5'd1 && (eng_we || wtr_done)) begin  // RD / WR command
           cs_n <= 1'b0; act_n <= 1'b1; ras_n <= 1'b1; cas_n <= 1'b0;
           we_n <= ~eng_we;
-          ba <= eng_bank; addr <= {7'h00, eng_line, 4'h0};
+          ba <= eng_bank; addr <= {1'b0, 1'b1, 5'h00, eng_line, 4'h0};  // A12 (BC_n) = 1: BL8, no burst chop
         end
         ENG_REF_PRE: if (ref_go && bank_open != '0) begin  // PREA (all banks)
           cs_n <= 1'b0; act_n <= 1'b1; ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0;

@@ -1,0 +1,3 @@
+# PTP_apb: the core timestamps only event messages (messageType 0..3).
+TOGGLE PTP_apb\.c_(rxq|txq)_type\[(2|3)\](:|$) # constant 0: only event messages (types 0..3) are timestamped
+TOGGLE PTP_apb\.h_(RXTS|TXTS)0\[(2|3)\](:|$) # constant 0: messageType bits 3:2 of the holding register

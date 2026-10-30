@@ -4,7 +4,10 @@
 // falling edges, its own SDIN words sent with the standard one-BCLK delay,
 // and SDOUT sampled on BCLK rising edges and checked against the DUT's
 // TX registers. Slot lengths of exactly 16 bits and longer (padded) slots
-// are both exercised.
+// are both exercised. A monitor checks the SDOUT output delay against the
+// I2S transmitter rule (valid at most 0.8 T after the BCLK rising edge
+// before it, i.e. at most 0.3 T after the falling edge it follows), at
+// 10 and at 7.2 system clocks per BCLK.
 `timescale 1ns/1ps
 module I2S_tb;
   logic clk = 0, rst_n = 0;
@@ -23,7 +26,24 @@ module I2S_tb;
     .ren(ren), .raddr(raddr), .rdata(rdata), .irq(irq));
 
   always #5 clk = ~clk;
-  localparam int HB = 50;               // BCLK half period (ns)
+  int HB = 50;                          // BCLK half period (ns)
+  localparam real TCLK = 10.0;
+
+  // SDOUT timing: it changes only while BCLK is low, at most two system
+  // clocks after the falling edge (synchroniser + edge detect) and within
+  // the I2S tdtr limit of 0.8 T after the previous rising edge
+  realtime t_fall = 0, t_rise = 0, d_max = 0;
+  always @(negedge bclk) t_fall = $realtime;
+  always @(posedge bclk) t_rise = $realtime;
+  always @(sdout) if (rst_n && $realtime > 0) begin
+    if (bclk !== 1'b0 || $realtime - t_fall > 2 * TCLK ||
+        (t_rise > 0 && $realtime - t_rise > 0.8 * 2 * HB)) begin
+      errors++;
+      $display("ERROR: I2S sdout changed %0.1f ns after BCLK fall (bclk=%b, T=%0d ns)",
+               $realtime - t_fall, bclk, 2 * HB);
+    end
+    if ($realtime - t_fall > d_max) d_max = $realtime - t_fall;
+  end
 
   task automatic wr(input logic [3:0] a, input logic [15:0] d);
     begin
@@ -143,6 +163,15 @@ module I2S_tb;
     lrck = 1; #(4 * HB);
     run(4, 12);
     frames(4, 16, 16'h1357, 16'h2468);
+
+    // the slowest system clock the header allows: 7.2 clocks per BCLK, with
+    // BCLK edges drifting across the clock phase (worst-case latency)
+    HB = 36;
+    for (int t = 0; t < 10; t++) frames(4, $urandom_range(16, 32), $urandom, $urandom);
+    if (d_max <= 1.5 * TCLK) begin
+      errors++; $display("ERROR: I2S worst-case SDOUT delay not reached (%0.1f ns)", d_max);
+    end
+    $display("I2S: max SDOUT delay after BCLK fall %0.1f ns", d_max);
 
     if (errors == 0) $display("TEST PASSED: I2S");
     else             $display("TEST FAILED: %0d errors", errors);

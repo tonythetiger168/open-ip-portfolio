@@ -1,17 +1,25 @@
 {
-  "title": "eMMC host: CMD0 / CMD1 (busy polling) / CMD2 / CMD3 initialisation, then repeated CMD24 write and CMD17 read-back compare rounds in 1-bit mode, with R1 / R2 / R3 framing, CRC7, card-status, CRC16, CRC status token, busy and timeout checks",
+  "title": "eMMC host: RST_n pulse and power-up, CMD0 / CMD1 (busy polling) / CMD2 / CMD3 / CMD7 initialisation, then repeated CMD24 write and CMD17 read-back compare rounds in 1-bit mode, with R1 / R2 / R3 framing, CRC7, card-status, CRC16, CRC status token, busy and timeout checks",
   "code": "0x654D",
-  "version": "2.0",
+  "version": "3.0",
   "tb_clk_ns": 10,
   "tb_timeout": "100ms",
-  "clock": "emmc_clk",
-  "tie": {"clk": "1'b0"},
   "regs": [],
   "irqs": [
-    {"name": "ERR", "port": "irq", "desc": "a response, CRC status, busy or read phase failed (framing, CRC7, command index, card-status error bits, timeout, negative or missing CRC status, busy timeout, read CRC16 / end bit / compare); the host retries"}
+    {
+      "name": "ERR",
+      "port": "irq",
+      "desc": "a response, CRC status, busy or read phase failed (framing, CRC7, command index, card-status error bits, timeout, negative or missing CRC status, busy timeout, read CRC16 / end bit / compare); the host retries"
+    }
   ],
   "notes": [
-    "The core runs on PCLK as its eMMC bus clock (1 bit per PCLK); its unused system clock input is tied off. cmd and dat[7:0] (bidirectional, need pull-ups; only DAT0 is used) and emmc_rst_n (device reset, combined with PRESETN) pass through unchanged. The host initialises the device and runs its write / read-back rounds on its own.",
+    "The core runs on PCLK and drives the device: emmc_clk (CLK) is PCLK / ID_CLK_DIV (128: at most 400 kHz for PCLK up to 51.2 MHz) during identification and PCLK / CLK_DIV (2) from CMD7 on; emmc_rst_n (RST_n) is an output, held low RST_LOW PCLK cycles after PRESETN and then high RST_WAIT cycles (tRSCA) before the 74 power-up clocks and CMD0. cmd and dat[7:0] (bidirectional, need pull-ups; only DAT0 is used) pass through unchanged; CMD / DAT0 change on the CLK falling edge and are sampled on the rising edge. Responses are looked for from N_CR = 2 to 64 clocks; read access and write busy have their own limits, RD_TIMEOUT and BUSY_TIMEOUT CLK cycles (defaults 100 ms and 250 ms at 26 MHz). CMD7 selects the device (RCA 1) before any transfer. The host initialises the device and runs its write / read-back rounds on its own.",
     "Blocks are 32 bytes (the slice's simplification of 512)."
-  ]
+  ],
+  "tb_params": {
+    "RST_LOW": "8",
+    "RST_WAIT": "100",
+    "RD_TIMEOUT": "300",
+    "BUSY_TIMEOUT": "200"
+  }
 }

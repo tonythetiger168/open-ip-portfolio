@@ -32,6 +32,16 @@
       default: desc = 8'h00;
     endcase
   endfunction
+  function automatic logic [7:0] conf(input int i);   // configuration 0 set
+    case (i)
+      0: conf = 8'h09;  1: conf = 8'h02;  2: conf = 8'h19;  4: conf = 8'h01;
+      5: conf = 8'h01;  7: conf = 8'h80;  8: conf = 8'h32;
+      9: conf = 8'h09; 10: conf = 8'h04; 13: conf = 8'h01; 14: conf = 8'hFF;
+      18: conf = 8'h07; 19: conf = 8'h05; 20: conf = 8'h81; 21: conf = 8'h03;
+      22: conf = 8'h04; 24: conf = 8'h0A;
+      default: conf = 8'h00;
+    endcase
+  endfunction
 
   // ------------------------------------------------------------------
   // host transmitter
@@ -191,23 +201,38 @@
     rx_pkt(); expect_pid(expect_, "out");
   endtask
 
-  // control read: GET_DESCRIPTOR(device) with wLength
-  task automatic get_desc(input int wlen);
+  // control read: GET_DESCRIPTOR(device, or configuration with c) with wLength
+  task automatic get_desc(input int wlen, input bit c = 0);
     logic [63:0] s;                  // SETUP bytes, byte 0 at [7:0]
     int got, total;
-    s = pack8(8'h80, 8'h06, 8'h00, 8'h01, 8'h00, 8'h00, 8'(wlen), 8'(wlen >> 8));
+    s = pack8(8'h80, 8'h06, 8'h00, c ? 8'h02 : 8'h01, 8'h00, 8'h00, 8'(wlen), 8'(wlen >> 8));
     setup8(s);
-    total = (wlen > 18) ? 18 : wlen;
+    total = (wlen > (c ? 25 : 18)) ? (c ? 25 : 18) : wlen;
     got = 0;
     do begin
       in_tx(0);
       expect_pid(h_t0 ? DATA1 : DATA0, "descriptor toggle");
       for (int i = 0; i < r_n; i++)
-        if (r_buf[i] !== desc(got + i)) fail($sformatf("descriptor byte %0d", got + i));
+        if (r_buf[i] !== (c ? conf(got + i) : desc(got + i)))
+          fail($sformatf("descriptor byte %0d", got + i));
       got += r_n; h_t0 = !h_t0;
     end while (r_n == 8 && got < total);
     if (got != total) fail($sformatf("descriptor length %0d exp %0d", got, total));
     out_tx(0, DATA1, 0, ACK);                       // status stage
+  endtask
+
+  // GET_STATUS: two zero bytes (ok) or a STALL
+  task automatic get_status(input logic [7:0] bm, input logic [15:0] idx, input bit ok);
+    logic [63:0] s;                  // SETUP bytes, byte 0 at [7:0]
+    s = pack8(bm, 8'h00, 8'h00, 8'h00, idx[7:0], idx[15:8], 8'h02, 8'h00);
+    setup8(s);
+    in_tx(0);
+    if (!ok) expect_pid(STALL, "get_status stalled");
+    else begin
+      expect_pid(DATA1, "get_status");
+      if (r_n != 2 || r_buf[0] !== 8'h00 || r_buf[1] !== 8'h00) fail("get_status value");
+      out_tx(0, DATA1, 0, ACK);
+    end
   endtask
 
   // control write without data stage + IN status (ZLP)
@@ -291,6 +316,10 @@
     get_desc(18);
     get_desc(5);
     get_desc(13);
+    get_desc(9, 1);                                   // configuration descriptor set
+    get_desc(64, 1);
+    get_status(8'h80, 16'h0000, 1);
+    get_status(8'h81, 16'h0000, 0);                   // interface: not configured yet
     set_addr(7'h2A);
     token(IN, 7'h00, 0); rx_pkt(20); expect_pid(NONE, "old address answered");
     get_desc(18);
@@ -298,6 +327,8 @@
     get_cfg(0);
     ctl_write(8'h00, 8'h09, 16'h0001, 16'h0);       // SET_CONFIGURATION 1
     get_cfg(1);
+    get_status(8'h81, 16'h0000, 1);
+    get_status(8'h82, 16'h0081, 1);
 
     // ---------------- EP1 counter
     cnt_exp = 0; h_t1 = 0;
@@ -310,7 +341,7 @@
     ep1_read(); ep1_read();
 
     // ---------------- protocol stall (no RXERR)
-    s = pack8(8'h80, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00, 8'h02, 8'h00);   // GET_STATUS
+    s = pack8(8'h80, 8'h0A, 8'h00, 8'h00, 8'h00, 8'h00, 8'h01, 8'h00);   // GET_INTERFACE
     setup8(s);
     in_tx(0); expect_pid(STALL, "unsupported request IN");
     out_tx(0, DATA1, 0, STALL);

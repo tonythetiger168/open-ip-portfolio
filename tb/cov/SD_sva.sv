@@ -5,14 +5,18 @@
 // card response and 4-bit data block with its own CRC7 / per-line CRC16,
 // judges each one (framing, index, CRC, R7 contents, card-status and R6
 // error bits, CRC status token, busy, timeouts, read-back compare), and
-// predicts sd_clk, the host's CMD and DAT drivers (enable and value), every
+// predicts sd_clk (identification rate until the RCA is published, then
+// the transfer rate), the host's CMD and DAT drivers (enable and value, and
+// the pins, which change on the sd_clk falling edge), every
 // irq pulse, the captured CID / RCA / CCS and the round / match counters.
 `include "cov_macros.svh"
-module SD_sva #(parameter int SD_CLK_DIV = 4) (
+module SD_sva #(parameter int SD_CLK_DIV = 4, parameter int ID_CLK_DIV = 128) (
   input logic         clk, rst_n, sd_clk, cmd, irq,
   input logic [3:0]   dat,
   input logic         cmd_oe_r, cmd_out_r, dat_oe_r,
   input logic [3:0]   dat_out_r,
+  input logic         cmd_oe_p, cmd_out_p, dat_oe_p,
+  input logic [3:0]   dat_out_p,
   input logic [127:0] cid,
   input logic [15:0]  rca,
   input logic         ccs,
@@ -36,10 +40,15 @@ module SD_sva #(parameter int SD_CLK_DIV = 4) (
       blk[255 - i * 32 -: 32] = 32'hA500_3C00 ^ {24'h0, r} ^ ({24'h0, 8'(i)} * 32'h0001_0101);
   endfunction
 
-  // own sd_clk divider
+  // own sd_clk divider: identification rate until the RCA is published
   int   bd;
-  logic m_sdclk;
-  wire  tk = bd == SD_CLK_DIV - 1;
+  logic m_sdclk, m_fast;
+  wire  [31:0] dv = m_fast ? SD_CLK_DIV : ID_CLK_DIV;
+  wire  tk = bd == dv - 1;
+  wire  ftk = bd == dv / 2 - 1;
+  // pin model: the drivers take the FSM's value at the falling edge
+  logic m_pcoe, m_pco, m_pdoe;
+  logic [3:0] m_pdo;
 
   // host activity
   localparam int TX = 0, GAP = 1, HUNT = 2, RSP = 3, IDLE = 4, WST = 5, WDAT = 6, WCRC = 7, WEND = 8,
@@ -90,12 +99,13 @@ module SD_sva #(parameter int SD_CLK_DIV = 4) (
   endtask
   task automatic fail();
     m_irq <= 1;
-    if (init) begin ph <= IDLE; w <= 0; end else issue(6'd0, 0, 0);
+    if (init) begin ph <= IDLE; w <= 0; end else begin issue(6'd0, 0, 0); m_fast <= 0; end
   endtask
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      bd <= 0; m_sdclk <= 0;
+      bd <= 0; m_sdclk <= 0; m_fast <= 0;
+      m_pcoe <= 0; m_pco <= 1; m_pdoe <= 0; m_pdo <= 4'hF;
       init <= 0; m_coe <= 1; m_co <= 1; m_doe <= 0; m_do <= 4'hF; m_irq <= 0; m_ccs <= 0;
       m_cid <= 0; m_rca <= 0; m_round <= 0; m_match <= 0;
       ph <= TX; n <= 0; w <= 0; fr <= frame(6'd0, 0); cc <= 0; len <= 0;
@@ -108,7 +118,8 @@ module SD_sva #(parameter int SD_CLK_DIV = 4) (
     end else begin
       {c_r1, c_iv} <= '0;
       bd <= tk ? 0 : bd + 1;
-      if (tk) m_sdclk <= 1; else if (bd == SD_CLK_DIV / 2 - 1) m_sdclk <= 0;
+      if (tk) m_sdclk <= 1; else if (ftk) m_sdclk <= 0;
+      if (ftk) begin m_pcoe <= cmd_oe_r; m_pco <= cmd_out_r; m_pdoe <= dat_oe_r; m_pdo <= dat_out_r; end
       {v_poll, v_r3bad, v_r2bad, v_r1crc, v_r1idx, v_r1end, v_r1tx, v_stat, v_r6stat, v_r7v, v_r7p,
        v_rto, v_tokbad, v_tokto, v_busyto, v_busy, v_rdto, v_rcrc, v_rend, v_cmp, v_round} <= '0;
       if (tk) begin
@@ -121,7 +132,7 @@ module SD_sva #(parameter int SD_CLK_DIV = 4) (
           GAP: begin
             m_coe <= 0; w <= w + 1;
             if (len == 0) begin if (w == 7) issue(6'd8, 32'h1AA, 48); end
-            else if (w == 3) begin ph <= HUNT; w <= 0; end
+            else begin ph <= HUNT; w <= 0; end          // N_CR = 2 is seen
           end
           HUNT:
             if (!cmd) begin ph <= RSP; n <= 1; rs <= 0; end
@@ -153,7 +164,7 @@ module SD_sva #(parameter int SD_CLK_DIV = 4) (
                     else issue(6'd55, 0, 48);
                   end else if (cc == 6'd3) begin
                     if (r6e) begin fail(); v_r6stat <= 1; end
-                    else begin m_rca <= rn[39:24]; issue(6'd7, {rn[39:24], 16'h0}, 48); end
+                    else begin m_rca <= rn[39:24]; m_fast <= 1; issue(6'd7, {rn[39:24], 16'h0}, 48); end
                   end
                   else if (r1e) begin fail(); v_stat <= 1; end
                   else if (cc == 6'd55) issue(6'd41, 32'h40FF_8000, 48);
@@ -234,6 +245,8 @@ module SD_sva #(parameter int SD_CLK_DIV = 4) (
 
   `SVA_RST(a_reset_state, !rst_n, cmd_oe_r && cmd_out_r && !dat_oe_r && !irq && !sd_clk)
   `SVA_INV(a_sd_clk, sd_clk == m_sdclk)
+  `SVA_INV(a_cmd_dat_pins, cmd_oe_p == m_pcoe && (!m_pcoe || cmd_out_p == m_pco) &&
+                           dat_oe_p == m_pdoe && (!m_pdoe || dat_out_p == m_pdo))
   `SVA_INV(a_cmd_driver, cmd_oe_r == m_coe && (!m_coe || cmd_out_r == m_co))
   `SVA_INV(a_dat_driver, dat_oe_r == m_doe && (!m_doe || dat_out_r == m_do))
   `SVA_INV(a_irq, irq == m_irq)
@@ -281,10 +294,12 @@ module SD_sva #(parameter int SD_CLK_DIV = 4) (
   `FC(read_end_bit_error, v_rend)
   `FC(read_compare_mismatch, v_cmp)
   `FC(round_complete, v_round)
+  `FC(response_at_ncr2, ph == HUNT && w == 1 && !cmd && tk)
+  `FC(rate_switch_to_transfer, tk && cc == 6'd7 && ph == TX && n == 0 && m_fast)
   `FC(round_byte_addressed, v_round && !m_ccs)
   `FC(round_counter_wraps, v_round && m_round == 8'h00)
   `FC_RST(reset_during_write_block, rst_n && ph == WDAT ##1 !rst_n)
   `FC_RST(reset_during_init, rst_n && !init && ph == RSP ##1 !rst_n)
 endmodule
 
-bind SD_top SD_sva #(.SD_CLK_DIV(SD_CLK_DIV)) u_sva (.*);
+bind SD_top SD_sva #(.SD_CLK_DIV(SD_CLK_DIV), .ID_CLK_DIV(ID_CLK_DIV)) u_sva (.*);

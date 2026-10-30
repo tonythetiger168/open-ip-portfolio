@@ -43,7 +43,9 @@ module SPI_top (
     end
   end
 
-  assign miso  = tx_q[7 - bit_cnt];
+  // MISO is driven only while this target is selected: high-Z otherwise,
+  // so several targets can share the line
+  assign miso  = csn ? 1'bz : tx_q[7 - bit_cnt];
   assign rdata = (raddr == 4'd0) ? rx_q :
                  (raddr == 4'd1) ? tx_q : 8'h00;
   assign irq   = byte_done;

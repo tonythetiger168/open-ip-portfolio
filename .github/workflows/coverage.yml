@@ -71,4 +71,5 @@ jobs:
             work/cov/*/score.json
             work/cov/*/build.log
             work/cov/*/run.log
+            work/cov/*/report.txt
           retention-days: 7

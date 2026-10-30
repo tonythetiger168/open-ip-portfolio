@@ -1,0 +1,16 @@
+LINE \| default: es <= E_IDLE; # defensive default: unused es encodings 5..7
+FSM fsm_arc__es__E_RX__E_TX # the outbound doorbell starts only from E_IDLE (es == E_IDLE guard); E_RX shares the case branch
+TOGGLE RAPIDIO_top\.o\[(0|3)\](:|$) # constant 0: the logical header offset is 4 or 6
+TOGGLE RAPIDIO_top\.o\[2\](:|$) # constant 1: the logical header offset is 4 or 6
+TOGGLE RAPIDIO_top\.lh\[(0|3)\](:|$) # constant 0: the logical header length is 2, 4 or 6
+TOGGLE RAPIDIO_top\.hl\[(0|[4-8])\](:|$) # constant 0: the header length is even and at most 12
+TOGGLE RAPIDIO_top\.a_dw\[[0-2]\](:|$) # constant 0: a double-word address
+TOGGLE RAPIDIO_top\.mo\[[01]\](:|$) # constant 0: maintenance offsets are word offsets
+TOGGLE RAPIDIO_top\.th\[0\]\[[0-7]\](:|$) # constant 0: octet 0 (ackID, reserved) is sent as zero; the link layer fills it
+TOGGLE RAPIDIO_top\.th\[1\]\[5\](:|$) # constant 0: tt[1]; only tt 0 and 1 are accepted or sent
+TOGGLE RAPIDIO_top\.th\[1[01]\]\[[0-7]\](:|$) # constant 0: the last two reserved octets of a 16-bit-ID maintenance response
+TOGGLE RAPIDIO_top\.th_n\[0\](:|$) # constant 0: header lengths are even
+TOGGLE RAPIDIO_top\.tp_n\[[0-2]\](:|$) # constant 0: payloads are whole double-words
+TOGGLE RAPIDIO_top\.tp_a\[[0-2]\](:|$) # constant 0: read data starts on a double-word
+TOGGLE RAPIDIO_top\.tcl\[0\](:|$) # constant 0: the content length of a response is even
+TOGGLE RAPIDIO_top\.w_src\[[5-8]\](:|$) # constant 0: the payload starts at the header length (at most 12) plus a lane (at most 7)

@@ -9,9 +9,15 @@
 //  - Block length is 32 bytes (256 bits) instead of the SD-native 512 bytes.
 //  - 4-bit bus mode from the start (bus-width switch via ACMD6 is skipped;
 //    the host is born in 4-bit mode, documented deviation).
-//  - sd_clk is generated from clk by an even divider (parameter SD_CLK_DIV);
-//    all host logic runs in the clk domain and advances one bus bit per
-//    sd_clk period (internal "tick" aligned with the sd_clk rising edge).
+//  - sd_clk is generated from clk by an even divider: ID_CLK_DIV during
+//    card identification (CMD0 .. CMD3, which must run at 400 kHz or less:
+//    the default 128 meets that for clk up to 51.2 MHz) and SD_CLK_DIV once
+//    the card has published its RCA (from CMD7 on). All host logic runs in
+//    the clk domain and advances one bus bit per sd_clk period (internal
+//    "tick" on the sd_clk rising edge, where CMD / DAT are sampled); the
+//    CMD / DAT drivers change on the sd_clk falling edge.
+//  - The response start bit is looked for from the 2nd sd_clk after the
+//    command end bit (N_CR = 2, the minimum) up to 64 clocks.
 //  - CMD7's R1b busy on DAT0 is simplified to plain R1 (no busy wait).
 //  - Response / data-start / CRC-status / busy timeout is 64 sd_clk cycles.
 //  - The host autonomously repeats demo rounds: CMD24 write of an internal
@@ -35,7 +41,8 @@
 //    the idle gap, which restarts the round.
 // ============================================================================
 module SD_top #(
-  parameter int SD_CLK_DIV = 4    // clk cycles per sd_clk period (even, >= 2)
+  parameter int SD_CLK_DIV = 4,   // clk cycles per sd_clk period (even, >= 2)
+  parameter int ID_CLK_DIV = 128  // the same during identification (even, >= 2)
 )(
   input  logic       clk,
   input  logic       rst_n,
@@ -58,7 +65,9 @@ module SD_top #(
   // R6 status field {23, 22, 19, 12:0}: COM_CRC_ERROR, ILLEGAL_COMMAND,
   // ERROR, AKE_SEQ_ERROR
   localparam logic [15:0] R6_MASK  = 16'hE008;
-  localparam int DIV = SD_CLK_DIV;
+  localparam int DIV  = SD_CLK_DIV;
+  localparam int IDIV = ID_CLK_DIV;
+  localparam int MDIV = (DIV > IDIV) ? DIV : IDIV;
 
   // ------------------------- CRC helpers -------------------------
   // CRC7: poly x^7 + x^3 + 1 (7'h09), MSB-first, init 0 -- over 40 bits
@@ -171,14 +180,19 @@ module SD_top #(
   logic [15:0]  rca;
   logic         ccs;            // high capacity card (block addressing)
   logic         init_done;
+  logic         fast;           // RCA published: data-transfer clock rate
   logic         err_crc7, err_crc16, err_timeout, err_cmp, err_r7, err_status;
 
   // ------------------------- sd_clk divider -------------------------
-  // sd_clk = clk / SD_CLK_DIV; "tick" is the clk edge where sd_clk rises,
-  // so every host bus action is aligned to the sd_clk rising edge.
-  localparam int DIV_W = (DIV <= 2) ? 1 : $clog2(DIV);
+  // sd_clk = clk / ID_CLK_DIV until the RCA is published, clk / SD_CLK_DIV
+  // after; "tick" is the clk edge where sd_clk rises (the host samples CMD /
+  // DAT there and steps its FSM), "ftick" the one where it falls. The rate
+  // changes only at a tick, so every sd_clk period is whole.
+  localparam int DIV_W = (MDIV <= 2) ? 1 : $clog2(MDIV);
   logic [DIV_W-1:0] div_cnt;
-  wire tick = (div_cnt == DIV_W'(DIV-1));
+  // (compared per rate, so no constant-bit divider net is left for toggle coverage)
+  wire tick  = fast ? div_cnt == DIV_W'(DIV-1)   : div_cnt == DIV_W'(IDIV-1);
+  wire ftick = fast ? div_cnt == DIV_W'(DIV/2-1) : div_cnt == DIV_W'(IDIV/2-1);
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -189,13 +203,25 @@ module SD_top #(
       sd_clk  <= 1'b1;
     end else begin
       div_cnt <= div_cnt + DIV_W'(1);
-      if (div_cnt == DIV_W'(DIV/2-1)) sd_clk <= 1'b0;
+      if (ftick) sd_clk <= 1'b0;
     end
   end
 
   // ------------------------- bus drivers -------------------------
-  assign cmd = cmd_oe_r ? cmd_out_r : 1'bz;
-  assign dat = dat_oe_r ? dat_out_r : 4'bzzzz;
+  // the FSM sets the next CMD / DAT value at a tick; the pins take it at the
+  // following falling edge, half a period before the card samples it
+  logic       cmd_oe_p, cmd_out_p, dat_oe_p;
+  logic [3:0] dat_out_p;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      cmd_oe_p <= 1'b0; cmd_out_p <= 1'b1; dat_oe_p <= 1'b0; dat_out_p <= 4'hF;
+    end else if (ftick) begin
+      cmd_oe_p <= cmd_oe_r; cmd_out_p <= cmd_out_r;
+      dat_oe_p <= dat_oe_r; dat_out_p <= dat_out_r;
+    end
+  end
+  assign cmd = cmd_oe_p ? cmd_out_p : 1'bz;
+  assign dat = dat_oe_p ? dat_out_p : 4'bzzzz;
 
   // next response-shift value and response checks (combinational)
   logic [135:0] rsp_nxt;
@@ -240,7 +266,7 @@ module SD_top #(
   // restarts with CMD0; round errors return to H_IDLE, which restarts the
   // current round
   `define SD_FAIL_INIT(ERRF) \
-    begin ERRF <= 1'b1; irq <= 1'b1; `SD_ISSUE(C0, 32'h0000_0000) end
+    begin ERRF <= 1'b1; irq <= 1'b1; fast <= 1'b0; `SD_ISSUE(C0, 32'h0000_0000) end
   `define SD_FAIL_DATA(ERRF) \
     begin ERRF <= 1'b1; irq <= 1'b1; state <= H_IDLE; wait_cnt <= 6'd0; end
 
@@ -275,6 +301,7 @@ module SD_top #(
       rca         <= 16'h0;
       ccs         <= 1'b0;
       init_done   <= 1'b0;
+      fast        <= 1'b0;
       err_crc7    <= 1'b0;
       err_crc16   <= 1'b0;
       err_timeout <= 1'b0;
@@ -300,13 +327,15 @@ module SD_top #(
           end
         end
 
-        // release CMD; CMD0 has no response: CMD8 follows after 8 bits
+        // release CMD; CMD0 has no response: CMD8 follows after 8 bits.
+        // Otherwise hunt for the start bit from the next clock on, so a
+        // response at N_CR = 2 is seen
         H_GAP: begin
           cmd_oe_r <= 1'b0;
           wait_cnt <= wait_cnt + 6'd1;
           if (cur == C0) begin
             if (wait_cnt == 6'd7) `SD_ISSUE(C8, IF_COND)
-          end else if (wait_cnt == 6'd3) begin
+          end else begin
             state    <= H_RSP;
             wait_cnt <= 6'd0;
             bit_cnt  <= 8'd0;
@@ -350,7 +379,8 @@ module SD_top #(
                   if (!r1_ok)      `SD_FAIL_INIT(err_crc7)
                   else if (r6_err) `SD_FAIL_INIT(err_status)
                   else begin
-                    rca <= rsp_nxt[39:24];
+                    rca  <= rsp_nxt[39:24];
+                    fast <= 1'b1;         // identification done: full rate
                     `SD_ISSUE(C7, {rsp_nxt[39:24], 16'h0})
                   end
                 default:                  // R1: CMD55 / 7 / 24 / 17 / 13
@@ -361,7 +391,10 @@ module SD_top #(
                     if (init_done) begin
                       state    <= H_IDLE;
                       wait_cnt <= 6'd0;
-                    end else `SD_ISSUE(C0, 32'h0000_0000)
+                    end else begin
+                      fast <= 1'b0;
+                      `SD_ISSUE(C0, 32'h0000_0000)
+                    end
                   end else case (cur)
                     C55: `SD_ISSUE(C41, OCR_ARG)
                     C7: begin
