@@ -67,9 +67,10 @@ def attempts(sk, msg, p, rnd=bytes(32)):
 
 def targeted(out, rng, rb, p, pk, sk):
     """ML-DSA-44 Sign cases for the rarer rejections: too many hints, exactly
-    omega hints after a row, ||<<c t0>>|| >= gamma2 (a private key whose t0
-    row 0 is aligned with the first attempt's c), an empty and the longest
-    message, and Verify of hint encodings that set every hint index."""
+    omega hints after a row, ||<<c t0>>|| >= gamma2 and == gamma2 (private
+    keys whose t0 row 0 is aligned with the first attempt's c), an empty and
+    the longest message, Verify of hint encodings that set every hint index
+    and of one that repeats an index."""
     om = p['omega']
     for want in ('hints', 'omega'):
         while True:
@@ -113,6 +114,45 @@ def targeted(out, rng, rb, p, pk, sk):
             y[16 * r:16 * r + 16] = bytes(range(64 * v + 16 * r, 64 * v + 16 * r + 16))
             y[om + r] = 16 * (r + 1)
         verify_case(out, 0, pk, msg, sig[:hb] + bytes(y))
+    # a repeated hint index inside a row (indices must strictly increase); the
+    # index is inserted twice, so the hints decode to the same set and only the
+    # order check rejects the signature
+    sig3 = m.sign(sk, msg, bytes(32), p)
+    y = sig3[hb:]
+    idx, lo = [], 0
+    for r in range(p['k']):
+        idx.append(list(y[lo:y[om + r]]))
+        lo = y[om + r]
+    assert lo < om
+    r = next(r for r in range(p['k']) if idx[r])
+    idx[r].insert(0, idx[r][0])
+    z = bytearray(om + p['k'])
+    n = 0
+    for r in range(p['k']):
+        z[n:n + len(idx[r])] = bytes(idx[r])
+        n += len(idx[r])
+        z[om + r] = n
+    assert not verify_case(out, 0, pk, msg, sig3[:hb] + bytes(z))
+    # ||<<c t0>>|| exactly gamma2 in the first attempt (rejected; one more is not)
+    # and no other reason to reject it; its own generator keeps the cases above
+    r2 = random.Random(2041)
+    g2 = p['g2']
+    while True:
+        msg = bytes(r2.getrandbits(8) for _ in range(r2.randrange(1, 64)))
+        c = attempts(sk, msg, p)['c'][0]
+        nz = [j for j in range(256) if c[j]]
+        amp = [g2 // len(nz)] * len(nz)
+        amp[0] += g2 - sum(amp)
+        t = [0] * 256
+        for a, j in zip(amp, nz):
+            t[(256 - j) % 256] = a * (1 if c[j] == 1 else -1) * (1 if j == 0 else -1)
+        rows = [t] + [[0] * 256 for _ in range(p['k'] - 1)]
+        sk2 = sk[:e8] + b''.join(m.bit_pack(r, 4095, 4096) for r in rows)
+        ct0 = [m.mod_pm(x, m.Q) for x in m.intt(m.pmul(m.ntt(c), m.ntt([x % m.Q for x in t])))]
+        st = attempts(sk2, msg, p)
+        if max(abs(x) for x in ct0) == g2 and st['why'][0] == {'ct0'} and st['tries'] <= 3:
+            break
+    sign_case(out, 0, sk2, msg, bytes(32))
 
 
 def main():

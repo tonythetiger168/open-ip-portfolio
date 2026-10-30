@@ -440,6 +440,13 @@ module ML_DSA_sva (
   wire hash_ok = !hbad_q;
   wire poly_ok = chk_bad == 0;
 
+  // the polynomial unit reports done only for a step that was started
+  bit in_step;
+  always @(posedge clk or negedge rst_n)
+    if (!rst_n) in_step <= 0;
+    else if (ugo && u_op != U_NONE) in_step <= 1;
+    else if (p_done) in_step <= 0;
+  `SVA_IMP(a_step_done_after_start, p_done, in_step)
   `SVA_IMP(a_hash_to_buffer, hstep == 1, hash_ok)
   `SVA_IMP(a_hash_to_sampler, hstep == 2, hash_ok)
   `SVA_IMP(a_ntt, chk_op == int'(U_NTT), poly_ok)
