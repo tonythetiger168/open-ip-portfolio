@@ -1,0 +1,5 @@
+FSM fsm_arc__st__S_IDLE__S_TA # the device reaches S_TA only from S_RX: a message has at least 2 octets, the first one moves S_IDLE to S_RX
+FSM fsm_arc__st__S_SUM__S_IDLE # S_SUM is master-only and always moves to S_TX; the S_IDLE assignment it inherits is the device's wake-up branch
+TOGGLE IO_LINK_top\.mem_waddr\[7\] # constant 0: the core writes only the rx areas 0x40..0x7F
+TOGGLE IO_LINK_top\.mem_raddr\[6\] # constant 0: the core reads only 0x00..0x3F and the page 0x80..0x9F
+TOGGLE IO_LINK_utx\.sh\[9\](:|$) # constant 1: the stop bit (reset to ones, loaded and shifted in as 1)
