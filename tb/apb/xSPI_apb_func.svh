@@ -4,7 +4,8 @@
 // programmed, read back and erased; STATUS follows WEL / WIP, the latency
 // setting and the last error.
 // Covered through the registers: CMD, DONE and ERR, each raised on its
-// own, cleared with a write-1, masked, and left pending into reset.
+// own, cleared with a write-1, raised while masked, and ERR left pending
+// into reset.
 logic [7:0] h_dq = 0;
 logic       h_oe = 0;
 initial begin ck = 0; csn = 1; end
@@ -88,12 +89,19 @@ task automatic ip_func;
   // the latency setting
   x_cmd(8'h06); x_hdr(8'h81); x_tx[6] = 8'h1F; x_tx[7] = 8'h00; x_frame(8, 0);
   x_status(2'b00, 5'd31, 3'd4);
+  x_cmd(8'h06); x_hdr(8'h81); x_tx[6] = 8'h17; x_tx[7] = 8'h00; x_frame(8, 0);
+  x_status(2'b00, 5'd23, 3'd4);
   wr(A_IRQ_STATUS, IRQ_ALL);
   x_cmd(8'h66); x_cmd(8'h99);
   x_status(2'b00, 5'd8, 3'd4);
   wr(A_IRQ_STATUS, IRQ_ALL);
   // masked: pending, irq low; then left pending into reset
   wr(A_IRQ_ENABLE, 0);
+  x_cmd(8'h06); x_cmd(8'h60);                   // CMD, then DONE
+  poll(A_STATUS, 32'h3, 32'h0, 200);
+  if (irq) fail("irq with CMD and DONE masked");
+  rd_exp(A_IRQ_STATUS, (32'(1) << IRQ_CMD) | (32'(1) << IRQ_DONE));
+  wr(A_IRQ_STATUS, IRQ_ALL);
   x_cmd(8'h01);
   cycles(2);
   if (irq) fail("irq with ERR masked");

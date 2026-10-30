@@ -4,7 +4,8 @@
 // randomly low) and checked against a model of the memory (byte enables,
 // out-of-range and protection errors, AMOADD, LR / SC).
 // Covered through the registers: DEC, PROT, ATOP and PAR, each raised on
-// its own, cleared with a write-1, masked, and left pending into reset.
+// its own, cleared with a write-1, raised while masked, and DEC left
+// pending into reset.
 logic par_inj = 0;
 initial begin
   req = 0; addr = 0; we = 0; be = 0; wdata = 0; aid = 0; prot = 3'b111; atop = 0; rready = 1;
@@ -90,8 +91,14 @@ task automatic ip_func;
   // masked: pending, irq low; then left pending into reset
   wr(A_IRQ_ENABLE, 0);
   obi(0, 32'h8000_0000, 4'hF, 0);
+  obi(1, 32'h300, 4'hF, 32'h1, 0, 3'b001);
+  obi(1, 32'h300, 4'hF, 32'h1, 6'h3F);
+  @(negedge PCLK); par_inj = 1; reqpar = req;
+  @(negedge PCLK); par_inj = 0;
   cycles(2);
-  if (irq) fail("irq with DEC masked");
+  if (irq) fail("irq with every source masked");
+  rd_exp(A_IRQ_STATUS, IRQ_ALL);
+  wr(A_IRQ_STATUS, IRQ_ALL ^ (32'(1) << IRQ_DEC));
   rd_exp(A_IRQ_STATUS, 32'(1) << IRQ_DEC);
   wr(A_IRQ_ENABLE, IRQ_ALL);
   if (!irq) fail("irq low after unmasking DEC");

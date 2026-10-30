@@ -24,5 +24,6 @@ echo "CLOSED $c/$n"
 grep -v "RESULT: CLOSED" work/cov/run_all.txt | while read -r p _; do
   echo "===== $p"
   grep -vE "^(%Warning|  *:|  *\||  *\^)" "work/cov/$p/report.txt" | tail -n 60
+  grep -m 10 -E "ERROR|FAIL|TIMEOUT" "work/cov/$p/run.log" 2>/dev/null
 done
 [ "$c" -eq "$n" ]

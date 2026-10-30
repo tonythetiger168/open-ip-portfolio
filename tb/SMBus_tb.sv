@@ -374,7 +374,7 @@ module SMBus_tb;
     pm_write(8'h55, 0);                      // fault: alert
     ara_read(1);                             // ARA with PEC: alert released
     ara_read(0);                             // released: NACKed
-    vout_ov = 1; clocks(3); vout_ov = 0; m_ov = 1; m_aack = 0;
+    @(negedge clk); vout_ov = 1; clocks(3); vout_ov = 0; m_ov = 1; m_aack = 0;   // away from the clock edge
     check_regs();
     pm_read(8'h79, 2); pm_read(8'h78, 1);
     // another target with a lower address wins the arbitration
@@ -382,7 +382,7 @@ module SMBus_tb;
     if (smbalert_n !== 0) fail("SMBALERT# released after a lost arbitration");
     ara_read(0);                             // now this target answers
     pm_write(8'h03, 0);                      // CLEAR_FAULTS also clears OV
-    vout_ov = 1; clocks(3);
+    @(negedge clk); vout_ov = 1; clocks(3);
     pm_write(8'h03, 0);                      // still asserted: OV stays latched
     vout_ov = 0;
     pm_write(8'h03, 0);
@@ -442,7 +442,7 @@ module SMBus_tb;
       end else if (r < 50) pm_write(c, $urandom_range(3), $urandom, $urandom, $urandom, $urandom_range(2));
       else if (r < 90) pm_read(c, $urandom_range(1, 7));
       else if (r < 95) ara_read($urandom_range(1));
-      else begin vout_ov = 1; clocks(2); vout_ov = 0; if (!m_ov) m_aack = 0; m_ov = 1; clocks(2); check_regs(); end
+      else begin @(negedge clk); vout_ov = 1; clocks(2); vout_ov = 0; if (!m_ov) m_aack = 0; m_ov = 1; clocks(2); check_regs(); end
       if ($urandom_range(7) == 0) pm_write(8'h03, 0);
     end
 

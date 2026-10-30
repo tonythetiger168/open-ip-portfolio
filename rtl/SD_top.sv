@@ -190,10 +190,9 @@ module SD_top #(
   // changes only at a tick, so every sd_clk period is whole.
   localparam int DIV_W = (MDIV <= 2) ? 1 : $clog2(MDIV);
   logic [DIV_W-1:0] div_cnt;
-  wire [DIV_W-1:0] div_top = fast ? DIV_W'(DIV-1)   : DIV_W'(IDIV-1);
-  wire [DIV_W-1:0] div_mid = fast ? DIV_W'(DIV/2-1) : DIV_W'(IDIV/2-1);
-  wire tick  = (div_cnt == div_top);
-  wire ftick = (div_cnt == div_mid);
+  // (compared per rate, so no constant-bit divider net is left for toggle coverage)
+  wire tick  = fast ? div_cnt == DIV_W'(DIV-1)   : div_cnt == DIV_W'(IDIV-1);
+  wire ftick = fast ? div_cnt == DIV_W'(DIV/2-1) : div_cnt == DIV_W'(IDIV/2-1);
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
