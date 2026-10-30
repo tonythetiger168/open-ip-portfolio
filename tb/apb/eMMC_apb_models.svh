@@ -79,14 +79,17 @@ module emmc_card #(parameter int BUSY_HOLD = 70) (
   initial forever begin : run
     logic [47:0] f;
     logic [5:0] idx;
-    int flt;
+    int flt, rs0;
     @(posedge clk);
     if (cmd === 1'b0 && !coe && rst_n === 1'b1) begin
-      f = 0;
+      f = 0; rs0 = rst_seen;
       for (int i = 46; i >= 0; i--) begin bitr(1); f[i] = cmd; end
       idx = f[45:40];
       n_cmds++;
-      if (!f[46] || !f[0] || crc7({80'h0, f[47:8]}, 40) != f[7:1]) bad_frames++;
+      // a frame cut short by RST_n is not a framing error (simulators
+      // that cannot disable this block from kill() reach here)
+      if (rst_seen != rs0) ;
+      else if (!f[46] || !f[0] || crc7({80'h0, f[47:8]}, 40) != f[7:1]) bad_frames++;
       else if ((idx == 6'd24 || idx == 6'd17) && !selected) unselected++;
       else if (idx == 6'd7 && f[39:24] != rca) unselected++;
       else begin
