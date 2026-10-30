@@ -81,3 +81,8 @@ xSPI | dq_o <= '0; dq_oe <= 1'b0; dqs_o <= 1'b0; dqs_oe <= 1'b0; | 1'b0 -> 1'b1@
 SGMII | wire        ones4 = {2'd0, cg[3]} + {2'd0, cg[2]} + {2'd0, cg[1]} + {2'd0, cg[0]} > 3'd2; | > -> >= | ones4 is only used when the 4-bit sub-block is unbalanced (not two ones), where > 2 and >= 2 agree
 CAN_XL | wire        rs_skip = rs_ok && tq_cnt > t1 && early > {2'b0, sjw}; | > -> >=@2 | at early == SJW rs_end is also true, and rs_end takes priority in the timing counter, so rs_skip is never used there
 PTP | st <= P_IDLE; kind <= K_NONE; idx <= '0; crc <= '1; bad <= 1'b0; et <= '0; | 1'b0 -> 1'b1 | bad reset value: bad is read only in P_DATA, and the SFD that enters P_DATA clears it
+SENT | s1 <= 1'b1; s2 <= 1'b1; lv <= 1'b1; fcnt <= '0; | 1'b1 -> 1'b0@3 | lv reset 0 with the line high only makes the filter see a rise after reset (never a fall); a rise loads low_q, which the first measured pulse's own rise overwrites
+SENT | wire rise = !lv && s2 && fcnt >= cfg_rx_filt; | && -> || | low_q is then also loaded while the line is low or steady high; it still holds the low count of the last pulse at every falling edge, where it is read
+SENT | wire rise = !lv && s2 && fcnt >= cfg_rx_filt; | && -> ||@2 | low_q is then also loaded whenever fcnt >= cfg_rx_filt; it still holds the low count of the last pulse at every falling edge, where it is read
+SENT | cal_prev_ok <= 1'b0; r_drop <= 1'b0; rni <= '0; r_st <= '0; r_d <= '0; | 1'b0 -> 1'b1 | cal_prev_ok reset value: it is read only in R_SYNC, which every path reaches through a calibration pulse that sets it
+SENT | cal_prev_ok <= 1'b0; r_drop <= 1'b0; rni <= '0; r_st <= '0; r_d <= '0; | 1'b0 -> 1'b1@2 | r_drop reset value: every calibration pulse rewrites it, and one precedes every CRC nibble that reads it
