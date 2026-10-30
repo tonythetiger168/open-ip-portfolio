@@ -55,16 +55,41 @@ partially-encoded enum, a tie-off that is constant by construction, and the
 upper bits of a counter whose largest load is below the next power of two.
 FSM, SVA and functional coverage have no exclusions.
 
-Totals: 110 line points out of 11516 and 3765 toggle points out of 127254
-for the cores; 455 toggle points out of 92640 for the wrappers.
+Totals: 121 line points out of 12658 and 3933 toggle points out of 162764
+for the cores; 477 toggle points out of 112154 for the wrappers.
 
-* Of the 3765 core toggle exclusions, 3675 are in the 24 memory controllers.
+Verilator leaves signals wider than 256 bits out of toggle coverage by
+default. An IP with wider buses (UCIe: 544-bit flits, Ethernet_RS_FEC:
+320-bit beats and the 460-bit riBM registers) raises the limit in
+`scripts/cov/flags/<P>.txt`, which `run_cov.sh` passes to Verilator for the
+core and wrapper runs, so those bits are scored too.
+
+* Of the 3925 core toggle exclusions, 3675 are in the 24 memory controllers.
   Each bank keeps its own timing counters (tRP, tRAS, tRC, tRFC, tREFI), and
   the top bits of every one of them are constant because the largest load
   fits in fewer bits. One regex line in the exclusion file covers each
   counter, so a few lines expand to hundreds of points: HBM 502, LPDDR5 404
   and LPDDR6 372 are the largest. The address bits above the 14-bit row and
   8-bit column are also excluded, and so are the tied Hi-Z strobe pins.
+* The 7 UCIe line exclusions are the body of a constant function that
+  builds the parallel CRC network once at elaboration; Verilator counts its
+  lines, but no simulation clock ever runs them.
+* The 134 ML_KEM toggle exclusions are bits of the buffer addresses,
+  lengths and constants (rates, domain bytes, du / dv, 12 k) that are the
+  same for all three parameter sets: every field is a whole number of
+  32-byte blocks and the lengths are fixed by FIPS 203. Its 3 line
+  exclusions are defensive `default:` items.
+* The 8 Ethernet_PCS toggle exclusions: bit 6 of the transmit gearbox
+  fill level (and of the level after a beat leaves) is never set, as an
+  exhaustive search of the gearbox states shows
+  (`scripts/formal/exhaust_ethpcs.py`); and the encoders' realignment
+  events, which the PCS cannot cause (it feeds them whole pairs).
+* Ethernet_PCS uses two Ethernet_RS_FEC cores. They are compiled into its
+  run but not scored there (`COVLIB` in `Makefile.Ethernet_PCS`): the
+  RS-FEC is closed by its own run.
+* The Root_of_Trust line exclusion is the `default:` item of its control
+  state machine: it can only be reached through a fault in the state
+  register, and it raises alert 7 and stops the core.
 * The wrapper exclusions are only the core's constant pins, seen again at
   the wrapper's pass-through ports.
 * Verilator does not score toggles inside unpacked memory arrays, such as a
@@ -74,11 +99,15 @@ for the cores; 455 toggle points out of 92640 for the wrappers.
 ## Results
 
 Regression run on 2026-10-24, seed 1 (`scripts/cov/run_all.sh 4`, 242 runs,
-all closed). The tables come from `python3 scripts/cov/report.py`.
+all closed), with the PCIe, UCIe, ML_KEM and Ethernet_RS_FEC rows (core and
+wrapper) re-run on 2026-10-28 after their v3.0 / v1.0 changes, ML_KEM
+again on 2026-10-29 for v1.1, and Root_of_Trust and Ethernet_PCS added on
+2026-10-29. The tables come from
+`python3 scripts/cov/report.py`.
 
 ### Cores
 
-121/121 closed.
+125/125 closed.
 
 | IP | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
@@ -121,6 +150,8 @@ all closed). The tables come from `python3 scripts/cov/report.py`.
 | DisplayPort2 | 219/219 | 500/500 | 81/81 | 11/11 | 304/304 | pass |
 | Ethernet | 75/75 | 726/726 | 33/33 | 8/8 | 52/52 | pass |
 | Ethernet_AVB_TSN | 61/61 | 2336/2336 | n/a | 11/11 | 89/89 | pass |
+| Ethernet_PCS | 158/158 | 10332/10340 (+8 excl.) | 9/9 | 14/14 | 41/41 | pass |
+| Ethernet_RS_FEC | 86/86 | 8658/8658 | 14/14 | 15/15 | 24/24 | pass |
 | FC | 160/160 | 720/720 | 17/17 | 10/10 | 565/565 | pass |
 | FlexRay | 147/147 | 2312/2312 | 40/40 | 8/8 | 64/64 | pass |
 | GDDR5 | 100/104 (+4 excl.) | 1042/1364 (+322 excl.) | 24/24 | 25/25 | 67/67 | pass |
@@ -162,16 +193,18 @@ all closed). The tables come from `python3 scripts/cov/report.py`.
 | MIPI_SLIMbus | 74/74 | 748/748 | 8/8 | 16/16 | 83/83 | pass |
 | MIPI_SPMI | 86/86 | 756/756 | 23/23 | 7/7 | 98/98 | pass |
 | MIPI_SoundWire | 102/102 | 1024/1024 | 8/8 | 16/16 | 53/53 | pass |
+| ML_KEM | 553/556 (+3 excl.) | 7314/7448 (+134 excl.) | 31/31 | 23/23 | 54/54 | pass |
 | M_PHY | 119/120 (+1 excl.) | 392/392 | 16/16 | 8/8 | 286/286 | pass |
 | NVMe | 68/68 | 602/602 | 17/17 | 5/5 | 119/119 | pass |
 | OCP | 31/31 | 308/308 | 11/11 | 11/11 | 77/77 | pass |
 | OCP_IP_Open_Core_Protocol | 48/49 (+1 excl.) | 1086/1098 (+12 excl.) | 15/15 | 13/13 | 75/75 | pass |
 | ONFI | 119/119 | 458/458 | 17/17 | 5/5 | 61/61 | pass |
-| PCIe | 133/133 | 1146/1146 | 22/22 | 7/7 | 80/80 | pass |
+| PCIe | 192/192 | 1834/1838 (+4 excl.) | 22/22 | 8/8 | 128/128 | pass |
 | PWM | 11/11 | 256/276 (+20 excl.) | n/a | 5/5 | 29/29 | pass |
 | QSPI | 46/46 | 156/156 | n/a | 6/6 | 60/60 | pass |
 | RFFE | 70/70 | 236/236 | 16/16 | 10/10 | 83/83 | pass |
 | RGMII | 23/23 | 624/624 | n/a | 7/7 | 56/56 | pass |
+| Root_of_Trust | 169/170 (+1 excl.) | 4548/4548 | 46/46 | 16/16 | 57/57 | pass |
 | SAS | 142/142 | 1050/1050 | 50/50 | 6/6 | 64/64 | pass |
 | SAS_4__Serial_Attached_SCSI_ | 154/154 | 1618/1618 | 57/57 | 6/6 | 95/95 | pass |
 | SATA | 228/228 | 1474/1474 | 75/75 | 5/5 | 64/64 | pass |
@@ -183,7 +216,7 @@ all closed). The tables come from `python3 scripts/cov/report.py`.
 | Toggle_Mode_NAND | 98/98 | 246/246 | 31/31 | 7/7 | 75/75 | pass |
 | UALink | 70/70 | 1722/1722 | 8/8 | 5/5 | 108/108 | pass |
 | UART | 59/59 | 130/130 | 17/17 | 8/8 | 526/526 | pass |
-| UCIe | 33/33 | 738/738 | n/a | 5/5 | 67/67 | pass |
+| UCIe | 139/146 (+7 excl.) | 4540/4562 (+22 excl.) | 7/7 | 8/8 | 230/230 | pass |
 | UEC | 90/90 | 1132/1132 | n/a | 7/7 | 79/79 | pass |
 | UFS | 102/103 (+1 excl.) | 1156/1156 | 26/26 | 5/5 | 56/56 | pass |
 | USB | 234/234 | 910/910 | 47/47 | 4/4 | 56/56 | pass |
@@ -204,7 +237,7 @@ all closed). The tables come from `python3 scripts/cov/report.py`.
 | eMMC | 120/120 | 1622/1622 | 17/17 | 6/6 | 64/64 | pass |
 | eUSB2 | 107/108 (+1 excl.) | 394/394 | 16/16 | 6/6 | 74/74 | pass |
 
-Totals: line 11406/11516 (+110 excluded), toggle 123489/127254 (+3765 excluded), fsm 2500/2500, sva 1450/1450, functional 11320/11320.
+Totals: line 12537/12658 (+121 excluded), toggle 158831/162764 (+3933 excluded), fsm 2607/2607, sva 1522/1522, functional 11707/11707.
 
 For the IPs rebuilt last (UniPro, DisplayPort2, SAS-4, SATA, the clone
 rewrites and the memory family), the checker was also tested with deliberate
@@ -217,7 +250,7 @@ The wrapper's coverage scope is the wrapper alone (`u_core` is excluded),
 because the core is closed by its own run above. The wrapper has no state
 machine, so FSM is n/a.
 
-121/121 closed.
+125/125 closed.
 
 | APB wrapper | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
@@ -259,6 +292,8 @@ machine, so FSM is n/a.
 | DigRF_apb | 44/44 | 842/842 | n/a | 16/16 | 95/95 | pass |
 | DisplayPort2_apb | 22/22 | 558/558 | n/a | 7/7 | 33/33 | pass |
 | Ethernet_AVB_TSN_apb | 55/55 | 2140/2140 | n/a | 26/26 | 62/62 | pass |
+| Ethernet_PCS_apb | 156/156 | 5356/5356 | n/a | 44/44 | 211/211 | pass |
+| Ethernet_RS_FEC_apb | 124/124 | 5732/5732 | n/a | 35/35 | 167/167 | pass |
 | Ethernet_apb | 40/40 | 808/808 | n/a | 15/15 | 67/67 | pass |
 | FC_apb | 34/34 | 600/600 | n/a | 13/13 | 71/71 | pass |
 | FlexRay_apb | 50/50 | 1890/1890 | n/a | 24/24 | 95/95 | pass |
@@ -301,16 +336,18 @@ machine, so FSM is n/a.
 | MIPI_SLIMbus_apb | 40/40 | 996/996 | n/a | 18/18 | 72/72 | pass |
 | MIPI_SPMI_apb | 19/19 | 396/396 | n/a | 7/7 | 23/23 | pass |
 | MIPI_SoundWire_apb | 44/44 | 1114/1114 | n/a | 21/21 | 91/91 | pass |
+| ML_KEM_apb | 39/39 | 776/776 | n/a | 16/16 | 61/61 | pass |
 | M_PHY_apb | 36/36 | 542/542 | n/a | 14/14 | 60/60 | pass |
 | NVMe_apb | 32/32 | 868/868 | n/a | 14/14 | 43/43 | pass |
 | OCP_IP_Open_Core_Protocol_apb | 37/37 | 1074/1086 (+12 excl.) | n/a | 13/13 | 57/57 | pass |
 | OCP_apb | 19/19 | 612/612 | n/a | 7/7 | 23/23 | pass |
 | ONFI_apb | 40/40 | 818/818 | n/a | 15/15 | 72/72 | pass |
-| PCIe_apb | 34/34 | 628/628 | n/a | 12/12 | 91/91 | pass |
+| PCIe_apb | 34/34 | 640/640 | n/a | 14/14 | 91/91 | pass |
 | PWM_apb | 19/19 | 466/466 | n/a | 9/9 | 28/28 | pass |
 | QSPI_apb | 21/21 | 448/448 | n/a | 11/11 | 32/32 | pass |
 | RFFE_apb | 40/40 | 664/664 | n/a | 15/15 | 68/68 | pass |
 | RGMII_apb | 36/36 | 498/498 | n/a | 11/11 | 60/60 | pass |
+| Root_of_Trust_apb | 51/51 | 2034/2034 | n/a | 18/18 | 69/69 | pass |
 | SAS_4__Serial_Attached_SCSI__apb | 20/20 | 406/406 | n/a | 7/7 | 25/25 | pass |
 | SAS_apb | 19/19 | 402/402 | n/a | 7/7 | 23/23 | pass |
 | SATA_apb | 19/19 | 402/402 | n/a | 7/7 | 23/23 | pass |
@@ -322,7 +359,7 @@ machine, so FSM is n/a.
 | Toggle_Mode_NAND_apb | 20/20 | 426/426 | n/a | 7/7 | 25/25 | pass |
 | UALink_apb | 19/19 | 792/792 | n/a | 7/7 | 27/27 | pass |
 | UART_apb | 30/30 | 502/502 | n/a | 9/9 | 51/51 | pass |
-| UCIe_apb | 35/35 | 1332/1332 | n/a | 10/10 | 61/61 | pass |
+| UCIe_apb | 98/98 | 6914/6936 (+22 excl.) | n/a | 30/30 | 139/139 | pass |
 | UEC_apb | 37/37 | 720/720 | n/a | 14/14 | 69/69 | pass |
 | UFS_apb | 19/19 | 402/402 | n/a | 7/7 | 23/23 | pass |
 | USB2_0_apb | 20/20 | 402/402 | n/a | 7/7 | 25/25 | pass |
@@ -343,4 +380,4 @@ machine, so FSM is n/a.
 | eMMC_apb | 19/19 | 412/412 | n/a | 7/7 | 23/23 | pass |
 | eUSB2_apb | 20/20 | 406/406 | n/a | 7/7 | 25/25 | pass |
 
-Totals: line 3674/3674, toggle 92185/92640 (+455 excluded), fsm 0/0, sva 1335/1335, functional 5705/5705.
+Totals: line 4107/4107, toggle 111677/112154 (+477 excluded), fsm 0/0, sva 1470/1470, functional 6291/6291.

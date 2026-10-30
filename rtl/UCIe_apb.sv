@@ -11,7 +11,9 @@
 // ============================================================================
 module UCIe_apb #(
   parameter int RB = 8,
-  parameter int TO = 32
+  parameter int TO = 64,
+  parameter int NR = 4,
+  parameter int HT = 512
 ) (
   input  logic        PCLK,
   input  logic        PRESETN,
@@ -25,90 +27,241 @@ module UCIe_apb #(
   output logic        PREADY,
   output logic        PSLVERR,
   output logic        irq,
+  input logic phy_up,
+  output logic lp_retrain,
   output logic lt_valid,
-  output logic [89:0] lt_flit,
+  output logic [543:0] lt_flit,
   input logic lr_valid,
-  input logic [89:0] lr_flit
+  input logic [543:0] lr_flit,
+  output logic sb_tx_valid,
+  output logic [15:0] sb_tx_msg,
+  input logic sb_rx_valid,
+  input logic [15:0] sb_rx_msg
 );
-  localparam logic [31:0] ID_VALUE = 32'h55430200;
+  localparam logic [31:0] ID_VALUE = 32'h55430300;
 
   // ---------------- APB decode ----------------
   wire        acc     = PSEL & PENABLE;
   wire        wr      = acc & PWRITE;
   wire        rd      = acc & ~PWRITE;
   wire [31:0] wmask   = {{8{PSTRB[3]}}, {8{PSTRB[2]}}, {8{PSTRB[1]}}, {8{PSTRB[0]}}};
-  logic [9:0] hit;
+  logic [40:0] hit;
   always_comb begin
     hit = '0;
-    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd10) hit[PADDR[11:2]] = 1'b1;
+    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd41) hit[PADDR[11:2]] = 1'b1;
   end
   assign PREADY  = acc;
   assign PSLVERR = acc & ~|hit;
 
   // ---------------- core ----------------
+  logic          c_link_en;
+  logic          c_cfg_retry;
+  logic          c_cfg_stack1;
+  logic          c_cfg_l1_ok;
+  logic          c_pm_req;
   logic          c_tx_valid;
-  logic [63:0]   c_tx_data;
+  logic          c_tx_stack;
+  logic [511:0]  c_tx_data;
   logic          c_tx_ready;
   logic          c_rx_valid;
-  logic [63:0]   c_rx_data;
+  logic          c_rx_stack;
+  logic [511:0]  c_rx_data;
+  logic [2:0]    c_state;
+  logic [1:0]    c_cap;
   logic [3:0]    c_tx_pend;
   logic          c_ev_crc;
   logic          c_ev_replay;
-  UCIe_top #(.RB(RB), .TO(TO)) u_core (
+  logic          c_ev_retrain;
+  logic          c_ev_pmnak;
+  logic          c_ev_proto;
+  logic          c_ev_lerr;
+  UCIe_top #(.RB(RB), .TO(TO), .NR(NR), .HT(HT)) u_core (
     .clk(PCLK),
     .rst_n(PRESETN),
+    .link_en(c_link_en),
+    .cfg_retry(c_cfg_retry),
+    .cfg_stack1(c_cfg_stack1),
+    .cfg_l1_ok(c_cfg_l1_ok),
+    .pm_req(c_pm_req),
     .tx_valid(c_tx_valid),
+    .tx_stack(c_tx_stack),
     .tx_data(c_tx_data),
     .tx_ready(c_tx_ready),
     .rx_valid(c_rx_valid),
+    .rx_stack(c_rx_stack),
     .rx_data(c_rx_data),
+    .phy_up(phy_up),
+    .lp_retrain(lp_retrain),
     .lt_valid(lt_valid),
     .lt_flit(lt_flit),
     .lr_valid(lr_valid),
     .lr_flit(lr_flit),
+    .sb_tx_valid(sb_tx_valid),
+    .sb_tx_msg(sb_tx_msg),
+    .sb_rx_valid(sb_rx_valid),
+    .sb_rx_msg(sb_rx_msg),
+    .state(c_state),
+    .cap(c_cap),
     .tx_pend(c_tx_pend),
     .ev_crc(c_ev_crc),
-    .ev_replay(c_ev_replay)
+    .ev_replay(c_ev_replay),
+    .ev_retrain(c_ev_retrain),
+    .ev_pmnak(c_ev_pmnak),
+    .ev_proto(c_ev_proto),
+    .ev_lerr(c_ev_lerr)
   );
 
   // ---------------- registers ----------------
-  logic [5:0] irq_status, irq_enable, irq_set;
+  logic [9:0] irq_status, irq_enable, irq_set;
   logic [31:0] scratch;
-  logic [31:0] h_TX0;   // 12'h014 TX0 holding register
-  logic [31:0] h_TX1;   // 12'h018 TX1 holding register
-  logic [31:0] h_RX0;   // 12'h01C RX0 holding register
-  logic [31:0] h_RX1;   // 12'h020 RX1 holding register
+  logic [4:0] r_CTRL;   // 12'h014 CTRL
+  logic [31:0] h_TX0;   // 12'h018 TX0 holding register
+  logic [31:0] h_TX1;   // 12'h01C TX1 holding register
+  logic [31:0] h_TX2;   // 12'h020 TX2 holding register
+  logic [31:0] h_TX3;   // 12'h024 TX3 holding register
+  logic [31:0] h_TX4;   // 12'h028 TX4 holding register
+  logic [31:0] h_TX5;   // 12'h02C TX5 holding register
+  logic [31:0] h_TX6;   // 12'h030 TX6 holding register
+  logic [31:0] h_TX7;   // 12'h034 TX7 holding register
+  logic [31:0] h_TX8;   // 12'h038 TX8 holding register
+  logic [31:0] h_TX9;   // 12'h03C TX9 holding register
+  logic [31:0] h_TX10;   // 12'h040 TX10 holding register
+  logic [31:0] h_TX11;   // 12'h044 TX11 holding register
+  logic [31:0] h_TX12;   // 12'h048 TX12 holding register
+  logic [31:0] h_TX13;   // 12'h04C TX13 holding register
+  logic [31:0] h_TX14;   // 12'h050 TX14 holding register
+  logic [31:0] h_TX15;   // 12'h054 TX15 holding register
+  logic [0:0] h_TX16;   // 12'h058 TX16 holding register
+  logic [31:0] h_RX0;   // 12'h05C RX0 holding register
+  logic [31:0] h_RX1;   // 12'h060 RX1 holding register
+  logic [31:0] h_RX2;   // 12'h064 RX2 holding register
+  logic [31:0] h_RX3;   // 12'h068 RX3 holding register
+  logic [31:0] h_RX4;   // 12'h06C RX4 holding register
+  logic [31:0] h_RX5;   // 12'h070 RX5 holding register
+  logic [31:0] h_RX6;   // 12'h074 RX6 holding register
+  logic [31:0] h_RX7;   // 12'h078 RX7 holding register
+  logic [31:0] h_RX8;   // 12'h07C RX8 holding register
+  logic [31:0] h_RX9;   // 12'h080 RX9 holding register
+  logic [31:0] h_RX10;   // 12'h084 RX10 holding register
+  logic [31:0] h_RX11;   // 12'h088 RX11 holding register
+  logic [31:0] h_RX12;   // 12'h08C RX12 holding register
+  logic [31:0] h_RX13;   // 12'h090 RX13 holding register
+  logic [31:0] h_RX14;   // 12'h094 RX14 holding register
+  logic [31:0] h_RX15;   // 12'h098 RX15 holding register
+  logic [0:0] h_RX16;   // 12'h09C RX16 holding register
   logic full_TX;
   logic avail_RX;
 
   always_ff @(posedge PCLK or negedge PRESETN) begin
     if (!PRESETN) begin
       irq_status <= '0; irq_enable <= '0; scratch <= '0;
+      r_CTRL <= 5'hE;
       h_TX0 <= '0;
       h_TX1 <= '0;
+      h_TX2 <= '0;
+      h_TX3 <= '0;
+      h_TX4 <= '0;
+      h_TX5 <= '0;
+      h_TX6 <= '0;
+      h_TX7 <= '0;
+      h_TX8 <= '0;
+      h_TX9 <= '0;
+      h_TX10 <= '0;
+      h_TX11 <= '0;
+      h_TX12 <= '0;
+      h_TX13 <= '0;
+      h_TX14 <= '0;
+      h_TX15 <= '0;
+      h_TX16 <= '0;
       h_RX0 <= '0;
       h_RX1 <= '0;
+      h_RX2 <= '0;
+      h_RX3 <= '0;
+      h_RX4 <= '0;
+      h_RX5 <= '0;
+      h_RX6 <= '0;
+      h_RX7 <= '0;
+      h_RX8 <= '0;
+      h_RX9 <= '0;
+      h_RX10 <= '0;
+      h_RX11 <= '0;
+      h_RX12 <= '0;
+      h_RX13 <= '0;
+      h_RX14 <= '0;
+      h_RX15 <= '0;
+      h_RX16 <= '0;
       full_TX <= 1'b0;
       avail_RX <= 1'b0;
     end else begin
-      irq_status <= (irq_status & ~((wr && hit[1]) ? PWDATA[5:0] & wmask[5:0] : '0)) | irq_set;
-      if (wr && hit[2]) irq_enable <= (irq_enable & ~wmask[5:0]) | (PWDATA[5:0] & wmask[5:0]);
+      irq_status <= (irq_status & ~((wr && hit[1]) ? PWDATA[9:0] & wmask[9:0] : '0)) | irq_set;
+      if (wr && hit[2]) irq_enable <= (irq_enable & ~wmask[9:0]) | (PWDATA[9:0] & wmask[9:0]);
       if (wr && hit[4]) scratch <= (scratch & ~wmask) | (PWDATA & wmask);
-      if (wr && hit[5] && !full_TX) h_TX0 <= (h_TX0 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
-      if (wr && hit[6] && !full_TX) h_TX1 <= (h_TX1 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
-      if (wr && hit[6] && !full_TX) full_TX <= 1'b1;
+      if (wr && hit[5]) r_CTRL <= (r_CTRL & ~wmask[4:0]) | (PWDATA[4:0] & wmask[4:0]);
+      if (wr && hit[6] && !full_TX) h_TX0 <= (h_TX0 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
+      if (wr && hit[7] && !full_TX) h_TX1 <= (h_TX1 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
+      if (wr && hit[8] && !full_TX) h_TX2 <= (h_TX2 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
+      if (wr && hit[9] && !full_TX) h_TX3 <= (h_TX3 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
+      if (wr && hit[10] && !full_TX) h_TX4 <= (h_TX4 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
+      if (wr && hit[11] && !full_TX) h_TX5 <= (h_TX5 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
+      if (wr && hit[12] && !full_TX) h_TX6 <= (h_TX6 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
+      if (wr && hit[13] && !full_TX) h_TX7 <= (h_TX7 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
+      if (wr && hit[14] && !full_TX) h_TX8 <= (h_TX8 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
+      if (wr && hit[15] && !full_TX) h_TX9 <= (h_TX9 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
+      if (wr && hit[16] && !full_TX) h_TX10 <= (h_TX10 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
+      if (wr && hit[17] && !full_TX) h_TX11 <= (h_TX11 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
+      if (wr && hit[18] && !full_TX) h_TX12 <= (h_TX12 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
+      if (wr && hit[19] && !full_TX) h_TX13 <= (h_TX13 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
+      if (wr && hit[20] && !full_TX) h_TX14 <= (h_TX14 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
+      if (wr && hit[21] && !full_TX) h_TX15 <= (h_TX15 & ~wmask[31:0]) | (PWDATA[31:0] & wmask[31:0]);
+      if (wr && hit[22] && !full_TX) h_TX16 <= (h_TX16 & ~wmask[0:0]) | (PWDATA[0:0] & wmask[0:0]);
+      if (wr && hit[22] && !full_TX) full_TX <= 1'b1;
       else if (full_TX && c_tx_ready) full_TX <= 1'b0;
-      if (c_rx_valid && (!avail_RX || (rd && hit[8]))) begin
+      if (c_rx_valid && (!avail_RX || (rd && hit[39]))) begin
         h_RX0[31:0] <= c_rx_data[31:0];
         h_RX1[31:0] <= c_rx_data[63:32];
+        h_RX2[31:0] <= c_rx_data[95:64];
+        h_RX3[31:0] <= c_rx_data[127:96];
+        h_RX4[31:0] <= c_rx_data[159:128];
+        h_RX5[31:0] <= c_rx_data[191:160];
+        h_RX6[31:0] <= c_rx_data[223:192];
+        h_RX7[31:0] <= c_rx_data[255:224];
+        h_RX8[31:0] <= c_rx_data[287:256];
+        h_RX9[31:0] <= c_rx_data[319:288];
+        h_RX10[31:0] <= c_rx_data[351:320];
+        h_RX11[31:0] <= c_rx_data[383:352];
+        h_RX12[31:0] <= c_rx_data[415:384];
+        h_RX13[31:0] <= c_rx_data[447:416];
+        h_RX14[31:0] <= c_rx_data[479:448];
+        h_RX15[31:0] <= c_rx_data[511:480];
+        h_RX16 <= c_rx_stack;
         avail_RX <= 1'b1;
-      end else if (rd && hit[8]) avail_RX <= 1'b0;
+      end else if (rd && hit[39]) avail_RX <= 1'b0;
     end
   end
 
   // ---------------- core inputs ----------------
+  assign c_link_en = r_CTRL[0:0];
+  assign c_cfg_retry = r_CTRL[1:1];
+  assign c_cfg_stack1 = r_CTRL[2:2];
+  assign c_cfg_l1_ok = r_CTRL[3:3];
+  assign c_pm_req = r_CTRL[4:4];
   assign c_tx_data[31:0] = h_TX0[31:0];
   assign c_tx_data[63:32] = h_TX1[31:0];
+  assign c_tx_data[95:64] = h_TX2[31:0];
+  assign c_tx_data[127:96] = h_TX3[31:0];
+  assign c_tx_data[159:128] = h_TX4[31:0];
+  assign c_tx_data[191:160] = h_TX5[31:0];
+  assign c_tx_data[223:192] = h_TX6[31:0];
+  assign c_tx_data[255:224] = h_TX7[31:0];
+  assign c_tx_data[287:256] = h_TX8[31:0];
+  assign c_tx_data[319:288] = h_TX9[31:0];
+  assign c_tx_data[351:320] = h_TX10[31:0];
+  assign c_tx_data[383:352] = h_TX11[31:0];
+  assign c_tx_data[415:384] = h_TX12[31:0];
+  assign c_tx_data[447:416] = h_TX13[31:0];
+  assign c_tx_data[479:448] = h_TX14[31:0];
+  assign c_tx_data[511:480] = h_TX15[31:0];
+  assign c_tx_stack = h_TX16;
   assign c_tx_valid = full_TX;
 
   // ---------------- interrupts and flags ----------------
@@ -116,10 +269,14 @@ module UCIe_apb #(
     irq_set = '0;
     irq_set[0] = c_ev_crc;
     irq_set[1] = c_ev_replay;
-    irq_set[2] = full_TX & c_tx_ready;
-    irq_set[3] = wr & (hit[5] | hit[6]) & full_TX;
-    irq_set[4] = c_rx_valid & (~avail_RX | (rd & hit[8]));
-    irq_set[5] = c_rx_valid & avail_RX & ~(rd & hit[8]);
+    irq_set[2] = c_ev_retrain;
+    irq_set[3] = c_ev_pmnak;
+    irq_set[4] = c_ev_proto;
+    irq_set[5] = c_ev_lerr;
+    irq_set[6] = full_TX & c_tx_ready;
+    irq_set[7] = wr & (hit[6] | hit[7] | hit[8] | hit[9] | hit[10] | hit[11] | hit[12] | hit[13] | hit[14] | hit[15] | hit[16] | hit[17] | hit[18] | hit[19] | hit[20] | hit[21] | hit[22]) & full_TX;
+    irq_set[8] = c_rx_valid & (~avail_RX | (rd & hit[39]));
+    irq_set[9] = c_rx_valid & avail_RX & ~(rd & hit[39]);
   end
   assign irq = |(irq_status & irq_enable);
   wire [1:0] flags = {avail_RX, full_TX};
@@ -134,11 +291,42 @@ module UCIe_apb #(
       10'd2: apb_rdata = 32'(irq_enable);
       10'd3: apb_rdata = 32'(flags);
       10'd4: apb_rdata = scratch;
-      10'd5: apb_rdata = 32'(h_TX0);
-      10'd6: apb_rdata = 32'(h_TX1);
-      10'd7: apb_rdata = 32'(h_RX0);
-      10'd8: apb_rdata = 32'(h_RX1);
-      10'd9: apb_rdata = 32'({c_tx_pend});
+      10'd5: apb_rdata = 32'(r_CTRL);
+      10'd6: apb_rdata = 32'(h_TX0);
+      10'd7: apb_rdata = 32'(h_TX1);
+      10'd8: apb_rdata = 32'(h_TX2);
+      10'd9: apb_rdata = 32'(h_TX3);
+      10'd10: apb_rdata = 32'(h_TX4);
+      10'd11: apb_rdata = 32'(h_TX5);
+      10'd12: apb_rdata = 32'(h_TX6);
+      10'd13: apb_rdata = 32'(h_TX7);
+      10'd14: apb_rdata = 32'(h_TX8);
+      10'd15: apb_rdata = 32'(h_TX9);
+      10'd16: apb_rdata = 32'(h_TX10);
+      10'd17: apb_rdata = 32'(h_TX11);
+      10'd18: apb_rdata = 32'(h_TX12);
+      10'd19: apb_rdata = 32'(h_TX13);
+      10'd20: apb_rdata = 32'(h_TX14);
+      10'd21: apb_rdata = 32'(h_TX15);
+      10'd22: apb_rdata = 32'(h_TX16);
+      10'd23: apb_rdata = 32'(h_RX0);
+      10'd24: apb_rdata = 32'(h_RX1);
+      10'd25: apb_rdata = 32'(h_RX2);
+      10'd26: apb_rdata = 32'(h_RX3);
+      10'd27: apb_rdata = 32'(h_RX4);
+      10'd28: apb_rdata = 32'(h_RX5);
+      10'd29: apb_rdata = 32'(h_RX6);
+      10'd30: apb_rdata = 32'(h_RX7);
+      10'd31: apb_rdata = 32'(h_RX8);
+      10'd32: apb_rdata = 32'(h_RX9);
+      10'd33: apb_rdata = 32'(h_RX10);
+      10'd34: apb_rdata = 32'(h_RX11);
+      10'd35: apb_rdata = 32'(h_RX12);
+      10'd36: apb_rdata = 32'(h_RX13);
+      10'd37: apb_rdata = 32'(h_RX14);
+      10'd38: apb_rdata = 32'(h_RX15);
+      10'd39: apb_rdata = 32'(h_RX16);
+      10'd40: apb_rdata = 32'({c_tx_pend, c_cap, c_state});
       default: apb_rdata = '0;
     endcase
   end

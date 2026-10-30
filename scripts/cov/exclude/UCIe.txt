@@ -1,0 +1,5 @@
+TOGGLE \.sb_tx_msg\[(1[1-5])\]: # constant 0: message codes are 01..07, so CODE[7:3] is always 0
+TOGGLE \.sb_tx_msg\[[2-7]\]: # constant 0: DATA[7:2] is reserved and sent as 0 (only AdvCap / FinCap use DATA[1:0])
+LINE function automatic logic \[16\*528\+15:0\] crc_net # constant function: runs once at elaboration to build the CRC XOR network (CRC_NET), never at simulation time
+LINE m\[528 \* k \+: 528\] # constant function crc_net: elaboration time only
+LINE for \(int i = 527; i >= 0; i--\) begin # constant function crc_net: elaboration time only

@@ -14,33 +14,74 @@ module UCIe_apb_tb;
   logic [3:0]  PSTRB = 0;
   wire  [31:0] PRDATA;
   wire         PREADY, PSLVERR, irq;
+  logic          phy_up;
+  wire           lp_retrain;
   wire           lt_valid;
-  wire  [89:0]   lt_flit;
+  wire  [543:0]  lt_flit;
   logic          lr_valid;
-  logic [89:0]   lr_flit;
+  logic [543:0]  lr_flit;
+  wire           sb_tx_valid;
+  wire  [15:0]   sb_tx_msg;
+  logic          sb_rx_valid;
+  logic [15:0]   sb_rx_msg;
   UCIe_apb dut (.*);
   always #5 PCLK = ~PCLK;
 
-  localparam logic [31:0] ID_VALUE = 32'h55430200;
+  localparam logic [31:0] ID_VALUE = 32'h55430300;
   localparam logic [11:0] A_ID = 12'h000;
   localparam logic [11:0] A_IRQ_STATUS = 12'h004;
   localparam logic [11:0] A_IRQ_ENABLE = 12'h008;
   localparam logic [11:0] A_FLAGS = 12'h00C;
   localparam logic [11:0] A_SCRATCH = 12'h010;
-  localparam logic [11:0] A_TX0 = 12'h014;
-  localparam logic [11:0] A_TX1 = 12'h018;
-  localparam logic [11:0] A_RX0 = 12'h01C;
-  localparam logic [11:0] A_RX1 = 12'h020;
-  localparam logic [11:0] A_STATUS = 12'h024;
+  localparam logic [11:0] A_CTRL = 12'h014;
+  localparam logic [11:0] A_TX0 = 12'h018;
+  localparam logic [11:0] A_TX1 = 12'h01C;
+  localparam logic [11:0] A_TX2 = 12'h020;
+  localparam logic [11:0] A_TX3 = 12'h024;
+  localparam logic [11:0] A_TX4 = 12'h028;
+  localparam logic [11:0] A_TX5 = 12'h02C;
+  localparam logic [11:0] A_TX6 = 12'h030;
+  localparam logic [11:0] A_TX7 = 12'h034;
+  localparam logic [11:0] A_TX8 = 12'h038;
+  localparam logic [11:0] A_TX9 = 12'h03C;
+  localparam logic [11:0] A_TX10 = 12'h040;
+  localparam logic [11:0] A_TX11 = 12'h044;
+  localparam logic [11:0] A_TX12 = 12'h048;
+  localparam logic [11:0] A_TX13 = 12'h04C;
+  localparam logic [11:0] A_TX14 = 12'h050;
+  localparam logic [11:0] A_TX15 = 12'h054;
+  localparam logic [11:0] A_TX16 = 12'h058;
+  localparam logic [11:0] A_RX0 = 12'h05C;
+  localparam logic [11:0] A_RX1 = 12'h060;
+  localparam logic [11:0] A_RX2 = 12'h064;
+  localparam logic [11:0] A_RX3 = 12'h068;
+  localparam logic [11:0] A_RX4 = 12'h06C;
+  localparam logic [11:0] A_RX5 = 12'h070;
+  localparam logic [11:0] A_RX6 = 12'h074;
+  localparam logic [11:0] A_RX7 = 12'h078;
+  localparam logic [11:0] A_RX8 = 12'h07C;
+  localparam logic [11:0] A_RX9 = 12'h080;
+  localparam logic [11:0] A_RX10 = 12'h084;
+  localparam logic [11:0] A_RX11 = 12'h088;
+  localparam logic [11:0] A_RX12 = 12'h08C;
+  localparam logic [11:0] A_RX13 = 12'h090;
+  localparam logic [11:0] A_RX14 = 12'h094;
+  localparam logic [11:0] A_RX15 = 12'h098;
+  localparam logic [11:0] A_RX16 = 12'h09C;
+  localparam logic [11:0] A_STATUS = 12'h0A0;
   localparam int IRQ_CRC = 0;
   localparam int IRQ_REPLAY = 1;
-  localparam int IRQ_TX_DONE = 2;
-  localparam int IRQ_TX_OVF = 3;
-  localparam int IRQ_RX_AVAIL = 4;
-  localparam int IRQ_RX_OVF = 5;
+  localparam int IRQ_RETRAIN = 2;
+  localparam int IRQ_PMNAK = 3;
+  localparam int IRQ_PROTO = 4;
+  localparam int IRQ_LINKERR = 5;
+  localparam int IRQ_TX_DONE = 6;
+  localparam int IRQ_TX_OVF = 7;
+  localparam int IRQ_RX_AVAIL = 8;
+  localparam int IRQ_RX_OVF = 9;
   localparam int FLAG_TX_FULL = 0;
   localparam int FLAG_RX_AVAIL = 1;
-  localparam logic [31:0] IRQ_ALL = 32'h3F;
+  localparam logic [31:0] IRQ_ALL = 32'h3FF;
 
   int errors = 0;
   function automatic void fail(input string m);
@@ -128,8 +169,24 @@ module UCIe_apb_tb;
     rd_exp(A_ID, ID_VALUE);
     rd_exp(A_IRQ_ENABLE, 0);
     rd_exp(A_SCRATCH, 0);
+    rd_exp(A_CTRL, 32'hE);
     rd_exp(A_TX0, 0);
     rd_exp(A_TX1, 0);
+    rd_exp(A_TX2, 0);
+    rd_exp(A_TX3, 0);
+    rd_exp(A_TX4, 0);
+    rd_exp(A_TX5, 0);
+    rd_exp(A_TX6, 0);
+    rd_exp(A_TX7, 0);
+    rd_exp(A_TX8, 0);
+    rd_exp(A_TX9, 0);
+    rd_exp(A_TX10, 0);
+    rd_exp(A_TX11, 0);
+    rd_exp(A_TX12, 0);
+    rd_exp(A_TX13, 0);
+    rd_exp(A_TX14, 0);
+    rd_exp(A_TX15, 0);
+    rd_exp(A_TX16, 0);
   endtask
 
   task automatic reg_tests;
@@ -138,8 +195,24 @@ module UCIe_apb_tb;
     wr(A_FLAGS, 32'hFFFF_FFFF);
     rw_test(A_SCRATCH, 32'hFFFF_FFFF, 0);
     rw_test(A_IRQ_ENABLE, IRQ_ALL, 0);
+    rw_test(A_CTRL, 32'h1F, 32'hE);
     wr(A_RX0, 32'hFFFF_FFFF);                     // read-only: ignored
     wr(A_RX1, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RX2, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RX3, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RX4, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RX5, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RX6, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RX7, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RX8, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RX9, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RX10, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RX11, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RX12, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RX13, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RX14, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RX15, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RX16, 32'hFFFF_FFFF);                     // read-only: ignored
     wr(A_STATUS, 32'hFFFF_FFFF);                     // read-only: ignored
     // unmapped and misaligned: PSLVERR, read data 0, no side effects
     wr(A_SCRATCH, 32'h5A5A_A5A5);
@@ -148,9 +221,7 @@ module UCIe_apb_tb;
     bad(0, 12'h003); bad(1, 12'h003);
     bad(0, 12'h011); bad(1, 12'h011);
     bad(0, 12'h013); bad(1, 12'h013);
-    bad(0, 12'h028); bad(1, 12'h028);
-    bad(0, 12'h040); bad(1, 12'h040);
-    bad(0, 12'h080); bad(1, 12'h080);
+    bad(0, 12'h0A4); bad(1, 12'h0A4);
     bad(0, 12'h100); bad(1, 12'h100);
     bad(0, 12'h200); bad(1, 12'h200);
     bad(0, 12'h400); bad(1, 12'h400);
@@ -183,7 +254,7 @@ module UCIe_apb_tb;
   end
 
   initial begin
-    #20ms;
+    #40ms;
     $display("TEST FAILED: UCIe_apb (timeout)");
     $finish;
   end

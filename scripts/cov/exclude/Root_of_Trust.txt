@@ -1,0 +1,1 @@
+LINE \| default: begin ms <= M_ESC; alert <= 1'b1; alert_code <= A_FAULT; end # defensive default: unused state encodings (a state register upset by a fault) go to escalation with alert 7

@@ -1,0 +1,8 @@
+# Ethernet_PCS synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/Ethernet_PCS_top.sv ../rtl/Ethernet_RS_FEC_top.sv
+hierarchy -check -top Ethernet_PCS_top
+proc; opt; fsm; opt; memory -nomap; opt
+techmap; opt
+stat
+write_json Ethernet_PCS_top.json
+write_verilog Ethernet_PCS_top_netlist.v
