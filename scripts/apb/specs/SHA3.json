@@ -1,0 +1,76 @@
+{
+  "title": "SHA-3 / SHAKE hash engine (FIPS 202): SHA3-224, SHA3-256, SHA3-384, SHA3-512, SHAKE128 and SHAKE256 on one Keccak-f[1600] core at one round per clock, 64-bit message and digest streams",
+  "code": "0x5333",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "100ms",
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Hash mode",
+      "fields": [
+        {"port": "mode", "reset": "1", "desc": "0 SHA3-224, 1 SHA3-256, 2 SHA3-384, 3 SHA3-512, 4 SHAKE128, 5 SHAKE256 (6 and 7 are refused with ERR and wipe the state)"}
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {"port": "start", "desc": "clear the state and open a message in CTRL.mode (abandons a running message or output stream)"}
+      ]
+    },
+    {
+      "name": "MSG",
+      "kind": "stream_in",
+      "data": ["in_data", "in_bytes", "in_last"],
+      "valid": "in_valid",
+      "ready": "in_ready",
+      "desc": "Message word: MSG0 = bytes 3..0, MSG1 = bytes 7..4 (little-endian), then MSG2 = {last, bytes}, which commits it",
+      "fdesc": {"in_data": "message bytes, byte 0 in bits 7:0", "in_bytes": "valid bytes, 8 except in the last word (0..8)", "in_last": "last word of the message"}
+    },
+    {
+      "name": "DIGEST",
+      "kind": "stream_out",
+      "data": ["out_data", "out_last"],
+      "valid": "out_valid",
+      "ready": "out_ready",
+      "desc": "Digest / SHAKE output word: DIGEST0 = bytes 3..0, DIGEST1 = bytes 7..4, DIGEST2 = last flag; reading DIGEST2 pops it",
+      "fdesc": {"out_data": "output bytes, byte 0 in bits 7:0", "out_last": "last word of a SHA3 digest (never set for SHAKE)"}
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Engine state",
+      "fields": [
+        {"port": "busy", "desc": "a message or an output stream is open"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "DONE", "port": "done", "desc": "the last digest word was read"},
+    {"name": "ERR", "port": "err", "desc": "a message word was refused (short without last, or more than 8 bytes) or start had a reserved mode"}
+  ],
+  "features": [
+    "All six FIPS 202 functions on one Keccak-f[1600] permutation at one round per clock (24 clocks a block).",
+    "64-bit lane-wide message and digest streams with valid / ready; one clock per message word, so a rate block of SHA3-256 (17 words) takes 17 + 24 clocks: about 3.3 bytes per clock.",
+    "Messages of any length in bytes: the last word carries 0..8 valid bytes; padding (domain bits and pad10*1) is done in hardware, including the case where it needs a block of its own.",
+    "SHAKE128 / SHAKE256 give an endless output stream (any output length), permuting again after every rate block.",
+    "The 1600-bit state is cleared after a digest has been read, on every start and on reset; a start with a reserved mode wipes a SHAKE state without opening a message."
+  ],
+  "notes": [
+    "SHA3-224 gives four DIGEST words; the upper 32 bits of the fourth are zero.",
+    "cSHAKE, KMAC and TupleHash (SP 800-185) are SHAKE with an encoded prefix: the host can build them by streaming the encoded strings first (cSHAKE also changes the domain bits, which this core does not offer).",
+    "Not implemented: more than one round per clock; masking against power analysis."
+  ],
+  "sequence": [
+    "CTRL.mode = function, CMD.start = 1.",
+    "For each message word: wait for FLAGS.MSG_FULL = 0, write MSG0, MSG1, then MSG2 = bytes | last << 4 (bytes = 8 except in the last word; an empty message is one word with bytes 0 and last).",
+    "Read the output: wait for FLAGS.DIGEST_AVAIL, read DIGEST0, DIGEST1, DIGEST2 (DIGEST2 pops the word); for SHA3, IRQ_STATUS.DONE follows the word with last set. For SHAKE read as many words as needed, then start the next message (or CMD.start with a reserved mode to wipe the state)."
+  ],
+  "verification": [
+    "Core: tb/SHA3_tb.sv runs 214 cases from scripts/sha3/gen_vec.py (Python hashlib: every message length class around the rate of each function, both encodings of a message that fills its last word, SHAKE streams over several blocks) three times with different input gaps and output back-pressure, junk above the valid bytes, refused words in the middle of a message, start in every state, reserved modes and resets in the middle of a hash.",
+    "The core checker has its own Keccak-f[1600] built from FIPS 202 (round constants from the rc(t) LFSR, rho offsets from the (x, y) walk) and predicts every output word, the ready / valid timing, busy, done and err on every clock, and that the state is clear whenever the core is idle."
+  ]
+}
