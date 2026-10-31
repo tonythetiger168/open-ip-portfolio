@@ -256,7 +256,7 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/ML_DSA_top.sv` | pass | 655/655 (+4 excl.) | 10202/10202 (+615 excl.) | 43/43 | 35/35 | 78/78 |
+| core `rtl/ML_DSA_top.sv` | pass | 655/655 (+4 excl.) | 10202/10202 (+615 excl.) | 43/43 | 36/36 | 78/78 |
 | wrapper `rtl/ML_DSA_apb.sv` | pass | 42/42 | 884/884 (+26 excl.) | n/a | 18/18 | 63/63 |
 
 Test vectors (tb/ML_DSA_vec.hex, `make -f Makefile.ML_DSA vec ACVP=...` rebuilds them): random cases from the FIPS 204 model scripts/mldsa/mldsa_ref.py (per parameter set a KeyGen, a deterministic and a hedged Sign, external mu, Verify of valid signatures and of ones with a modified c~, z, hint encoding or message; for ML-DSA-44 Sign cases picked for the rare rejections: too many hints, exactly omega hints, ||c t0|| above and exactly at gamma2, an empty and the longest M') and NIST ACVP cases (one per internal-interface group of the keyGen, sigGen and sigVer files). The model itself passes all 615 vectors of those NIST ACVP files.
