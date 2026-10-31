@@ -1,0 +1,2 @@
+# ML_DSA_apb coverage exclusions: METRIC regex # justification
+TOGGLE \.c_tries\[([3-9]|1[0-5])\]: # core attempt counter high bits: 8 or more Sign attempts need a rare message; the wrapper's tests reach 4 attempts (the core is covered on its own)

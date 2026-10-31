@@ -55,8 +55,8 @@ partially-encoded enum, a tie-off that is constant by construction, and the
 upper bits of a counter whose largest load is below the next power of two.
 FSM, SVA and functional coverage have no exclusions.
 
-Totals: 122 line points out of 12862 and 3939 toggle points out of 168008
-for the cores; 479 toggle points out of 112562 for the wrappers.
+Totals: 126 line points out of 13675 and 4564 toggle points out of 193530
+for the cores; 505 toggle points out of 118762 for the wrappers.
 
 Verilator leaves signals wider than 256 bits out of toggle coverage by
 default. An IP with wider buses (UCIe: 544-bit flits, Ethernet_RS_FEC:
@@ -90,6 +90,19 @@ core and wrapper runs, so those bits are scored too.
 * The Root_of_Trust line exclusion is the `default:` item of its control
   state machine: it can only be reached through a fault in the state
   register, and it raises alert 7 and stops the core.
+* The 615 ML_DSA toggle exclusions are bits of values fixed by the FIPS 204
+  parameter sets (k, l, eta, gamma1, gamma2, beta, tau, omega and the byte
+  lengths and buffer addresses derived from them, the hash areas and
+  rates, the polynomial slot groups), and the high bits of the Sign attempt
+  counter and of kappa: 8 or more attempts need a rare message and about
+  0.4M clocks each, while the retry path is covered with up to 4 attempts.
+  Its 4 line exclusions are three defensive `default:` items and zeta
+  index 0, which the NTT never uses. The wrapper excludes the same attempt
+  counter bits (26 points).
+* The 10 SHA3 toggle exclusions are constant bits: the domain byte is
+  0x06 (SHA3) or 0x1F (SHAKE), so bits 1 and 2 never fall and bits 5-7
+  never rise; and bit 1 of the last rate lane (17, 16, 12, 8, 20 or 16) is
+  always clear.
 * TRNG: the line exclusion is the same kind of `default:` item (unused
   state encodings go to FAIL with an alert). The three toggle exclusions
   are bit 10 of the adaptive proportion count, its next value and its
@@ -108,18 +121,19 @@ Regression run on 2026-10-24, seed 1 (`scripts/cov/run_all.sh 4`, 242 runs,
 all closed), with the PCIe, UCIe, ML_KEM and Ethernet_RS_FEC rows (core and
 wrapper) re-run on 2026-10-28 after their v3.0 / v1.0 changes, ML_KEM
 again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
-2026-10-29, and TRNG added on 2026-10-30 (from the CI coverage job). The
-tables come from
+2026-10-29, and SHA3, AES_GCM and ML_DSA added on 2026-10-30, and TRNG
+(from the CI coverage job) on 2026-10-31. The tables come from
 `python3 scripts/cov/report.py`.
 
 ### Cores
 
-126/126 closed.
+129/129 closed.
 
 | IP | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
 | ACE | 59/61 (+2 excl.) | 1122/1128 (+6 excl.) | 17/17 | 16/16 | 78/78 | pass |
 | ACE_Lite | 40/41 (+1 excl.) | 588/592 (+4 excl.) | 10/10 | 15/15 | 125/125 | pass |
+| AES_GCM | 92/92 | 8438/8438 | 8/8 | 19/19 | 57/57 | pass |
 | AHB | 26/28 (+2 excl.) | 298/298 | 6/6 | 12/12 | 51/51 | pass |
 | APB | 21/21 | 288/288 | 6/6 | 14/14 | 45/45 | pass |
 | ARM_Local_Translation_Interface | 51/51 | 2122/2122 | 6/6 | 5/5 | 93/93 | pass |
@@ -200,6 +214,7 @@ tables come from
 | MIPI_SLIMbus | 74/74 | 748/748 | 8/8 | 16/16 | 83/83 | pass |
 | MIPI_SPMI | 86/86 | 756/756 | 23/23 | 7/7 | 98/98 | pass |
 | MIPI_SoundWire | 102/102 | 1024/1024 | 8/8 | 16/16 | 53/53 | pass |
+| ML_DSA | 651/655 (+4 excl.) | 9587/10202 (+615 excl.) | 43/43 | 36/36 | 78/78 | pass |
 | ML_KEM | 553/556 (+3 excl.) | 7314/7448 (+134 excl.) | 31/31 | 23/23 | 54/54 | pass |
 | M_PHY | 119/120 (+1 excl.) | 392/392 | 16/16 | 8/8 | 286/286 | pass |
 | NVMe | 68/68 | 602/602 | 17/17 | 5/5 | 119/119 | pass |
@@ -217,6 +232,7 @@ tables come from
 | SATA | 228/228 | 1474/1474 | 75/75 | 5/5 | 64/64 | pass |
 | SD | 137/137 | 1850/1850 | 18/18 | 7/7 | 71/71 | pass |
 | SDIO | 92/93 (+1 excl.) | 1342/1342 | 30/30 | 5/5 | 67/67 | pass |
+| SHA3 | 66/66 | 6872/6882 (+10 excl.) | 19/19 | 11/11 | 87/87 | pass |
 | SPI | 15/15 | 108/108 | n/a | 5/5 | 46/46 | pass |
 | SPMI | 44/44 | 162/162 | 12/12 | 6/6 | 62/62 | pass |
 | TRNG | 73/74 (+1 excl.) | 3520/3526 (+6 excl.) | 15/15 | 13/13 | 38/38 | pass |
@@ -245,7 +261,7 @@ tables come from
 | eMMC | 120/120 | 1622/1622 | 17/17 | 6/6 | 64/64 | pass |
 | eUSB2 | 107/108 (+1 excl.) | 394/394 | 16/16 | 6/6 | 74/74 | pass |
 
-Totals: line 12740/12862 (+122 excluded), toggle 164069/168008 (+3939 excluded), fsm 2628/2628, sva 1537/1537, functional 12079/12079.
+Totals: line 13549/13675 (+126 excluded), toggle 188966/193530 (+4564 excluded), fsm 2698/2698, sva 1603/1603, functional 12301/12301.
 
 For the IPs rebuilt last (UniPro, DisplayPort2, SAS-4, SATA, the clone
 rewrites and the memory family), the checker was also tested with deliberate
@@ -258,12 +274,13 @@ The wrapper's coverage scope is the wrapper alone (`u_core` is excluded),
 because the core is closed by its own run above. The wrapper has no state
 machine, so FSM is n/a.
 
-126/126 closed.
+129/129 closed.
 
 | APB wrapper | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
 | ACE_Lite_apb | 19/19 | 766/770 (+4 excl.) | n/a | 7/7 | 23/23 | pass |
 | ACE_apb | 19/19 | 924/930 (+6 excl.) | n/a | 7/7 | 23/23 | pass |
+| AES_GCM_apb | 93/93 | 4310/4310 | n/a | 37/37 | 113/113 | pass |
 | AHB_apb | 19/19 | 604/604 | n/a | 7/7 | 23/23 | pass |
 | APB_apb | 19/19 | 594/594 | n/a | 7/7 | 23/23 | pass |
 | ARM_Local_Translation_Interface_apb | 36/36 | 960/960 | n/a | 20/20 | 53/53 | pass |
@@ -344,6 +361,7 @@ machine, so FSM is n/a.
 | MIPI_SLIMbus_apb | 40/40 | 996/996 | n/a | 18/18 | 72/72 | pass |
 | MIPI_SPMI_apb | 19/19 | 396/396 | n/a | 7/7 | 23/23 | pass |
 | MIPI_SoundWire_apb | 44/44 | 1114/1114 | n/a | 21/21 | 91/91 | pass |
+| ML_DSA_apb | 42/42 | 858/884 (+26 excl.) | n/a | 18/18 | 63/63 | pass |
 | ML_KEM_apb | 39/39 | 776/776 | n/a | 16/16 | 61/61 | pass |
 | M_PHY_apb | 36/36 | 542/542 | n/a | 14/14 | 60/60 | pass |
 | NVMe_apb | 32/32 | 868/868 | n/a | 14/14 | 43/43 | pass |
@@ -361,6 +379,7 @@ machine, so FSM is n/a.
 | SATA_apb | 19/19 | 402/402 | n/a | 7/7 | 23/23 | pass |
 | SDIO_apb | 19/19 | 404/404 | n/a | 7/7 | 23/23 | pass |
 | SD_apb | 19/19 | 404/404 | n/a | 7/7 | 23/23 | pass |
+| SHA3_apb | 44/44 | 1006/1006 | n/a | 15/15 | 66/66 | pass |
 | SPI_apb | 21/21 | 440/440 | n/a | 11/11 | 28/28 | pass |
 | SPMI_apb | 28/28 | 518/518 | n/a | 8/8 | 42/42 | pass |
 | TRNG_apb | 36/36 | 912/914 (+2 excl.) | n/a | 16/16 | 50/50 | pass |
@@ -389,4 +408,4 @@ machine, so FSM is n/a.
 | eMMC_apb | 19/19 | 412/412 | n/a | 7/7 | 23/23 | pass |
 | eUSB2_apb | 20/20 | 406/406 | n/a | 7/7 | 25/25 | pass |
 
-Totals: line 4120/4120, toggle 112083/112562 (+479 excluded), fsm 0/0, sva 1470/1470, functional 6327/6327.
+Totals: line 4299/4299, toggle 118257/118762 (+505 excluded), fsm 0/0, sva 1540/1540, functional 6569/6569.

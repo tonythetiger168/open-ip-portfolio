@@ -1,0 +1,2 @@
+# the 1600-bit Keccak state: score its toggles too
+--coverage-max-width 1600
