@@ -1,0 +1,58 @@
+# ML_DSA coverage exclusions: METRIC regex # justification
+LINE \| default: fin = 1'b1; # defensive default: prun is only set for the unit operations listed in the case, never U_NONE or unused codes
+LINE \| 8'd0: zeta = 23'd1; # zeta index 0 is never used: the NTT and INTT use zeta[1..255] (FIPS 204 Algorithms 41/42)
+LINE \| default: lp = L_END; # defensive default: program addresses that no step jumps to
+LINE \| default: qs <= Q_IDLE; # defensive default: unused sequencer state encoding
+TOGGLE \.g2m\[(0|1|2|3|4|5|6|7|10|12|13|14|16|18|19|20|21|22)\]: # constant: gamma2 is 95232 or 261888
+TOGGLE \.tries\[(3|4|5|6|7|8|9|10|11|12|13|14|15)\]: # counter high bits: 8 or more Sign attempts need a rare message and about 0.4M clocks per case; increment and retry are covered with up to 4 attempts
+TOGGLE \.kap\[(4|5|6|7|8|9|10|11|12|13|14|15)\]: # counter high bits: kappa = l x (attempts - 1) reaches 16 only after 5 or more attempts (see tries)
+TOGGLE \.k\[(0)\]: # constant: k is 4, 6 or 8
+TOGGLE \.l\[(2)\]: # constant: l is 4, 5 or 7
+TOGGLE \.eta\[(0)\]: # constant: eta is 2 or 4
+TOGGLE \.ebits\[(3|4)\]: # constant: 3 or 4 bits per s1/s2 coefficient
+TOGGLE \.ctl\[(0|1|2|3)\]: # constant: |c~| is 32, 48 or 64 bytes
+TOGGLE \.zbits\[(0|3|4)\]: # constant: 18 or 20 bits per z coefficient
+TOGGLE \.g1\[(0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|18)\]: # constant: gamma1 is 2^17 or 2^19
+TOGGLE \.w1bits\[(0|2|3|4)\]: # constant: 4 or 6 bits per w1 coefficient
+TOGGLE \.beta\[(0|6)\]: # constant: beta is 78, 196 or 120
+TOGGLE \.tau\[(5)\]: # constant: tau is 39, 49 or 60
+TOGGLE \.ebytes\[(0|1|2|3|4|8|9|10|11|12|13|14)\]: # constant: 96 or 128 bytes
+TOGGLE \.zbytes\[(0|1|2|3|4|5|8|9|10|11|12|13|14)\]: # constant: 576 or 640 bytes
+TOGGLE \.w1bytes\[(0|1|2|3|4|5|7|8|9|10|11|12|13|14)\]: # constant: 128 or 192 bytes
+TOGGLE \.pklen\[(0|1|2|3|4|5|6|12|13|14)\]: # constant: |pk| is 1312, 1952 or 2592 bytes
+TOGGLE \.sk_s1\[(0|1|2|3|4|11|12|13)\]: # derived address: A_SK + 128 + ebytes i, i < l
+TOGGLE \.sk_s2\[(0|1|2|3|4|10|11|12|13)\]: # derived address: A_SK + 128 + ebytes (l + i)
+TOGGLE \.sk_t0\[(0|1|2|3|4|13)\]: # derived address: A_SK + 128 + ebytes (l + k) + 416 i
+TOGGLE \.pk_t1\[(0|1|2|3|4|5|12|13)\]: # derived address: A_PK + 32 + 320 i
+TOGGLE \.sig_z\[(0|1|2|3)\]: # derived address: A_SIG + |c~| + zbytes i
+TOGGLE \.sig_h\[(0|1|2|3|12|13)\]: # derived address: A_SIG + |c~| + zbytes l
+TOGGLE \.w1_i\[(0|1|2|3|4|5|11|12|13)\]: # derived address: A_W1 + w1bytes i
+TOGGLE \.w1len\[(0|1|2|3|4|5|6|7|11|12|13|14)\]: # constant: w1bytes k is 768, 768 or 1024
+TOGGLE \.kci\[(4|5|6|7|8|9|10|11|12|13|14|15)\]: # counter high bits: kappa + r, as kap
+TOGGLE \.s_s1i\[(3|4|5)\]: # constant: slot group 0 (s1)
+TOGGLE \.s_s1j\[(3|4|5)\]: # constant: slot group 0 (s1)
+TOGGLE \.s_s2\[(3|4|5)\]: # constant: slot group 1 (s2)
+TOGGLE \.s_t0\[(3|4|5)\]: # constant: slot group 2 (t0)
+TOGGLE \.s_yi\[(3|4|5)\]: # constant: slot group 3 (y)
+TOGGLE \.s_yj\[(3|4|5)\]: # constant: slot group 3 (y)
+TOGGLE \.s_w\[(3|4|5)\]: # constant: slot group 4 (w)
+TOGGLE \.h_a1\[(0|1|2|3|4)\]: # constant: hash input areas are 64-byte aligned scratch addresses
+TOGGLE \.h_oa\[(0|1|2|3|4)\]: # constant: hash output areas are 64-byte aligned scratch addresses
+TOGGLE \.h_l1\[(0|1|2|3|12|13|14)\]: # constant: first hash input lengths are 32, 64, 128 or |pk|
+TOGGLE \.h_a2\[(0|1|2|3|4|5|7|9|10|11)\]: # constant: second hash input area is A_W1 or A_MSG
+TOGGLE \.h_ni\[(0)\]: # constant: 0 or 2 immediate bytes
+TOGGLE \.h_i0\[(4|5|6|7)\]: # constant: domain byte is a row index (< 8) or kappa + r low byte, which stays below 16 (see kap)
+TOGGLE \.h_i1\[(3|4|5|6|7)\]: # constant: second immediate byte is a column index (< 7) or kappa + r high byte (0)
+TOGGLE \.h_ol\[(0|1|2|3)\]: # constant: hash output lengths are 32, 48, 64 or 128 bytes
+TOGGLE \.u_a\[(4)\]: # constant 0: u_a is an s1 slot (0-6), a w slot (32-39), C, TMP or ACC (40-42)
+TOGGLE \.u_off\[(0|3|4|5|6|7|8|9|10|11|13|14|15|16|18)\]: # constant: offsets are eta, 4096, gamma1 or gamma2-derived
+TOGGLE \.u_ma\[(0|1|2|3)\]: # constant: byte areas are 16-byte aligned
+TOGGLE \.u_mb\[(0|1|2|3)\]: # constant: byte areas are 16-byte aligned
+TOGGLE \.km1\[(0)\]: # constant: k - 1 is 3, 5 or 7
+TOGGLE \.rate\[(0|1|2|3|4|6|7)\]: # constant: the rates are 136 and 168 bytes
+TOGGLE \.hs_n\[(0)\]: # constant: 1 or 3 bytes per squeeze
+TOGGLE \.c_a\[(4)\]: # constant 0: registered u_a
+TOGGLE \.c_off\[(0|3|4|5|6|7|8|9|10|11|13|14|15|16|18)\]: # constant: registered u_off
+TOGGLE \.c_ma\[(0|1|2|3)\]: # constant: registered u_ma
+TOGGLE \.c_mb\[(0|1|2|3)\]: # constant: registered u_mb
+TOGGLE \.ird\[(12)\]: # constant 0: ird is read only by the fused ExpandA MAC, whose destination is a w slot (32-39) or ACC

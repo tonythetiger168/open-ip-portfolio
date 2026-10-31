@@ -79,3 +79,11 @@ AES_GCM | out_valid <= 1'b0; out_data <= '0; out_bytes <= '0; out_last <= 1'b0;#
 AES_GCM | wire [LEN_W:0] alen_n = {1'b0, alen} + (LEN_W + 1)'(in_bytes); | + 1 -> + 2 | a wider cast of in_bytes: the sum is truncated to the same LEN_W + 1 bits
 AES_GCM | m <= M_IDLE; k256 <= 1'b0; dec <= 1'b0; tlen <= '0; kreg <= '0; ivr <= '0; | 1'b0 -> 1'b1@1 | k256 reset value: it is only read while a message runs, and every start writes it first
 AES_GCM | m <= M_IDLE; k256 <= 1'b0; dec <= 1'b0; tlen <= '0; kreg <= '0; ivr <= '0; | 1'b0 -> 1'b1@2 | dec reset value: it is only read while a message runs, and every start writes it first
+ML_DSA | 7'd25: begin h_on = 1'b1; h_strm = 1'b1; h_w3 = 1'b1; h_a1 = 14'(A_RPP); h_l1 = 15'd64; h_ni = 2'd2; | 1'b1 -> 1'b0@3 | throughput only: ExpandMask then takes the same SHAKE256 bytes one per clock instead of three
+ML_DSA | if (nb >= 6'd8 || !pcnt[8]) begin#2 | >= -> > | ends an Encode step one clock sooner at its last byte only: the issue stage (the same test with >=, first occurrence) still issues that byte's token in the same clock, so the bytes written are the same
+ML_DSA | prun <= 1'b0; pdrn <= '0; pcnt <= '0; plyr <= '0; pscl <= 1'b0; bb <= '0; nb <= '0; pbc <= '0; | 1'b0 -> 1'b1@2 | pscl reset value: read only while prun (reset 0), and every step start clears it
+ML_DSA | if (!rst_n) bad <= 1'b0; | 1'b0 -> 1'b1 | reset value: bad is read only at the end of an operation, and every start clears it
+ML_DSA | qs <= Q_IDLE; pc <= '0; ci <= '0; cj <= '0; opr <= '0; psr <= '0; extm <= 1'b0; mln <= '0; kap <= '0; | 1'b0 -> 1'b1 | reset value: extm is loaded from ext_mu at every start and read only while busy
+ML_DSA | default: fin = 1'b1; | 1'b1 -> 1'b0 | unreachable default (excluded in coverage): prun is set only for the unit operations listed in the case
+ML_DSA | it.sh = 3'(nb >= 6'd8 ? nb - 6'd8 : nb); | >= -> > | at nb = 8 both arms give 0 after the 3-bit truncation
+ML_DSA | h_done <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value: cleared again on the first clock after reset, and step_done reads it only in Q_WAIT, at least two clocks after a start
