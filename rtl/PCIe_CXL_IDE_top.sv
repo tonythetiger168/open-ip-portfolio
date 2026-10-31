@@ -53,7 +53,8 @@
 //  - Transmit errors drop the message; if blocks were already sent it is
 //    ended by a nullified MAC block (txo_bad = 1, 0 bytes).
 //  - Error codes (tx_code / rx_code): 1 format, 2 stream not enabled /
-//    Secure / of that type, 3 key set not loaded, 4 counter exhausted,
+//    Secure / of that type, 3 sub-stream key not loaded (a stream made
+//    Secure as cachemem, then switched to TLPs), 4 counter exhausted,
 //    5 too long for the GCM counters (LEN_W), 6 unknown Stream ID (receive),
 //    7 MAC mismatch (receive). km_code: 1 bad stream / sub-stream, 2 key set
 //    incomplete at km_go, 3 sideload key not valid, 4 key set in use.
@@ -228,7 +229,7 @@ module PCIe_CXL_IDE_top #(
   wire          tc_cont = t_ep && tc_cm && tx_sid == 2'(t_eps);           // next flit of the open epoch
   wire          tc_ok   = fl(s_en, tx_sid) && fl(sec_tx, tx_sid);
   wire [2:0]    tc_e    = !tc_ok ? E_STATE : tc_cont ? 3'd0 : !tc_cm && tx_sub == 2'd3 ? E_FMT
-                        : tc_ctr == C_MAX ? E_CTR : 3'd0;
+                        : !kv_tx[SLW'(tc_sl)] ? E_KEY : tc_ctr == C_MAX ? E_CTR : 3'd0;
   wire          t_idle_v = t == T_IDLE && tx_valid && !gt_err;
   wire          t_new   = t_idle_v && tx_ide && !t_ep && tc_e == 3'd0;
   assign gt_start = t_new;

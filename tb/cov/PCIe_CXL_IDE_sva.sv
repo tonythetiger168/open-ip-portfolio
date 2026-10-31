@@ -361,7 +361,7 @@ module PCIe_CXL_IDE_sva #(parameter int NS = 2, parameter int CTR_W = 64, parame
           k = s < NS ? int'(mks[s]) : 0;
           sub = cm4[s] ? 0 : int'(tx_sub);
           i = sl(s, k, sub);
-          e = !okst ? 3'd2 : cont ? 3'd0 : !cm4[s] && tx_sub == 2'd3 ? 3'd1 : mc[i] == CMAX ? 3'd4 : 3'd0;
+          e = !okst ? 3'd2 : cont ? 3'd0 : !cm4[s] && tx_sub == 2'd3 ? 3'd1 : !mkv[i] ? 3'd3 : mc[i] == CMAX ? 3'd4 : 3'd0;
           if (e != 0) begin
             experr(0, e, 8'(s), e == 3'd4 ? s : -1);
             tm_drop = 1; tm_term = cont; tm_ep = 0; tm_s = s; tm_cm = cm4[s];
