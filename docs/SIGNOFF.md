@@ -33,6 +33,7 @@ not a timing sign-off.
 | Ethernet RS-FEC 1.0 | clean | 100% / 100% | 40/40 killed (6 equivalent listed) | exhaustive arithmetic: pass (see below) | 366.9 kGE (3661 flip-flops) | 82 gate levels |
 | Ethernet PCS 1.0 | clean | 100% / 100% | 40/40 killed (3 equivalent listed) | exhaustive functions and gearboxes: pass (see below) | 63.4 kGE (2773 flip-flops) + 2 RS-FEC cores | 40 gate levels (82 in the RS-FEC) |
 | Root of Trust 1.0 | clean | 100% / 100% | 40/40 killed (1 equivalent listed) | bounded proof, 13 properties, depth 24 | 27.2 kGE (1783 flip-flops) | 74 gate levels |
+| SHA-3 1.0 | clean | 100% / 100% | 32/32 killed (every site; none equivalent) | bounded proof, 7 properties, depth 30, and k-induction (any depth) | 51.4 kGE (1620 flip-flops) | 20 gate levels |
 
 Formal properties:
 
@@ -74,6 +75,20 @@ Formal properties:
   image is taken only in DEV or PROD before the boot decision. The OTP
   data, commands, tokens, image words and the escalation input are all
   free: the OTP may return anything, and any command sequence is tried.
+
+- **SHA-3** (`formal/SHA3_props.svh`, 7 properties): the control, return
+  and mode registers are legal; the lane index stays inside the rate block
+  and a permutation starts at lane 0; the round counter runs only in a
+  permutation; a SHA3 digest is squeezed from the first block and within its
+  length; while idle nothing is taken or offered and the 1600-bit state is
+  clear; never ready for input and offering output at once; done and err
+  never together. Start, mode, message words, flags and back-pressure are
+  free. For the proof the round function is cut (`knext` becomes a free
+  value under `FORMAL`): the properties do not depend on it, and the
+  solver could not hold 30 unrolled Keccak rounds. Its function is checked
+  bit-exact against Python's hashlib in simulation and by the bound
+  checker's own Keccak (constants from the FIPS 202 LFSR and rho walk). The
+  properties also hold by k-induction (k <= 4), so at any depth.
 
 - **ML-KEM**: no SAT proof: the 8 KiB buffer and the 2560 x 12-bit
   polynomial store are too large for the open solver flow. Instead
@@ -119,6 +134,10 @@ Formal properties:
 
 Changes made for this bar:
 
+- SHA-3 1.0 is new: the six FIPS 202 functions on one Keccak-f[1600] core
+  (one round per clock, 64-bit lane streams, hardware padding, endless SHAKE
+  output, the state wiped after every digest), the hash block the plan's
+  ML-DSA and SPDM work builds on.
 - CXL 3.0 deepens the CXL.mem Type 3 slice of 2.0 with a 256-byte flit
   link layer (header and sequence number, 14 generic slots, credit return,
   CRC-64), a CXL.io pass-through path with its own credits, and HDM-DB
