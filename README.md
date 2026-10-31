@@ -1,6 +1,6 @@
 # open-ip-portfolio
 
-Open-source SystemVerilog protocol IP portfolio (Apache-2.0) — **126 protocol
+Open-source SystemVerilog protocol IP portfolio (Apache-2.0) — **127 protocol
 IPs**, each with a synthesizable RTL core, an APB4 register wrapper, self-checking
 testbenches for both, a coverage checker (reference model, SVA and functional
 coverage), and open-toolchain build flows (Icarus Verilog simulation, Yosys
@@ -37,7 +37,7 @@ gen_framework.py         original v1 generator (frozen: out of sync with rtl/ an
 setup_tools.sh           installs iverilog / yosys if missing
 ```
 
-## Protocol catalog (126)
+## Protocol catalog (127)
 
 ### AMBA & ARM interconnect (16)
 
@@ -212,7 +212,7 @@ setup_tools.sh           installs iverilog / yosys if missing
 |---|---|---|
 | Bluetooth 5 | `make -f Makefile.Bluetooth5 sim` | [open_ip_Bluetooth5.zip](releases/open_ip_Bluetooth5.zip) |
 
-### Security & crypto (5)
+### Security & crypto (6)
 
 | Protocol | Build | Standalone package |
 |---|---|---|
@@ -242,7 +242,7 @@ setup_tools.sh           installs iverilog / yosys if missing
 
 ## Design organization: cores vs. variants
 
-The catalog has **126 entries, each with its own RTL core** in
+The catalog has **127 entries, each with its own RTL core** in
 `rtl/<P>_top.sv`. Up to v2.5.1, 29 entries were byte-level renamed copies of
 5 shared templates (CHI, UART, CAN, the 2-wire serial shifter and the frame
 echo template). All of them have since been rewritten as implementations of
@@ -306,13 +306,13 @@ make -f Makefile.I2C syn        # -> 0 errors, cell count report
 # APB4 register wrapper: wrapper test + synthesis
 make -f Makefile.I2C apb        # -> TEST PASSED: I2C_apb
 
-# full regression (what CI runs): sim + syn + apb for all 126 IPs, in parallel (~50 min on 4 cores)
+# full regression (what CI runs): sim + syn + apb for all 127 IPs, in parallel (~50 min on 4 cores)
 bash scripts/ci_regression.sh   # logs in work/ci_*.log
 
 # five-metric coverage (Verilator)
 bash scripts/cov/run_cov.sh I2C        # one core  -> RESULT: CLOSED
 bash scripts/cov/run_cov.sh I2C_apb    # its wrapper
-bash scripts/cov/run_all.sh 4          # all 252 runs, 4 in parallel
+bash scripts/cov/run_all.sh 4          # all 254 runs, 4 in parallel
 
 # standalone package workflow (core + wrapper, sim / syn / apb)
 unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
@@ -323,7 +323,7 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
 - **Five-metric closure (Verilator 5.052):** every IP's testbench reaches
   100% line, toggle, FSM, SVA and functional coverage, and so does every
   IP's APB4 register wrapper (`rtl/<P>_apb.sv`, register map in
-  `docs/ip/<P>.md`): 126 cores and 126 wrappers, 252/252 closed. Results,
+  `docs/ip/<P>.md`): 127 cores and 127 wrappers, 254/254 closed. Results,
   exclusions and how to run: [docs/COVERAGE_CLOSURE.md](docs/COVERAGE_CLOSURE.md).
   CI runs both: `.github/workflows/regression.yml` (iverilog / yosys
   sim + syn + apb, plus a check that generated files are up to date) and
@@ -335,7 +335,7 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
   surviving mutant listed in the job summary.
   The v2.5.1 numbers below are the earlier four-metric flow.
 - **Sign-off checks beyond coverage** (UCIe, PCIe, CXL, ML-KEM, Ethernet RS-FEC,
-  Ethernet PCS, Root of Trust, SHA-3 so far): lint, mutation, formal (bounded proofs; exhaustive checks of the
+  Ethernet PCS, Root of Trust, SHA-3, AES-GCM so far): lint, mutation, formal (bounded proofs; exhaustive checks of the
   ML-KEM and RS-FEC arithmetic and the PCS functions and gearboxes), area and logic depth, and the list of what a production
   sign-off would still need: [docs/SIGNOFF.md](docs/SIGNOFF.md).
 
