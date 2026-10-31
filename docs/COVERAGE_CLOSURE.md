@@ -243,7 +243,7 @@ again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
 | eMMC | 120/120 | 1622/1622 | 17/17 | 6/6 | 64/64 | pass |
 | eUSB2 | 107/108 (+1 excl.) | 394/394 | 16/16 | 6/6 | 74/74 | pass |
 
-Totals: line 12733/12854 (+121 excluded), toggle 167421/171364 (+3943 excluded), fsm 2632/2632, sva 1535/1535, functional 12128/12128.
+Totals: line 12825/12946 (+121 excluded), toggle 175859/179802 (+3943 excluded), fsm 2640/2640, sva 1554/1554, functional 12185/12185.
 
 For the IPs rebuilt last (UniPro, DisplayPort2, SAS-4, SATA, the clone
 rewrites and the memory family), the checker was also tested with deliberate
@@ -388,4 +388,4 @@ machine, so FSM is n/a.
 | eMMC_apb | 19/19 | 412/412 | n/a | 7/7 | 23/23 | pass |
 | eUSB2_apb | 20/20 | 406/406 | n/a | 7/7 | 25/25 | pass |
 
-Totals: line 4128/4128, toggle 112177/112654 (+477 excluded), fsm 0/0, sva 1469/1469, functional 6343/6343.
+Totals: line 4221/4221, toggle 116487/116964 (+477 excluded), fsm 0/0, sva 1506/1506, functional 6456/6456.
