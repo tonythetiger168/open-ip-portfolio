@@ -28,6 +28,7 @@ not a timing sign-off.
 |---|---|---|---|---|---|---|
 | UCIe 3.0 | clean | 100% / 100% | 40/40 killed (2 equivalent listed) | bounded proof, 5 properties, depth 20 | 53.7 kGE (5244 flip-flops) | 44 gate levels |
 | PCIe 3.0 | clean | 100% / 100% | 40/40 killed | bounded proof, 11 properties, depth 25 | 27.0 kGE (2765 flip-flops) | 64 gate levels |
+| CXL 3.0 | clean | 100% / 100% | 40/40 killed (7 equivalent listed) | bounded proof, 10 properties, depth 36 | 139.4 kGE (16554 flip-flops) | 82 gate levels |
 | ML-KEM 1.1 | clean | 100% / 100% | 40/40 killed (4 equivalent listed) | exhaustive arithmetic: pass (see below) | 100.7 kGE logic (2891 flip-flops) + 94 kbit RAM | 53 gate levels |
 | Ethernet RS-FEC 1.0 | clean | 100% / 100% | 40/40 killed (6 equivalent listed) | exhaustive arithmetic: pass (see below) | 366.9 kGE (3661 flip-flops) | 82 gate levels |
 | Ethernet PCS 1.0 | clean | 100% / 100% | 40/40 killed (3 equivalent listed) | exhaustive functions and gearboxes: pass (see below) | 63.4 kGE (2773 flip-flops) + 2 RS-FEC cores | 40 gate levels (82 in the RS-FEC) |
@@ -47,6 +48,19 @@ Formal properties:
   credits held per type never exceed those advertised, and the header credits
   held equal the TLPs in the buffer; the byte being read lies inside its TLP.
   The symbol inputs are free: the far side may send any symbol stream.
+- **CXL** (`formal/CXL_props.svh`, 10 properties): the BI engine is in one
+  of its three states and takes a device request only when idle with HDM-DB
+  on; the snoop-filter count equals the number of lines not Invalid; the
+  Req FIFO, the RwD ring and the CXL.io buffers never hold more than their
+  size, and the CXL.io read beat stays inside its flit; the credits owed
+  back to the host never exceed the buffer sizes; the unpacker stays inside
+  the flit and an RwD owes at most one line of data; a DRS sends its data
+  only after its header; a beat offered on the link stays, unchanged, until
+  it is taken. Depth 36 covers a whole flit in each direction. The link
+  receive side, the CXL.io ports, the device BI requests, the HDM base,
+  bi_en and reset are free: the host may send any beat stream, with or
+  without credits. k-induction does not close within 4 steps, so the result
+  is the bounded one.
 - **Root of Trust** (`formal/Root_of_Trust_props.svh`, 13 properties): the
   control state is legal; the device key is out only after a verified boot
   in DEV or PROD and is zero otherwise; the CPU runs in DEV and PROD only
@@ -105,6 +119,20 @@ Formal properties:
 
 Changes made for this bar:
 
+- CXL 3.0 deepens the CXL.mem Type 3 slice of 2.0 with a 256-byte flit
+  link layer (header and sequence number, 14 generic slots, credit return,
+  CRC-64), a CXL.io pass-through path with its own credits, and HDM-DB
+  back-invalidation (snoop filter, eviction by BISnpInv, device-initiated
+  BISnpCur / BISnpData / BISnpInv, BIRsp legality checks, BIConflict /
+  BIConflictAck). The formal run found that a host sending messages without
+  credit could push the credits owed back past the buffer size, where the
+  counters wrapped and the device would have returned the wrong number of
+  credits; a message is now accepted only into a buffer backed by a credit
+  the host holds (in use plus owed below the size), otherwise it is dropped
+  with ev_ovf. Mutation testing showed that no test made the first
+  arbitration ties after reset (a directed phase now does), and that two
+  terms of the DRS-before-NDR order flag had no effect (removed). The core
+  and APB tests share one host model (`tb/CXL_host.svh`).
 - Ethernet PCS 1.0 is new: the 802.3 clause 119 PCS (400GBASE-R, 16-lane markers)
   around two RS-FEC cores, with 256b/257b transcoding, the 1+x^39+x^58
   scrambler, the alignment-marker group every 4096 codeword pairs
@@ -159,6 +187,12 @@ Changes made for this bar:
 
 These need tools, data or documents this repository does not have:
 
+- **CXL.** The flit and message layouts are our own simplified encoding of
+  the CXL 3.x 256-byte flit (no 68-byte or latency-optimised flit); there
+  is no link-layer retry (a bad flit is dropped and reported), no FEC
+  correction, no IDE (planned once AES-GCM is in), no CXL.cache, no PBR or
+  multi-headed devices; CXL.io carries the payload to an external
+  transaction layer. Device memory is 16 lines of flip-flops.
 - **Ethernet PCS.** The PCS works on the aggregate 640-bit stream (two
   interleaved codewords per 17 beats); distribution over the 8 or 16 PMA
   lanes, per-lane alignment-marker lock and deskew are not built yet. The
@@ -170,13 +204,13 @@ These need tools, data or documents this repository does not have:
   SHA-256; the RAW-exit token hash is fixed in the netlist.
 - **Specification compliance.** ML-KEM is checked bit-exact against FIPS
   203 (NIST ACVP vectors), but has not been through CAVP / CMVP
-  validation. The UCIe and PCIe specifications are
+  validation. The UCIe, PCIe and CXL specifications are
   member-only. Field layouts, message codes and CRCs follow the structure of
   the specifications as we read them but have not been checked against them,
   against another implementation, or with compliance tests or commercial VIP.
 - **Timing closure.** No foundry standard-cell library, no STA with
   constraints and corners. The deepest paths (Ethernet RS-FEC 82 levels in
-  the Berlekamp-Massey step; PCIe 64 in the transmit scheduler; ML-KEM 53 in
+  the Berlekamp-Massey step; CXL 82; PCIe 64 in the transmit scheduler; ML-KEM 53 in
   the compress stage; Root of Trust 74 in the SHA-256 round; UCIe 44) would need pipelining for a GHz-class clock in a
   modern node.
 - **Memories.** The replay and receive buffers are flip-flop arrays (most of

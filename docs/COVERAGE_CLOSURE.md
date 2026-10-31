@@ -133,7 +133,7 @@ again on 2026-10-29 for v1.1, and Root_of_Trust and Ethernet_PCS added on
 | CPRI_v8_0__eCPRI_over_CPR_ | 244/244 | 634/634 | 7/7 | 6/6 | 299/299 | pass |
 | CSE | 182/182 | 1386/1386 | 8/8 | 5/5 | 41/41 | pass |
 | CSI_2 | 53/53 | 508/520 (+12 excl.) | 23/23 | 8/8 | 334/334 | pass |
-| CXL | 64/64 | 1416/1416 | n/a | 6/6 | 138/138 | pass |
+| CXL | 194/194 | 3134/3134 | 6/6 | 8/8 | 472/472 | pass |
 | CXS_CCIX_Stream_Interface | 81/81 | 1244/1244 | 14/14 | 4/4 | 55/55 | pass |
 | C_PHY | 87/89 (+2 excl.) | 306/306 | 24/24 | 13/13 | 127/127 | pass |
 | Crypto___Security_Engine | 111/112 (+1 excl.) | 2982/2982 | 11/11 | 8/8 | 82/82 | pass |
@@ -276,7 +276,7 @@ machine, so FSM is n/a.
 | CPRI_v8_0__eCPRI_over_CPR__apb | 33/33 | 592/592 | n/a | 11/11 | 52/52 | pass |
 | CSE_apb | 41/41 | 1274/1274 | n/a | 15/15 | 59/59 | pass |
 | CSI_2_apb | 26/26 | 600/612 (+12 excl.) | n/a | 8/8 | 33/33 | pass |
-| CXL_apb | 57/57 | 1638/1638 | n/a | 28/28 | 97/97 | pass |
+| CXL_apb | 34/34 | 1132/1132 | n/a | 12/12 | 83/83 | pass |
 | CXS_CCIX_Stream_Interface_apb | 38/38 | 1334/1334 | n/a | 14/14 | 59/59 | pass |
 | C_PHY_apb | 33/33 | 616/616 | n/a | 11/11 | 64/64 | pass |
 | Crypto___Security_Engine_apb | 57/57 | 2036/2036 | n/a | 22/22 | 68/68 | pass |
