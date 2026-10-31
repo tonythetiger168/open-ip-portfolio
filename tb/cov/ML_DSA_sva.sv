@@ -447,6 +447,8 @@ module ML_DSA_sva (
     else if (ugo && u_op != U_NONE) in_step <= 1;
     else if (p_done) in_step <= 0;
   `SVA_IMP(a_step_done_after_start, p_done, in_step)
+  // Verify decodes z with the ||z|| < gamma1 - beta check (FIPS 204 Algorithm 8, line 13)
+  `SVA_IMP(a_verify_z_norm_checked, ugo && u_op == U_DEC && longint'(u_off) == pg1(int'(psr)), u_chk)
   `SVA_IMP(a_hash_to_buffer, hstep == 1, hash_ok)
   `SVA_IMP(a_hash_to_sampler, hstep == 2, hash_ok)
   `SVA_IMP(a_ntt, chk_op == int'(U_NTT), poly_ok)
