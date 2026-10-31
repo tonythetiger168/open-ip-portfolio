@@ -35,6 +35,7 @@ not a timing sign-off.
 | Ethernet PCS 1.0 | clean | 100% / 100% | 40/40 killed (3 equivalent listed) | exhaustive functions and gearboxes: pass (see below) | 63.4 kGE (2773 flip-flops) + 2 RS-FEC cores | 40 gate levels (82 in the RS-FEC) |
 | Root of Trust 1.0 | clean | 100% / 100% | 40/40 killed (1 equivalent listed) | bounded proof, 13 properties, depth 24 | 27.2 kGE (1783 flip-flops) | 74 gate levels |
 | SHA-3 1.0 | clean | 100% / 100% | 32/32 killed (every site; none equivalent) | bounded proof, 7 properties, depth 30, and k-induction (any depth) | 51.4 kGE (1620 flip-flops) | 20 gate levels |
+| AES-GCM 1.0 | clean | 100% / 100% | 40/40 killed (6 equivalent listed) | bounded proof, 12 properties, depth 24 (reduced AES, see below) | 49.9 kGE (1619 flip-flops) | 56 gate levels |
 
 Formal properties:
 
@@ -90,6 +91,24 @@ Formal properties:
   bit-exact against Python's hashlib in simulation and by the bound
   checker's own Keccak (constants from the FIPS 202 LFSR and rho walk). The
   properties also hold by k-induction (k <= 4), so at any depth.
+- **AES-GCM** (`formal/AES_GCM_props.svh`, 12 properties): when idle the
+  core holds no key, round key, AES state, H, E(K, J0), GHASH state or IV,
+  nothing runs and no output is pending; AES-128 keeps no second key half;
+  the round counter stays within the key size's rounds; the AES jobs run in
+  order (H, then E(K, J0), then key stream) and a key stream block is held
+  only once both are known; a block is taken only while a message runs,
+  with a key stream block ready, GHASH idle and the output free; the tag is
+  computed only with E(K, J0) known; an output block only within a message;
+  the GHASH operand register is empty between multiplications; after a
+  decryption the computed tag is never output, and tag_ok is set only by a
+  decryption; the text length stays within its limit; done and err end the
+  message. Keys, IV, data, block sizes and flags, back-pressure, start and
+  clr are all free. Under `FORMAL` the core uses the identity S-box and 2 / 3
+  AES rounds (none of the properties depends on the cipher's values; the
+  full AES gave a 47-million-clause problem), so whole messages fit in 24
+  clocks. The AES and GHASH values themselves are checked by simulation
+  against NIST CAVP and Wycheproof vectors, and by a gate-level simulation
+  of the synthesized netlist (below).
 
 - **ML-KEM**: no SAT proof: the 8 KiB buffer and the 2560 x 12-bit
   polynomial store are too large for the open solver flow. Instead
@@ -169,6 +188,17 @@ Changes made for this bar:
   arbitration ties after reset (a directed phase now does), and that two
   terms of the DRS-before-NDR order flag had no effect (removed). The core
   and APB tests share one host model (`tb/CXL_host.svh`).
+- AES-GCM 1.0 is new (AES-128 / AES-256, 96-bit IV). The test vectors are
+  the NIST CAVP GCM files and Wycheproof (taken from the
+  pycryptodome-test-vectors package, cut to `scripts/aes_gcm/kat.json`)
+  and random cases from `scripts/aes_gcm/gcm_ref.py`. Mutation testing
+  found a test gap: no message right after a reset carried AAD, so a wrong
+  reset value of the "text seen" flag passed; the first message after
+  reset now has AAD, and the checker also requires tag and tag_ok to stay
+  0 while a message runs. As a first for this repository, the synthesized
+  netlist (yosys + ABC, 2-input gates) was simulated with the core TB: all
+  758 cases pass (`make -f Makefile.AES_GCM gls`, 22 minutes in Icarus). The APB generator got
+  a `"secret"` register option (write-only, reads 0) for the key.
 - Ethernet PCS 1.0 is new: the 802.3 clause 119 PCS (400GBASE-R, 16-lane markers)
   around two RS-FEC cores, with 256b/257b transcoding, the 1+x^39+x^58
   scrambler, the alignment-marker group every 4096 codeword pairs
@@ -240,6 +270,11 @@ These need tools, data or documents this repository does not have:
   lanes, per-lane alignment-marker lock and deskew are not built yet. The
   marker period is a parameter (4096 pairs, the 400G value; tests use 3).
   200GBASE-R (8 lanes) needs its own marker table.
+- **AES-GCM.** No masking or other power / EM side-channel
+  countermeasure and no fault-injection detection (the public repository
+  carries the functional baseline); only 96-bit IVs; 11 / 15 clocks per
+  block, so a multi-Gbit/s link needs a pipelined (unrolled) AES and an
+  aggregated GHASH with powers of H; no CAVP validation.
 - **Root of Trust.** The OTP is a model, with no ECC; there is no
   entropy source, attestation signature (the key is for a crypto engine
   on the sideload port), glitch or clock monitor, or masking of the
@@ -256,7 +291,7 @@ These need tools, data or documents this repository does not have:
 - **Timing closure.** No foundry standard-cell library, no STA with
   constraints and corners. The deepest paths (Ethernet RS-FEC 82 levels in
   the Berlekamp-Massey step; CXL 82; PCIe 64 in the transmit scheduler; ML-KEM 53 in
-  the compress stage; ML-DSA 59; Root of Trust 74 in the SHA-256 round; UCIe 44) would need pipelining for a GHz-class clock in a
+  the compress stage; ML-DSA 59; Root of Trust 74 in the SHA-256 round; AES-GCM 56; UCIe 44) would need pipelining for a GHz-class clock in a
   modern node.
 - **Memories.** The replay and receive buffers are flip-flop arrays (most of
   the flip-flops counted above); a product would use SRAM macros, with BIST.
@@ -280,7 +315,8 @@ These need tools, data or documents this repository does not have:
   by the integrator (no reset synchroniser inside the core), and no RDC tool
   has been run.
 - **DFT, power intent, gate level.** No scan insertion or ATPG, no UPF, no
-  gate-level simulation, no equivalence check of a netlist.
+  equivalence check of a netlist; gate-level simulation only for AES-GCM
+  (generic yosys gates, no timing).
 - **Formal depth.** The bounded proofs use shrunken parameters (see
   `formal/<P>.cfg`) and do not close by induction; they show the properties
   hold for every input sequence up to that depth, not forever.
