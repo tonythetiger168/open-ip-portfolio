@@ -332,7 +332,7 @@ Unlisted bits read 0 and ignore writes. Reset "core": the register reads the cor
 | STATUS | 8 | `tx_busy` | RO | core | transmit message or cachemem epoch open |
 | STATUS | 9 | `rx_busy` | RO | core | receive message or cachemem epoch open |
 | STATUS | 12:10 | `km_code` | RO | core | last key management error: 1 bad stream / sub-stream, 2 key set incomplete, 3 sideload key not valid, 4 key set in use |
-| STATUS | 15:13 | `tx_code` | RO | core | last transmit error: 1 format, 2 stream state, 4 counter exhausted, 5 too long |
+| STATUS | 15:13 | `tx_code` | RO | core | last transmit error: 1 format, 2 stream state, 3 sub-stream key not loaded, 4 counter exhausted, 5 too long |
 | STATUS | 17:16 | `tx_esid` | RO | core | stream of the last transmit error |
 | STATUS | 20:18 | `rx_code` | RO | core | last receive error: 1 format, 2 stream state, 3 key set not loaded, 4 counter exhausted, 5 too long, 6 unknown Stream ID, 7 MAC mismatch |
 | STATUS | 28:21 | `rx_eid` | RO | core | Stream ID of the last receive error |

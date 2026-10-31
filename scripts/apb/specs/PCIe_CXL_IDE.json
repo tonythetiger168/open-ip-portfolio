@@ -120,7 +120,7 @@
         {"port": "tx_busy", "desc": "transmit message or cachemem epoch open"},
         {"port": "rx_busy", "desc": "receive message or cachemem epoch open"},
         {"port": "km_code", "desc": "last key management error: 1 bad stream / sub-stream, 2 key set incomplete, 3 sideload key not valid, 4 key set in use"},
-        {"port": "tx_code", "desc": "last transmit error: 1 format, 2 stream state, 4 counter exhausted, 5 too long"},
+        {"port": "tx_code", "desc": "last transmit error: 1 format, 2 stream state, 3 sub-stream key not loaded, 4 counter exhausted, 5 too long"},
         {"port": "tx_esid", "desc": "stream of the last transmit error"},
         {"port": "rx_code", "desc": "last receive error: 1 format, 2 stream state, 3 key set not loaded, 4 counter exhausted, 5 too long, 6 unknown Stream ID, 7 MAC mismatch"},
         {"port": "rx_eid", "desc": "Stream ID of the last receive error"}
