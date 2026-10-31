@@ -1,0 +1,2 @@
+# the 3072-bit key slot arrays (2 streams x 6 slots x 256 bits): score their toggles too
+--coverage-max-width 3072
