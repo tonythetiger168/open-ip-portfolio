@@ -55,8 +55,8 @@ partially-encoded enum, a tie-off that is constant by construction, and the
 upper bits of a counter whose largest load is below the next power of two.
 FSM, SVA and functional coverage have no exclusions.
 
-Totals: 121 line points out of 12724 and 3943 toggle points out of 169646
-for the cores; 477 toggle points out of 113160 for the wrappers.
+Totals: 121 line points out of 12854 and 3943 toggle points out of 171364
+for the cores; 477 toggle points out of 112654 for the wrappers.
 
 Verilator leaves signals wider than 256 bits out of toggle coverage by
 default. An IP with wider buses (UCIe: 544-bit flits, Ethernet_RS_FEC:
@@ -137,7 +137,7 @@ again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
 | CPRI_v8_0__eCPRI_over_CPR_ | 244/244 | 634/634 | 7/7 | 6/6 | 299/299 | pass |
 | CSE | 182/182 | 1386/1386 | 8/8 | 5/5 | 41/41 | pass |
 | CSI_2 | 53/53 | 508/520 (+12 excl.) | 23/23 | 8/8 | 334/334 | pass |
-| CXL | 64/64 | 1416/1416 | n/a | 6/6 | 138/138 | pass |
+| CXL | 194/194 | 3134/3134 | 6/6 | 8/8 | 472/472 | pass |
 | CXS_CCIX_Stream_Interface | 81/81 | 1244/1244 | 14/14 | 4/4 | 55/55 | pass |
 | C_PHY | 87/89 (+2 excl.) | 306/306 | 24/24 | 13/13 | 127/127 | pass |
 | Crypto___Security_Engine | 111/112 (+1 excl.) | 2982/2982 | 11/11 | 8/8 | 82/82 | pass |
@@ -242,7 +242,7 @@ again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
 | eMMC | 120/120 | 1622/1622 | 17/17 | 6/6 | 64/64 | pass |
 | eUSB2 | 107/108 (+1 excl.) | 394/394 | 16/16 | 6/6 | 74/74 | pass |
 
-Totals: line 12603/12724 (+121 excluded), toggle 165703/169646 (+3943 excluded), fsm 2626/2626, sva 1533/1533, functional 11794/11794.
+Totals: line 12733/12854 (+121 excluded), toggle 167421/171364 (+3943 excluded), fsm 2632/2632, sva 1535/1535, functional 12128/12128.
 
 For the IPs rebuilt last (UniPro, DisplayPort2, SAS-4, SATA, the clone
 rewrites and the memory family), the checker was also tested with deliberate
@@ -281,7 +281,7 @@ machine, so FSM is n/a.
 | CPRI_v8_0__eCPRI_over_CPR__apb | 33/33 | 592/592 | n/a | 11/11 | 52/52 | pass |
 | CSE_apb | 41/41 | 1274/1274 | n/a | 15/15 | 59/59 | pass |
 | CSI_2_apb | 26/26 | 600/612 (+12 excl.) | n/a | 8/8 | 33/33 | pass |
-| CXL_apb | 57/57 | 1638/1638 | n/a | 28/28 | 97/97 | pass |
+| CXL_apb | 34/34 | 1132/1132 | n/a | 12/12 | 83/83 | pass |
 | CXS_CCIX_Stream_Interface_apb | 38/38 | 1334/1334 | n/a | 14/14 | 59/59 | pass |
 | C_PHY_apb | 33/33 | 616/616 | n/a | 11/11 | 64/64 | pass |
 | Crypto___Security_Engine_apb | 57/57 | 2036/2036 | n/a | 22/22 | 68/68 | pass |
@@ -386,4 +386,4 @@ machine, so FSM is n/a.
 | eMMC_apb | 19/19 | 412/412 | n/a | 7/7 | 23/23 | pass |
 | eUSB2_apb | 20/20 | 406/406 | n/a | 7/7 | 25/25 | pass |
 
-Totals: line 4151/4151, toggle 112683/113160 (+477 excluded), fsm 0/0, sva 1485/1485, functional 6357/6357.
+Totals: line 4128/4128, toggle 112177/112654 (+477 excluded), fsm 0/0, sva 1469/1469, functional 6343/6343.
