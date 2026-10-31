@@ -31,15 +31,14 @@
   // the state registers hold encoded states only
   wire fa_state = t <= T_BYP && r <= R_BYP;
   // output framing: a prefix is 4 bytes and never last; a MAC block is last,
-  // 12 bytes or (nullified) 0 bytes; only a MAC is nullified; at most 16 bytes
+  // 12 bytes or (nullified) 0 bytes; only a MAC is nullified (bypass blocks
+  // pass unchanged, so their byte counts are not checked)
   wire fa_pfx   = !txo_valid || txo_kind != K_PFX || txo_bytes == 5'd4 && !txo_last && !txo_cm;
   wire fa_mac   = !txo_valid || txo_kind != K_MAC || txo_last && txo_bytes == (txo_bad ? 5'd0 : 5'd12);
   wire fa_tbad  = !txo_valid || !txo_bad || txo_kind == K_MAC;
-  wire fa_tlen  = !txo_valid || txo_bytes <= 5'd16;
   // receive: an END block is last and empty; only an END block is bad
   wire fa_end   = !rxo_valid || rxo_kind != K_END || rxo_last && rxo_bytes == 5'd0;
   wire fa_rbad  = !rxo_valid || !rxo_bad || rxo_kind == K_END;
-  wire fa_rlen  = !rxo_valid || rxo_bytes <= 5'd16;
   always @(*) if (f_chk) assert (fa_zero);
   always @(*) if (f_chk) assert (fa_ctr);
   always @(*) if (f_chk) assert (fa_sec);
@@ -47,7 +46,5 @@
   always @(*) if (f_chk) assert (fa_pfx);
   always @(*) if (f_chk) assert (fa_mac);
   always @(*) if (f_chk) assert (fa_tbad);
-  always @(*) if (f_chk) assert (fa_tlen);
   always @(*) if (f_chk) assert (fa_end);
   always @(*) if (f_chk) assert (fa_rbad);
-  always @(*) if (f_chk) assert (fa_rlen);

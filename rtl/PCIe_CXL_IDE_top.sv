@@ -177,6 +177,16 @@ module PCIe_CXL_IDE_top #(
     id8 = 8'h0;
     for (int j = 0; j < NS; j++) if (2'(j) == i) id8 = v[8 * j +: 8];
   endfunction
+  // key / counter of a slot (a mux on the slot number; synthesizes far
+  // smaller than a variable part-select of the whole store)
+  function automatic logic [255:0] key_of(input logic [NSL*256-1:0] v, input logic [4:0] sl);
+    key_of = 256'h0;
+    for (int j = 0; j < NSL; j++) if (5'(j) == sl) key_of = v[256 * j +: 256];
+  endfunction
+  function automatic logic [CTR_W-1:0] ctr_of(input logic [NSL*CTR_W-1:0] v, input logic [4:0] sl);
+    ctr_of = '0;
+    for (int j = 0; j < NSL; j++) if (5'(j) == sl) ctr_of = v[CTR_W * j +: CTR_W];
+  endfunction
   function automatic logic [31:0] fix32(input logic [NS*32-1:0] v, input logic [1:0] i);
     fix32 = 32'h0;
     for (int j = 0; j < NS; j++) if (2'(j) == i) fix32 = v[32 * j +: 32];
@@ -214,7 +224,7 @@ module PCIe_CXL_IDE_top #(
   wire          tc_cm   = fl(s_cm, tx_sid);
   wire          tc_ks   = fl(ks_tx, tx_sid);
   wire [4:0]    tc_sl   = slot(tx_sid, tc_ks, tc_cm ? 2'd0 : tx_sub);
-  wire [CTR_W-1:0] tc_ctr = ctx[CTR_W * tc_sl +: CTR_W];
+  wire [CTR_W-1:0] tc_ctr = ctr_of(ctx, tc_sl);
   wire          tc_cont = t_ep && tc_cm && tx_sid == 2'(t_eps);           // next flit of the open epoch
   wire          tc_ok   = fl(s_en, tx_sid) && fl(sec_tx, tx_sid);
   wire [2:0]    tc_e    = !tc_ok ? E_STATE : tc_cont ? 3'd0 : !tc_cm && tx_sub == 2'd3 ? E_FMT
@@ -289,7 +299,7 @@ module PCIe_CXL_IDE_top #(
   wire [1:0]    rq_s    = rq_cm ? rx_sid : 2'(rp_s);
   wire          rq_k    = rq_cm ? fl(ks_rx, rx_sid) : rp_k;
   wire [4:0]    rq_sl   = slot(rq_s, rq_k, rq_cm ? 2'd0 : rp_sub);
-  wire [CTR_W-1:0] rq_ctr = crx[CTR_W * rq_sl +: CTR_W];
+  wire [CTR_W-1:0] rq_ctr = ctr_of(crx, rq_sl);
   wire          rq_kv   = kv_rx[SLW'(rq_sl)];
   wire          rq_cont = r_ep && rq_cm && rx_sid == 2'(r_eps);
   wire [2:0]    rq_e    = rq_cm
@@ -313,14 +323,14 @@ module PCIe_CXL_IDE_top #(
   /* verilator lint_off PINCONNECTEMPTY */
   AES_GCM_top #(.LEN_W(LEN_W)) u_gtx (
     .clk, .rst_n, .key256(1'b1), .decrypt(1'b0), .key_sel(1'b0), .tag_len(4'd0),
-    .key(ktx[256 * tc_sl +: 256]), .iv({fix32(s_ivfix, tx_sid), 64'(tc_ctr)}), .tag_in(128'h0),
+    .key(key_of(ktx, tc_sl)), .iv({fix32(s_ivfix, tx_sid), 64'(tc_ctr)}), .tag_in(128'h0),
     .sl_key(256'h0), .sl_valid(1'b0), .start(gt_start), .clr(gt_clr), .busy(),
     .in_valid(gt_iv_v), .in_ready(gt_ir), .in_data(gt_id), .in_bytes(gt_ib), .in_aad(gt_aad), .in_last(gt_last),
     .out_valid(gt_ov), .out_ready(txo_free), .out_data(gt_od), .out_bytes(gt_ob), .out_last(),
     .done(gt_done), .tag(gt_tag), .tag_ok(), .err(gt_err), .err_code());
   AES_GCM_top #(.LEN_W(LEN_W)) u_grx (
     .clk, .rst_n, .key256(1'b1), .decrypt(1'b1), .key_sel(1'b0), .tag_len(4'd12),
-    .key(krx[256 * rq_sl +: 256]), .iv({fix32(s_ivfix, rq_s), 64'(rq_ctr)}), .tag_in({r_mac, 32'h0}),
+    .key(key_of(krx, rq_sl)), .iv({fix32(s_ivfix, rq_s), 64'(rq_ctr)}), .tag_in({r_mac, 32'h0}),
     .sl_key(256'h0), .sl_valid(1'b0), .start(gr_start), .clr(gr_clr), .busy(),
     .in_valid(gr_iv_v), .in_ready(gr_ir), .in_data(gr_id), .in_bytes(gr_ib), .in_aad(gr_aad), .in_last(gr_last),
     .out_valid(gr_ov), .out_ready(rxo_free), .out_data(gr_od), .out_bytes(gr_ob), .out_last(),
@@ -391,41 +401,37 @@ module PCIe_CXL_IDE_top #(
     end else begin
       km_err <= 1'b0;
       // engines: counters, key-set switch, Insecure on errors
-      if (t_new) ctx[CTR_W * tc_sl +: CTR_W] <= tc_ctr + 1'b1;
       if (t_ins) sec_tx[SW'(tx_sid)] <= 1'b0;
-      if (r_new) crx[CTR_W * rq_sl +: CTR_W] <= rq_ctr + 1'b1;
       if (r_go && !rq_cm) ks_rx[rp_s] <= rp_k;
       if (r_ins) sec_rx[r_ins_s] <= 1'b0;
-      // key management
-      if (km_e != 3'd0) begin
-        km_err <= 1'b1; km_code <= km_e;
-      end else if (km_prog) begin
-        if (km_dir) begin
-          krx[256 * km_sl +: 256] <= km_sel ? sl_key : km_key;
-          crx[CTR_W * km_sl +: CTR_W] <= CTR_W'(1);
-          kv_rx[SLW'(km_sl)] <= 1'b1;
-        end else begin
-          ktx[256 * km_sl +: 256] <= km_sel ? sl_key : km_key;
-          ctx[CTR_W * km_sl +: CTR_W] <= CTR_W'(1);
-          kv_tx[SLW'(km_sl)] <= 1'b1;
-        end
-      end else if (km_go) begin
-        if (km_dir) begin sec_rx[SW'(km_sid)] <= 1'b1; ks_rx[SW'(km_sid)] <= km_ks; end
-        else begin sec_tx[SW'(km_sid)] <= 1'b1; ks_tx[SW'(km_sid)] <= km_ks; end
-      end else if (km_stop) begin
-        for (int j = 0; j < 3; j++) begin
-          logic [4:0] kj;
-          kj = km_b + 5'(j);
+      // key slots: engine counters, then programming / stopping
+      for (int i = 0; i < NSL; i++) begin
+        logic pw, sw;
+        pw = km_e == 3'd0 && km_prog && km_sl == 5'(i);
+        sw = km_e == 3'd0 && !km_prog && !km_go && km_stop && 5'(i) >= km_b && 5'(i) <= km_b + 5'd2;
+        if (t_new && tc_sl == 5'(i)) ctx[CTR_W * i +: CTR_W] <= tc_ctr + 1'b1;
+        if (r_new && rq_sl == 5'(i)) crx[CTR_W * i +: CTR_W] <= rq_ctr + 1'b1;
+        if (pw) begin
           if (km_dir) begin
-            krx[256 * kj +: 256] <= '0; crx[CTR_W * kj +: CTR_W] <= '0; kv_rx[SLW'(kj)] <= 1'b0;
+            krx[256 * i +: 256] <= km_sel ? sl_key : km_key; crx[CTR_W * i +: CTR_W] <= CTR_W'(1); kv_rx[i] <= 1'b1;
           end else begin
-            ktx[256 * kj +: 256] <= '0; ctx[CTR_W * kj +: CTR_W] <= '0; kv_tx[SLW'(kj)] <= 1'b0;
+            ktx[256 * i +: 256] <= km_sel ? sl_key : km_key; ctx[CTR_W * i +: CTR_W] <= CTR_W'(1); kv_tx[i] <= 1'b1;
           end
         end
-        if (km_use) begin
-          if (km_dir) sec_rx[SW'(km_sid)] <= 1'b0;
-          else sec_tx[SW'(km_sid)] <= 1'b0;
+        if (sw) begin
+          if (km_dir) begin krx[256 * i +: 256] <= '0; crx[CTR_W * i +: CTR_W] <= '0; kv_rx[i] <= 1'b0; end
+          else begin ktx[256 * i +: 256] <= '0; ctx[CTR_W * i +: CTR_W] <= '0; kv_tx[i] <= 1'b0; end
         end
+      end
+      // key management: errors, stream state
+      if (km_e != 3'd0) begin
+        km_err <= 1'b1; km_code <= km_e;
+      end else if (km_go && !km_prog) begin
+        if (km_dir) begin sec_rx[SW'(km_sid)] <= 1'b1; ks_rx[SW'(km_sid)] <= km_ks; end
+        else begin sec_tx[SW'(km_sid)] <= 1'b1; ks_tx[SW'(km_sid)] <= km_ks; end
+      end else if (km_stop && !km_prog && km_use) begin
+        if (km_dir) sec_rx[SW'(km_sid)] <= 1'b0;
+        else sec_tx[SW'(km_sid)] <= 1'b0;
       end
       if (clr) begin
         ktx <= '0; krx <= '0; ctx <= '0; crx <= '0; kv_tx <= '0; kv_rx <= '0;
