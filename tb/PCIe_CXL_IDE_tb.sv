@@ -209,13 +209,14 @@ module PCIe_CXL_IDE_tb;
     km_dir = dir; km_sid = sid; km_ks = ks; km_sub = sub; km_sel = sel;
     km_key = sel ? {r128(), r128()} : key;
     sl_key = sel ? key : {r128(), r128()};
-    if (sel && ec != 3'd3) sl_valid = 1'b1;
+    if (sel) sl_valid = ec != 3'd3;
     km_prog = op == 0; km_go = op == 1; km_stop = op == 2;
     e0 = n_kme;
     @(negedge clk);
     km_prog = 1'b0; km_go = 1'b0; km_stop = 1'b0;
     km_key = r128(); sl_key = r128(); sl_valid = $urandom; km_sel = $urandom;
     km_dir = $urandom; km_sid = 2'($urandom); km_ks = $urandom; km_sub = 2'($urandom);
+    @(negedge clk);
     if (ec == 3'd0 && n_kme != e0) fail($sformatf("km op %0d: unexpected error %0d", op, km_code));
     if (ec != 3'd0 && (n_kme != e0 + 1 || km_code !== ec))
       fail($sformatf("km op %0d: error %0d code %0d, expected code %0d", op, n_kme - e0, km_code, ec));
@@ -226,6 +227,15 @@ module PCIe_CXL_IDE_tb;
       for (int sub = 0; sub < 3; sub++) km(0, d, 2'(s), ks, 2'(sub), key, $urandom_range(0, 3) == 0, 3'd0);
       km(1, d, 2'(s), ks, 2'd0, '0, 1'b0, 3'd0);
     end
+  endtask
+
+  // both directions back to counter 1 on a fresh key (after transmit-only errors)
+  task automatic resync_ks(input int s, input logic ks);
+    for (int d = 0; d < 2; d++) begin km(2, d, 2'(s), 0, 2'd0, '0, 0, 3'd0); km(2, d, 2'(s), 1, 2'd0, '0, 0, 3'd0); end
+    load_set(s, ks, {r128(), r128()});
+  endtask
+  task automatic resync(input int s);
+    resync_ks(s, $urandom);
   endtask
 
   // ---------------- known-answer cases ----------------
@@ -302,6 +312,570 @@ module PCIe_CXL_IDE_tb;
     else if (!ro_l[(r0 + nb - 1) % 1024]) fail("bypass: last not passed");
   endtask
 
+
+  // ---------------- directed tests ----------------
+  task automatic drain(input int tmo);
+    int q, t;
+    q = 0; t = 0;
+    while (q < 3 && t < tmo) begin
+      @(negedge clk); t++;
+      if (!tx_busy && !rx_busy && !txo_valid && !rxo_valid) q++; else q = 0;
+    end
+  endtask
+  task automatic exp_err(input logic dir, input int e0, input logic [2:0] c, input string what);
+    drain(3000);
+    if (dir == 0 && (n_txe != e0 + 1 || tx_code !== c))
+      fail($sformatf("%s: %0d transmit errors, code %0d, expected 1 with code %0d", what, n_txe - e0, tx_code, c));
+    if (dir == 1 && (n_rxe != e0 + 1 || rx_code !== c))
+      fail($sformatf("%s: %0d receive errors, code %0d, expected 1 with code %0d", what, n_rxe - e0, rx_code, c));
+  endtask
+  // the last output block is a nullified MAC / bad END
+  task automatic exp_term(input logic dir, input string what);
+    if (dir == 0 && (tq_k[(tqn - 1) % 1024] !== K_MAC || !tq_b[(tqn - 1) % 1024] || !tq_l[(tqn - 1) % 1024]))
+      fail($sformatf("%s: no nullified MAC block", what));
+    if (dir == 1 && (ro_k[(ron - 1) % 1024] !== K_END || !ro_b[(ron - 1) % 1024] || !ro_l[(ron - 1) % 1024]))
+      fail($sformatf("%s: no bad END block", what));
+  endtask
+  // send tp as a TLP and expect a transmit error (term: a nullified MAC follows)
+  task automatic tx_bad(input logic [1:0] sid, input logic [1:0] sub, input logic [2:0] c, input logic term,
+                        input string what);
+    int e0, t0;
+    e0 = n_txe; t0 = tqn;
+    tx_send(1'b1, sid, sub);
+    exp_err(0, e0, c, what);
+    if (term) exp_term(0, what);
+    else if (tqn != t0) fail($sformatf("%s: output without a message", what));
+  endtask
+  // receive input buffer builders
+  task automatic ri_add(input logic [127:0] d, input int n, input logic [1:0] k, input logic l, input logic c);
+    ri_d[rin] = d; ri_n[rin] = 5'(n); ri_k[rin] = k; ri_l[rin] = l; ri_c[rin] = c; rin++;
+  endtask
+  task automatic rx_bad(input logic [1:0] sid, input logic [2:0] c, input logic term, input string what);
+    int e0, r0;
+    e0 = n_rxe; r0 = ron;
+    rx_send(sid);
+    exp_err(1, e0, c, what);
+    if (term) exp_term(1, what);
+    else if (ron != r0) fail($sformatf("%s: output without a message", what));
+  endtask
+  function automatic logic [127:0] pfx(input logic [7:0] id, input logic k, input logic [1:0] sub);
+    pfx = {8'h92, 1'b1, k, 2'b00, sub, 2'b00, id, 8'h00, 96'h0};
+  endfunction
+  // a protected TLP from the transmit side, kept in sv_* for the receive tests
+  int           svn;
+  logic [127:0] sv_d [0:63];
+  logic [4:0]   sv_n [0:63];
+  logic [1:0]   sv_k [0:63];
+  logic         sv_l [0:63];
+  task automatic make_tlp(input int s, input logic [1:0] sub, input int hl, input int pl);
+    int t0;
+    tp_tlp(hl, pl, 0, 0, 1'b1);
+    t0 = tqn;
+    tx_send(1'b1, 2'(s), sub);
+    drain(3000);
+    svn = tqn - t0;
+    for (int j = 0; j < svn; j++) begin
+      sv_d[j] = tq_d[(t0 + j) % 1024]; sv_n[j] = tq_n[(t0 + j) % 1024]; sv_k[j] = tq_k[(t0 + j) % 1024];
+      sv_l[j] = tq_l[(t0 + j) % 1024];
+    end
+  endtask
+  task automatic ri_from_sv();
+    rin = 0;
+    for (int j = 0; j < svn; j++) ri_add(sv_d[j], sv_n[j], sv_k[j], sv_l[j], 1'b0);
+  endtask
+
+  task automatic do_clr();
+    @(negedge clk);
+    clr = 1'b1;
+    @(negedge clk);
+    clr = 1'b0;
+    if (kv_tx != 0 || kv_rx != 0 || sec_tx != 0 || sec_rx != 0) fail("clr left keys or Secure streams");
+  endtask
+  task automatic t_km();
+    do_clr();
+    // bad stream / sub-stream, sideload key not valid
+    km(0, 0, 2'd2, 0, 2'd0, '1, 0, 3'd1);
+    km(0, 1, 2'd3, 1, 2'd1, '1, 0, 3'd1);
+    km(0, 0, 2'd0, 0, 2'd3, '1, 0, 3'd1);
+    km(0, 1, 2'd1, 1, 2'd0, '1, 1, 3'd3);
+    km(1, 0, 2'd2, 0, 2'd0, '0, 0, 3'd1);
+    km(2, 1, 2'd3, 0, 2'd0, '0, 0, 3'd1);
+    // every slot: an all-ones key (the receive keys from the sideload port), then every set cleared
+    for (int d = 0; d < 2; d++)
+      for (int s = 0; s < NS; s++)
+        for (int k = 0; k < 2; k++)
+          for (int sub = 0; sub < 3; sub++) km(0, d, 2'(s), k, 2'(sub), '1, d, 3'd0);
+    for (int d = 0; d < 2; d++)
+      for (int s = 0; s < NS; s++)
+        for (int k = 0; k < 2; k++) km(2, d, 2'(s), k, 2'd0, '0, 0, 3'd0);
+    // a TLP stream needs all three sub-stream keys; a cachemem stream only sub-stream 0
+    cfg(0, 1'b1, 1'b0, 8'h10, 32'h0);
+    km(0, 0, 2'd0, 0, 2'd0, {r128(), r128()}, 0, 3'd0);
+    km(0, 0, 2'd0, 0, 2'd1, {r128(), r128()}, 0, 3'd0);
+    km(1, 0, 2'd0, 0, 2'd0, '0, 0, 3'd2);
+    km(0, 0, 2'd0, 0, 2'd2, {r128(), r128()}, 0, 3'd0);
+    km(1, 0, 2'd0, 0, 2'd0, '0, 0, 3'd0);
+    km(0, 0, 2'd0, 0, 2'd1, {r128(), r128()}, 0, 3'd4);       // the active set is in use
+    km(1, 0, 2'd0, 1, 2'd0, '0, 0, 3'd2);                       // the other set is empty
+    km(2, 0, 2'd0, 1, 2'd0, '0, 0, 3'd0);                       // stop the inactive set: still Secure
+    if (!sec_tx[0]) fail("stopping the inactive set ended Secure");
+    km(2, 0, 2'd0, 0, 2'd0, '0, 0, 3'd0);                       // stop the active set
+    if (sec_tx[0]) fail("stopping the active set kept Secure");
+    cfg(1, 1'b1, 1'b1, 8'h11, 32'h0);
+    km(0, 1, 2'd1, 1, 2'd0, {r128(), r128()}, 0, 3'd0);
+    km(1, 1, 2'd1, 1, 2'd0, '0, 0, 3'd0);
+    if (!sec_rx[1] || !ks_rx[1]) fail("cachemem stream not Secure with sub-stream 0");
+    km(0, 1, 2'd1, 1, 2'd0, {r128(), r128()}, 0, 3'd4);
+    km(2, 1, 2'd1, 1, 2'd0, '0, 0, 3'd0);
+  endtask
+
+  // transmit errors on stream 0 (TLP) and 1 (cachemem)
+  task automatic t_tx_err();
+    logic [255:0] k0;
+    k0 = {r128(), r128()};
+    cfg(0, 1'b1, 1'b0, 8'h21, 32'h0BAD_F00D);
+    load_set(0, 0, k0);
+    cfg(1, 1'b1, 1'b1, 8'h22, 32'h1);
+    cm_agg = 7'd2;
+    for (int d = 0; d < 2; d++) begin km(0, d, 2'd1, 0, 2'd0, k0, 0, 3'd0); km(1, d, 2'd1, 0, 2'd0, '0, 0, 3'd0); end
+    // stream disabled, no such stream, sub-stream 3
+    tp_tlp(12, 16, 0, 0, 1'b1);
+    cfg(0, 1'b0, 1'b0, 8'h21, 32'h0BAD_F00D);
+    tx_bad(2'd0, 2'd0, 3'd2, 0, "transmit on a disabled stream");
+    cfg(0, 1'b1, 1'b0, 8'h21, 32'h0BAD_F00D);
+    tx_bad(2'd2, 2'd0, 3'd2, 0, "transmit on stream 2");
+    tx_bad(2'd3, 2'd1, 3'd2, 0, "transmit on stream 3");
+    tx_bad(2'd0, 2'd3, 3'd1, 0, "transmit on sub-stream 3");
+    // framing errors after the prefix
+    tpn = 0; tp_add(r128(), 16, 1'b0, 1'b1);
+    tx_bad(2'd0, 2'd0, 3'd1, 1, "TLP without a header");
+    tpn = 0; tp_add(r128(), 16, 1'b0, 1'b0); tp_add(r128(), 16, 1'b0, 1'b1);
+    tx_bad(2'd0, 2'd0, 3'd1, 1, "TLP without a header, two blocks");
+    tpn = 0; tp_add(r128(), 8, 1'b1, 1'b0); tp_add(r128(), 16, 1'b1, 1'b1);
+    tx_bad(2'd0, 2'd1, 3'd1, 1, "header after a partial header");
+    tpn = 0; tp_add(r128(), 0, 1'b1, 1'b1);
+    tx_bad(2'd0, 2'd2, 3'd1, 1, "empty header block");
+    for (int n = 17; n < 32; n += 7) begin
+      tpn = 0; tp_add(r128(), n, 1'b1, 1'b0); tp_add(r128(), 16, 1'b0, 1'b1);
+      tx_bad(2'd0, 2'd0, 3'd1, 1, "header block over 16 bytes");
+    end
+    tpn = 0; tp_add(r128(), 16, 1'b1, 1'b0); tp_add(r128(), 0, 1'b0, 1'b1);
+    tx_bad(2'd0, 2'd0, 3'd1, 1, "empty payload block");
+    tpn = 0; tp_add(r128(), 12, 1'b1, 1'b0); tp_add(r128(), 31, 1'b0, 1'b1);
+    tx_bad(2'd0, 2'd1, 3'd1, 1, "payload block over 16 bytes");
+    tpn = 0; tp_add(r128(), 12, 1'b1, 1'b0); tp_add(r128(), 8, 1'b0, 1'b0); tp_add(r128(), 16, 1'b0, 1'b1);
+    tx_bad(2'd0, 2'd2, 3'd1, 1, "partial payload block not last");
+    tpn = 0; tp_add(r128(), 16, 1'b1, 1'b0); tp_add(r128(), 16, 1'b0, 1'b0); tp_add(r128(), 16, 1'b1, 1'b1);
+    tx_bad(2'd0, 2'd0, 3'd1, 1, "header block in the payload");
+    // cachemem: a header block, a partial block, then an epoch closed by a TLP and by a disabled stream
+    tpn = 0; tp_add(r128(), 16, 1'b1, 1'b1);
+    tx_bad(2'd1, 2'd0, 3'd1, 1, "header block in a flit");
+    tpn = 0; tp_add(r128(), 16, 1'b0, 1'b0); tp_add(r128(), 8, 1'b0, 1'b1);
+    tx_bad(2'd1, 2'd0, 3'd1, 1, "partial flit block");
+    // length limits (LEN_W = 9): 480 payload bytes pass, 481 fail; AAD 4 + 507 passes, 4 + 508 fails
+    resync(0);
+    loop_tlp(0, 2'd0, 12, 480, 1'b1, 1'b1);
+    tp_tlp(12, 481, 0, 0, 1'b1);
+    tx_bad(2'd0, 2'd1, 3'd5, 1, "payload over the limit");
+    tp_tlp(512, 0, 0, 0, 1'b1);
+    tx_bad(2'd0, 2'd2, 3'd5, 1, "header over the limit (full blocks)");
+    resync(0);
+    loop_tlp(0, 2'd2, 507, 0, 1'b1, 1'b1);
+    tp_tlp(508, 0, 0, 0, 1'b1);
+    tx_bad(2'd0, 2'd0, 3'd5, 1, "header over the limit at the flush");
+    tp_tlp(508, 32, 0, 0, 1'b1);
+    tx_bad(2'd0, 2'd1, 3'd5, 1, "header over the limit before the payload");
+    tp_tlp(509, 32, 0, 0, 1'b1);
+    tx_bad(2'd0, 2'd1, 3'd5, 1, "header over the limit (partial block)");
+  endtask
+
+  // cachemem epochs on stream 1 (TLP stream 0 in between)
+  task automatic flit(input logic [1:0] sid, input int nb);
+    tpn = 0;
+    for (int j = 0; j < nb; j++) tp_add(r128(), 16, 1'b0, j == nb - 1);
+    tx_send(1'b1, sid, 2'($urandom));
+  endtask
+  task automatic t_cm();
+    int t0, r0, e0, d0;
+    logic [255:0] k1;
+    k1 = {r128(), r128()};
+    cfg(1, 1'b1, 1'b1, 8'h33, 32'hFFFF_FFFF);
+    cm_agg = 7'd2;
+    for (int d = 0; d < 2; d++) begin km(0, d, 2'd1, 1, 2'd0, k1, 0, 3'd0); km(1, d, 2'd1, 1, 2'd0, '0, 0, 3'd0); end
+    // a full epoch of three flits, looped back
+    t0 = tqn; r0 = ron;
+    flit(2'd1, 4); flit(2'd1, 2); flit(2'd1, 1);
+    drain(3000);
+    ri_from_tq(t0, tqn - t0);
+    rx_send(2'd1);
+    drain(3000);
+    if (ron - r0 != 8 || ro_k[(ron - 1) % 1024] !== K_END || ro_b[(ron - 1) % 1024]) fail("epoch loopback");
+    // an epoch closed early by a TLP, with bypass traffic inside it; all of it
+    // goes to the receiver in transmit order
+    resync(0);
+    t0 = tqn; r0 = ron; e0 = n_rxe; d0 = n_rxd;
+    flit(2'd1, 2);
+    tp_tlp(12, 0, 0, 0, 1'b1); tx_send(1'b0, 2'd0, 2'd0);
+    tp_tlp(16, 20, 0, 0, 1'b1); tx_send(1'b1, 2'd0, 2'd1);
+    drain(3000);
+    ri_from_tq(t0, tqn - t0);
+    rx_send(2'd1);
+    drain(3000);
+    if (n_rxe != e0 || n_rxd != d0 + 2 || ro_k[(ron - 1) % 1024] !== K_END || ro_b[(ron - 1) % 1024]) fail("truncated epoch");
+    // the stream is stopped during an epoch: the next flit is refused and the epoch nullified
+    flit(2'd1, 1);
+    km(2, 0, 2'd1, 1, 2'd0, '0, 0, 3'd0);
+    e0 = n_txe;
+    flit(2'd1, 1);
+    exp_err(0, e0, 3'd2, "flit after the stream stopped");
+    exp_term(0, "flit after the stream stopped");
+    // receive: MAC without an epoch, wrong kinds, a stream that is not cachemem / Secure
+    rin = 0; ri_add(r128(), 12, K_MAC, 1'b1, 1'b1);
+    rx_bad(2'd1, 3'd1, 0, "MAC without an epoch");
+    rin = 0; ri_add(r128(), 16, K_HDR, 1'b1, 1'b1);
+    rx_bad(2'd1, 3'd1, 0, "header block as a flit");
+    rin = 0; ri_add(r128(), 16, K_DATA, 1'b1, 1'b1);
+    rx_bad(2'd0, 3'd2, 0, "flit for a TLP stream");
+    rin = 0; ri_add(r128(), 16, K_DATA, 1'b1, 1'b1);
+    rx_bad(2'd3, 3'd2, 0, "flit for stream 3");
+    rin = 0; ri_add(r128(), 16, K_DATA, 1'b1, 1'b1);
+    rx_bad(2'd1, 3'd2, 0, "flit for a stopped stream");   // the stop above was transmit only: still Secure here?
+  endtask
+
+  // receive errors on stream 0 (TLP)
+  task automatic rx_crafted(input logic [2:0] c, input logic term, input string what);
+    rx_bad(2'd0, c, term, what);
+    resync_ks(0, ks_rx[0]);
+  endtask
+  task automatic t_rx_err();
+    logic [7:0] id;
+    logic       k;
+    id = 8'h44;
+    cfg(0, 1'b1, 1'b0, id, 32'hA5A5_5A5A);
+    cfg(1, 1'b1, 1'b0, 8'h45, 32'h0);
+    resync(0);
+    // tampered ciphertext, MAC and header: MAC mismatch, the stream becomes Insecure
+    for (int w = 0; w < 3; w++) begin
+      make_tlp(0, 2'(w), 12, 20);
+      ri_from_sv();
+      if (w == 0) ri_d[2][100] = !ri_d[2][100];
+      if (w == 1) ri_d[4][40] = !ri_d[4][40];
+      if (w == 2) ri_d[1][127] = !ri_d[1][127];
+      rx_bad(2'd0, 3'd7, 1, "tampered message");
+      if (sec_rx[0]) fail("Secure after a MAC mismatch");
+      // the stream refuses everything now
+      ri_from_sv();
+      rx_bad(2'd0, 3'd2, 0, "message on an Insecure stream");
+      resync(0);
+    end
+    // prefix errors (nothing taken from the counters)
+    make_tlp(0, 2'd1, 16, 0);
+    k = sv_d[0][118];
+    rin = 0; ri_add(sv_d[0], 8, K_PFX, 1'b0, 1'b0); ri_add(sv_d[1], 16, K_HDR, 1'b1, 1'b0);
+    rx_bad(2'd0, 3'd1, 0, "prefix of 8 bytes");
+    rin = 0; ri_add(sv_d[0], 4, K_PFX, 1'b1, 1'b0);
+    rx_bad(2'd0, 3'd1, 0, "prefix alone");
+    rin = 0; ri_add(sv_d[0] ^ {8'h01, 120'h0}, 4, K_PFX, 1'b0, 1'b0); ri_add(sv_d[1], 16, K_HDR, 1'b1, 1'b0);
+    rx_bad(2'd0, 3'd1, 0, "prefix type");
+    rin = 0; ri_add(sv_d[0] & ~{8'h00, 1'b1, 119'h0}, 4, K_PFX, 1'b0, 1'b0); ri_add(sv_d[1], 16, K_HDR, 1'b1, 1'b0);
+    rx_bad(2'd0, 3'd1, 0, "prefix without M");
+    rin = 0; ri_add(pfx(8'h99, k, 2'd0), 4, K_PFX, 1'b0, 1'b0); ri_add(sv_d[1], 16, K_HDR, 1'b1, 1'b0);
+    rx_bad(2'd0, 3'd6, 0, "unknown Stream ID");
+    cfg(1, 1'b1, 1'b0, 8'h45, 32'h0);
+    rin = 0; ri_add(pfx(8'h45, k, 2'd0), 4, K_PFX, 1'b0, 1'b0); ri_add(sv_d[1], 16, K_HDR, 1'b1, 1'b0);
+    rx_bad(2'd0, 3'd2, 0, "Stream ID of a stream that is not Secure");
+    // the good message still passes after all of these
+    ri_from_sv();
+    rx_send(2'd0);
+    drain(3000);
+    if (ro_b[(ron - 1) % 1024] || ro_k[(ron - 1) % 1024] !== K_END) fail("message after prefix errors");
+    rin = 0; ri_add(pfx(id, k, 2'd3), 4, K_PFX, 1'b0, 1'b0); ri_add(sv_d[1], 16, K_HDR, 1'b1, 1'b0);
+    rx_crafted(3'd1, 0, "sub-stream 3");
+    rin = 0; ri_add(pfx(id, !ks_rx[0], 2'd0), 4, K_PFX, 1'b0, 1'b0); ri_add(sv_d[1], 16, K_HDR, 1'b1, 1'b0);
+    rx_crafted(3'd3, 0, "key set not loaded");
+    // framing errors after the prefix
+    k = ks_rx[0];
+    rin = 0; ri_add(pfx(id, k, 2'd0), 4, K_PFX, 1'b0, 1'b0); ri_add(pfx(id, k, 2'd0), 4, K_PFX, 1'b0, 1'b0);
+    ri_add(r128(), 12, K_MAC, 1'b1, 1'b0);
+    rx_crafted(3'd1, 1, "two prefixes");
+    rin = 0; ri_add(pfx(id, k, 2'd1), 4, K_PFX, 1'b0, 1'b0); ri_add(r128(), 16, K_DATA, 1'b0, 1'b0);
+    ri_add(r128(), 12, K_MAC, 1'b1, 1'b0);
+    rx_crafted(3'd1, 1, "payload without a header");
+    rin = 0; ri_add(pfx(id, k, 2'd2), 4, K_PFX, 1'b0, 1'b0); ri_add(r128(), 12, K_MAC, 1'b1, 1'b0);
+    rx_crafted(3'd1, 1, "MAC without a header");
+    rin = 0; ri_add(pfx(id, k, 2'd0), 4, K_PFX, 1'b0, 1'b0); ri_add(r128(), 8, K_HDR, 1'b0, 1'b0);
+    ri_add(r128(), 16, K_HDR, 1'b0, 1'b0); ri_add(r128(), 12, K_MAC, 1'b1, 1'b0);
+    rx_crafted(3'd1, 1, "header after a partial header");
+    rin = 0; ri_add(pfx(id, k, 2'd0), 4, K_PFX, 1'b0, 1'b0); ri_add(r128(), 0, K_HDR, 1'b0, 1'b0);
+    ri_add(r128(), 12, K_MAC, 1'b1, 1'b0);
+    rx_crafted(3'd1, 1, "empty header block");
+    rin = 0; ri_add(pfx(id, k, 2'd0), 4, K_PFX, 1'b0, 1'b0); ri_add(r128(), 20, K_HDR, 1'b0, 1'b0);
+    ri_add(r128(), 12, K_MAC, 1'b1, 1'b0);
+    rx_crafted(3'd1, 1, "header block over 16 bytes");
+    rin = 0; ri_add(pfx(id, k, 2'd0), 4, K_PFX, 1'b0, 1'b0); ri_add(r128(), 16, K_HDR, 1'b1, 1'b0);
+    rx_crafted(3'd1, 1, "header block marked last");
+    rin = 0; ri_add(pfx(id, k, 2'd1), 4, K_PFX, 1'b0, 1'b0); ri_add(r128(), 12, K_HDR, 1'b0, 1'b0);
+    ri_add(r128(), 0, K_DATA, 1'b0, 1'b0); ri_add(r128(), 12, K_MAC, 1'b1, 1'b0);
+    rx_crafted(3'd1, 1, "empty payload block");
+    rin = 0; ri_add(pfx(id, k, 2'd1), 4, K_PFX, 1'b0, 1'b0); ri_add(r128(), 12, K_HDR, 1'b0, 1'b0);
+    ri_add(r128(), 16, K_DATA, 1'b0, 1'b0); ri_add(r128(), 17, K_DATA, 1'b0, 1'b0); ri_add(r128(), 12, K_MAC, 1'b1, 1'b0);
+    rx_crafted(3'd1, 1, "payload block over 16 bytes");
+    rin = 0; ri_add(pfx(id, k, 2'd2), 4, K_PFX, 1'b0, 1'b0); ri_add(r128(), 12, K_HDR, 1'b0, 1'b0);
+    ri_add(r128(), 8, K_DATA, 1'b0, 1'b0); ri_add(r128(), 16, K_DATA, 1'b0, 1'b0); ri_add(r128(), 12, K_MAC, 1'b1, 1'b0);
+    rx_crafted(3'd1, 1, "payload after a partial payload block");
+    rin = 0; ri_add(pfx(id, k, 2'd2), 4, K_PFX, 1'b0, 1'b0); ri_add(r128(), 12, K_HDR, 1'b0, 1'b0);
+    ri_add(r128(), 16, K_DATA, 1'b1, 1'b0);
+    rx_crafted(3'd1, 1, "payload block marked last");
+    rin = 0; ri_add(pfx(id, k, 2'd0), 4, K_PFX, 1'b0, 1'b0); ri_add(r128(), 12, K_HDR, 1'b0, 1'b0);
+    ri_add(r128(), 16, K_DATA, 1'b0, 1'b0); ri_add(r128(), 16, K_HDR, 1'b0, 1'b0); ri_add(r128(), 12, K_MAC, 1'b1, 1'b0);
+    rx_crafted(3'd1, 1, "header block in the payload");
+    rin = 0; ri_add(pfx(id, k, 2'd0), 4, K_PFX, 1'b0, 1'b0); ri_add(r128(), 12, K_HDR, 1'b0, 1'b0);
+    ri_add(r128(), 16, K_DATA, 1'b0, 1'b0); ri_add(pfx(id, k, 2'd0), 4, K_PFX, 1'b0, 1'b0); ri_add(r128(), 12, K_MAC, 1'b1, 1'b0);
+    rx_crafted(3'd1, 1, "prefix in the payload");
+    rin = 0; ri_add(pfx(id, k, 2'd1), 4, K_PFX, 1'b0, 1'b0); ri_add(r128(), 12, K_HDR, 1'b0, 1'b0);
+    ri_add(r128(), 16, K_MAC, 1'b1, 1'b0);
+    rx_crafted(3'd1, 1, "MAC of 16 bytes");
+    rin = 0; ri_add(pfx(id, k, 2'd1), 4, K_PFX, 1'b0, 1'b0); ri_add(r128(), 12, K_HDR, 1'b0, 1'b0);
+    ri_add(r128(), 12, K_MAC, 1'b0, 1'b0); ri_add(r128(), 16, K_DATA, 1'b1, 1'b0);
+    rx_crafted(3'd1, 1, "MAC not last");
+    // length limits: 31 full payload blocks; 30 and a partial one; AAD over the limit
+    rin = 0; ri_add(pfx(id, k, 2'd0), 4, K_PFX, 1'b0, 1'b0); ri_add(r128(), 12, K_HDR, 1'b0, 1'b0);
+    for (int j = 0; j < 31; j++) ri_add(r128(), 16, K_DATA, 1'b0, 1'b0);
+    ri_add(r128(), 12, K_MAC, 1'b1, 1'b0);
+    rx_crafted(3'd5, 1, "receive payload over the limit");
+    rin = 0; ri_add(pfx(id, k, 2'd1), 4, K_PFX, 1'b0, 1'b0); ri_add(r128(), 12, K_HDR, 1'b0, 1'b0);
+    for (int j = 0; j < 30; j++) ri_add(r128(), 16, K_DATA, 1'b0, 1'b0);
+    ri_add(r128(), 1, K_DATA, 1'b0, 1'b0); ri_add(r128(), 12, K_MAC, 1'b1, 1'b0);
+    rx_crafted(3'd5, 1, "receive payload over the limit (held block)");
+    rin = 0; ri_add(pfx(id, k, 2'd2), 4, K_PFX, 1'b0, 1'b0);
+    for (int j = 0; j < 32; j++) ri_add(r128(), 16, K_HDR, 1'b0, 1'b0);
+    ri_add(r128(), 12, K_MAC, 1'b1, 1'b0);
+    rx_crafted(3'd5, 1, "receive header over the limit");
+    rin = 0; ri_add(pfx(id, k, 2'd2), 4, K_PFX, 1'b0, 1'b0);
+    for (int j = 0; j < 31; j++) ri_add(r128(), 16, K_HDR, 1'b0, 1'b0);
+    ri_add(r128(), 12, K_HDR, 1'b0, 1'b0); ri_add(r128(), 12, K_MAC, 1'b1, 1'b0);
+    rx_crafted(3'd5, 1, "receive header over the limit at the flush");
+    rin = 0; ri_add(pfx(id, k, 2'd2), 4, K_PFX, 1'b0, 1'b0);
+    for (int j = 0; j < 31; j++) ri_add(r128(), 16, K_HDR, 1'b0, 1'b0);
+    ri_add(r128(), 13, K_HDR, 1'b0, 1'b0); ri_add(r128(), 12, K_MAC, 1'b1, 1'b0);
+    rx_crafted(3'd5, 1, "receive header over the limit (partial block)");
+    // a key refresh seen by the receiver only through the K bit
+    for (int d = 0; d < 2; d++)
+      for (int sub = 0; sub < 3; sub++) km(0, d, 2'd0, !ks_tx[0], 2'(sub), 256'h1234, 0, 3'd0);
+    km(1, 0, 2'd0, !ks_tx[0], 2'd0, '0, 0, 3'd0);
+    loop_tlp(0, 2'd0, 12, 32, 1'b1, 1'b1);
+    if (ks_rx[0] !== ks_tx[0]) fail("receiver did not follow the K bit");
+  endtask
+
+  // every counter to exhaustion, both directions (TLP streams), then the
+  // cachemem counter
+  task automatic t_ctr();
+    cfg(0, 1'b1, 1'b0, 8'h50, 32'h0);
+    cfg(1, 1'b1, 1'b0, 8'h51, 32'hFFFF_FFFF);
+    for (int s = 0; s < NS; s++)
+      for (int k = 0; k < 2; k++) begin
+        resync_ks(s, k);
+        for (int sub = 0; sub < 3; sub++) begin
+          for (int m = 0; m < 14; m++) begin
+            if (m == 13) make_tlp(s, 2'(sub), 4, 0);
+            else loop_tlp(s, 2'(sub), 4, 0, 1'b1, 1'b1);
+          end
+          // the transmit counter is exhausted; the last message reaches the receiver
+          ri_from_sv(); rx_send(2'(s)); drain(3000);
+          tp_tlp(4, 0, 0, 0, 1'b1);
+          tx_bad(2'(s), 2'(sub), 3'd4, 0, "transmit counter exhausted");
+          if (sec_tx[s]) fail("Secure after the counter ran out");
+          ri_from_sv();
+          rx_bad(2'(s), 3'd4, 0, "receive counter exhausted");
+          for (int d = 0; d < 2; d++) km(1, d, 2'(s), k, 2'd0, '0, 0, 3'd0);
+        end
+      end
+    // cachemem: one-flit epochs on stream 1
+    cfg(1, 1'b1, 1'b1, 8'h52, 32'h0);
+    cm_agg = 7'd0;
+    resync_ks(1, 0);
+    for (int m = 0; m < 14; m++) begin
+      int t0;
+      t0 = tqn;
+      flit(2'd1, 1);
+      drain(3000);
+      ri_from_tq(t0, tqn - t0);
+      rx_send(2'd1);
+    end
+    drain(3000);
+    tpn = 0; tp_add(r128(), 16, 1'b0, 1'b1);
+    tx_bad(2'd1, 2'd0, 3'd4, 0, "cachemem transmit counter exhausted");
+    rin = 0; ri_add(r128(), 16, K_DATA, 1'b1, 1'b1);
+    rx_bad(2'd1, 3'd4, 0, "cachemem receive counter exhausted");
+    // the counters and keys back to zero
+    for (int d = 0; d < 2; d++)
+      for (int s = 0; s < NS; s++)
+        for (int k = 0; k < 2; k++) km(2, d, 2'(s), k, 2'd0, '0, 0, 3'd0);
+  endtask
+
+  // receive-side cachemem errors on stream 1 (stream 0 cachemem too for an
+  // epoch interrupted by another stream)
+  task automatic t_cm_rx();
+    int t0, e0;
+    cfg(1, 1'b1, 1'b1, 8'h61, 32'h1357_9BDF);
+    cfg(0, 1'b1, 1'b1, 8'h60, 32'h0);
+    cm_agg = 7'd1;
+    resync(1); resync(0);
+    // a good epoch with a wrong MAC
+    t0 = tqn;
+    flit(2'd1, 1); flit(2'd1, 2);
+    drain(3000);
+    ri_from_tq(t0, tqn - t0);
+    ri_d[rin - 1][60] = !ri_d[rin - 1][60];
+    rx_bad(2'd1, 3'd7, 1, "cachemem MAC mismatch");
+    resync(1);
+    // more flits than the epoch holds
+    t0 = tqn;
+    flit(2'd1, 1); flit(2'd1, 1);
+    drain(3000);
+    rin = 0; ri_add(tq_d[t0 % 1024], 16, K_DATA, 1'b1, 1'b1); ri_add(tq_d[(t0 + 1) % 1024], 16, K_DATA, 1'b1, 1'b1);
+    rx_send(2'd1);
+    rin = 0; ri_add(r128(), 16, K_DATA, 1'b1, 1'b1);
+    rx_bad(2'd1, 3'd1, 1, "flit after a full epoch");
+    resync(1);
+    // a partial flit block, and a MAC inside a flit
+    rin = 0; ri_add(r128(), 16, K_DATA, 1'b0, 1'b1); ri_add(r128(), 8, K_DATA, 1'b1, 1'b1);
+    rx_bad(2'd1, 3'd1, 1, "partial flit block");
+    resync(1);
+    rin = 0; ri_add(r128(), 16, K_DATA, 1'b0, 1'b1); ri_add(r128(), 12, K_MAC, 1'b1, 1'b1);
+    rx_bad(2'd1, 3'd1, 1, "MAC inside a flit");
+    resync(1);
+    rin = 0; ri_add(r128(), 16, K_DATA, 1'b1, 1'b1);
+    rx_send(2'd1);
+    rin = 0; ri_add(r128(), 16, K_MAC, 1'b1, 1'b1);
+    rx_bad(2'd1, 3'd1, 1, "epoch MAC of 16 bytes");
+    resync(1);
+    // an open epoch interrupted by a TLP prefix and by another cachemem stream
+    rin = 0; ri_add(r128(), 16, K_DATA, 1'b1, 1'b1);
+    rx_send(2'd1);
+    e0 = n_rxe;
+    rin = 0; ri_add(pfx(8'h60, 0, 2'd0), 4, K_PFX, 1'b0, 1'b0); ri_add(r128(), 16, K_HDR, 1'b1, 1'b0);
+    rx_send(2'd0);
+    drain(3000);
+    if (n_rxe != e0 + 2) fail("epoch interrupted by a prefix");
+    resync(1);
+    rin = 0; ri_add(r128(), 16, K_DATA, 1'b1, 1'b1);
+    rx_send(2'd1);
+    e0 = n_rxe;
+    rin = 0; ri_add(r128(), 16, K_DATA, 1'b1, 1'b1);
+    rx_send(2'd0);
+    drain(3000);
+    if (n_rxe != e0 + 1) fail("epoch interrupted by another stream");
+    // stream 0's new epoch is ended by a wrong MAC
+    rin = 0; ri_add(r128(), 12, K_MAC, 1'b1, 1'b1);
+    rx_bad(2'd0, 3'd7, 1, "the other stream's epoch");
+    resync(1); resync(0);
+    // transmit: an epoch closed by another cachemem stream
+    t0 = tqn;
+    flit(2'd1, 1); flit(2'd0, 1); flit(2'd0, 1);
+    drain(3000);
+    if (tqn - t0 != 5) fail("transmit epoch closed by another stream");
+    do_clr();
+  endtask
+
+  // output held back (ready ~10%) while the engines move on: prefix, MAC, status
+  // and termination blocks wait for the output register
+  task automatic t_stall();
+    int e0;
+    cfg(0, 1'b1, 1'b0, 8'h5A, 32'h1234_5678);
+    resync(0);
+    rdy_t = 10; rdy_r = 10;
+    for (int i = 0; i < 6; i++) loop_tlp(0, 2'(i % 3), 12 + 4 * i, 16 * i + 8, 1'b1, 1'b1);
+    // a protected TLP right behind a bypass TLP whose output is still held
+    tp_tlp(12, 20, 0, 0, 1'b1);
+    tx_send(1'b0, 2'd0, 2'd0);
+    tx_send(1'b1, 2'd0, 2'd0);
+    drain(5000);
+    rdy_t = 2;
+    tpn = 0; tp_add(r128(), 16, 1'b1, 1'b0);
+    for (int j = 0; j < 4; j++) tp_add(r128(), 16, 1'b0, 1'b0);
+    tp_add(r128(), 16, 1'b1, 1'b1);
+    tx_bad(2'd0, 2'd0, 3'd1, 1, "header block in the payload, output held");
+    rdy_t = 10;
+    resync(0);
+    // receive: a tampered message and a framing error after output started
+    make_tlp(0, 2'd0, 32, 48);
+    ri_from_sv();
+    ri_d[1][3] = !ri_d[1][3];
+    rx_bad(2'd0, 3'd7, 1, "tampered message, output held");
+    resync(0);
+    make_tlp(0, 2'd1, 32, 48);
+    ri_from_sv();
+    ri_k[4] = K_HDR;
+    rx_bad(2'd0, 3'd1, 1, "header block in the payload, output held");
+    rdy_t = 100; rdy_r = 100;
+    resync(0);
+    // an epoch of up to 128 flits (cm_agg 127) runs into the engine length limit
+    // (480 bytes in the testbench) at the 31st flit, on both sides
+    cfg(1, 1'b1, 1'b1, 8'h5B, 32'h0);
+    cm_agg = 7'd127;
+    resync(1);
+    e0 = n_txe;
+    for (int i = 0; i < 31; i++) flit(2'd1, 1);
+    exp_err(0, e0, 3'd5, "epoch over the length limit");
+    exp_term(0, "epoch over the length limit");
+    rin = 0;
+    for (int i = 0; i < 31; i++) ri_add(r128(), 16, K_DATA, 1'b1, 1'b1);
+    rx_bad(2'd1, 3'd5, 1, "receive epoch over the length limit");
+    cm_agg = 7'd0;
+    do_clr();
+  endtask
+
+  // clr and reset in the middle of messages
+  logic       bg_tx = 1'b0, bg_rx = 1'b0;
+  logic [1:0] bg_sid, bg_sub;
+  initial forever begin
+    @(negedge clk);
+    if (bg_tx) begin tx_send(1'b1, bg_sid, bg_sub); bg_tx = 1'b0; end
+  end
+  initial forever begin
+    @(negedge clk);
+    if (bg_rx) begin rx_send(bg_sid); bg_rx = 1'b0; end
+  end
+  task automatic wait_bg();
+    int t;
+    t = 0;
+    while ((bg_tx || bg_rx) && t < 20000) begin @(negedge clk); t++; end
+    rdy_t = 100; rdy_r = 100;
+    drain(3000);
+  endtask
+  // which: 1 transmit, 2 receive, 3 both; clr when the engines reach states ts / rs
+  task automatic clr_in(input int which, input int ts, input int rs, input int rdy);
+    int t;
+    cfg(0, 1'b1, 1'b0, 8'h70, 32'h0);
+    resync(0);
+    make_tlp(0, 2'd1, 20, 40);
+    ri_from_sv();
+    resync_ks(0, ks_rx[0]);
+    tp_tlp(20, 40, 0, 0, 1'b1);
+    bg_sid = 2'd0; bg_sub = 2'd2;
+    rdy_t = rdy; rdy_r = rdy;
+    if (which & 1) bg_tx = 1'b1;
+    if (which & 2) bg_rx = 1'b1;
+    t = 0;
+    while (t < 3000 && !((which & 1) == 0 || int'(u_dut.t) == ts) || t < 3000 && !((which & 2) == 0 || int'(u_dut.r) == rs))
+    begin @(negedge clk); t++; end
+    if (t >= 3000) fail($sformatf("clr: states %0d / %0d not reached", ts, rs));
+    do_clr();
+    rdy_t = 100; rdy_r = 100;
+    wait_bg();
+  endtask
+  task automatic t_clr();
+    clr_in(1, 2, 0, 0);                 // transmit header, output held
+    clr_in(1, 4, 0, 100);               // transmit payload
+    clr_in(1, 6, 0, 100);               // transmit, waiting for the MAC
+    clr_in(2, 0, 1, 0);                 // receive header, output held
+    clr_in(2, 0, 3, 100);               // receive payload
+    clr_in(2, 0, 6, 100);               // receive, waiting for the MAC check
+    clr_in(3, 2, 1, 0);                 // both
+    do_clr();                           // idle
+  endtask
+
   initial begin
     s_en = '0; s_cm = '0; s_id = '0; s_ivfix = '0; cm_agg = '0;
     km_dir = 0; km_sid = 0; km_ks = 0; km_sub = 0; km_sel = 0; km_key = '0; sl_key = '0; sl_valid = 0;
@@ -321,6 +895,37 @@ module PCIe_CXL_IDE_tb;
     load_set(0, !ks_tx[0], {r128(), r128()});
     for (int i = 0; i < 20; i++)
       loop_tlp(0, 2'($urandom_range(0, 2)), $urandom_range(1, 40), $urandom_range(0, 70), $urandom_range(0, 4) != 0, 1'b1);
+    gap = 0; rdy_t = 100; rdy_r = 100;
+    t_km();
+    $display("key management done");
+    t_tx_err();
+    $display("transmit errors done");
+    t_cm();
+    $display("cachemem done");
+    t_rx_err();
+    $display("receive errors done");
+    t_cm_rx();
+    $display("cachemem receive errors done");
+    t_ctr();
+    $display("counters done");
+    t_clr();
+    $display("clr done");
+    t_stall();
+    $display("stall and long epoch done");
+    // reset in the middle of a message
+    resync(0);
+    tp_tlp(16, 64, 0, 0, 1'b1);
+    bg_sid = 2'd0; bg_sub = 2'd0; bg_tx = 1'b1;
+    while (int'(u_dut.t) != 4) @(negedge clk);
+    rst_n = 1'b0;
+    repeat (3) @(negedge clk);
+    rst_n = 1'b1;
+    wait_bg();
+    // configuration and inputs back to zero
+    s_en = '0; s_cm = '0; s_id = '0; s_ivfix = '0; cm_agg = '0;
+    km_dir = 0; km_sid = 0; km_ks = 0; km_sub = 0; km_sel = 0; km_key = '0; sl_key = '0; sl_valid = 0;
+    tx_valid = 0; tx_data = '0; tx_bytes = '0; tx_hdr = 0; tx_last = 0; tx_ide = 0; tx_sid = '0; tx_sub = '0;
+    rx_valid = 0; rx_data = '0; rx_bytes = '0; rx_kind = '0; rx_last = 0; rx_cm = 0; rx_sid = '0;
     repeat (20) @(negedge clk);
     if (errors == 0) $display("TEST PASSED");
     else $display("TEST FAILED: %0d errors", errors);

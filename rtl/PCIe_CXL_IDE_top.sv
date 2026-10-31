@@ -168,10 +168,19 @@ module PCIe_CXL_IDE_top #(
   // ---------------- key slots and stream state ----------------
   logic [NSL*256-1:0]   ktx, krx;       // slot keys
   logic [NSL*CTR_W-1:0] ctx, crx;       // slot invocation counters
-  wire [3:0]  en4 = 4'(s_en), cm4 = 4'(s_cm), sect4 = 4'(sec_tx), secr4 = 4'(sec_rx);
-  wire [3:0]  kst4 = 4'(ks_tx), ksr4 = 4'(ks_rx);
-  wire [31:0] id4 = 32'(s_id);
-  wire [127:0] fix4 = 128'(s_ivfix);
+  // per-stream values by a 2-bit stream number (streams past NS-1 read 0)
+  function automatic logic fl(input logic [NS-1:0] v, input logic [1:0] i);
+    fl = 1'b0;
+    for (int j = 0; j < NS; j++) if (2'(j) == i) fl = v[j];
+  endfunction
+  function automatic logic [7:0] id8(input logic [NS*8-1:0] v, input logic [1:0] i);
+    id8 = 8'h0;
+    for (int j = 0; j < NS; j++) if (2'(j) == i) id8 = v[8 * j +: 8];
+  endfunction
+  function automatic logic [31:0] fix32(input logic [NS*32-1:0] v, input logic [1:0] i);
+    fix32 = 32'h0;
+    for (int j = 0; j < NS; j++) if (2'(j) == i) fix32 = v[32 * j +: 32];
+  endfunction
 
   // ---------------- engines ----------------
   logic         gt_start, gt_clr, gt_iv_v, gt_ir, gt_aad, gt_last, gt_ov, gt_done, gt_err;
@@ -180,46 +189,19 @@ module PCIe_CXL_IDE_top #(
   logic [127:0] gt_tag;                 // the MAC is its first 96 bits
   /* verilator lint_on UNUSEDSIGNAL */
   logic [4:0]   gt_ib, gt_ob;
-  logic [255:0] gt_key;
-  logic [95:0]  gt_ivec;
   logic         gr_start, gr_clr, gr_iv_v, gr_ir, gr_aad, gr_last, gr_ov, gr_done, gr_err, gr_ok;
   logic [127:0] gr_id, gr_od;
   logic [4:0]   gr_ib, gr_ob;
-  logic [255:0] gr_key;
-  logic [95:0]  gr_ivec;
-  logic [127:0] gr_tin;
-  // engine outputs the IDE logic does not use (block last flags: tracked
-  // here; the receive tag is never output by a decrypting engine)
-  /* verilator lint_off UNUSEDSIGNAL */
-  logic         gt_busy, gt_ol, gt_ok, gr_busy, gr_ol;
-  logic [2:0]   gt_ec, gr_ec;
-  logic [127:0] gr_tag;
-  /* verilator lint_on UNUSEDSIGNAL */
   wire          txo_free = !txo_valid || txo_ready;
   wire          rxo_free = !rxo_valid || rxo_ready;
-
-  AES_GCM_top #(.LEN_W(LEN_W)) u_gtx (
-    .clk, .rst_n, .key256(1'b1), .decrypt(1'b0), .key_sel(1'b0), .tag_len(4'd0),
-    .key(gt_key), .iv(gt_ivec), .tag_in(128'h0), .sl_key(256'h0), .sl_valid(1'b0),
-    .start(gt_start), .clr(gt_clr), .busy(gt_busy),
-    .in_valid(gt_iv_v), .in_ready(gt_ir), .in_data(gt_id), .in_bytes(gt_ib), .in_aad(gt_aad), .in_last(gt_last),
-    .out_valid(gt_ov), .out_ready(txo_free), .out_data(gt_od), .out_bytes(gt_ob), .out_last(gt_ol),
-    .done(gt_done), .tag(gt_tag), .tag_ok(gt_ok), .err(gt_err), .err_code(gt_ec));
-  AES_GCM_top #(.LEN_W(LEN_W)) u_grx (
-    .clk, .rst_n, .key256(1'b1), .decrypt(1'b1), .key_sel(1'b0), .tag_len(4'd12),
-    .key(gr_key), .iv(gr_ivec), .tag_in(gr_tin), .sl_key(256'h0), .sl_valid(1'b0),
-    .start(gr_start), .clr(gr_clr), .busy(gr_busy),
-    .in_valid(gr_iv_v), .in_ready(gr_ir), .in_data(gr_id), .in_bytes(gr_ib), .in_aad(gr_aad), .in_last(gr_last),
-    .out_valid(gr_ov), .out_ready(rxo_free), .out_data(gr_od), .out_bytes(gr_ob), .out_last(gr_ol),
-    .done(gr_done), .tag(gr_tag), .tag_ok(gr_ok), .err(gr_err), .err_code(gr_ec));
 
   // ================= transmit =================
   typedef enum logic [3:0] {T_IDLE, T_PFX, T_HDR, T_FL, T_DATA, T_END, T_WAIT, T_MAC, T_DROP, T_TERM, T_BYP} t_t;
   t_t           t;
   logic         t_fd;                   // after the flush (T_FL): 1 T_DATA, 0 T_END
   logic         t_ep, t_epm;            // cachemem epoch open; message is cachemem
-  logic [1:0]   t_eps, t_s;             // epoch stream; stream of the message
-  logic [7:0]   t_epn;                  // flits of the epoch sent
+  logic [SW-1:0] t_eps, t_s;            // epoch stream; stream of the message
+  logic [6:0]   t_epn;                  // flits of the epoch sent
   logic         t_hs, t_hp, t_pl, t_end, t_term;  // header seen / partial; flit last pushed; input ended
   logic [31:0]  t_c;                    // AAD carry
   logic [2:0]   t_cl;
@@ -229,19 +211,17 @@ module PCIe_CXL_IDE_top #(
   logic [1:0]   t_psub;
 
   // first block of a message (T_IDLE)
-  wire          tc_cm   = cm4[tx_sid];
-  wire          tc_ks   = kst4[tx_sid];
+  wire          tc_cm   = fl(s_cm, tx_sid);
+  wire          tc_ks   = fl(ks_tx, tx_sid);
   wire [4:0]    tc_sl   = slot(tx_sid, tc_ks, tc_cm ? 2'd0 : tx_sub);
   wire [CTR_W-1:0] tc_ctr = ctx[CTR_W * tc_sl +: CTR_W];
-  wire          tc_cont = t_ep && tc_cm && tx_sid == t_eps;           // next flit of the open epoch
-  wire          tc_ok   = en4[tx_sid] && sect4[tx_sid];
+  wire          tc_cont = t_ep && tc_cm && tx_sid == 2'(t_eps);           // next flit of the open epoch
+  wire          tc_ok   = fl(s_en, tx_sid) && fl(sec_tx, tx_sid);
   wire [2:0]    tc_e    = !tc_ok ? E_STATE : tc_cont ? 3'd0 : !tc_cm && tx_sub == 2'd3 ? E_FMT
                         : tc_ctr == C_MAX ? E_CTR : 3'd0;
   wire          t_idle_v = t == T_IDLE && tx_valid && !gt_err;
   wire          t_new   = t_idle_v && tx_ide && !t_ep && tc_e == 3'd0;
   assign gt_start = t_new;
-  assign gt_key  = ktx[256 * tc_sl +: 256];
-  assign gt_ivec = {fix4[32 * tx_sid +: 32], 64'(tc_ctr)};
   // block checks
   wire [127:0]  tx_m    = tx_data & bmask(tx_bytes);
   wire          tb_bad  = tx_bytes == 5'd0 || tx_bytes > 5'd16;
@@ -284,42 +264,42 @@ module PCIe_CXL_IDE_top #(
   r_t           r;
   logic         r_fm;                   // after the flush (R_FL): 1 R_MAC, 0 R_DATA
   logic         r_ep, r_epm;
-  logic [1:0]   r_eps, r_s;             // epoch stream; stream of the message
+  logic [SW-1:0] r_eps, r_s;            // epoch stream; stream of the message
   logic [7:0]   r_epn;
   logic         r_hs, r_hp, r_dp, r_pl, r_end, r_term, r_ok;
   logic [31:0]  r_c;
   logic [2:0]   r_cl;
   logic [95:0]  r_mac;
   logic [7:0]   r_id;                   // Stream ID of the message
-  logic [127:0] r_hd;                   // a partial last payload block, held until the MAC
-  logic [4:0]   r_hb;
+  logic [127:8] r_hd;                   // a partial last payload block (<16 bytes), held until the MAC
+  logic [3:0]   r_hb;
 
   // first block (R_IDLE): a prefix or a cachemem block
   wire [31:0]   rp      = rx_data[127:96];
-  logic [1:0]   rp_s;                   // stream with the prefix's Stream ID
+  logic [SW-1:0] rp_s;                  // stream with the prefix's Stream ID
   logic         rp_hit;
   always_comb begin
-    rp_s = 2'd0; rp_hit = 1'b0;
+    rp_s = '0; rp_hit = 1'b0;
     for (int i = NS - 1; i >= 0; i--)
-      if (en4[i] && !cm4[i] && id4[8 * i +: 8] == rp[15:8]) begin rp_s = 2'(i); rp_hit = 1'b1; end
+      if (s_en[i] && !s_cm[i] && s_id[8 * i +: 8] == rp[15:8]) begin rp_s = SW'(i); rp_hit = 1'b1; end
   end
   wire          rp_k    = rp[22];
   wire [1:0]    rp_sub  = rp[19:18];
   wire          rq_cm   = rx_cm;
-  wire [1:0]    rq_s    = rq_cm ? rx_sid : rp_s;
-  wire          rq_k    = rq_cm ? ksr4[rx_sid] : rp_k;
+  wire [1:0]    rq_s    = rq_cm ? rx_sid : 2'(rp_s);
+  wire          rq_k    = rq_cm ? fl(ks_rx, rx_sid) : rp_k;
   wire [4:0]    rq_sl   = slot(rq_s, rq_k, rq_cm ? 2'd0 : rp_sub);
   wire [CTR_W-1:0] rq_ctr = crx[CTR_W * rq_sl +: CTR_W];
   wire          rq_kv   = kv_rx[SLW'(rq_sl)];
-  wire          rq_cont = r_ep && rq_cm && rx_sid == r_eps;
+  wire          rq_cont = r_ep && rq_cm && rx_sid == 2'(r_eps);
   wire [2:0]    rq_e    = rq_cm
       ? (rx_kind == K_MAC ? (rq_cont ? 3'd0 : E_FMT)
          : rx_kind != K_DATA ? E_FMT
-         : !(en4[rx_sid] && cm4[rx_sid] && secr4[rx_sid]) ? E_STATE
+         : !(fl(s_en, rx_sid) && fl(s_cm, rx_sid) && fl(sec_rx, rx_sid)) ? E_STATE
          : rq_cont ? (r_epn == 8'(cm_agg) + 8'd1 ? E_FMT : 3'd0)
          : rq_ctr == C_MAX ? E_CTR : 3'd0)
       : (rx_bytes != 5'd4 || rx_last || rp[31:24] != PFX_TYPE || !rp[23] ? E_FMT
-         : !rp_hit ? E_SID : !secr4[rp_s] ? E_STATE : rp_sub == 2'd3 ? E_FMT
+         : !rp_hit ? E_SID : !fl(sec_rx, 2'(rp_s)) ? E_STATE : rp_sub == 2'd3 ? E_FMT
          : !rq_kv ? E_KEY : rq_ctr == C_MAX ? E_CTR : 3'd0);
   wire          r_idle_v = r == R_IDLE && rx_valid && !gr_err;
   wire          r_ide    = rq_cm || rx_kind == K_PFX;
@@ -327,9 +307,25 @@ module PCIe_CXL_IDE_top #(
   wire          r_go     = r_idle_v && r_ide && !r_abort && rq_e == 3'd0;
   wire          r_new    = r_go && !rq_cont && !(rq_cm && rx_kind == K_MAC);
   assign gr_start = r_new;
-  assign gr_key  = krx[256 * rq_sl +: 256];
-  assign gr_ivec = {fix4[32 * rq_s +: 32], 64'(rq_ctr)};
-  assign gr_tin  = {r_mac, 32'h0};
+
+  // engines; block last flags are tracked here, an encrypting engine gives no
+  // tag_ok and a decrypting one no tag
+  /* verilator lint_off PINCONNECTEMPTY */
+  AES_GCM_top #(.LEN_W(LEN_W)) u_gtx (
+    .clk, .rst_n, .key256(1'b1), .decrypt(1'b0), .key_sel(1'b0), .tag_len(4'd0),
+    .key(ktx[256 * tc_sl +: 256]), .iv({fix32(s_ivfix, tx_sid), 64'(tc_ctr)}), .tag_in(128'h0),
+    .sl_key(256'h0), .sl_valid(1'b0), .start(gt_start), .clr(gt_clr), .busy(),
+    .in_valid(gt_iv_v), .in_ready(gt_ir), .in_data(gt_id), .in_bytes(gt_ib), .in_aad(gt_aad), .in_last(gt_last),
+    .out_valid(gt_ov), .out_ready(txo_free), .out_data(gt_od), .out_bytes(gt_ob), .out_last(),
+    .done(gt_done), .tag(gt_tag), .tag_ok(), .err(gt_err), .err_code());
+  AES_GCM_top #(.LEN_W(LEN_W)) u_grx (
+    .clk, .rst_n, .key256(1'b1), .decrypt(1'b1), .key_sel(1'b0), .tag_len(4'd12),
+    .key(krx[256 * rq_sl +: 256]), .iv({fix32(s_ivfix, rq_s), 64'(rq_ctr)}), .tag_in({r_mac, 32'h0}),
+    .sl_key(256'h0), .sl_valid(1'b0), .start(gr_start), .clr(gr_clr), .busy(),
+    .in_valid(gr_iv_v), .in_ready(gr_ir), .in_data(gr_id), .in_bytes(gr_ib), .in_aad(gr_aad), .in_last(gr_last),
+    .out_valid(gr_ov), .out_ready(rxo_free), .out_data(gr_od), .out_bytes(gr_ob), .out_last(),
+    .done(gr_done), .tag(), .tag_ok(gr_ok), .err(gr_err), .err_code());
+  /* verilator lint_on PINCONNECTEMPTY */
   wire [127:0]  rx_m    = rx_data & bmask(rx_bytes);
   wire          rb_bad  = rx_bytes == 5'd0 || rx_bytes > 5'd16;
   wire          rh_bad  = rx_kind == K_HDR ? r_hp || rb_bad || rx_last : rx_kind == K_PFX || !r_hs;   // R_HDR
@@ -362,7 +358,7 @@ module PCIe_CXL_IDE_top #(
         end
       end
       R_MAC: rx_ready = rx_valid;
-      R_END: begin gr_iv_v = 1'b1; gr_last = 1'b1; gr_id = r_hd; gr_ib = r_hb; end
+      R_END: begin gr_iv_v = 1'b1; gr_last = 1'b1; gr_id = {r_hd, 8'h0}; gr_ib = {1'b0, r_hb}; end
       R_DROP: rx_ready = !r_end;
       R_BYP: rx_ready = r_ocan;
       default: ;
@@ -376,8 +372,8 @@ module PCIe_CXL_IDE_top #(
   wire [4:0]  km_b   = slot(km_sid, km_ks, 2'd0);
   wire [4:0]  km_sl  = km_b + 5'(km_sub);
   wire [NSL-1:0] km_kv = km_dir ? kv_rx : kv_tx;
-  wire        km_use = km_dir ? secr4[km_sid] && ksr4[km_sid] == km_ks : sect4[km_sid] && kst4[km_sid] == km_ks;
-  wire        km_full = km_kv[SLW'(km_b)] && (cm4[km_sid] || km_kv[SLW'(km_b + 5'd1)] && km_kv[SLW'(km_b + 5'd2)]);
+  wire        km_use = km_dir ? fl(sec_rx, km_sid) && fl(ks_rx, km_sid) == km_ks : fl(sec_tx, km_sid) && fl(ks_tx, km_sid) == km_ks;
+  wire        km_full = km_kv[SLW'(km_b)] && (fl(s_cm, km_sid) || km_kv[SLW'(km_b + 5'd1)] && km_kv[SLW'(km_b + 5'd2)]);
   wire [2:0]  km_e = km_prog ? (km_bad || km_sub == 2'd3 ? 3'd1 : km_sel && !sl_valid ? 3'd3 : km_use ? 3'd4 : 3'd0)
                    : km_go ? (km_bad ? 3'd1 : !km_full ? 3'd2 : 3'd0)
                    : km_stop ? (km_bad ? 3'd1 : 3'd0) : 3'd0;
@@ -398,7 +394,7 @@ module PCIe_CXL_IDE_top #(
       if (t_new) ctx[CTR_W * tc_sl +: CTR_W] <= tc_ctr + 1'b1;
       if (t_ins) sec_tx[SW'(tx_sid)] <= 1'b0;
       if (r_new) crx[CTR_W * rq_sl +: CTR_W] <= rq_ctr + 1'b1;
-      if (r_go && !rq_cm) ks_rx[SW'(rp_s)] <= rp_k;
+      if (r_go && !rq_cm) ks_rx[rp_s] <= rp_k;
       if (r_ins) sec_rx[r_ins_s] <= 1'b0;
       // key management
       if (km_e != 3'd0) begin
@@ -483,10 +479,10 @@ module PCIe_CXL_IDE_top #(
             t_end <= 1'b0; t_hs <= 1'b0; t_hp <= 1'b0;
             if (tc_cont) t <= T_DATA;
             else begin
-              t_epm <= tc_cm; t_s <= tx_sid;
-              t_pid <= id4[8 * tx_sid +: 8]; t_pk <= tc_ks; t_psub <= tx_sub;
+              t_epm <= tc_cm; t_s <= SW'(tx_sid);
+              t_pid <= id8(s_id, tx_sid); t_pk <= tc_ks; t_psub <= tx_sub;
               if (tc_cm) begin
-                t_ep <= 1'b1; t_eps <= tx_sid; t_epn <= '0;
+                t_ep <= 1'b1; t_eps <= SW'(tx_sid); t_epn <= '0;
                 t <= T_DATA;
               end else t <= T_PFX;
             end
@@ -522,7 +518,7 @@ module PCIe_CXL_IDE_top #(
             if (!t_epm) t <= T_WAIT;          // the TLP's last block ended the GCM message
             else begin
               t_epn <= t_epn + 1'b1;
-              t <= t_epn == 8'(cm_agg) ? T_END : T_IDLE;
+              t <= t_epn == cm_agg ? T_END : T_IDLE;
             end
           end
         end
@@ -552,7 +548,7 @@ module PCIe_CXL_IDE_top #(
         default: t <= T_IDLE;
       endcase
       if (te_v) begin
-        tx_err <= 1'b1; tx_code <= te_c; tx_esid <= t == T_IDLE && !gt_err ? tx_sid : t_s;
+        tx_err <= 1'b1; tx_code <= te_c; tx_esid <= t == T_IDLE && !gt_err ? tx_sid : 2'(t_s);
         t_term <= te_term;
         t_ep <= 1'b0; t_epn <= '0; t_c <= '0; t_cl <= '0; t_pl <= 1'b0;
         // the input packet: from its first block (IDLE) or the rest of it
@@ -569,7 +565,7 @@ module PCIe_CXL_IDE_top #(
   // ================= receive control =================
   logic       re_v, re_term, re_ins;
   logic [2:0] re_c;
-  logic [1:0] re_s;
+  logic [SW-1:0] re_s;
   logic [7:0] re_id;
   wire        rp_fmt = rx_bytes == 5'd4 && !rx_last && rp[31:24] == PFX_TYPE && rp[23];
   always_comb begin
@@ -577,10 +573,10 @@ module PCIe_CXL_IDE_top #(
     if (gr_err) begin re_v = 1'b1; re_c = E_LEN; end
     else case (r)
       R_IDLE: if (r_abort) begin
-        re_v = 1'b1; re_c = E_FMT; re_s = r_eps; re_id = id4[8 * r_eps +: 8];
+        re_v = 1'b1; re_c = E_FMT; re_s = r_eps; re_id = id8(s_id, 2'(r_eps));
       end else if (rx_valid && r_ide && rq_e != 3'd0) begin
         re_v = 1'b1; re_c = rq_e; re_term = rq_cont;
-        re_s = rq_s; re_id = rq_cm ? id4[8 * rx_sid +: 8] : rp[15:8];
+        re_s = SW'(rq_s); re_id = rq_cm ? id8(s_id, rx_sid) : rp[15:8];
         re_ins = rq_cm ? 32'(rx_sid) < NS : rp_fmt && rp_hit;
       end
       R_HDR: if (rx_valid && rh_bad) begin re_v = 1'b1; re_c = E_FMT; end
@@ -592,7 +588,7 @@ module PCIe_CXL_IDE_top #(
   assign gr_clr = clr || re_v && re_term;
   always_comb begin
     r_ins = re_v && re_ins || r == R_WAIT && gr_done && !gr_ok;
-    r_ins_s = SW'(re_v ? re_s : r_s);
+    r_ins_s = re_v ? re_s : r_s;
   end
 
   always_ff @(posedge clk or negedge rst_n) begin
@@ -624,8 +620,8 @@ module PCIe_CXL_IDE_top #(
             end else if (rx_kind == K_MAC) r <= R_MAC;
             else begin
               if (!rq_cont) begin
-                r_ep <= 1'b1; r_epm <= 1'b1; r_eps <= rx_sid; r_s <= rx_sid; r_epn <= '0;
-                r_id <= id4[8 * rx_sid +: 8];
+                r_ep <= 1'b1; r_epm <= 1'b1; r_eps <= SW'(rx_sid); r_s <= SW'(rx_sid); r_epn <= '0;
+                r_id <= id8(s_id, rx_sid);
               end
               r <= R_DATA;
             end
@@ -650,7 +646,7 @@ module PCIe_CXL_IDE_top #(
           if (rx_kind == K_MAC) r <= R_MAC;
           else if (r_take) begin
             r_dp <= rx_bytes != 5'd16;
-            if (rx_bytes != 5'd16) begin r_hd <= rx_m; r_hb <= rx_bytes; end
+            if (rx_bytes != 5'd16) begin r_hd <= rx_m[127:8]; r_hb <= 4'(rx_bytes); end
             r_pl <= rx_last && r_epm;
             if (rx_last) begin
               r_epn <= r_epn + 1'b1;
