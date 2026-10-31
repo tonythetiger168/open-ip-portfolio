@@ -1,35 +1,43 @@
 # open-ip-portfolio
 
-Open-source SystemVerilog protocol IP portfolio (Apache-2.0) — 117 protocol
-configurations covering **81 distinct RTL core designs**, each with a
-synthesizable RTL top, a self-checking testbench, and open-toolchain build
-flows (Icarus Verilog simulation + Yosys synthesis).
+Open-source SystemVerilog protocol IP portfolio (Apache-2.0) — **128 protocol
+IPs**, each with a synthesizable RTL core, an APB4 register wrapper, self-checking
+testbenches for both, a coverage checker (reference model, SVA and functional
+coverage), and open-toolchain build flows (Icarus Verilog simulation, Yosys
+synthesis, Verilator coverage).
 
 > **Scope, honestly.** Every design here is an *educational slice*: a
 > compact, readable implementation of the protocol's core transaction flow —
 > not a full-spec, production-hardened controller. Some catalog entries are
 > **parameterized variants of a shared core** rather than independent
 > implementations (e.g. DDR4/DDR5/HBM3 each carry their own copy of one
-> memory-controller design, with their own timing and channel count; the old
-> shared `MEMCH` / `MEMCORE` cores are no longer used by any IP). 117 catalog entries = 81 distinct
-> cores + 36 shared-core variants, itemized
+> memory-controller design, with their own timing and channel count). See
 > [below](#design-organization-cores-vs-variants).
 
 ## Directory layout
 
 ```
-rtl/                     one <PROTOCOL>_top.sv per protocol (synthesizable SV)
+rtl/                     <P>_top.sv core and <P>_apb.sv APB4 wrapper per protocol
 tb/                      self-checking testbenches (print TEST PASSED/FAILED)
+tb/apb/                  IP-specific parts of the wrapper testbenches
+tb/cov/                  Verilator coverage checkers (<P>_sva.sv, <P>_apb_sva.sv)
 syn/                     per-protocol Yosys scripts, DC TCL, SDC constraints
 sim/                     per-protocol simulator filelists
-Makefile.<PROTOCOL>      per-protocol entry: make -f Makefile.<P> sim|syn
+Makefile.<PROTOCOL>      per-protocol entry: make -f Makefile.<P> sim|syn|apb
 releases/                standalone per-protocol packages: open_ip_<P>.zip
-gen_framework.py         framework generator (templates kept in sync with rtl/)
-docs/                    portfolio review and methodology notes
+scripts/apb/             APB wrapper generator and register specs (specs/<P>.json)
+scripts/cov/             five-metric coverage flow (run_cov.sh, run_all.sh)
+scripts/ci_regression.sh sim + syn + apb regression run by CI
+scripts/package_releases.py  rebuilds releases/ from the current tree
+scripts/gen_filelists.py     rebuilds sim/filelist_<P>.f from the Makefiles
+scripts/mut/run_mut.py       mutation testing of the testbenches (Icarus or the Verilator flow)
+docs/ip/                 one page per IP: ports, register map, coverage
+docs/                    coverage closure, portfolio review, methodology notes
+gen_framework.py         original v1 generator (frozen: out of sync with rtl/ and tb/)
 setup_tools.sh           installs iverilog / yosys if missing
 ```
 
-## Protocol catalog (117)
+## Protocol catalog (128)
 
 ### AMBA & ARM interconnect (16)
 
@@ -89,12 +97,13 @@ setup_tools.sh           installs iverilog / yosys if missing
 | UniPro | `make -f Makefile.UniPro sim` | [open_ip_UniPro.zip](releases/open_ip_UniPro.zip) |
 | UniPro_Mem (memory-mapped) | `make -f Makefile.UniPro_Mem sim` | [open_ip_UniPro_Mem.zip](releases/open_ip_UniPro_Mem.zip) |
 
-### Memory & DRAM (23)
+### Memory & DRAM (27)
 
 | Protocol | Build | Standalone package |
 |---|---|---|
 | DDR | `make -f Makefile.DDR sim` | [open_ip_DDR.zip](releases/open_ip_DDR.zip) |
 | DDR4 | `make -f Makefile.DDR4 sim` | [open_ip_DDR4.zip](releases/open_ip_DDR4.zip) |
+| DDR4-Lite | `make -f Makefile.DDR4_Lite sim` | [open_ip_DDR4_Lite.zip](releases/open_ip_DDR4_Lite.zip) |
 | DDR5 | `make -f Makefile.DDR5 sim` | [open_ip_DDR5.zip](releases/open_ip_DDR5.zip) |
 | DDR6 | `make -f Makefile.DDR6 sim` | [open_ip_DDR6.zip](releases/open_ip_DDR6.zip) |
 | DDR7 | `make -f Makefile.DDR7 sim` | [open_ip_DDR7.zip](releases/open_ip_DDR7.zip) |
@@ -102,16 +111,19 @@ setup_tools.sh           installs iverilog / yosys if missing
 | GDDR5 | `make -f Makefile.GDDR5 sim` | [open_ip_GDDR5.zip](releases/open_ip_GDDR5.zip) |
 | GDDR6 | `make -f Makefile.GDDR6 sim` | [open_ip_GDDR6.zip](releases/open_ip_GDDR6.zip) |
 | GDDR7 | `make -f Makefile.GDDR7 sim` | [open_ip_GDDR7.zip](releases/open_ip_GDDR7.zip) |
+| GDDR7-Lite | `make -f Makefile.GDDR7_Lite sim` | [open_ip_GDDR7_Lite.zip](releases/open_ip_GDDR7_Lite.zip) |
 | HBM | `make -f Makefile.HBM sim` | [open_ip_HBM.zip](releases/open_ip_HBM.zip) |
 | HBM2 | `make -f Makefile.HBM2 sim` | [open_ip_HBM2.zip](releases/open_ip_HBM2.zip) |
 | HBM3 | `make -f Makefile.HBM3 sim` | [open_ip_HBM3.zip](releases/open_ip_HBM3.zip) |
 | HBM3E | `make -f Makefile.HBM3E sim` | [open_ip_HBM3E.zip](releases/open_ip_HBM3E.zip) |
+| HBM3E-Lite | `make -f Makefile.HBM3E_Lite sim` | [open_ip_HBM3E_Lite.zip](releases/open_ip_HBM3E_Lite.zip) |
 | HBM4 | `make -f Makefile.HBM4 sim` | [open_ip_HBM4.zip](releases/open_ip_HBM4.zip) |
 | HBM5 | `make -f Makefile.HBM5 sim` | [open_ip_HBM5.zip](releases/open_ip_HBM5.zip) |
 | LPDDR | `make -f Makefile.LPDDR sim` | [open_ip_LPDDR.zip](releases/open_ip_LPDDR.zip) |
 | LPDDR4 | `make -f Makefile.LPDDR4 sim` | [open_ip_LPDDR4.zip](releases/open_ip_LPDDR4.zip) |
 | LPDDR5 | `make -f Makefile.LPDDR5 sim` | [open_ip_LPDDR5.zip](releases/open_ip_LPDDR5.zip) |
 | LPDDR5X | `make -f Makefile.LPDDR5X sim` | [open_ip_LPDDR5X.zip](releases/open_ip_LPDDR5X.zip) |
+| LPDDR5X-Lite | `make -f Makefile.LPDDR5X_Lite sim` | [open_ip_LPDDR5X_Lite.zip](releases/open_ip_LPDDR5X_Lite.zip) |
 | LPDDR6 | `make -f Makefile.LPDDR6 sim` | [open_ip_LPDDR6.zip](releases/open_ip_LPDDR6.zip) |
 | LPDDR7 | `make -f Makefile.LPDDR7 sim` | [open_ip_LPDDR7.zip](releases/open_ip_LPDDR7.zip) |
 | ONFI | `make -f Makefile.ONFI sim` | [open_ip_ONFI.zip](releases/open_ip_ONFI.zip) |
@@ -141,12 +153,14 @@ setup_tools.sh           installs iverilog / yosys if missing
 | I2S | `make -f Makefile.I2S sim` | [open_ip_I2S.zip](releases/open_ip_I2S.zip) |
 | I2S Audio | `make -f Makefile.I2S_Audio sim` | [open_ip_I2S_Audio.zip](releases/open_ip_I2S_Audio.zip) |
 
-### Ethernet & networking (6)
+### Ethernet & networking (8)
 
 | Protocol | Build | Standalone package |
 |---|---|---|
 | Ethernet | `make -f Makefile.Ethernet sim` | [open_ip_Ethernet.zip](releases/open_ip_Ethernet.zip) |
 | Ethernet AVB/TSN | `make -f Makefile.Ethernet_AVB_TSN sim` | [open_ip_Ethernet_AVB_TSN.zip](releases/open_ip_Ethernet_AVB_TSN.zip) |
+| Ethernet PCS (802.3 cl. 119, 400GBASE-R: 256b/257b, scrambler, AM, FEC interleave) | `make -f Makefile.Ethernet_PCS sim` | [open_ip_Ethernet_PCS.zip](releases/open_ip_Ethernet_PCS.zip) |
+| Ethernet RS(544,514) FEC (KP4, 100G..1.6T) | `make -f Makefile.Ethernet_RS_FEC sim` | [open_ip_Ethernet_RS_FEC.zip](releases/open_ip_Ethernet_RS_FEC.zip) |
 | GMII | `make -f Makefile.GMII sim` | [open_ip_GMII.zip](releases/open_ip_GMII.zip) |
 | MDIO | `make -f Makefile.MDIO sim` | [open_ip_MDIO.zip](releases/open_ip_MDIO.zip) |
 | RGMII | `make -f Makefile.RGMII sim` | [open_ip_RGMII.zip](releases/open_ip_RGMII.zip) |
@@ -156,7 +170,7 @@ setup_tools.sh           installs iverilog / yosys if missing
 
 | Protocol | Build | Standalone package |
 |---|---|---|
-| CXL | `make -f Makefile.CXL sim` | [open_ip_CXL.zip](releases/open_ip_CXL.zip) |
+| CXL 3.0 (256-byte flits, CXL.io, HDM-DB back-invalidation) | `make -f Makefile.CXL sim` | [open_ip_CXL.zip](releases/open_ip_CXL.zip) |
 | Interlaken v1.2 | `make -f Makefile.Interlaken_v1_2 sim` | [open_ip_Interlaken_v1_2.zip](releases/open_ip_Interlaken_v1_2.zip) |
 | JESD204C | `make -f Makefile.JESD204C sim` | [open_ip_JESD204C.zip](releases/open_ip_JESD204C.zip) |
 | PCIe | `make -f Makefile.PCIe sim` | [open_ip_PCIe.zip](releases/open_ip_PCIe.zip) |
@@ -198,12 +212,17 @@ setup_tools.sh           installs iverilog / yosys if missing
 |---|---|---|
 | Bluetooth 5 | `make -f Makefile.Bluetooth5 sim` | [open_ip_Bluetooth5.zip](releases/open_ip_Bluetooth5.zip) |
 
-### Security & crypto (2)
+### Security & crypto (7)
 
 | Protocol | Build | Standalone package |
 |---|---|---|
+| AES-GCM (SP 800-38D, AES-128 / AES-256) | `make -f Makefile.AES_GCM sim` | [open_ip_AES_GCM.zip](releases/open_ip_AES_GCM.zip) |
 | CSE | `make -f Makefile.CSE sim` | [open_ip_CSE.zip](releases/open_ip_CSE.zip) |
 | Crypto (Security Engine) | `make -f Makefile.Crypto___Security_Engine sim` | [open_ip_Crypto___Security_Engine.zip](releases/open_ip_Crypto___Security_Engine.zip) |
+| ML-DSA (FIPS 204 post-quantum signatures) | `make -f Makefile.ML_DSA sim` | [open_ip_ML_DSA.zip](releases/open_ip_ML_DSA.zip) |
+| ML-KEM (FIPS 203 post-quantum KEM) | `make -f Makefile.ML_KEM sim` | [open_ip_ML_KEM.zip](releases/open_ip_ML_KEM.zip) |
+| Root of Trust (lifecycle, secure boot, DICE key) | `make -f Makefile.Root_of_Trust sim` | [open_ip_Root_of_Trust.zip](releases/open_ip_Root_of_Trust.zip) |
+| SHA-3 / SHAKE (FIPS 202 hash engine) | `make -f Makefile.SHA3 sim` | [open_ip_SHA3.zip](releases/open_ip_SHA3.zip) |
 
 ### Low-speed & board-level (8)
 
@@ -224,36 +243,57 @@ setup_tools.sh           installs iverilog / yosys if missing
 
 ## Design organization: cores vs. variants
 
-The catalog has **121 entries** but **97 distinct RTL cores**. 29 entries are
-parameter shells or rename-siblings over a shared core (verified by
-statement-level diff: siblings differ only in the module name, header
-comment, and timing parameters; re-verified 2026-09-28 by byte-level
-clustering of all 119 rtl/ files; updated 2026-10-02 for v2.6 -- the 20
-memory entries are now 20 independent designs and 4 standalone Lite cores
-(DDR4_Lite, LPDDR5X_Lite, HBM3E_Lite, GDDR7_Lite) were added. Their verification is still real — each
-variant has its own testbench, its own `make` target, and its own coverage
-closure — but the *logic* is shared, so a bug in a shared core affects the
-whole family (as happened with the v2.5.1 echo-copy fix, which touched 11
-variants of one template).
+The catalog has **128 entries, each with its own RTL core** in
+`rtl/<P>_top.sv`. Up to v2.5.1, 29 entries were byte-level renamed copies of
+5 shared templates (CHI, UART, CAN, the 2-wire serial shifter and the frame
+echo template). All of them have since been rewritten as implementations of
+their own protocol, each with its own testbench and checker; no two cores
+share more than about 20% of their statements now (checked 2026-10-24 by a
+statement-level diff of every former cluster).
 
-| Shared core | Variants in catalog | Count |
-|---|---|---|
-| memory family (20 independent IPs) | DDR, DDR4, DDR5, DDR6, DDR7, LPDDR, LPDDR4, LPDDR5, LPDDR5X, LPDDR6, LPDDR7, GDDR5, GDDR6, GDDR7, HBM, HBM2, HBM3, HBM3E, HBM4, HBM5 | 20 → 20 |
-| `CXL_top` (echo/TLP template) | CXL, PCIe, UEC, Interlaken v1.2, JESD204C | 5 → 1 |
-| `RFFE_top` (2-wire serial register IF) | RFFE, DigRF, HSI, MIPI SLIMbus, MIPI SoundWire, MIPI DBI | 6 → 1 |
-| `CHI_top` (credit-based flit link) | CHI, CCIX, CXS, UALink, UCIe, ARM LTI | 6 → 1 |
-| `NVMe_top` (echo template) | NVMe, FC, Ethernet, ONFI, USB4; USB 3.2 is the same template with different STP/END_B constants | 6 → 1 |
-| `CAN_top` (frame/CRC template) | CAN, Ethernet AVB/TSN, FlexRay, LIN | 4 → 1 |
-| `UART_top` (8N1 UART) | UART, ARM SWD | 2 → 1 |
-| **Total** | | **29 → 5** |
-
-The remaining **92 catalog entries are independent implementations** (121 − 29 = 92; 92 + 5 shared cores = 97 distinct designs).
+The one family that still shares structure is memory: the 20 DRAM
+controllers (DDR, DDR4-7, LPDDR, LPDDR4-7, LPDDR5X, GDDR5-7, HBM, HBM2-5,
+HBM3E) are separate files, but grew from one controller design and are
+80-95% statement-identical within a sub-family; they differ in timing, bank
+and channel count and command encoding. The 4 Lite cores (DDR4_Lite,
+LPDDR5X_Lite, HBM3E_Lite, GDDR7_Lite) are a second, larger design (see
+[docs/DDR_Lite_NOTES.md](docs/DDR_Lite_NOTES.md)). A bug in one memory
+controller is therefore likely to exist in its siblings. The retired shared
+cores `MEMCH` / `MEMCORE` have been removed (see git history).
 
 Note the distinction from *same-family different implementations*, which are
 **not** counted as clones: e.g. `RFFE` vs `MIPI_RFFE`, `SPMI` vs `MIPI_SPMI`,
 `I3C` vs `MIPI_I3C`, `USB` vs `USB2` vs `USB2_0`, `SD` vs `SDIO` vs `eMMC`,
 `SAS` vs `SAS_4` vs `SATA` vs `UFS` — these share a protocol family but have
 substantively different RTL (100+ differing statements each).
+
+## Setup
+
+Tested on a clean Ubuntu 24.04 container. Versions used for the published results:
+
+| Tool | Version | Needed for |
+|---|---|---|
+| Icarus Verilog | 12.0 | `make sim`, `make apb`, CI |
+| Yosys | 0.33 | `make syn`, `make apb`, CI |
+| Verilator | 5.052 | coverage flow (`scripts/cov/`) only |
+| Python 3 + `pyslang` 12.0.0 | 3.10+ | coverage flow (FSM cover generation), APB generator |
+
+```sh
+# Icarus Verilog + Yosys (what CI installs); needs root
+sudo sh setup_tools.sh         # or: sudo apt-get install -y iverilog yosys
+
+# Verilator 5.052: distribution packages are too old (Ubuntu 24.04 ships 5.020,
+# which silently drops covergroups), so build it from source (~25 min on 4 cores)
+sudo apt-get install -y git make autoconf g++ flex bison libfl-dev help2man python3
+git clone -b v5.052 --depth 1 https://github.com/verilator/verilator.git
+cd verilator && autoconf && ./configure && make -j"$(nproc)" && sudo make install && cd ..
+
+# Python dependency of scripts/cov/ and scripts/apb/
+pip install pyslang==12.0.0    # add --break-system-packages on a PEP 668 distro, or use a venv
+```
+
+`scripts/cov/run_cov.sh` refuses to run with a Verilator older than 5.052 or
+without `pyslang`.
 
 ## Quick start
 
@@ -264,10 +304,18 @@ make -f Makefile.I2C sim        # -> TEST PASSED: I2C
 # synthesize one protocol (Yosys)
 make -f Makefile.I2C syn        # -> 0 errors, cell count report
 
-# full regression: 117/117 sim + syn PASS
-for m in Makefile.*; do make -f $m sim; done
+# APB4 register wrapper: wrapper test + synthesis
+make -f Makefile.I2C apb        # -> TEST PASSED: I2C_apb
 
-# standalone package workflow
+# full regression (what CI runs): sim + syn + apb for all 128 IPs, in parallel (~50 min on 4 cores)
+bash scripts/ci_regression.sh   # logs in work/ci_*.log
+
+# five-metric coverage (Verilator)
+bash scripts/cov/run_cov.sh I2C        # one core  -> RESULT: CLOSED
+bash scripts/cov/run_cov.sh I2C_apb    # its wrapper
+bash scripts/cov/run_all.sh 4          # all 256 runs, 4 in parallel
+
+# standalone package workflow (core + wrapper, sim / syn / apb)
 unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
 ```
 
@@ -276,9 +324,21 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
 - **Five-metric closure (Verilator 5.052):** every IP's testbench reaches
   100% line, toggle, FSM, SVA and functional coverage, and so does every
   IP's APB4 register wrapper (`rtl/<P>_apb.sv`, register map in
-  `docs/ip/<P>.md`): 121 cores and 121 wrappers, 242/242 closed. Results,
+  `docs/ip/<P>.md`): 128 cores and 128 wrappers, 256/256 closed. Results,
   exclusions and how to run: [docs/COVERAGE_CLOSURE.md](docs/COVERAGE_CLOSURE.md).
+  CI runs both: `.github/workflows/regression.yml` (iverilog / yosys
+  sim + syn + apb, plus a check that generated files are up to date) and
+  `.github/workflows/coverage.yml` (this five-metric flow over all 256
+  runs, in 8 shards; any IP that is not CLOSED fails the build).
+  `.github/workflows/mutation.yml` runs `scripts/mut/run_mut.py --flow cov`
+  weekly: 8 operator mutants per core (relational, logical, constant bit,
+  +/-1), each run through the testbench and its checker, with every
+  surviving mutant listed in the job summary.
   The v2.5.1 numbers below are the earlier four-metric flow.
+- **Sign-off checks beyond coverage** (UCIe, PCIe, CXL, ML-KEM, ML-DSA, Ethernet RS-FEC,
+  Ethernet PCS, Root of Trust, SHA-3, AES-GCM so far): lint, mutation, formal (bounded proofs; exhaustive checks of the
+  ML-KEM, ML-DSA and RS-FEC arithmetic and the PCS functions and gearboxes), area and logic depth, and the list of what a production
+  sign-off would still need: [docs/SIGNOFF.md](docs/SIGNOFF.md).
 
 ### Earlier four-metric flow (v2.5.1)
 

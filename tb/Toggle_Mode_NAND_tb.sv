@@ -188,6 +188,14 @@ module Toggle_Mode_NAND_tb;
     cmd(8'h00);
     dout(8);
     for (int i = 0; i < 8; i++) check(rbuf[i] === shadow[7 * 64 + 4 + i], "data after 00h");
+    // a new read sequence abandoned after one address cycle drops that data:
+    // a later 00h starts a read sequence and does not drive the bus
+    cmd(8'h00); check(irq === 1'b0, "00h after a return to data");
+    addr(8'h02); cmd(8'h00);
+    wclk(2); check(irq === 1'b1, "00h after one address cycle: no irq");
+    cmd(8'h00);
+    re_n = 0; wclk(5); re_n = 1; wclk(5); check(dqs === 1'b0, "data driven after an abandoned read");
+    cmd(8'hFF); wait_ready();
     for (int i = 0; i < 64; i++) wbuf[i] = 8'h0F;
     cmd(8'h80); addr5(0, 8); din(64); cmd(8'h10);
     status(8'h80, "status while programming");
@@ -205,6 +213,7 @@ module Toggle_Mode_NAND_tb;
     cmd(8'h80); addr5(0, 1); din(2); cmd(8'h11); expect_irq("wrong program confirm");
     cmd(8'h60); addr(4); addr(0); addr(0); cmd(8'hD1); expect_irq("wrong erase confirm");
     cmd(8'h00); addr(0); cmd(8'h90);     expect_irq("command inside an address phase");
+    cmd(8'h80); cmd(8'h90);              expect_irq("command before the first address");
     cmd(8'h60); addr(4); cmd(8'h70);     dout(1); expect_irq("70h inside an address phase");
     cmd(8'h90); cmd(8'h90);              expect_irq("90h without address");
     addr(8'h12);                         expect_irq("address with no command");
@@ -228,6 +237,13 @@ module Toggle_Mode_NAND_tb;
     ce_n = 1; cle = 1; h_oe = 1; h_dq = 8'hAB; we_n = 0; wclk(4); we_n = 1; wclk(4); cle = 0; h_oe = 0;
     check(irq === 1'b0, "strobe with ce_n high was taken");
     cmd(8'h90); addr(0); ce_n = 1; re_n = 0; wclk(5); check(dq === 8'hFF, "drives with ce_n high"); re_n = 1; wclk(5);
+
+    // ---- pages 12 and 14, a program starting at the last column, 0xFF / 0x55 data ----
+    read_page(12, 0, 4); read_page(14, 0, 4);
+    erase(0);
+    wbuf[0] = 8'hFF; wbuf[1] = 8'h55;
+    program_page(3, 63, 2);
+    read_page(3, 63, 2);
 
     // ---- rst_n during a program ----
     for (int i = 0; i < 64; i++) wbuf[i] = 8'h00;

@@ -75,6 +75,13 @@ module JESD204C_sva (
   bit v_ur, v_e0, v_e15, v_slide, v_test_fail, v_lock, v_unlock, v_win_reset, v_mb_aln, v_emb_lock;
   bit v_eomb_missing, v_eomb_moved, v_eoemb_extra, v_eoemb_missing, v_crc_ok, v_crc_err, v_cmd, v_lost_emb;
 
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  bit          c_tv, c_tm, c_me, c_rv, c_mv;
+  logic [63:0] c_td, c_rd;
+  logic [6:0]  c_tc, c_rc;
+  logic [3:0]  c_e;
+  int          c_rpos;
+
   assign m_ready = t_k == 0 && tx_valid;
 
   always @(posedge clk or negedge rst_n) begin
@@ -84,15 +91,18 @@ module JESD204C_sva (
       r_q = 0; r_h0 = 0; r_k = 0; r_st = 0; r_vc = 0; r_wc = 0; r_ic = 0; r_es = 0; r_j = 0; r_e = 0;
       r_pay = 0; r_crc = 0; r_crcp = 0; r_sh = 0;
       {m_rv, m_rms, m_res, m_mbv, m_ce, m_esh, m_eemb} = '0; m_rd = 0; m_cmd = 0;
+      {c_tv, c_tm, c_me, c_rv, c_mv} = '0; c_td = 0; c_rd = 0; c_tc = 0; c_rc = 0; c_e = 0; c_rpos = 0;
     end else begin : b_step
       bit b;
       m_mbs = 0; m_ur = 0;
+      {c_tv, c_tm, c_me} = '0;
       // ---- transmitter
       if (t_k == 0) begin : b_load
         logic [63:0] p;
         p = tx_valid ? tx_data : 64'd0;
         if (!tx_valid) begin m_ur = 1; v_ur = 1; end
-        if (t_j == 0) begin t_cmd = tx_cmd; m_mbs = 1; if (tx_cmd != 0) v_cmd = 1; end
+        if (t_j == 0) begin t_cmd = tx_cmd; m_mbs = 1; if (tx_cmd != 0) v_cmd = 1; c_tm = 1; c_tc = tx_cmd; end
+        c_tv = tx_valid; c_td = tx_data;
         t_line[0] = !sbit(t_j, t_crc_s, t_cmd, t_e >= int'(cfg_e));
         for (int i = 0; i < 64; i++) begin : b_bit
           bit s;
@@ -107,6 +117,7 @@ module JESD204C_sva (
       if (t_k == 65) begin
         if (t_j == 31) begin
           t_crc_s = t_crc; t_crc = 0;
+          c_me = 1; c_e = cfg_e;
           if (cfg_e == 0) v_e0 = 1;
           if (cfg_e == 15) v_e15 = 1;
           t_e = t_e >= int'(cfg_e) ? 0 : t_e + 1;
@@ -192,6 +203,7 @@ module JESD204C_sva (
         r_k = r_k == 65 ? 0 : r_k + 1;
       end
       r_q = rx_p;
+      c_rv = m_rv; c_rd = m_rd; c_rpos = m_res ? 0 : (m_rms ? 1 : 2); c_mv = m_mbv; c_rc = m_cmd;
     end
   end
 
@@ -207,6 +219,28 @@ module JESD204C_sva (
   `SVA_RST(a_reset, 1'b1, !tx_p && !sh_lock && !emb_lock && !rx_valid && !rx_mb_valid && !err_sh && !err_emb)
 
   // ---------------- functional coverage ----------------
+  // payload classes both ways, command classes both ways, extended
+  // multiblock length, where a received block sits in the (extended)
+  // multiblock
+  function automatic int dcls(input logic [63:0] v);
+    return v == 64'd0 ? 0 : (v == '1 ? 1 : (v == {32{2'b01}} || v == {32{2'b10}} ? 2 : 3));
+  endfunction
+  function automatic int ccls(input logic [6:0] v);
+    return v == 7'd0 ? 0 : (v == 7'h7F ? 1 : 2);
+  endfunction
+  covergroup cg_link @(negedge clk);
+    option.per_instance = 1;
+    cp_txd: coverpoint dcls(c_td) iff (rst_n && c_tv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rxd: coverpoint dcls(c_rd) iff (rst_n && c_rv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_txcmd: coverpoint ccls(c_tc) iff (rst_n && c_tm) { bins zero = {0}; bins ones = {1}; bins other = {2}; }
+    cp_rxcmd: coverpoint ccls(c_rc) iff (rst_n && c_mv) { bins zero = {0}; bins ones = {1}; bins other = {2}; }
+    cp_e: coverpoint c_e iff (rst_n && c_me) { bins one = {0}; bins mid = {[1:14]}; bins sixteen = {15}; }
+    cp_rpos: coverpoint c_rpos iff (rst_n && c_rv) { bins emb_start = {0}; bins mb_start = {1}; bins in_mb = {2}; }
+  endgroup
+  cg_link u_cg_link = new;
+
   `FC(tx_underrun, v_ur)
   `FC(tx_command, v_cmd)
   `FC(emb_of_1, v_e0)

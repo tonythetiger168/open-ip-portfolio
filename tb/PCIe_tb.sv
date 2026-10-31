@@ -31,6 +31,8 @@ module PCIe_tb;
   // ---------------- ends: index 0 = A, 1 = B ----------------
   logic [1:0]      link = 0, tlp_valid = 0, tlp_last = 0, rx_ready = 0;
   logic [1:0][7:0] tlp_data = 0;
+  logic [1:0]      pm_req = 0, aspm_ok = 2'b11;
+  wire  [1:0][1:0] pm_state;
   wire  [1:0][7:0] tx_sym, rx_data;
   wire  [1:0]      tx_k, tlp_ready, rx_valid, rx_last, dl_up, retrain;
   wire  [1:0]      ev_tlp_bad, ev_tlp_seq, ev_tlp_dup, ev_tlp_null, ev_overflow, ev_dllp_bad, ev_dllp_proto;
@@ -47,22 +49,22 @@ module PCIe_tb;
   wire  [7:0]      rs1 = dr[0] ? 8'h00 : tx_sym[0] ^ xs[0];
   wire             rk1 = dr[0] ? 1'b0 : tx_k[0] ^ xk[0];
 
-  PCIe_top #(.MAXLEN(MAXLEN), .TXN(TXN), .RXN(RXN), .REPLAY_TO(REPLAY_TO)) u_a (
+  PCIe_top #(.MAXLEN(MAXLEN), .TXN(TXN), .RXN(RXN), .REPLAY_TO(REPLAY_TO), .DP(3), .DC(4)) u_a (
     .clk(clk), .rst_n(rst_n), .link_up(link[0]), .tx_sym(tx_sym[0]), .tx_k(tx_k[0]), .rx_sym(rs0), .rx_k(rk0),
     .tlp_valid(tlp_valid[0]), .tlp_ready(tlp_ready[0]), .tlp_data(tlp_data[0]), .tlp_last(tlp_last[0]),
     .rx_valid(rx_valid[0]), .rx_ready(rx_ready[0]), .rx_data(rx_data[0]), .rx_last(rx_last[0]),
     .dl_up(dl_up[0]), .retrain(retrain[0]), .ev_tlp_bad(ev_tlp_bad[0]), .ev_tlp_seq(ev_tlp_seq[0]),
     .ev_tlp_dup(ev_tlp_dup[0]), .ev_tlp_null(ev_tlp_null[0]), .ev_overflow(ev_overflow[0]),
     .ev_dllp_bad(ev_dllp_bad[0]), .ev_dllp_proto(ev_dllp_proto[0]), .ev_frame(ev_frame[0]), .ev_nak(ev_nak[0]),
-    .ev_replay(ev_replay[0]));
-  PCIe_top #(.MAXLEN(MAXLEN), .TXN(TXN), .RXN(RXN), .REPLAY_TO(REPLAY_TO)) u_b (
+    .ev_replay(ev_replay[0]), .pm_req(pm_req[0]), .aspm_ok(aspm_ok[0]), .pm_state(pm_state[0]));
+  PCIe_top #(.MAXLEN(MAXLEN), .TXN(TXN), .RXN(RXN), .REPLAY_TO(REPLAY_TO), .DP(3)) u_b (
     .clk(clk), .rst_n(rst_n), .link_up(link[1]), .tx_sym(tx_sym[1]), .tx_k(tx_k[1]), .rx_sym(rs1), .rx_k(rk1),
     .tlp_valid(tlp_valid[1]), .tlp_ready(tlp_ready[1]), .tlp_data(tlp_data[1]), .tlp_last(tlp_last[1]),
     .rx_valid(rx_valid[1]), .rx_ready(rx_ready[1]), .rx_data(rx_data[1]), .rx_last(rx_last[1]),
     .dl_up(dl_up[1]), .retrain(retrain[1]), .ev_tlp_bad(ev_tlp_bad[1]), .ev_tlp_seq(ev_tlp_seq[1]),
     .ev_tlp_dup(ev_tlp_dup[1]), .ev_tlp_null(ev_tlp_null[1]), .ev_overflow(ev_overflow[1]),
     .ev_dllp_bad(ev_dllp_bad[1]), .ev_dllp_proto(ev_dllp_proto[1]), .ev_frame(ev_frame[1]), .ev_nak(ev_nak[1]),
-    .ev_replay(ev_replay[1]));
+    .ev_replay(ev_replay[1]), .pm_req(pm_req[1]), .aspm_ok(aspm_ok[1]), .pm_state(pm_state[1]));
 
   // ---------------- CRCs ----------------
   function automatic logic [15:0] dcrc(input logic [31:0] d);
@@ -79,6 +81,15 @@ module PCIe_tb;
   int         wlen [0:1], wcnt [0:1], wgap [0:1], nrx [0:1];
   bit         wen [0:1], wtk [0:1];
   int         gap_max = 40, len_min = 1, len_max = 40, rdy_pct [0:1];
+  bit         bulk = 0;                // every TLP a write with data: P, NP or Cpl
+  bit         wrapd [0:1][0:2];        // data credits allocated wrapped past 4095
+  logic [11:0] cadp [0:1][0:2];
+  always @(negedge clk)
+    for (int i = 0; i < 3; i++) begin
+      if (u_a.cad[i] < cadp[0][i]) wrapd[0][i] = 1;
+      if (u_b.cad[i] < cadp[1][i]) wrapd[1][i] = 1;
+      cadp[0][i] = u_a.cad[i]; cadp[1][i] = u_b.cad[i];
+    end
   initial for (int p = 0; p < 2; p++) begin
     wlen[p] = 0; wcnt[p] = 0; wgap[p] = 0; nrx[p] = 0; wen[p] = 0; wtk[p] = 0; rdy_pct[p] = 100;
   end
@@ -115,6 +126,7 @@ module PCIe_tb;
         else if ($urandom % 8 != 0) begin
           if (wcnt[p] == 0) wlen[p] = len_min + $urandom % (len_max - len_min + 1);
           tlp_valid[p] = 1; tlp_data[p] = $urandom; tlp_last[p] = wcnt[p] + 1 == wlen[p];
+          if (bulk && wcnt[p] == 0) tlp_data[p] = $urandom % 3 == 0 ? 8'h40 : $urandom % 2 ? 8'h44 : 8'h4A;
         end
       end
       rx_ready[p] = ($urandom % 100) < rdy_pct[p];
@@ -152,19 +164,26 @@ module PCIe_tb;
   task automatic back(input bit nak, input logic [11:0] seq, input logic [7:0] resv = 0);
     bdllp(nak ? 8'h10 : 8'h00, resv, {4'd0, seq[11:8]}, seq[7:0]);
   endtask
-  task automatic bfc(input logic [7:0] t, input logic [7:0] hdr);
-    bdllp(t, {2'b00, hdr[7:2]}, {hdr[1:0], 6'd0}, 8'd0);
+  // flow control DLLP t (type in bits 5:4), hdr header and dat data credits
+  task automatic bfc(input logic [7:0] t, input logic [7:0] hdr, input logic [11:0] dat = 0);
+    bdllp(t, {2'b00, hdr[7:2]}, {hdr[1:0], 2'b00, dat[11:8]}, dat[7:0]);
+  endtask
+  // the same for P, NP and Cpl
+  task automatic bfc3(input logic [7:0] t, input logic [7:0] hdr, input logic [11:0] dat = 0);
+    for (int i = 0; i < 3; i++) bfc(t | 8'(i << 4), hdr, dat);
   endtask
   // a TLP of n random bytes; mode 0 good, 1 bad LCRC, 2 nullified, 3 EDB
-  // with a good LCRC; accept: A must deliver it
+  // with a good LCRC; accept: A must deliver it; fb: the first byte (its
+  // credit type), random when negative
   int bseq = 0;
-  task btlp(input logic [11:0] seq, input int n, input int mode = 0, input bit accept = 0);
+  task btlp(input logic [11:0] seq, input int n, input int mode = 0, input bit accept = 0, input int fb = -1);
     logic [7:0]  b [$];
     logic [31:0] c;
     logic [7:0]  x;
     b.delete();
     b.push_back({4'd0, seq[11:8]}); b.push_back(seq[7:0]);
     for (int i = 0; i < n; i++) b.push_back(8'($urandom));
+    if (fb >= 0) b[2] = 8'(fb);
     c = '1;
     for (int j = 0; j < b.size(); j++) begin
       x = b[j];
@@ -178,6 +197,9 @@ module PCIe_tb;
     bq.push_back({1'b1, mode >= 2 ? EDB : ENDS});
     if (accept) for (int i = 2; i < b.size(); i++) exp0.push_back({i == b.size() - 1, b[i]});
     bq.push_back(9'h000);
+    // a random type: idle until A has read it out, so that the next one
+    // finds credit for whatever type it is
+    if (fb < 0) repeat (n) bq.push_back(9'h000);
   endtask
   // A's transmissions: TLP sequence numbers and DLLPs seen
   int         a_tlps = 0, a_last_seq = -1, a_dllps = 0;
@@ -210,6 +232,13 @@ module PCIe_tb;
     @(negedge clk);
   endtask
 
+  task automatic chk_initfc(input logic [7:0] t, input logic [7:0] h, input logic [11:0] d);
+    wait_dllp(t);
+    if ({a_dllp[1][5:0], a_dllp[2][7:6]} != h || {a_dllp[2][3:0], a_dllp[3]} != d)
+      fail($sformatf("InitFC1 %h: %0d headers, %0d data credits; want %0d, %0d", t,
+                     {a_dllp[1][5:0], a_dllp[2][7:6]}, {a_dllp[2][3:0], a_dllp[3]}, h, d));
+  endtask
+
   // ---------------- helpers ----------------
   task automatic wait_clk(input int n);
     repeat (n) @(negedge clk);
@@ -227,7 +256,19 @@ module PCIe_tb;
     w[0] = wen[0]; w[1] = wen[1]; wen[0] = 0; wen[1] = 0;
     t = 0;
     while ((exp0.size() != 0 || exp1.size() != 0 || wcnt[0] != 0 || wcnt[1] != 0) && t < n) begin @(negedge clk); t++; end
-    if (exp0.size() != 0 || exp1.size() != 0) fail($sformatf("not drained: %0d %0d bytes", exp0.size(), exp1.size()));
+    if (exp0.size() != 0 || exp1.size() != 0) begin
+      fail($sformatf("not drained: %0d %0d bytes", exp0.size(), exp1.size()));
+      for (int i = 0; i < 3; i++)
+        $display("  A t%0d hcl %0d hcc %0d dcl %0d dcc %0d | B cah %0d cad %0d rch %0d rcd %0d", i, u_a.hcl[i], u_a.hcc[i],
+                 u_a.dcl[i], u_a.dcc[i], u_b.cah[i], u_b.cad[i], u_b.rch[i], u_b.rcd[i]);
+      $display("  A wr %0d nsent %0d ackd %0d tst %0d pst %0d dls %0d | B dls %0d pst %0d nrs %0d", u_a.wr_seq, u_a.nsent,
+               u_a.ackd, u_a.tst, u_a.pst, u_a.dls, u_b.dls, u_b.pst, u_b.nrs);
+      $display("  B wr %0d nsent %0d ackd %0d tst %0d tlp_valid %b ready %b | A nrs %0d rx_valid %b ackp %b",
+               u_b.wr_seq, u_b.nsent, u_b.ackd, u_b.tst, tlp_valid[1], tlp_ready[1], u_a.nrs, rx_valid[0], u_a.ack_p);
+      for (int i = 0; i < 3; i++)
+        $display("  B t%0d hcl %0d hcc %0d dcl %0d dcc %0d | A cah %0d cad %0d rch %0d rcd %0d", i, u_b.hcl[i], u_b.hcc[i],
+                 u_b.dcl[i], u_b.dcc[i], u_a.cah[i], u_a.cad[i], u_a.rch[i], u_a.rcd[i]);
+    end
     wen[0] = w[0]; wen[1] = w[1];
   endtask
   // channel d: act on symbol k (0 = the start symbol) of the next packet
@@ -247,6 +288,13 @@ module PCIe_tb;
     while (!(d == 0 ? tx_k[0] && (tx_sym[0] == ENDS) : tx_k[1] && tx_sym[1] == ENDS)) @(negedge clk);
     @(negedge clk);
     dr[d] = 0;
+  endtask
+  // wait until end p is in ASPM state st
+  task automatic pm_wait(input int p, input int st, input int n = 3000);
+    int t;
+    t = 0;
+    while (pm_state[p] != 2'(st) && t < n) begin @(negedge clk); t++; end
+    if (pm_state[p] != 2'(st)) fail($sformatf("end %0d: pm_state %0d, expected %0d", p, pm_state[p], st));
   endtask
   task automatic link_cycle;
     @(negedge clk);
@@ -273,6 +321,15 @@ module PCIe_tb;
     rdy_pct[1] = 30;
     wait_clk(4000);
     rdy_pct[1] = 100;
+    drain();
+
+    // ---- bulk data: 32-byte writes of every type wrap the data credit
+    // counters
+    bulk = 1; len_min = MAXLEN; len_max = MAXLEN; gap_max = 0;
+    for (int i = 0; i < 3; i++) begin wrapd[0][i] = 0; wrapd[1][i] = 0; end
+    while (!(wrapd[0][0] && wrapd[0][1] && wrapd[0][2] && wrapd[1][0] && wrapd[1][1] && wrapd[1][2])) @(negedge clk);
+    wait_clk(200);
+    bulk = 0; len_min = 1; len_max = 40; gap_max = 40;
     drain();
 
     // ---- A -> B: bad TLPs; B -> A: bad DLLPs; the link replays
@@ -313,15 +370,48 @@ module PCIe_tb;
     wait_clk(3000);
     drain();
 
+    // ---- ASPM L1: both ends ask for L1 whenever idle, with traffic going on
+    pm_req = 2'b11;
+    wait_clk(20000);
+    wen[0] = 0; wen[1] = 0;
+    drain();
+    pm_wait(0, 2); pm_wait(1, 2);
+    wait_clk(200);
+    wen[1] = 1;                                 // B writes: both wake
+    pm_wait(0, 0);
+    wait_clk(1000);
+    wen[1] = 0;
+    drain();
+    pm_wait(0, 2);
+    // B refuses: A keeps asking, then gives up
+    pm_req = 2'b00;
+    wen[0] = 1;
+    wait_clk(500);
+    wen[0] = 0;
+    drain();
+    wait_clk(100);
+    aspm_ok[1] = 0;
+    pm_req[0] = 1;
+    wait_clk(300);
+    if (pm_state[0] != 2'd1 || pm_state[1] != 2'd0) fail("refused L1 request");
+    pm_req[0] = 0;
+    aspm_ok[1] = 1;
+    wait_clk(50);
+    wen[0] = 1; wen[1] = 1;
+    wait_clk(2000);
+
     // ================= part 2: A against the BFM =================
     wen[0] = 0; wen[1] = 0;
     drain();
     link_cycle();
     bfm = 1;
     link[0] = 1;
-    // InitFC2 straight away (FC1 -> FC2), infinite credit; UpdateFC ends FC2
-    wait_dllp(8'h40);
-    bfc(8'hC0, 8'd0);
+    // the credits A advertises (DP = 3, DC = 4); InitFC2 straight away (FC1 -> FC2),
+    // infinite credit; UpdateFC ends FC2
+    chk_initfc(8'h50, 8'd1, 12'd2);
+    chk_initfc(8'h60, 8'd1, 12'd4);
+    chk_initfc(8'h40, 8'd2, 12'd3);
+    bfc3(8'hC0, 8'd0);
     bwait();
     wait_clk(50);
     bfc(8'h40, 8'd3);                           // InitFC1 in FC2: ignored
@@ -428,8 +518,24 @@ module PCIe_tb;
     // overflow: A does not read; RXN + 1 longest TLPs
     rdy_pct[0] = 0;
     wait_clk(100);
-    for (int i = 0; i < RXN; i++) begin btlp(bseq, MAXLEN, 0, 1); bseq++; end
-    btlp(bseq, MAXLEN);
+    // the buffer full: two Posted messages, a Non-Posted read, a Completion;
+    // then a Completion and a Posted message over their header credits
+    btlp(bseq, MAXLEN, 0, 1, 8'h10); bseq++;
+    btlp(bseq, MAXLEN, 0, 1, 8'h30); bseq++;
+    btlp(bseq, MAXLEN, 0, 1, 8'h00); bseq++;
+    btlp(bseq, MAXLEN, 0, 1, 8'h0A); bseq++;
+    btlp(bseq, 8, 0, 0, 8'h4A);
+    btlp(bseq, 8, 0, 0, 8'h70);
+    bwait();
+    wait_clk(100);
+    rdy_pct[0] = 100;
+    wait_clk(500);
+    // data credits: two 32-byte memory writes take 4 of the 3 Posted data
+    // credits; the second is dropped with header credit to spare
+    rdy_pct[0] = 0;
+    btlp(bseq, MAXLEN, 0, 1, 8'h40); bseq++;
+    btlp(bseq, MAXLEN, 0, 0, 8'h60);
+    btlp(bseq, 16, 0, 1, 8'h40); bseq++;
     bwait();
     wait_clk(100);
     rdy_pct[0] = 100;
@@ -444,20 +550,22 @@ module PCIe_tb;
     exp0.delete();
     link[0] = 1;
     b_autoack = 0;
+    // P: 2 headers, 3 data credits; NP: 2 headers, infinite data; Cpl
+    // infinite
     wait_dllp(8'h40);
-    bfc(8'h40, 8'd2);
+    bfc(8'h40, 8'd2, 12'd3); bfc(8'h50, 8'd2); bfc(8'h60, 8'd0);
     bwait();
     wait_dllp(8'hC0);
-    bfc(8'hC0, 8'd2);
+    bfc(8'hC0, 8'd2, 12'd3); bfc(8'hD0, 8'd2); bfc(8'hE0, 8'd0);
     bwait();
     wait_up(0);
     b_autoack = 1;
     wen[0] = 1;
     wait_clk(1500);
-    bfc(8'h80, 8'd6);
+    bfc(8'h80, 8'd6, 12'd8); bfc(8'h90, 8'd5);
     bwait();
     wait_clk(1500);
-    bfc(8'h80, 8'd20);
+    bfc(8'h80, 8'd20, 12'd60); bfc(8'h90, 8'd40); bfc(8'hA0, 8'd9, 12'd9);
     bwait();
     wait_clk(1500);
     // a TLP ends FC2
@@ -467,7 +575,8 @@ module PCIe_tb;
     exp0.delete();
     link[0] = 1;
     wait_dllp(8'h40);
-    bfc(8'h40, 8'd8);
+    bfc(8'h80, 8'd3);                           // UpdateFC in FC1: ignored
+    bfc3(8'h40, 8'd8);
     bwait();
     wait_dllp(8'hC0);
     bseq = 0;
@@ -476,6 +585,80 @@ module PCIe_tb;
     wait_up(0);
     wen[0] = 1;
     wait_clk(2000);
+    // ---- ASPM against the BFM (credit enough for the rest)
+    bfc3(8'h80, 8'd100, 12'd1000);
+    wen[0] = 0;
+    wait_clk(400);
+    bdllp(8'h24, 0, 0, 0);                      // PM_Request_Ack in L0: ignored
+    bwait();
+    // A asks (twice), the BFM acknowledges; a request in L1 is acknowledged
+    // again; an Ack wakes A, which asks again
+    pm_req[0] = 1;
+    wait_dllp(8'h23); wait_dllp(8'h23);
+    bdllp(8'h24, 0, 0, 0);
+    bwait();
+    pm_wait(0, 2);
+    bdllp(8'h23, 0, 0, 0);
+    wait_dllp(8'h24);
+    if (pm_state[0] != 2'd2) fail("L1 left on a request");
+    back(0, a_last_seq);
+    bwait();
+    pm_wait(0, 1);
+    // crossed requests: the BFM's request while A asks
+    bdllp(8'h23, 0, 0, 0);
+    wait_dllp(8'h24);
+    pm_wait(0, 2);
+    // a TLP received wakes A
+    btlp(bseq, 6, 0, 1); bseq++;
+    bwait();
+    pm_wait(0, 0, 50);
+    pm_wait(0, 1);
+    // a TLP while A asks, the ack right behind it: A owes an Ack, so it
+    // ignores the ack, sends the Ack and asks again
+    btlp(bseq, 6, 0, 1); bseq++;
+    bdllp(8'h24, 0, 0, 0);
+    bwait();
+    wait_clk(3);
+    if (pm_state[0] == 2'd2) fail("L1 entered with an Ack owed");
+    wait_dllp(8'h00);
+    wait_dllp(8'h23);
+    bdllp(8'h24, 0, 0, 0);
+    bwait();
+    pm_wait(0, 2);
+    // a write wakes A; a write while A asks stops asking
+    wen[0] = 1;
+    pm_wait(0, 0, 50);
+    wen[0] = 0;
+    pm_wait(0, 1);
+    wen[0] = 1;
+    pm_wait(0, 0, 50);
+    wait_clk(300);
+    wen[0] = 0;
+    // A asks and withdraws
+    pm_wait(0, 1);
+    pm_req[0] = 0;
+    pm_wait(0, 0, 5);
+    // refused: aspm_ok low, or A not idle
+    aspm_ok[0] = 0;
+    wait_clk(200);
+    bdllp(8'h23, 0, 0, 0);
+    bwait();
+    aspm_ok[0] = 1;
+    wait_clk(50);
+    if (pm_state[0] != 2'd0) fail("L1 entered with aspm_ok low");
+    // a TLP waiting to be read: the BFM's request enters L1, reading wakes A
+    rdy_pct[0] = 0;
+    btlp(bseq, 9, 0, 1); bseq++;
+    bwait();
+    wait_clk(100);
+    bdllp(8'h23, 0, 0, 0);
+    wait_dllp(8'h24);
+    pm_wait(0, 2);
+    rdy_pct[0] = 100;
+    pm_wait(0, 0, 50);
+    wait_clk(200);
+    wen[0] = 1;
+    wait_clk(500);
 
     // ---- reset while up
     @(negedge clk);

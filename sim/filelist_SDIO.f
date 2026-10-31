@@ -1,3 +1,3 @@
-+incdir+.
++incdir+../tb
 ../rtl/SDIO_top.sv
 ../tb/SDIO_tb.sv

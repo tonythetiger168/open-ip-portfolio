@@ -126,6 +126,13 @@
   logic   p_dqs;
   logic [15:0] hr_hist [8];
   logic [127:0] q_rdline, rl_m;
+  // functional-coverage samples (set by the model, sampled at the falling edge)
+  logic        c_acc, c_wbeat, c_rdone, c_mr;
+  logic [2:0]  c_cmd, c_prev, c_last, c_mri;
+  logic [1:0]  c_pg;
+  int          c_bank;
+  logic [15:0] c_wd;
+  logic [127:0] c_line;
   always @(negedge clk) q_rdline <= rdline;
 
   logic v_stray, v_act_open, v_closed, v_rw_twice, v_trcd, v_trp, v_trc, v_tras, v_trrd,
@@ -156,6 +163,8 @@
       refi_m = T_REFI; pend_m = 0; irq_m = 0;
       op_v = 0; filling = 0; fill = 0; busy = 0; imm_at = -1; imm_mrr = 0;
       bst_v = 0; p_dqs = 0; rl_m = '0;
+      c_acc = 0; c_wbeat = 0; c_rdone = 0; c_mr = 0; c_cmd = 0; c_prev = 0; c_last = 0;
+      c_mri = 0; c_pg = 0; c_bank = 0; c_wd = 0; c_line = '0;
       `LITE_RESET
       {v_stray, v_act_open, v_closed, v_rw_twice, v_trcd, v_trp, v_trc, v_tras, v_trrd,
        v_twr, v_twtr, v_trfc, v_ref_open, v_ref_undue, v_ref_late, v_paddr, v_wdata,
@@ -359,6 +368,7 @@
       end
       // ---- completion
       done_now = 0;
+      c_acc = 0; c_wbeat = 0; c_rdone = 0; c_mr = 0;
       if (q_hdone) begin
         if (imm_at == n) begin
           if (imm_mrr && q_hrdata !== {8'h0, imm_val}) v_mrr = 1;
@@ -367,6 +377,7 @@
           case (op_k)
             3'd1: begin
               if (!s_data) v_hdone = 1;
+              c_rdone = 1; c_line = bst_line;
               for (int i = 0; i < 8; i++)
                 if (hr_hist[7 - i] !== bst_line[16*i +: 16]) v_rdata = 1;
             end
@@ -391,7 +402,7 @@
       e_fill_gap = filling && !hvalid;
       if (hvalid && q_hready) begin
         if (filling) begin
-          wb[fill] = hwdata; fill = fill + 1;
+          wb[fill] = hwdata; fill = fill + 1; c_wbeat = 1; c_wd = hwdata;
           if (fill == 8) filling = 0;
         end else begin
           e_b2b = done_now;
@@ -409,17 +420,22 @@
               e_rd_conf = hcmd == 3'd1 && op_open && !op_hit;
               e_wr_hit = hcmd == 3'd2 && op_hit; e_wr_closed = hcmd == 3'd2 && !op_open;
               e_wr_conf = hcmd == 3'd2 && op_open && !op_hit;
+              c_acc = 1; c_cmd = hcmd; c_prev = c_last; c_last = hcmd; c_bank = op_b;
+              c_pg = !op_open ? 2'd0 : op_hit ? 2'd1 : 2'd2;
             end
             3'd3: begin
               mr_m[haddr[2:0]] = `LITE_MRW(haddr[2:0], hwdata);
               e_mrw = 1; e_mr0_dll = haddr[2:0] == 3'd0 && hwdata[7];
+              c_mr = 1; c_cmd = 3'd3; c_mri = haddr[2:0];
               imm_at = n + 1; imm_mrr = 0;
             end
             3'd4: begin
               imm_at = n + 1; imm_mrr = 1; imm_val = mr_m[haddr[2:0]]; e_mrr = 1;
+              c_mr = 1; c_cmd = 3'd4; c_mri = haddr[2:0];
             end
             3'd5: begin
               op_v = 1; op_k = 3'd5; op_a = haddr; op_b = 0;
+              c_acc = 1; c_cmd = 3'd5; c_prev = c_last; c_last = 3'd5; c_pg = 2'd3;
               s_act = 0; s_pre = 0; s_rw = 0; s_data = 0; s_ref = 0;
             end
             3'd0: begin imm_at = n + 1; imm_mrr = 0; e_nop = 1; end
@@ -469,6 +485,40 @@
   `SVA_INV(a_no_bad_pin_cmd, !v_bad_pin)
   `SVA_INV(a_dq_driven_only_in_burst, !v_oe)
   `SVA_INV(a_rdline_holds_last_read, !v_rdline)
+
+  // line operations: bank x direction, page state x direction, pairs of
+  // consecutive line operations (RD / WR / REF), every mode register both
+  // ways, write-beat and read-line data classes
+  function automatic logic [1:0] wcls(input logic [15:0] v);
+    wcls = (v == 16'h0000) ? 2'd0 : (v == 16'hFFFF) ? 2'd1 :
+           (v == 16'h5555 || v == 16'hAAAA) ? 2'd2 : 2'd3;
+  endfunction
+  function automatic logic [1:0] lcls(input logic [127:0] v);
+    logic alt;
+    alt = 1;
+    for (int i = 0; i < 8; i++) if (wcls(v[16*i +: 16]) != 2'd2) alt = 0;
+    lcls = (v == '0) ? 2'd0 : (v == '1) ? 2'd1 : alt ? 2'd2 : 2'd3;
+  endfunction
+  covergroup cg_lite_ops @(negedge clk);
+    option.per_instance = 1;
+    cp_rw: coverpoint c_cmd iff (rst_n && c_acc && c_cmd != 3'd5) { bins rd = {1}; bins wr = {2}; }
+    cp_bank: coverpoint c_bank iff (rst_n && c_acc && c_cmd != 3'd5) { bins b[] = {[0:NB-1]}; }
+    x_bank_rw: cross cp_bank, cp_rw;
+    cp_pg: coverpoint c_pg iff (rst_n && c_acc && c_cmd != 3'd5)
+      { bins closed = {0}; bins hit = {1}; bins conflict = {2}; }
+    x_pg_rw: cross cp_pg, cp_rw;
+    cp_op: coverpoint c_cmd iff (rst_n && c_acc) { bins rd = {1}; bins wr = {2}; bins ref_ = {5}; }
+    cp_prev: coverpoint c_prev iff (rst_n && c_acc) { bins rd = {1}; bins wr = {2}; bins ref_ = {5}; }
+    x_pair: cross cp_prev, cp_op;
+    cp_mrdir: coverpoint c_cmd iff (rst_n && c_mr) { bins mrw = {3}; bins mrr = {4}; }
+    cp_mri: coverpoint c_mri iff (rst_n && c_mr);
+    x_mr: cross cp_mrdir, cp_mri;
+    cp_wdata: coverpoint wcls(c_wd) iff (rst_n && c_wbeat)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rline: coverpoint lcls(c_line) iff (rst_n && c_rdone)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_lite_ops u_cg_lite_ops = new;
 
   `FC(read_hit, e_rd_hit)
   `FC(read_closed_bank, e_rd_closed)

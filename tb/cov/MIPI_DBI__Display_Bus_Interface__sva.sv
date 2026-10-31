@@ -118,6 +118,27 @@ module MIPI_DBI__Display_Bus_Interface__sva (
   `SVA_IMP(a_strobe_csx, $stable(cfg_type) && ((cfg_type == 2'd1 && (!wrx || !rdx)) || (cfg_type == 2'd0 && rdx) || scl), !csx)
   `SVA_RST(a_reset, 1'b1, csx && !d_oe && !sda_oe && !scl && op_ready && !rd_valid)
 
+  function automatic int dcls(input logic [15:0] v, input bit w16);
+    logic [15:0] m;
+    m = w16 ? 16'hFFFF : 16'h00FF;
+    v &= m;
+    return v == 0 ? 0 : v == m ? 1 : (v == (16'h5555 & m) || v == (16'hAAAA & m)) ? 2 : 3;
+  endfunction
+  // ops by interface type, direction and D/C; write and read data classes
+  covergroup cg_dbi @(negedge clk);
+    option.per_instance = 1;
+    cp_type: coverpoint cfg_type iff (rst_n && op_valid && op_ready) { bins t[] = {[0:3]}; }
+    cp_dir: coverpoint op_rd iff (rst_n && op_valid && op_ready) { bins wr = {0}; bins rd = {1}; }
+    cp_dc: coverpoint op_dc iff (rst_n && op_valid && op_ready) { bins cmd = {0}; bins data = {1}; }
+    x_op: cross cp_type, cp_dir;
+    x_dir_dc: cross cp_dir, cp_dc;
+    cp_wdata: coverpoint dcls(op_data, cfg_w16 && !cfg_type[1]) iff (rst_n && op_valid && op_ready && !op_rd)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint dcls(rd_data, cfg_w16 && !cfg_type[1]) iff (rst_n && rd_valid)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_dbi u_cg_dbi = new;
+
   // ---------------- functional coverage ----------------
   `FC(type_a_write, v_kind[0][0])
   `FC(type_a_read, v_kind[0][1])

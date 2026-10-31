@@ -35,6 +35,7 @@ module MIPI_DBI__Display_Bus_Interface__tb;
   wire         op_ready, rd_valid, busy, csx, dcx, wrx, rdx, d_oe, scl, sda_o, sda_oe;
   wire  [15:0] rd_data, d_o;
   logic [15:0] d_i = 0;
+  int          f_rd = -1;                  // forced read data (directed)
   logic        sda_i = 0;
 
   MIPI_DBI__Display_Bus_Interface__top dut (.*);
@@ -104,7 +105,7 @@ module MIPI_DBI__Display_Bus_Interface__tb;
     case (cfg_type)
       2'd0: begin                           // Type A: wrx = R/WX, rdx = E
         if (rdx && !p_rdx && !csx) begin
-          if (wrx) begin r_val = $urandom; rq[rt % 4096] = cfg_w16 ? r_val : {8'd0, r_val[7:0]}; rt++; d_i = r_val; end
+          if (wrx) begin r_val = f_rd >= 0 ? 16'(f_rd) : 16'($urandom); rq[rt % 4096] = cfg_w16 ? r_val : {8'd0, r_val[7:0]}; rt++; d_i = r_val; end
           if (d_oe == wrx) fail("bus driven by both or neither");
         end
         if (rdx && (wrx != p_wrx || dcx != p_dcx || (!wrx && d_o != p_d))) fail("R/WX, D/CX or data changed while E high");
@@ -119,7 +120,7 @@ module MIPI_DBI__Display_Bus_Interface__tb;
         if ((!wrx && p_wrx) || (!rdx && p_rdx)) begin
           if (d_oe != !wrx) fail("bus direction wrong for the strobe");
         end
-        if (!rdx && p_rdx) begin r_val = $urandom; rq[rt % 4096] = cfg_w16 ? r_val : {8'd0, r_val[7:0]}; rt++; d_i = r_val; end
+        if (!rdx && p_rdx) begin r_val = f_rd >= 0 ? 16'(f_rd) : 16'($urandom); rq[rt % 4096] = cfg_w16 ? r_val : {8'd0, r_val[7:0]}; rt++; d_i = r_val; end
         if ((!wrx || !rdx) && (dcx != p_dcx || (!wrx && d_o != p_d))) fail("D/CX or data changed during the strobe");
         if (wrx && !p_wrx && !p_csx) done(p_dcx, 0, cfg_w16 ? p_d : {8'd0, p_d[7:0]});
         if (rdx && !p_rdx && !p_csx) begin done(p_dcx, 1, 0); d_i = $urandom; end
@@ -164,7 +165,7 @@ module MIPI_DBI__Display_Bus_Interface__tb;
   always @(negedge clk) if (rst_n && took && cfg_type[1] && op_rd_q) begin
     c_d0 = (!c_rd_prev || csx_q) ? int'(cfg_dummy) : 0;
     c_dum = c_d0; c_fall = 0; c_rx = 1;
-    c_rb = $urandom; c_bits = 0;
+    c_rb = f_rd >= 0 ? 8'(f_rd) : 8'($urandom); c_bits = 0;
     sda_i = c_d0 > 0 ? 1'($urandom) : c_rb[7];
   end
 
@@ -221,6 +222,17 @@ module MIPI_DBI__Display_Bus_Interface__tb;
     op_valid = 0; xh = xt; rh = rt;
     rst_n = 1; cycles(3);
     cfg_type = 3; txn(3, 2); drain();
+    // reads in the command phase (not Type C 3-wire, whose reads carry no
+    // D/C bit), read data patterns, every type
+    for (int t = 0; t < 4; t++) begin
+      cfg_type = t; cfg_w16 = 1;
+      for (int k = 0; k < 2; k++) begin
+        f_rd = k == 0 ? 16'hFFFF : 16'h5555;
+        op(t == 2, 1, 0, 0, 0); op(1, 1, 1, 0, 0);
+        drain();
+      end
+    end
+    f_rd = -1;
     $display("ops %0d transfers %0d reads %0d", n_ops, n_x, n_rd);
     if (errors == 0) $display("TEST PASSED: MIPI_DBI");
     else $display("TEST FAILED: MIPI_DBI (%0d errors)", errors);

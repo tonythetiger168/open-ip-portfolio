@@ -17,8 +17,8 @@ module PCIe_top__fsm_cov (
   fsm_st__dls__DL_ACTIVE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dls == 2'd3);
   fsm_arc__dls__ANY__DL_INACTIVE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dls != 2'd0 ##1 s_dls == 2'd0);
   fsm_arc__dls__ANY__DL_FC1: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dls != 2'd1 ##1 s_dls == 2'd1);
-  fsm_arc__dls__ANY__DL_FC2: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dls != 2'd2 ##1 s_dls == 2'd2);
   fsm_arc__dls__ANY__DL_ACTIVE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dls != 2'd3 ##1 s_dls == 2'd3);
+  fsm_arc__dls__DL_FC1__DL_FC2: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dls == 2'd1 ##1 s_dls == 2'd2);
   fsm_arc__dls__DL_FC2__DL_ACTIVE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dls == 2'd2 ##1 s_dls == 2'd3);
   // ---- FSM PCIe_top.tst: 3 states, 4 arcs ----
   fsm_st__tst__T_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_tst == 2'd0);

@@ -67,6 +67,35 @@ module AVSBus__Adaptive_Voltage_Scaling__sva #(parameter int TIMEOUT = 1024) (
   `SVA_INV(a_vdac_model, vdac == m_v && busy == (m_v != m_t))
   `SVA_IMP(a_open_drain, sdat_oe, sdat == 1'b0)
 
+  // command x outcome at the ACK slot (feasible pairs listed), SET code
+  // class x ramp direction, GET readback class, the field a timed-out
+  // frame was abandoned in
+  wire [1:0] cmk = (cm == 8'h01) ? 2'd0 : (cm == 8'h02) ? 2'd1 : 2'd2;
+  wire [1:0] rsk = (a != 7'h55) ? 2'd1 : (sh[3:0] != c) ? 2'd2 : good ? 2'd0 : 2'd3;
+  wire       ack_slot = rise && ph == 2;
+  wire [1:0] fld = (ph == 1) ? ((n < 7) ? 2'd0 : (n < 15) ? 2'd1 : 2'd2) : 2'd3;
+  covergroup cg_frame @(posedge clk);
+    option.per_instance = 1;
+    cp_outcome: coverpoint {cmk, rsk} iff (rst_n && ack_slot)
+      { bins set_ack = {4'b00_00}; bins set_foreign = {4'b00_01}; bins set_crc = {4'b00_10};
+        bins set_range = {4'b00_11}; bins get_ack = {4'b01_00}; bins get_foreign = {4'b01_01};
+        bins get_crc = {4'b01_10}; bins other_foreign = {4'b10_01}; bins other_crc = {4'b10_10};
+        bins other_unknown = {4'b10_11}; }
+    // SET code class x ramp direction (code 0 cannot ramp up, 0xFFF
+    // cannot ramp down)
+    cp_code_dir: coverpoint {(d[11:0] == 0) ? 2'd0 : (d[11:0] == 12'hFFF) ? 2'd2 : 2'd1,
+                             (d[11:0] > m_t) ? 2'd0 : (d[11:0] < m_t) ? 2'd1 : 2'd2}
+                 iff (rst_n && ack_slot && good && cm == 8'h01)
+      { bins zero_down = {4'b00_01}; bins zero_same = {4'b00_10}; bins mid_up = {4'b01_00};
+        bins mid_down = {4'b01_01}; bins mid_same = {4'b01_10}; bins max_up = {4'b10_00};
+        bins max_same = {4'b10_10}; }
+    cp_get: coverpoint m_v iff (rst_n && ack_slot && good && cm == 8'h02)
+      { bins zero = {0}; bins max = {12'hFFF}; bins mid = {[1:12'hFFE]}; }
+    cp_abandon: coverpoint fld iff (rst_n && idle == TIMEOUT && ph != 0)
+      { bins addr = {0}; bins cmd = {1}; bins data_crc = {2}; bins ack_or_tx = {3}; }
+  endgroup
+  cg_frame u_cg_frame = new;
+
   `FC(set_acked, rise && ph == 2 && good && cm == 8'h01)
   `FC(get_acked, rise && ph == 2 && good && cm == 8'h02)
   `FC(nack_foreign_addr, rise && ph == 2 && a != 7'h55)

@@ -2,6 +2,16 @@
 
 Protocol IP `DFI_5_0__MC_PHY_Interface_`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `DFI_5_0__MC_PHY_Interface__top` (`rtl/DFI_5_0__MC_PHY_Interface__top.sv`) |
+| Register interface | APB4 slave `DFI_5_0__MC_PHY_Interface__apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x44350200 (code 0x4435, version 2.0) |
+| Registers | 6 words, 0x000 to 0x014 |
+| Interrupts | 1 sources into one level-high `irq` |
+| Protocol pins | 18 pass-through |
+
 ## Overview
 
 DFI 5.0 (MC-PHY Interface) protocol IP -- PHY-side DFI model Implementation scope (documented simplified subset of DFI 5.0):
@@ -54,12 +64,55 @@ Timing: T_PHY_WRLAT 4, T_RDDATA_EN 3, T_PHY_RDLAT 5, init 32 cycles.
 | `tb/cov/DFI_5_0__MC_PHY_Interface__sva.sv`, `tb/cov/DFI_5_0__MC_PHY_Interface__apb_sva.sv` | coverage checkers (core, wrapper) |
 | `scripts/apb/specs/DFI_5_0__MC_PHY_Interface_.json` | register spec the wrapper, TB, checker and this page are generated from |
 
-```
-make -f Makefile.DFI_5_0__MC_PHY_Interface_ sim syn            # core test + synthesis (Icarus, Yosys)
-make -f Makefile.DFI_5_0__MC_PHY_Interface_ apb                # wrapper test + synthesis
-bash scripts/cov/run_cov.sh DFI_5_0__MC_PHY_Interface_          # core coverage (Verilator)
-bash scripts/cov/run_cov.sh DFI_5_0__MC_PHY_Interface__apb      # wrapper coverage
-```
+How to run the tests and the coverage flow: see [Running and verifying](#running-and-verifying).
+
+## Parameters
+
+`DFI_5_0__MC_PHY_Interface__apb` has the core's parameters and passes them to `DFI_5_0__MC_PHY_Interface__top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `T_PHY_WRLAT` | int | `4` |
+| `T_RDDATA_EN` | int | `3` |
+| `T_PHY_RDLAT` | int | `5` |
+| `INIT_CYCLES` | int | `32` |
+
+## Wrapper pins
+
+Pins of `DFI_5_0__MC_PHY_Interface__apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `dfi_address` | input | 17 | protocol pin, core port `dfi_address` |
+| `dfi_bank` | input | 3 | protocol pin, core port `dfi_bank` |
+| `dfi_ras_n` | input | 1 | protocol pin, core port `dfi_ras_n` |
+| `dfi_cas_n` | input | 1 | protocol pin, core port `dfi_cas_n` |
+| `dfi_we_n` | input | 1 | protocol pin, core port `dfi_we_n` |
+| `dfi_cs_n` | input | 1 | protocol pin, core port `dfi_cs_n` |
+| `dfi_cke` | input | 1 | protocol pin, core port `dfi_cke` |
+| `dfi_odt` | input | 1 | protocol pin, core port `dfi_odt` |
+| `dfi_wrdata_en` | input | 1 | protocol pin, core port `dfi_wrdata_en` |
+| `dfi_wrdata` | input | 32 | protocol pin, core port `dfi_wrdata` |
+| `dfi_wrdata_mask` | input | 4 | protocol pin, core port `dfi_wrdata_mask` |
+| `dfi_rddata_en` | input | 1 | protocol pin, core port `dfi_rddata_en` |
+| `dfi_rddata_valid` | output | 1 | protocol pin, core port `dfi_rddata_valid` |
+| `dfi_rddata` | output | 32 | protocol pin, core port `dfi_rddata` |
+| `dfi_init_start` | input | 1 | protocol pin, core port `dfi_init_start` |
+| `dfi_init_complete` | output | 1 | protocol pin, core port `dfi_init_complete` (also read in a register) |
+| `dfi_lp_ctrl` | input | 1 | protocol pin, core port `dfi_lp_ctrl` |
+| `dfi_lp_ctrl_ack` | output | 1 | protocol pin, core port `dfi_lp_ctrl_ack` (also read in a register) |
 
 ## Core ports
 
@@ -102,17 +155,22 @@ Pass-through pins: `dfi_address`, `dfi_bank`, `dfi_ras_n`, `dfi_cas_n`, `dfi_we_
 | 0x008 | IRQ_ENABLE | RW | 0x00000000 | Interrupt enables; irq = \|(IRQ_STATUS & IRQ_ENABLE) |
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
-| 0x014 | STATUS | RO | 0x00000000 | Handshake state |
+| 0x014 | STATUS | RO | core | Handshake state |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x018 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x4435 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| STATUS | 0 | `dfi_init_complete` | initialisation done (held while dfi_init_start stays high); same as the pin |
-| STATUS | 1 | `dfi_lp_ctrl_ack` | low-power request acknowledged; same as the pin |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x4435 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| STATUS | 0 | `dfi_init_complete` | RO | core | initialisation done (held while dfi_init_start stays high); same as the pin |
+| STATUS | 1 | `dfi_lp_ctrl_ack` | RO | core | low-power request acknowledged; same as the pin |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -122,11 +180,55 @@ A bit is set while its source is active, stays set until written with 1, and a s
 |---|---|---|
 | 0 | ERR | a command before init, in low power or with cke low; ACT to an open bank; RD / WR to a closed bank; REF / MRS with a bank open; a missing or unexpected dfi_wrdata_en / dfi_rddata_en beat. Sticky in the core until PRESETN, so the bit is set again on every clock |
 
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x44350200.
+2. Write 0x1 to IRQ_STATUS (0x004) to clear any stale bits.
+3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x1 enables all).
+4. Read STATUS (0x014) for the core's live `dfi_init_complete`, `dfi_lp_ctrl_ack`; it needs no clearing.
+5. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
+
+## Running and verifying
+
+All commands run from the repository root. Icarus Verilog 12 and Yosys 0.33 are enough for steps 1 to 3; step 4 also needs Verilator 5.052 and pyslang (see [README, Setup](../../README.md#setup)).
+
+| Step | Command | Pass when | Output |
+|---|---|---|---|
+| 1. Core test | `make -f Makefile.DFI_5_0__MC_PHY_Interface_ sim` | a `TEST PASSED` line, no `ERROR` | console |
+| 2. Core synthesis | `make -f Makefile.DFI_5_0__MC_PHY_Interface_ syn` | Yosys ends without `ERROR`; `stat` prints the cell count | `work/DFI_5_0__MC_PHY_Interface__top.json` |
+| 3. APB wrapper test + synthesis | `make -f Makefile.DFI_5_0__MC_PHY_Interface_ apb` | `TEST PASSED: DFI_5_0__MC_PHY_Interface__apb`, then Yosys without `ERROR` | console, `work/DFI_5_0__MC_PHY_Interface__apb.json` |
+| 4. Coverage (core, wrapper) | `bash scripts/cov/run_cov.sh DFI_5_0__MC_PHY_Interface_`<br>`bash scripts/cov/run_cov.sh DFI_5_0__MC_PHY_Interface__apb` | `RESULT: CLOSED` (all five metrics 100%) | `work/cov/DFI_5_0__MC_PHY_Interface_/score.json`, `work/cov/DFI_5_0__MC_PHY_Interface__apb/score.json` |
+
+Expected end of a step 4 run:
+
+```
+===== DFI_5_0__MC_PHY_Interface_ =====
+TEST: PASSED   SVA_FAILURES: 0
+LINE ... TOGGLE ... FSM ... SVA ... FUNCTIONAL  (each n/n, 100.0%)
+RESULT: CLOSED
+```
+
+**Core test** (`tb/DFI_5_0__MC_PHY_Interface__tb.sv`): drives `DFI_5_0__MC_PHY_Interface__top` through its own ports against a protocol peer or model and checks every result itself; any mismatch prints `ERROR`, and `TEST PASSED` is printed only when there were none.
+
+**APB wrapper test** (`tb/DFI_5_0__MC_PHY_Interface__apb_tb.sv`), in this order:
+
+1. Reset values of every register, ID included.
+2. Writes to read-only registers are ignored.
+3. Each RW register: all ones, all zeros, then 16 random writes with every PSTRB byte-lane pattern, read back each time.
+4. Unmapped and misaligned addresses, reads and writes: PSLVERR, read data 0, no side effect on other registers.
+5. Back-to-back transfers with no idle cycle.
+6. IP traffic through the registers only (`tb/apb/DFI_5_0__MC_PHY_Interface__apb_func.svh`): the programming sequence above, every interrupt bit set, enabled and cleared (100% wrapper toggle coverage confirms each bit moved).
+7. PRESETN asserted mid-run: `irq` and PRDATA go to 0, registers return to reset values.
+
+**Checkers** (`tb/cov/DFI_5_0__MC_PHY_Interface__sva.sv`, `tb/cov/DFI_5_0__MC_PHY_Interface__apb_sva.sv`): SVA protocol and APB assertions plus covergroups, bound in by the coverage flow. An assertion failure prints `SVA_FAIL` and fails the run even when the test itself passed.
+
+Whole portfolio: `bash scripts/ci_regression.sh` runs steps 1 to 3 for every IP (what CI runs), and `bash scripts/cov/run_all.sh 4` runs step 4 for every IP.
+
 ## Verification
 
 Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVERAGE_CLOSURE.md](../COVERAGE_CLOSURE.md) for the flow. Line and toggle count only the named RTL file.
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/DFI_5_0__MC_PHY_Interface__top.sv` | pass | 53/53 | 788/788 | 14/14 | 7/7 | 25/25 |
+| core `rtl/DFI_5_0__MC_PHY_Interface__top.sv` | pass | 53/53 | 788/788 | 14/14 | 7/7 | 120/120 |
 | wrapper `rtl/DFI_5_0__MC_PHY_Interface__apb.sv` | pass | 20/20 | 600/600 | n/a | 7/7 | 25/25 |

@@ -92,6 +92,9 @@ module USB3_2_sva #(
   bit v_lrty_ignored, v_hp_ignored, v_dpp_crc, v_dpp_abort, v_dpp_long, v_dpp_short, v_dpp_missing, v_dpp_k;
   bit v_dpp_stray, v_os_data, v_os_long, v_os_bad, v_idle_k, v_hp_k, v_lc_k, v_ovf_dp, v_drop_busy, v_drop_dp;
   bit v_slot_wait, v_ack_while_sending, v_rx_full_read, v_rec_busy;
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  bit c_lv, c_hv, c_hrt, c_hdp, c_rv, c_rdp, c_pv;
+  int c_lk, c_let, c_hseq, c_hlen, c_rseq, c_plen;
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -100,6 +103,7 @@ module USB3_2_sva #(
       rs = 0; oc = 0; rxs = 0; lgc = 0; lcc = 0; rlet = 0; rgot = 0; ost = 0; rp.delete();
       waitr = 0; dpw = 0; dcol = 0; hroom = 0; lgadv = 0; lbadp = 0; hdr.delete(); rq.delete(); rqe.delete();
       {m_rec, m_hpbad, m_seq, m_lcbad, m_dpp, m_fr, m_pro, m_ovf, m_lbad, m_to} = '0;
+      {c_lv, c_hv, c_hrt, c_hdp, c_rv, c_rdp, c_pv} = '0; c_lk = 0; c_let = 0; c_hseq = 0; c_hlen = 0; c_rseq = 0; c_plen = 0;
     end else begin : b_step
       int o_ll, o_ackd, o_nsent, o_txs, o_cnext, o_cr, o_lbn, o_rqn, o_tout, nq, eff, idx;
       bit o_rdy, avail, need, rec, commit, cerr, linc, cinc;
@@ -112,6 +116,7 @@ module USB3_2_sva #(
       avail = idx < nq;
       need = eff == o_cnext;
       rec = 0; commit = 0; cerr = 0; linc = 0; cinc = 0;
+      {c_lv, c_hv, c_rv, c_pv} = '0;
       {m_rec, m_hpbad, m_seq, m_lcbad, m_dpp, m_fr, m_pro, m_ovf, m_lbad, m_to} = '0;
 
       // ---- transmit: the next symbol, or a new packet
@@ -123,11 +128,12 @@ module USB3_2_sva #(
         if ((o_ll == 1 || o_ll == 2) && (lgadv || lrty || lbadp || lgc != 0 || lcc != 0)) begin : b_lc
           logic [10:0] info;
           logic [15:0] w;
-          if (lgadv) begin info = 11'(m16(rxs - 1) & 7); lgadv = 0; end
-          else if (lrty) begin info = 11'h100; lrty = 0; end
-          else if (lbadp) begin info = 11'h180; lbadp = 0; end
-          else if (lgc != 0) begin info = 11'((rxs - lgc) & 7); lgc--; end
-          else begin info = 11'h080 | 11'(rlet); lcc--; rlet = (rlet + 1) & 3; end
+          c_lv = 1;
+          if (lgadv) begin info = 11'(m16(rxs - 1) & 7); lgadv = 0; c_lk = 0; end
+          else if (lrty) begin info = 11'h100; lrty = 0; c_lk = 1; end
+          else if (lbadp) begin info = 11'h180; lbadp = 0; c_lk = 2; end
+          else if (lgc != 0) begin info = 11'((rxs - lgc) & 7); lgc--; c_lk = 3; end
+          else begin info = 11'h080 | 11'(rlet); lcc--; c_lk = 4; c_let = rlet; rlet = (rlet + 1) & 3; end
           w = w5(info);
           m_sym = {1'b1, 8'hDC};
           ts.push_back({1'b1, 8'hDC}); ts.push_back({1'b1, 8'hDC}); ts.push_back({1'b1, 8'hF7});
@@ -163,6 +169,8 @@ module USB3_2_sva #(
             ts.push_back({1'b1, 8'hF7});
           end
           tlp_on = 1; tcur = eff; rpq = 0;
+          c_hv = 1; c_hseq = eff & 7; c_hrt = !need && eff != o_nsent; c_hdp = tq[idx][0][4:0] == 5'b01000;
+          c_hlen = n <= 12 ? 0 : (n == PL ? 2 : 1);
           if (eff == o_nsent) nsent = m16(o_nsent + 1);
           if (need) begin cnext = m16(o_cnext + 1); cr = o_cr - 1; end
           else if (eff != o_nsent) begin v_retry = 1; if (o_cr == 0) v_retry_nocredit = 1; end
@@ -205,6 +213,7 @@ module USB3_2_sva #(
               m_ovf = 1; dpw = rp[0][4:0] == 5'b01000;
               if (dpw) v_ovf_dp = 1;
             end else begin
+              c_rv = 1; c_rseq = rxs; c_rdp = rp[0][4:0] == 5'b01000;
               rxs = (rxs + 1) & 7; linc = 1;
               hdr.delete();
               for (int i = 0; i < 12; i++) hdr.push_back(rp[i]);
@@ -275,7 +284,10 @@ module USB3_2_sva #(
                   d = '1;
                   for (int i = 0; i < n - 4; i++) d = c32(d, rp[i]);
                   if ({rp[n - 4], rp[n - 3], rp[n - 2], rp[n - 1]} != ~d) begin cerr = 1; v_dpp_crc = 1; end
-                  else for (int i = 0; i < n - 4; i++) hdr.push_back(rp[i]);
+                  else begin
+                    for (int i = 0; i < n - 4; i++) hdr.push_back(rp[i]);
+                    c_pv = 1; c_plen = n - 4 == 0 ? 0 : (n - 4 == MAXD ? 2 : 1);
+                  end
                 end
                 if (cerr) m_dpp = 1;
               end
@@ -362,6 +374,25 @@ module USB3_2_sva #(
                           !ev_frame && !ev_timeout)
 
   // ---------------- functional coverage ----------------
+  // link command sent (advertisement, LRTY, LBAD, LGOOD, LCRD x letter),
+  // header packet sent x new / retry, its SEQ and DP payload length class,
+  // header packet accepted x SEQ x DP or not, good DPP length class
+  covergroup cg_link @(negedge clk);
+    option.per_instance = 1;
+    cp_lc: coverpoint c_lk iff (rst_n && c_lv)
+      { bins advert = {0}; bins lrty = {1}; bins lbad = {2}; bins lgood = {3}; bins lcrd = {4}; }
+    cp_let: coverpoint c_let iff (rst_n && c_lv && c_lk == 4) { bins l[] = {[0:3]}; }
+    cp_hseq: coverpoint c_hseq iff (rst_n && c_hv) { bins s[] = {[0:7]}; }
+    cp_hrt: coverpoint c_hrt iff (rst_n && c_hv) { bins first = {0}; bins retry = {1}; }
+    cp_hdp: coverpoint c_hdp ? 1 + c_hlen : 0 iff (rst_n && c_hv)
+      { bins header_only = {0}; bins dp_empty = {1}; bins dp_mid = {2}; bins dp_max = {3}; }
+    x_hdp_rt: cross cp_hdp, cp_hrt;
+    cp_rseq: coverpoint c_rseq iff (rst_n && c_rv) { bins s[] = {[0:7]}; }
+    cp_rdp: coverpoint c_rdp iff (rst_n && c_rv) { bins header_only = {0}; bins dp = {1}; }
+    cp_plen: coverpoint c_plen iff (rst_n && c_pv) { bins empty = {0}; bins mid = {1}; bins max = {2}; }
+  endgroup
+  cg_link u_cg_link = new;
+
   `FC(write_cut_at_maxd, v_cut)
   `FC(header_padded, v_pad)
   `FC(dp_sent, v_dp)

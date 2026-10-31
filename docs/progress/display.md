@@ -1,3 +1,16 @@
+# 2026-11-01 跟進
+
+時間：2026-11-01 05:08（Asia/Taipei，巡檢記錄時間）。核對main：df9d0ed755c80d40aa42c4de55d6fd163c105c90。本PR仍draft／open、未合併；巡檢時無review／conversation／inline comment。本輪保留main新資產，只更新本工作設計與進度。
+
+- design：同步AXIS line/frame profile、CSR既有語意、film／LP／OBMC重用及HDMI能力邊界（各repo詳見設計文件）。
+- RTL：本輪未修改RTL；上游新增RTL只按來源盤點，不冒稱本輪完成。
+- verified：總repo新增Python reference，實跑5 tests／OK、64組rate各1000點＋24h closed-form端點；不是硬體驗證。RTL／QoR未重跑。
+- physical：未執行合成／STA／功耗或板測。
+- 待決：G1 byte packing／frame SOF／timebase／epoch owner、DEI新增讀鏈cache與worst DDR latency、PHY/panel/broadcast及HDCP/CAS。
+- 下一步：先凍結line→frame adapter profile及CSR版本，再獨立scoreboard／RTL原型；保留既有golden及所有上游資產。不自動合併、不付費。
+
+以下保留10-26歷史進度，不代表最新main仍停留在舊成熟度。
+
 # Display 設計工作進度
 
 日期：2026-10-26（Asia/Taipei）。來源main：5480c40221b8c2a5e57c6228122fd1de8d3f9c3e。本工作獨立分支：codex/display-design-2026-10-26；以draft PR審查，不改main、不自動合併。

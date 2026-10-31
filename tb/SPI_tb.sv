@@ -4,7 +4,8 @@
 module SPI_tb;
   logic clk = 0, rst_n = 0;
   logic sclk = 0, mosi = 0, csn = 1;
-  logic miso;
+  logic miso, irq;
+  int n_irq = 0;
   logic wen = 0, ren = 0;
   logic [3:0] waddr = 0, raddr = 0;
   logic [7:0] wdata = 0, rdata;
@@ -13,7 +14,8 @@ module SPI_tb;
   SPI_top dut (
     .clk(clk), .rst_n(rst_n), .sclk(sclk), .mosi(mosi), .miso(miso),
     .csn(csn), .wen(wen), .waddr(waddr), .wdata(wdata),
-    .ren(ren), .raddr(raddr), .rdata(rdata), .irq());
+    .ren(ren), .raddr(raddr), .rdata(rdata), .irq(irq));
+  always @(posedge clk) if (irq === 1'b1) n_irq++;   // one pulse per byte
 
   always #5 clk = ~clk;
 
@@ -103,6 +105,7 @@ module SPI_tb;
     if (d1 !== 8'h3C) begin errors++; $display("ERROR: SPI MISO xfer1 got=%h exp=3C", d1); end
     if (d2 !== 8'h3C) begin errors++; $display("ERROR: SPI MISO xfer2 got=%h exp=3C", d2); end
     if (got !== 8'hA7) begin errors++; $display("ERROR: SPI MOSI got=%h exp=A7", got); end
+    if (n_irq != 2) begin errors++; $display("ERROR: SPI irq pulses got=%0d exp=2", n_irq); end
 
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ----
@@ -170,6 +173,36 @@ module SPI_tb;
       $display("CRV: 110 txns (xfer=%0d abort=%0d illegal=%0d)", n_xfer, n_abort, n_ill);
     end
 `endif
+
+    // data-class sweep: every (MOSI byte, MISO byte) class pair in one
+    // frame (all-zero, all-one, alternating, other), then a CSn abort after
+    // each of 1..7 bits followed by a clean frame
+    begin : data_sweep
+      logic [7:0] rxv [4];
+      logic [7:0] txv [4];
+      logic [7:0] dout_s;
+      rxv[0] = 8'h00; rxv[1] = 8'hFF; rxv[2] = 8'h55; rxv[3] = 8'hC3;
+      txv[0] = 8'h00; txv[1] = 8'hFF; txv[2] = 8'hAA; txv[3] = 8'h3C;
+      for (int i = 0; i < 4; i++)
+        for (int j = 0; j < 4; j++) begin
+          wr(4'd0, txv[j]);
+          spi_xfer(rxv[i], dout_s);
+          if (dout_s !== txv[j]) begin errors++; $display("ERROR: SPI sweep MISO got=%h exp=%h", dout_s, txv[j]); end
+          rd(4'd0, got);
+          if (got !== rxv[i]) begin errors++; $display("ERROR: SPI sweep MOSI got=%h exp=%h", got, rxv[i]); end
+        end
+      for (int n = 1; n < 8; n++) begin
+        wr(4'd0, 8'h96);
+        csn = 1'b0;
+        for (int i = 0; i < n; i++) begin mosi = i[0]; #40 sclk = 1'b1; #40 sclk = 1'b0; end
+        csn = 1'b1;
+        #160;
+        spi_xfer(8'h69, dout_s);
+        if (dout_s !== 8'h96) begin errors++; $display("ERROR: SPI abort@%0d MISO got=%h", n, dout_s); end
+        rd(4'd0, got);
+        if (got !== 8'h69) begin errors++; $display("ERROR: SPI abort@%0d MOSI got=%h", n, got); end
+      end
+    end
 
     // two bytes under one CSn; tx_q reloaded during the first byte (the
     // new value shifts out from the next bit on)

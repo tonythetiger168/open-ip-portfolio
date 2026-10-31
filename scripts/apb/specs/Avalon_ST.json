@@ -2,6 +2,12 @@
   "title": "Avalon-ST sink: a 16-beat capture buffer, read back through the registers",
   "code": "0x4176",
   "version": "2.0",
+  "features": [
+    "Avalon-ST sink: `av_valid` / `av_ready` handshake, `DW`-bit (default 32) data, end-of-packet `av_eop`.",
+    "Captures up to `DEPTH` (16) beats into a buffer, entries 0 to 15 in order; `av_ready` drops when it is full.",
+    "STATUS.count reports how many beats are stored; buffer entries D0 to D15 are read at any time without side effects.",
+    "Interrupt LAST on every accepted beat with `av_eop`."
+  ],
   "tb_clk_ns": 10,
   "regs": [
     {

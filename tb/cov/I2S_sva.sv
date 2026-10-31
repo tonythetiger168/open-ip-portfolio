@@ -68,6 +68,41 @@ module I2S_sva #(parameter int DW = 16) (
   `SVA_INV(a_rx_model, rx_left == m_left && rx_right == m_right)
   `SVA_INV(a_irq_frame_sync, irq == chg)
 
+  // channel x data class of every received and every transmitted word,
+  // channel x slot length (BCLK rises between LRCK changes: short, exact,
+  // padded), host write target
+  function automatic logic [1:0] dcls(input logic [DW-1:0] v);
+    dcls = (v == '0) ? 2'd0 : (v == '1) ? 2'd1 :
+           (v == {(DW/2){2'b01}} || v == {(DW/2){2'b10}}) ? 2'd2 : 2'd3;
+  endfunction
+  // a received word is stored at the rise of its last bit: the r_k == DW
+  // rise of a padded slot, or the first rise after the LRCK change when
+  // the slot was exactly DW bits
+  wire rx_exact = rise && r_k == 0 && r_kp == DW - 1;
+  wire rx_done  = rise && r_k == DW || rx_exact;
+  wire rx_chan  = rx_exact ? r_chp : r_ch;
+  wire [DW-1:0] rx_val = rx_exact ? {r_wp[DW-2:0], d1} : {r_w[DW-2:0], d1};
+  wire tx_load = fall && t_k == 0;
+  covergroup cg_word @(posedge clk);
+    option.per_instance = 1;
+    cp_rx_ch: coverpoint rx_chan iff (rst_n && rx_done) { bins left = {0}; bins right = {1}; }
+    cp_rx_d: coverpoint dcls(rx_val) iff (rst_n && rx_done)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    x_rx: cross cp_rx_ch, cp_rx_d;
+    cp_tx_ch: coverpoint t_ch iff (rst_n && tx_load) { bins left = {0}; bins right = {1}; }
+    cp_tx_d: coverpoint dcls(t_ch ? tx_right : tx_left) iff (rst_n && tx_load)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    x_tx: cross cp_tx_ch, cp_tx_d;
+    cp_slot_ch: coverpoint r_ch iff (rst_n && chg && r_k >= 1 && r_k < 99)
+      { bins left = {0}; bins right = {1}; }
+    cp_slot: coverpoint r_k iff (rst_n && chg && r_k >= 1 && r_k < 99)
+      { bins short_ = {[1:DW-1]}; bins exact = {DW}; bins padded = {[DW+1:98]}; }
+    x_slot: cross cp_slot_ch, cp_slot;
+    cp_waddr: coverpoint waddr iff (rst_n && wen)
+      { bins tx_left = {0}; bins tx_right = {1}; bins other = {[2:15]}; }
+  endgroup
+  cg_word u_cg_word = new;
+
   `FC(slot_exact, rise && r_k == 0 && r_kp == DW - 1)
   `FC(slot_padded, rise && r_k > DW)
   `FC(rx_left_word, rise && r_k == DW && !r_ch)

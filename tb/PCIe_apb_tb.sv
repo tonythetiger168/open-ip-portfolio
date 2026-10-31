@@ -21,7 +21,7 @@ module PCIe_apb_tb;
   PCIe_apb dut (.*);
   always #5 PCLK = ~PCLK;
 
-  localparam logic [31:0] ID_VALUE = 32'h50430200;
+  localparam logic [31:0] ID_VALUE = 32'h50430300;
   localparam logic [11:0] A_ID = 12'h000;
   localparam logic [11:0] A_IRQ_STATUS = 12'h004;
   localparam logic [11:0] A_IRQ_ENABLE = 12'h008;
@@ -135,7 +135,7 @@ module PCIe_apb_tb;
     rd_exp(A_ID, ID_VALUE);
     rd_exp(A_IRQ_ENABLE, 0);
     rd_exp(A_SCRATCH, 0);
-    rd_exp(A_CTRL, 32'h0);
+    rd_exp(A_CTRL, 32'h4);
     rd_exp(A_TX, 0);
   endtask
 
@@ -145,7 +145,7 @@ module PCIe_apb_tb;
     wr(A_FLAGS, 32'hFFFF_FFFF);
     rw_test(A_SCRATCH, 32'hFFFF_FFFF, 0);
     rw_test(A_IRQ_ENABLE, IRQ_ALL, 0);
-    rw_test(A_CTRL, 32'h1, 32'h0);
+    rw_test(A_CTRL, 32'h7, 32'h4);
     wr(A_RX, 32'hFFFF_FFFF);                     // read-only: ignored
     wr(A_STATUS, 32'hFFFF_FFFF);                     // read-only: ignored
     // unmapped and misaligned: PSLVERR, read data 0, no side effects

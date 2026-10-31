@@ -513,6 +513,11 @@ module USB2_tb;
     ctl_write(8'h40, 8'h01, 16'h1234, 16'h5678);
     cnt_exp = 32'h5678_1234; h_t1 = 0;
     ep1_read();
+    // other endpoints at high speed
+    in_tx(5); expect_pid(STALL, "high-speed IN to a missing endpoint");
+    out_tx(1, DATA0, 2, STALL); out_tx(3, DATA0, 2, STALL);
+    token(SETUP, A, 1); for (int i = 0; i < 8; i++) dbuf[i] = 0;
+    data(DATA0, 8); rx_pkt(); expect_pid(STALL, "high-speed setup to ep1");
 
     // ---------------- bus reset (leaves high speed)
     bus_reset(1);
@@ -535,6 +540,13 @@ module USB2_tb;
     A = 0; h_t0 = 0; h_t1 = 0;
     in_tx(1); expect_pid(NAK, "after reset");
 
+    out_tx(3, DATA0, 2, STALL);                        // OUT to a missing endpoint
+    // an OUT DATA0 where DATA1 is due (after the SETUP): acked, ignored
+    s = pack8(8'h80, 8'h08, 8'h00, 8'h00, 8'h00, 8'h00, 8'h01, 8'h00);
+    setup8(s);
+    out_tx(0, DATA0, 0, ACK);
+    in_tx(0); expect_pid(DATA1, "get_configuration after the duplicate");
+    out_tx(0, DATA1, 0, ACK);
     if (errors == 0) $display("TEST PASSED: USB2");
     else             $display("TEST FAILED: %0d errors", errors);
     $finish;

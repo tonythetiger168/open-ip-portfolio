@@ -396,8 +396,41 @@ module USB3_tb;
     send_dph(TYPE_DATA, oseq + 3'd3, 0); send_dpp(); // out of order -> NRDY
     expect_tp(TP_NRDY, oseq + 3'd3, 0, 0, "out of order");
     in_good(1); in_good(0);
+    // every OUT outcome and an IN busy request on every bank
+    for (int b = 0; b < 4; b++) begin
+      fill(1);
+      send_dph(TYPE_DATA, oseq, 2'(b)); send_dpp(1);
+      expect_tp(TP_LBAD, oseq, 0, 2'(b), "bad CRC32 per bank");
+      send_dph(TYPE_DATA, oseq, 2'(b)); send_dpp();
+      expect_tp(TP_ACK, oseq, 0, 2'(b), "retransmission per bank");
+      commit(2'(b)); oseq++;
+      fill(1);
+      send_dph(TYPE_DATA, oseq - 3'd1, 2'(b)); send_dpp();
+      expect_tp(TP_ACK, oseq - 3'd1, 1, 2'(b), "duplicate per bank");
+      send_dph(TYPE_DATA, oseq + 3'd3, 2'(b)); send_dpp();
+      expect_tp(TP_NRDY, oseq + 3'd3, 0, 2'(b), "out of order per bank");
+      idle(2);
+      in_req(1);
+      fork
+        begin idle(1); send_tp(TP_ACK, 6, 0, 2'(b), 1); end
+        begin recv_dpp(iseq, 1); expect_tp(TP_NRDY, 6, 0, 2'(b), "IN busy per bank"); end
+      join
+      send_tp(TP_ACK, iseq, 0, 1, 0);
+      iseq++; idle(2);
+    end
+    // an IN acknowledged on the fourth attempt
+    in_req(2); idle(1);
+    for (int k = 0; k < 3; k++) begin recv_dpp(iseq, 2); send_tp(TP_LBAD, 0, 0, 2, 0); end
+    recv_dpp(iseq, 2); send_tp(TP_ACK, iseq, 0, 2, 0);
+    iseq++; idle(2);
 
     hard_reset(); train();
+    // IN requests for every block before any is written
+    for (int b = 0; b < 4; b++) begin
+      send_tp(TP_ACK, 3, 0, 2'(b), 1); idle(1);
+      expect_tp(TP_NRDY, 3, 0, 2'(b), "IN of an unwritten block after reset");
+      idle(2);
+    end
     out_good(0);
     send_dph(TYPE_DATA, oseq, 0, 0, 0, 1);          // bad header CRC5
     idle(4); expect_irq(1, "bad DPH CRC5");

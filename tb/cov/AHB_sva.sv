@@ -61,6 +61,27 @@ module AHB_sva #(parameter int DW = 32, AW = 32) (
   endgroup
   cg_addr u_cg_addr = new;
 
+  // data classes moved, and the pipelined pair (data phase in flight, next
+  // address captured): previous direction / region x next direction
+  function automatic logic [1:0] dcls(input logic [DW-1:0] v);
+    dcls = (v == '0) ? 2'd0 : (v == '1) ? 2'd1 :
+           (v == {(DW/2){2'b01}} || v == {(DW/2){2'b10}}) ? 2'd2 : 2'd3;
+  endfunction
+  wire [1:0] m_reg = m_err ? 2'd2 : m_slow ? 2'd1 : 2'd0;
+  covergroup cg_data @(posedge clk);
+    option.per_instance = 1;
+    cp_wdata: coverpoint dcls(hwdata) iff (rst_n && hreadyout && m_valid && m_write && !m_err)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint dcls(hrdata) iff (rst_n && hreadyout && m_valid && !m_write && !m_err)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_prev: coverpoint {m_write, m_reg} iff (rst_n && cap && m_valid && hreadyout)
+      { bins rd_fast = {3'b000}; bins rd_slow = {3'b001}; bins rd_err = {3'b010};
+        bins wr_fast = {3'b100}; bins wr_slow = {3'b101}; bins wr_err = {3'b110}; }
+    cp_next: coverpoint hwrite iff (rst_n && cap && m_valid && hreadyout) { bins rd = {0}; bins wr = {1}; }
+    x_pipe: cross cp_prev, cp_next;
+  endgroup
+  cg_data u_cg_data = new;
+
   `FC(pipelined_back_to_back, cap && m_valid && !m_slow && !m_err && m_write)
   `FC(pipelined_read_after_read, cap && !hwrite && m_valid && !m_write && !m_err)
   `FC(next_captured_on_slow_done, cap && m_valid && m_slow && !m_err)

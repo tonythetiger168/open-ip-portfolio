@@ -75,6 +75,44 @@ module XGMII_sva #(parameter int DEPTH = 16) (
   `SVA_IMP(a_rx_read_model, ren, rdata == m_ring[raddr])
   `SVA_IMP(a_irq_model, 1'b1, irq == (m_wr != 0 && ren))
 
+  // TX backlog at each column push, packer fill at end of frame, byte
+  // classes written / sent on lane 0 / captured on lane 0, RX column lane
+  // patterns, columns that wrap the ring, every ring slot read
+  function automatic logic [1:0] bcls(input logic [7:0] v);
+    bcls = (v == 8'h00) ? 2'd0 : (v == 8'hFF) ? 2'd1 : (v == 8'h55 || v == 8'hAA) ? 2'd2 : 2'd3;
+  endfunction
+  function automatic int ndat_of(input logic [3:0] c);
+    ndat_of = 0;
+    for (int l = 0; l < 4; l++) if (!c[l]) ndat_of++;
+  endfunction
+  wire push_w = (wr_byte && m_pn == 3 || wr_eof && m_pn != 0) && !tx_full;
+  wire m_rise = m_c1 && !m_c2;
+  covergroup cg_host @(posedge clk);
+    option.per_instance = 1;
+    cp_backlog: coverpoint (m_wp - m_rp) iff (rst_n && push_w)
+      { bins empty = {0}; bins one = {1}; bins deep = {[2:8]}; }
+    cp_eofn: coverpoint m_pn iff (rst_n && wr_eof && m_pn != 0 && !tx_full)
+      { bins one = {1}; bins two = {2}; bins three = {3}; }
+    cp_wdata: coverpoint bcls(wdata) iff (rst_n && wr_byte)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_col: coverpoint m_c iff (rst_n && m_rise)
+      { bins all_data = {4'h0}; bins tail3 = {4'h8}; bins tail2 = {4'hC}; bins tail1 = {4'hE};
+        bins idle = {4'hF}; bins sparse = {4'h1, 4'h2, 4'h3, 4'h4, 4'h5, 4'h6, 4'h7, 4'h9, 4'hA,
+                                           4'hB, 4'hD}; }
+    cp_rx0: coverpoint bcls(m_d[7:0]) iff (rst_n && m_rise && !m_c[0])
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_wrap: coverpoint (int'(m_wr[3:0]) + ndat_of(m_c) > DEPTH) iff (rst_n && m_rise && m_c != 4'hF)
+      { bins inside_ = {0}; bins wraps = {1}; }
+    cp_rslot: coverpoint raddr iff (rst_n && ren && m_wr != 0) { bins s[] = {[0:DEPTH-1]}; }
+  endgroup
+  cg_host u_cg_host = new;
+  covergroup cg_txd @(posedge tx_clk);
+    option.per_instance = 1;
+    cp_tx0: coverpoint bcls(txd[7:0]) iff (rst_n && txc != 4'hF)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_txd u_cg_txd = new;
+
   `FC(byte_dropped_when_full, wr_byte && m_pn == 3 && tx_full)
   `FC(eof_held_when_full, wr_eof && m_pn != 0 && tx_full)
   `FC(eof_with_empty_packer, wr_eof && m_pn == 0)

@@ -2,9 +2,10 @@
 // ============================================================================
 // OCP protocol -- OCP-IP 3.0 slave (MCmd/MAddr/MData -> SCmdAccept/SData/SResp)
 // Scope: basic data-handshake subset of OCP-IP:
-//   - MCmd: IDLE=0 / WR=1 / RD=2 / WRNP=5 (posted write, no response)
+//   - MCmd: IDLE=0 / WR=1 (posted write, no response) / RD=2 /
+//     WRNP=5 (non-posted write, answered DVA or ERR)
 //   - configurable command-accept latency (ACCEPT_DLY = 0 or 1)
-//   - fixed 2-cycle DVA response latency for WR/RD, SData valid with DVA
+//   - fixed 2-cycle DVA response latency for RD/WRNP, SData valid with DVA
 //   - MByteEn partial-write merge, MThreadID echoed on SThreadID
 //   - 256x32 register file (1 KiB, word aligned); accesses outside
 //     0x000..0x3FC or misaligned -> SResp=ERR + irq pulse
@@ -21,7 +22,7 @@ module OCP_top #(
   input  logic             clk,
   input  logic             rst_n,
   // OCP request phase (driven by master)
-  input  logic [2:0]       mcmd,       // 0=IDLE 1=WR 2=RD 5=WRNP
+  input  logic [2:0]       mcmd,       // 0=IDLE 1=WR (posted) 2=RD 5=WRNP
   input  logic [AW-1:0]    maddr,
   input  logic [DW-1:0]    mdata,
   input  logic [DW/8-1:0]  mbyteen,
@@ -95,7 +96,7 @@ module OCP_top #(
               err_q    <= req_bad;
               thread_q <= mthreadid;
               rdata_q  <= mem[maddr[9:2]];
-              if (mcmd == MCMD_WRNP) begin
+              if (mcmd == MCMD_WR) begin
                 if (addr_bad) irq <= 1'b1;          // posted write to reserved space
                 state <= S_IDLE;                    // posted: no response phase
               end else begin
@@ -112,7 +113,7 @@ module OCP_top #(
           err_q    <= req_bad;
           thread_q <= mthreadid;
           rdata_q  <= mem[maddr[9:2]];
-          if (mcmd == MCMD_WRNP) begin
+          if (mcmd == MCMD_WR) begin
             if (addr_bad) irq <= 1'b1;
             state <= S_IDLE;                        // posted: no response phase
           end else begin

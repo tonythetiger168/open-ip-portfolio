@@ -13,23 +13,36 @@ module UCIe_apb_sva (
   input logic [3:0] PSTRB,
   input logic [31:0] PRDATA,
   input logic PREADY, PSLVERR, irq,
-  input logic [63:0] c_tx_data,
-  input logic [63:0] c_rx_data,
+  input logic  c_link_en,
+  input logic  c_cfg_retry,
+  input logic  c_cfg_stack1,
+  input logic  c_cfg_l1_ok,
+  input logic  c_pm_req,
+  input logic [511:0] c_tx_data,
+  input logic  c_tx_stack,
+  input logic [511:0] c_rx_data,
+  input logic  c_rx_stack,
+  input logic [2:0] c_state,
+  input logic [1:0] c_cap,
   input logic [3:0] c_tx_pend,
   input logic  c_tx_valid,
   input logic  c_tx_ready,
   input logic  c_rx_valid,
   input logic  c_ev_crc,
-  input logic  c_ev_replay
+  input logic  c_ev_replay,
+  input logic  c_ev_retrain,
+  input logic  c_ev_pmnak,
+  input logic  c_ev_proto,
+  input logic  c_ev_lerr
 );
   `COV_CLOCKING(PCLK, !PRESETN)
   wire        m_wr  = PSEL && PENABLE && PWRITE;
   wire        m_rd  = PSEL && PENABLE && !PWRITE;
-  wire        m_map = PADDR[1:0] == 2'b00 && (PADDR >> 2) < 10;
+  wire        m_map = PADDR[1:0] == 2'b00 && (PADDR >> 2) < 41;
   wire [9:0] m_idx = PADDR[11:2];
   wire [31:0] m_be  = {{8{PSTRB[3]}}, {8{PSTRB[2]}}, {8{PSTRB[1]}}, {8{PSTRB[0]}}};
-  logic [31:0] m_w [0:9];          // model of every stored word
-  logic [5:0] m_set;                // interrupt bits set this clock
+  logic [31:0] m_w [0:40];          // model of every stored word
+  logic [9:0] m_set;                // interrupt bits set this clock
   logic m_state_TX;          // full / valid pulse / available
   logic m_state_RX;          // full / valid pulse / available
 
@@ -37,11 +50,15 @@ module UCIe_apb_sva (
     m_set = '0;
     if (c_ev_crc) m_set[0] = 1'b1;
     if (c_ev_replay) m_set[1] = 1'b1;
-    if (m_state_TX && c_tx_ready) m_set[2] = 1'b1;
-    if (m_wr && m_map && (m_idx == 5 || m_idx == 6) && m_state_TX) m_set[3] = 1'b1;
-    if (c_rx_valid && !m_state_RX) m_set[4] = 1'b1;
-    if (c_rx_valid && m_state_RX && (m_rd && m_map && m_idx == 8)) m_set[4] = 1'b1;
-    if (c_rx_valid && m_state_RX && !(m_rd && m_map && m_idx == 8)) m_set[5] = 1'b1;
+    if (c_ev_retrain) m_set[2] = 1'b1;
+    if (c_ev_pmnak) m_set[3] = 1'b1;
+    if (c_ev_proto) m_set[4] = 1'b1;
+    if (c_ev_lerr) m_set[5] = 1'b1;
+    if (m_state_TX && c_tx_ready) m_set[6] = 1'b1;
+    if (m_wr && m_map && (m_idx == 6 || m_idx == 7 || m_idx == 8 || m_idx == 9 || m_idx == 10 || m_idx == 11 || m_idx == 12 || m_idx == 13 || m_idx == 14 || m_idx == 15 || m_idx == 16 || m_idx == 17 || m_idx == 18 || m_idx == 19 || m_idx == 20 || m_idx == 21 || m_idx == 22) && m_state_TX) m_set[7] = 1'b1;
+    if (c_rx_valid && !m_state_RX) m_set[8] = 1'b1;
+    if (c_rx_valid && m_state_RX && (m_rd && m_map && m_idx == 39)) m_set[8] = 1'b1;
+    if (c_rx_valid && m_state_RX && !(m_rd && m_map && m_idx == 39)) m_set[9] = 1'b1;
   end
 
   always_ff @(posedge PCLK or negedge PRESETN) begin
@@ -51,32 +68,94 @@ module UCIe_apb_sva (
       m_w[2] <= 32'h0;
       m_w[3] <= 32'h0;
       m_w[4] <= 32'h0;
-      m_w[5] <= 32'h0;
+      m_w[5] <= 32'hE;
       m_w[6] <= 32'h0;
       m_w[7] <= 32'h0;
       m_w[8] <= 32'h0;
       m_w[9] <= 32'h0;
+      m_w[10] <= 32'h0;
+      m_w[11] <= 32'h0;
+      m_w[12] <= 32'h0;
+      m_w[13] <= 32'h0;
+      m_w[14] <= 32'h0;
+      m_w[15] <= 32'h0;
+      m_w[16] <= 32'h0;
+      m_w[17] <= 32'h0;
+      m_w[18] <= 32'h0;
+      m_w[19] <= 32'h0;
+      m_w[20] <= 32'h0;
+      m_w[21] <= 32'h0;
+      m_w[22] <= 32'h0;
+      m_w[23] <= 32'h0;
+      m_w[24] <= 32'h0;
+      m_w[25] <= 32'h0;
+      m_w[26] <= 32'h0;
+      m_w[27] <= 32'h0;
+      m_w[28] <= 32'h0;
+      m_w[29] <= 32'h0;
+      m_w[30] <= 32'h0;
+      m_w[31] <= 32'h0;
+      m_w[32] <= 32'h0;
+      m_w[33] <= 32'h0;
+      m_w[34] <= 32'h0;
+      m_w[35] <= 32'h0;
+      m_w[36] <= 32'h0;
+      m_w[37] <= 32'h0;
+      m_w[38] <= 32'h0;
+      m_w[39] <= 32'h0;
+      m_w[40] <= 32'h0;
       m_state_TX <= 0;
       m_state_RX <= 0;
     end else begin
       m_w[1] <= (m_w[1] & ~((m_wr && m_map && m_idx == 1) ? PWDATA & m_be : 0)) | 32'(m_set);
-      if (m_wr && m_map && m_idx == 2) m_w[2] <= ((m_w[2] & ~m_be) | (PWDATA & m_be)) & 32'h3F;
+      if (m_wr && m_map && m_idx == 2) m_w[2] <= ((m_w[2] & ~m_be) | (PWDATA & m_be)) & 32'h3FF;
       if (m_wr && m_map && m_idx == 4) m_w[4] <= ((m_w[4] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
-      if (m_wr && m_map && m_idx == 5 && !m_state_TX) m_w[5] <= ((m_w[5] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
+      if (m_wr && m_map && m_idx == 5) m_w[5] <= ((m_w[5] & ~m_be) | (PWDATA & m_be)) & 32'h1F;
       if (m_wr && m_map && m_idx == 6 && !m_state_TX) m_w[6] <= ((m_w[6] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
-      if (m_wr && m_map && m_idx == 6 && !m_state_TX) m_state_TX <= 1;
+      if (m_wr && m_map && m_idx == 7 && !m_state_TX) m_w[7] <= ((m_w[7] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
+      if (m_wr && m_map && m_idx == 8 && !m_state_TX) m_w[8] <= ((m_w[8] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
+      if (m_wr && m_map && m_idx == 9 && !m_state_TX) m_w[9] <= ((m_w[9] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
+      if (m_wr && m_map && m_idx == 10 && !m_state_TX) m_w[10] <= ((m_w[10] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
+      if (m_wr && m_map && m_idx == 11 && !m_state_TX) m_w[11] <= ((m_w[11] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
+      if (m_wr && m_map && m_idx == 12 && !m_state_TX) m_w[12] <= ((m_w[12] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
+      if (m_wr && m_map && m_idx == 13 && !m_state_TX) m_w[13] <= ((m_w[13] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
+      if (m_wr && m_map && m_idx == 14 && !m_state_TX) m_w[14] <= ((m_w[14] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
+      if (m_wr && m_map && m_idx == 15 && !m_state_TX) m_w[15] <= ((m_w[15] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
+      if (m_wr && m_map && m_idx == 16 && !m_state_TX) m_w[16] <= ((m_w[16] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
+      if (m_wr && m_map && m_idx == 17 && !m_state_TX) m_w[17] <= ((m_w[17] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
+      if (m_wr && m_map && m_idx == 18 && !m_state_TX) m_w[18] <= ((m_w[18] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
+      if (m_wr && m_map && m_idx == 19 && !m_state_TX) m_w[19] <= ((m_w[19] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
+      if (m_wr && m_map && m_idx == 20 && !m_state_TX) m_w[20] <= ((m_w[20] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
+      if (m_wr && m_map && m_idx == 21 && !m_state_TX) m_w[21] <= ((m_w[21] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
+      if (m_wr && m_map && m_idx == 22 && !m_state_TX) m_w[22] <= ((m_w[22] & ~m_be) | (PWDATA & m_be)) & 32'h1;
+      if (m_wr && m_map && m_idx == 22 && !m_state_TX) m_state_TX <= 1;
       if (m_state_TX && c_tx_ready) m_state_TX <= 0;
-      if (c_rx_valid && (!m_state_RX || (m_rd && m_map && m_idx == 8))) begin
-        m_w[7] <= (32'(c_rx_data[31:0]) << 0);
-        m_w[8] <= (32'(c_rx_data[63:32]) << 0);
+      if (c_rx_valid && (!m_state_RX || (m_rd && m_map && m_idx == 39))) begin
+        m_w[23] <= (32'(c_rx_data[31:0]) << 0);
+        m_w[24] <= (32'(c_rx_data[63:32]) << 0);
+        m_w[25] <= (32'(c_rx_data[95:64]) << 0);
+        m_w[26] <= (32'(c_rx_data[127:96]) << 0);
+        m_w[27] <= (32'(c_rx_data[159:128]) << 0);
+        m_w[28] <= (32'(c_rx_data[191:160]) << 0);
+        m_w[29] <= (32'(c_rx_data[223:192]) << 0);
+        m_w[30] <= (32'(c_rx_data[255:224]) << 0);
+        m_w[31] <= (32'(c_rx_data[287:256]) << 0);
+        m_w[32] <= (32'(c_rx_data[319:288]) << 0);
+        m_w[33] <= (32'(c_rx_data[351:320]) << 0);
+        m_w[34] <= (32'(c_rx_data[383:352]) << 0);
+        m_w[35] <= (32'(c_rx_data[415:384]) << 0);
+        m_w[36] <= (32'(c_rx_data[447:416]) << 0);
+        m_w[37] <= (32'(c_rx_data[479:448]) << 0);
+        m_w[38] <= (32'(c_rx_data[511:480]) << 0);
+        m_w[39] <= (32'(c_rx_stack) << 0);
         m_state_RX <= 1;
-      end else if ((m_rd && m_map && m_idx == 8)) m_state_RX <= 0;
+      end else if ((m_rd && m_map && m_idx == 39)) m_state_RX <= 0;
     end
   end
 
   function automatic logic [31:0] m_read(input logic [9:0] i);
     case (i)
-      0: return 32'h55430200;
+      0: return 32'h55430300;
       1: return m_w[1];
       2: return m_w[2];
       3: return 32'({m_state_RX, m_state_TX});
@@ -85,7 +164,38 @@ module UCIe_apb_sva (
       6: return m_w[6];
       7: return m_w[7];
       8: return m_w[8];
-      9: return (32'(c_tx_pend) << 0);
+      9: return m_w[9];
+      10: return m_w[10];
+      11: return m_w[11];
+      12: return m_w[12];
+      13: return m_w[13];
+      14: return m_w[14];
+      15: return m_w[15];
+      16: return m_w[16];
+      17: return m_w[17];
+      18: return m_w[18];
+      19: return m_w[19];
+      20: return m_w[20];
+      21: return m_w[21];
+      22: return m_w[22];
+      23: return m_w[23];
+      24: return m_w[24];
+      25: return m_w[25];
+      26: return m_w[26];
+      27: return m_w[27];
+      28: return m_w[28];
+      29: return m_w[29];
+      30: return m_w[30];
+      31: return m_w[31];
+      32: return m_w[32];
+      33: return m_w[33];
+      34: return m_w[34];
+      35: return m_w[35];
+      36: return m_w[36];
+      37: return m_w[37];
+      38: return m_w[38];
+      39: return m_w[39];
+      40: return (32'(c_state) << 0) | (32'(c_cap) << 3) | (32'(c_tx_pend) << 5);
       default: return 0;
     endcase
   endfunction
@@ -96,11 +206,31 @@ module UCIe_apb_sva (
   `SVA_IMP(a_read_data, m_rd && m_map, PRDATA == m_read(m_idx))
   `SVA_IMP(a_unmapped_read_zero, m_rd && !m_map, PRDATA == 0)
   `SVA_IMP(a_prdata_zero_outside_read, !m_rd, PRDATA == 0)
-  `SVA_INV(a_irq_pin, irq == |(m_w[1][5:0] & m_w[2][5:0]))
-  `SVA_INV(a_core_tx_data_31_0, c_tx_data[31:0] == m_w[5][31:0])
-  `SVA_INV(a_core_tx_data_63_32, c_tx_data[63:32] == m_w[6][31:0])
+  `SVA_INV(a_irq_pin, irq == |(m_w[1][9:0] & m_w[2][9:0]))
+  `SVA_INV(a_core_link_en, c_link_en == m_w[5][0:0])
+  `SVA_INV(a_core_cfg_retry, c_cfg_retry == m_w[5][1:1])
+  `SVA_INV(a_core_cfg_stack1, c_cfg_stack1 == m_w[5][2:2])
+  `SVA_INV(a_core_cfg_l1_ok, c_cfg_l1_ok == m_w[5][3:3])
+  `SVA_INV(a_core_pm_req, c_pm_req == m_w[5][4:4])
+  `SVA_INV(a_core_tx_data_31_0, c_tx_data[31:0] == m_w[6][31:0])
+  `SVA_INV(a_core_tx_data_63_32, c_tx_data[63:32] == m_w[7][31:0])
+  `SVA_INV(a_core_tx_data_95_64, c_tx_data[95:64] == m_w[8][31:0])
+  `SVA_INV(a_core_tx_data_127_96, c_tx_data[127:96] == m_w[9][31:0])
+  `SVA_INV(a_core_tx_data_159_128, c_tx_data[159:128] == m_w[10][31:0])
+  `SVA_INV(a_core_tx_data_191_160, c_tx_data[191:160] == m_w[11][31:0])
+  `SVA_INV(a_core_tx_data_223_192, c_tx_data[223:192] == m_w[12][31:0])
+  `SVA_INV(a_core_tx_data_255_224, c_tx_data[255:224] == m_w[13][31:0])
+  `SVA_INV(a_core_tx_data_287_256, c_tx_data[287:256] == m_w[14][31:0])
+  `SVA_INV(a_core_tx_data_319_288, c_tx_data[319:288] == m_w[15][31:0])
+  `SVA_INV(a_core_tx_data_351_320, c_tx_data[351:320] == m_w[16][31:0])
+  `SVA_INV(a_core_tx_data_383_352, c_tx_data[383:352] == m_w[17][31:0])
+  `SVA_INV(a_core_tx_data_415_384, c_tx_data[415:384] == m_w[18][31:0])
+  `SVA_INV(a_core_tx_data_447_416, c_tx_data[447:416] == m_w[19][31:0])
+  `SVA_INV(a_core_tx_data_479_448, c_tx_data[479:448] == m_w[20][31:0])
+  `SVA_INV(a_core_tx_data_511_480, c_tx_data[511:480] == m_w[21][31:0])
+  `SVA_INV(a_core_tx_stack, c_tx_stack == m_w[22][0:0])
   `SVA_INV(a_core_tx_valid, c_tx_valid == m_state_TX)
-  `SVA_RST(a_reset_values, !PRESETN, PRDATA == 0 && !irq && c_tx_data[31:0] == 32'h0 && c_tx_data[63:32] == 32'h0 && !c_tx_valid)
+  `SVA_RST(a_reset_values, !PRESETN, PRDATA == 0 && !irq && c_link_en == 1'h0 && c_cfg_retry == 1'h1 && c_cfg_stack1 == 1'h1 && c_cfg_l1_ok == 1'h1 && c_pm_req == 1'h0 && c_tx_data[31:0] == 32'h0 && c_tx_data[63:32] == 32'h0 && c_tx_data[95:64] == 32'h0 && c_tx_data[127:96] == 32'h0 && c_tx_data[159:128] == 32'h0 && c_tx_data[191:160] == 32'h0 && c_tx_data[223:192] == 32'h0 && c_tx_data[255:224] == 32'h0 && c_tx_data[287:256] == 32'h0 && c_tx_data[319:288] == 32'h0 && c_tx_data[351:320] == 32'h0 && c_tx_data[383:352] == 32'h0 && c_tx_data[415:384] == 32'h0 && c_tx_data[447:416] == 32'h0 && c_tx_data[479:448] == 32'h0 && c_tx_data[511:480] == 32'h0 && c_tx_stack == 1'h0 && !c_tx_valid)
 
   // ---------------- functional coverage ----------------
   `FC(rd_ID, m_rd && m_map && m_idx == 0)
@@ -113,16 +243,78 @@ module UCIe_apb_sva (
   `FC(wr_FLAGS, m_wr && m_map && m_idx == 3)
   `FC(rd_SCRATCH, m_rd && m_map && m_idx == 4)
   `FC(wr_SCRATCH, m_wr && m_map && m_idx == 4)
-  `FC(rd_TX0, m_rd && m_map && m_idx == 5)
-  `FC(wr_TX0, m_wr && m_map && m_idx == 5)
-  `FC(rd_TX1, m_rd && m_map && m_idx == 6)
-  `FC(wr_TX1, m_wr && m_map && m_idx == 6)
-  `FC(rd_RX0, m_rd && m_map && m_idx == 7)
-  `FC(wr_RX0, m_wr && m_map && m_idx == 7)
-  `FC(rd_RX1, m_rd && m_map && m_idx == 8)
-  `FC(wr_RX1, m_wr && m_map && m_idx == 8)
-  `FC(rd_STATUS, m_rd && m_map && m_idx == 9)
-  `FC(wr_STATUS, m_wr && m_map && m_idx == 9)
+  `FC(rd_CTRL, m_rd && m_map && m_idx == 5)
+  `FC(wr_CTRL, m_wr && m_map && m_idx == 5)
+  `FC(rd_TX0, m_rd && m_map && m_idx == 6)
+  `FC(wr_TX0, m_wr && m_map && m_idx == 6)
+  `FC(rd_TX1, m_rd && m_map && m_idx == 7)
+  `FC(wr_TX1, m_wr && m_map && m_idx == 7)
+  `FC(rd_TX2, m_rd && m_map && m_idx == 8)
+  `FC(wr_TX2, m_wr && m_map && m_idx == 8)
+  `FC(rd_TX3, m_rd && m_map && m_idx == 9)
+  `FC(wr_TX3, m_wr && m_map && m_idx == 9)
+  `FC(rd_TX4, m_rd && m_map && m_idx == 10)
+  `FC(wr_TX4, m_wr && m_map && m_idx == 10)
+  `FC(rd_TX5, m_rd && m_map && m_idx == 11)
+  `FC(wr_TX5, m_wr && m_map && m_idx == 11)
+  `FC(rd_TX6, m_rd && m_map && m_idx == 12)
+  `FC(wr_TX6, m_wr && m_map && m_idx == 12)
+  `FC(rd_TX7, m_rd && m_map && m_idx == 13)
+  `FC(wr_TX7, m_wr && m_map && m_idx == 13)
+  `FC(rd_TX8, m_rd && m_map && m_idx == 14)
+  `FC(wr_TX8, m_wr && m_map && m_idx == 14)
+  `FC(rd_TX9, m_rd && m_map && m_idx == 15)
+  `FC(wr_TX9, m_wr && m_map && m_idx == 15)
+  `FC(rd_TX10, m_rd && m_map && m_idx == 16)
+  `FC(wr_TX10, m_wr && m_map && m_idx == 16)
+  `FC(rd_TX11, m_rd && m_map && m_idx == 17)
+  `FC(wr_TX11, m_wr && m_map && m_idx == 17)
+  `FC(rd_TX12, m_rd && m_map && m_idx == 18)
+  `FC(wr_TX12, m_wr && m_map && m_idx == 18)
+  `FC(rd_TX13, m_rd && m_map && m_idx == 19)
+  `FC(wr_TX13, m_wr && m_map && m_idx == 19)
+  `FC(rd_TX14, m_rd && m_map && m_idx == 20)
+  `FC(wr_TX14, m_wr && m_map && m_idx == 20)
+  `FC(rd_TX15, m_rd && m_map && m_idx == 21)
+  `FC(wr_TX15, m_wr && m_map && m_idx == 21)
+  `FC(rd_TX16, m_rd && m_map && m_idx == 22)
+  `FC(wr_TX16, m_wr && m_map && m_idx == 22)
+  `FC(rd_RX0, m_rd && m_map && m_idx == 23)
+  `FC(wr_RX0, m_wr && m_map && m_idx == 23)
+  `FC(rd_RX1, m_rd && m_map && m_idx == 24)
+  `FC(wr_RX1, m_wr && m_map && m_idx == 24)
+  `FC(rd_RX2, m_rd && m_map && m_idx == 25)
+  `FC(wr_RX2, m_wr && m_map && m_idx == 25)
+  `FC(rd_RX3, m_rd && m_map && m_idx == 26)
+  `FC(wr_RX3, m_wr && m_map && m_idx == 26)
+  `FC(rd_RX4, m_rd && m_map && m_idx == 27)
+  `FC(wr_RX4, m_wr && m_map && m_idx == 27)
+  `FC(rd_RX5, m_rd && m_map && m_idx == 28)
+  `FC(wr_RX5, m_wr && m_map && m_idx == 28)
+  `FC(rd_RX6, m_rd && m_map && m_idx == 29)
+  `FC(wr_RX6, m_wr && m_map && m_idx == 29)
+  `FC(rd_RX7, m_rd && m_map && m_idx == 30)
+  `FC(wr_RX7, m_wr && m_map && m_idx == 30)
+  `FC(rd_RX8, m_rd && m_map && m_idx == 31)
+  `FC(wr_RX8, m_wr && m_map && m_idx == 31)
+  `FC(rd_RX9, m_rd && m_map && m_idx == 32)
+  `FC(wr_RX9, m_wr && m_map && m_idx == 32)
+  `FC(rd_RX10, m_rd && m_map && m_idx == 33)
+  `FC(wr_RX10, m_wr && m_map && m_idx == 33)
+  `FC(rd_RX11, m_rd && m_map && m_idx == 34)
+  `FC(wr_RX11, m_wr && m_map && m_idx == 34)
+  `FC(rd_RX12, m_rd && m_map && m_idx == 35)
+  `FC(wr_RX12, m_wr && m_map && m_idx == 35)
+  `FC(rd_RX13, m_rd && m_map && m_idx == 36)
+  `FC(wr_RX13, m_wr && m_map && m_idx == 36)
+  `FC(rd_RX14, m_rd && m_map && m_idx == 37)
+  `FC(wr_RX14, m_wr && m_map && m_idx == 37)
+  `FC(rd_RX15, m_rd && m_map && m_idx == 38)
+  `FC(wr_RX15, m_wr && m_map && m_idx == 38)
+  `FC(rd_RX16, m_rd && m_map && m_idx == 39)
+  `FC(wr_RX16, m_wr && m_map && m_idx == 39)
+  `FC(rd_STATUS, m_rd && m_map && m_idx == 40)
+  `FC(wr_STATUS, m_wr && m_map && m_idx == 40)
   `FC(unmapped_read, m_rd && !m_map && PADDR[1:0] == 0)
   `FC(unmapped_write, m_wr && !m_map && PADDR[1:0] == 0)
   `FC(misaligned_read, m_rd && PADDR[1:0] != 0)
@@ -139,30 +331,46 @@ module UCIe_apb_sva (
   `FC(irq_REPLAY_cleared, m_w[1][1] && m_wr && m_map && m_idx == 1 && PWDATA[1] && PSTRB[0])
   `FC(irq_REPLAY_masked, m_w[1][1] && !m_w[2][1])
   `FC(irq_REPLAY_drives_pin, m_w[1][1] && m_w[2][1] && irq)
-  `FC(irq_TX_DONE_set, m_set[2])
-  `FC(irq_TX_DONE_cleared, m_w[1][2] && m_wr && m_map && m_idx == 1 && PWDATA[2] && PSTRB[0])
-  `FC(irq_TX_DONE_masked, m_w[1][2] && !m_w[2][2])
-  `FC(irq_TX_DONE_drives_pin, m_w[1][2] && m_w[2][2] && irq)
-  `FC(irq_TX_OVF_set, m_set[3])
-  `FC(irq_TX_OVF_cleared, m_w[1][3] && m_wr && m_map && m_idx == 1 && PWDATA[3] && PSTRB[0])
-  `FC(irq_TX_OVF_masked, m_w[1][3] && !m_w[2][3])
-  `FC(irq_TX_OVF_drives_pin, m_w[1][3] && m_w[2][3] && irq)
-  `FC(irq_RX_AVAIL_set, m_set[4])
-  `FC(irq_RX_AVAIL_cleared, m_w[1][4] && m_wr && m_map && m_idx == 1 && PWDATA[4] && PSTRB[0])
-  `FC(irq_RX_AVAIL_masked, m_w[1][4] && !m_w[2][4])
-  `FC(irq_RX_AVAIL_drives_pin, m_w[1][4] && m_w[2][4] && irq)
-  `FC(irq_RX_OVF_set, m_set[5])
-  `FC(irq_RX_OVF_cleared, m_w[1][5] && m_wr && m_map && m_idx == 1 && PWDATA[5] && PSTRB[0])
-  `FC(irq_RX_OVF_masked, m_w[1][5] && !m_w[2][5])
-  `FC(irq_RX_OVF_drives_pin, m_w[1][5] && m_w[2][5] && irq)
+  `FC(irq_RETRAIN_set, m_set[2])
+  `FC(irq_RETRAIN_cleared, m_w[1][2] && m_wr && m_map && m_idx == 1 && PWDATA[2] && PSTRB[0])
+  `FC(irq_RETRAIN_masked, m_w[1][2] && !m_w[2][2])
+  `FC(irq_RETRAIN_drives_pin, m_w[1][2] && m_w[2][2] && irq)
+  `FC(irq_PMNAK_set, m_set[3])
+  `FC(irq_PMNAK_cleared, m_w[1][3] && m_wr && m_map && m_idx == 1 && PWDATA[3] && PSTRB[0])
+  `FC(irq_PMNAK_masked, m_w[1][3] && !m_w[2][3])
+  `FC(irq_PMNAK_drives_pin, m_w[1][3] && m_w[2][3] && irq)
+  `FC(irq_PROTO_set, m_set[4])
+  `FC(irq_PROTO_cleared, m_w[1][4] && m_wr && m_map && m_idx == 1 && PWDATA[4] && PSTRB[0])
+  `FC(irq_PROTO_masked, m_w[1][4] && !m_w[2][4])
+  `FC(irq_PROTO_drives_pin, m_w[1][4] && m_w[2][4] && irq)
+  `FC(irq_LINKERR_set, m_set[5])
+  `FC(irq_LINKERR_cleared, m_w[1][5] && m_wr && m_map && m_idx == 1 && PWDATA[5] && PSTRB[0])
+  `FC(irq_LINKERR_masked, m_w[1][5] && !m_w[2][5])
+  `FC(irq_LINKERR_drives_pin, m_w[1][5] && m_w[2][5] && irq)
+  `FC(irq_TX_DONE_set, m_set[6])
+  `FC(irq_TX_DONE_cleared, m_w[1][6] && m_wr && m_map && m_idx == 1 && PWDATA[6] && PSTRB[0])
+  `FC(irq_TX_DONE_masked, m_w[1][6] && !m_w[2][6])
+  `FC(irq_TX_DONE_drives_pin, m_w[1][6] && m_w[2][6] && irq)
+  `FC(irq_TX_OVF_set, m_set[7])
+  `FC(irq_TX_OVF_cleared, m_w[1][7] && m_wr && m_map && m_idx == 1 && PWDATA[7] && PSTRB[0])
+  `FC(irq_TX_OVF_masked, m_w[1][7] && !m_w[2][7])
+  `FC(irq_TX_OVF_drives_pin, m_w[1][7] && m_w[2][7] && irq)
+  `FC(irq_RX_AVAIL_set, m_set[8])
+  `FC(irq_RX_AVAIL_cleared, m_w[1][8] && m_wr && m_map && m_idx == 1 && PWDATA[8] && PSTRB[1])
+  `FC(irq_RX_AVAIL_masked, m_w[1][8] && !m_w[2][8])
+  `FC(irq_RX_AVAIL_drives_pin, m_w[1][8] && m_w[2][8] && irq)
+  `FC(irq_RX_OVF_set, m_set[9])
+  `FC(irq_RX_OVF_cleared, m_w[1][9] && m_wr && m_map && m_idx == 1 && PWDATA[9] && PSTRB[1])
+  `FC(irq_RX_OVF_masked, m_w[1][9] && !m_w[2][9])
+  `FC(irq_RX_OVF_drives_pin, m_w[1][9] && m_w[2][9] && irq)
   `FC(TX_handshake, m_state_TX && c_tx_ready)
   `FC(TX_backpressure, m_state_TX && !c_tx_ready)
-  `FC(TX_write_while_full, m_wr && m_map && m_idx == 6 && m_state_TX)
+  `FC(TX_write_while_full, m_wr && m_map && m_idx == 22 && m_state_TX)
   `FC(RX_capture, c_rx_valid && !m_state_RX)
-  `FC(RX_overflow, c_rx_valid && m_state_RX && !(m_rd && m_map && m_idx == 8))
-  `FC(RX_pop, m_rd && m_map && m_idx == 8 && m_state_RX)
-  `FC(RX_read_empty, m_rd && m_map && m_idx == 8 && !m_state_RX)
-  `FC(RX_pop_and_capture, c_rx_valid && m_state_RX && m_rd && m_map && m_idx == 8)
+  `FC(RX_overflow, c_rx_valid && m_state_RX && !(m_rd && m_map && m_idx == 39))
+  `FC(RX_pop, m_rd && m_map && m_idx == 39 && m_state_RX)
+  `FC(RX_read_empty, m_rd && m_map && m_idx == 39 && !m_state_RX)
+  `FC(RX_pop_and_capture, c_rx_valid && m_state_RX && m_rd && m_map && m_idx == 39)
   `FC_RST(reset_with_pending_irq, PRESETN && m_w[1] != 0 ##1 !PRESETN)
 endmodule
 

@@ -71,6 +71,15 @@ module USB3_sva (
         v_rsp_busy, v_rsp_first, v_rx_wrap, v_tx_wrap, v_warm_in, v_warm_tx, v_hdr_hi,
         v_resend_dp;
 
+  // registered copies for the covergroup: OUT packet outcome x bank and
+  // its SEQ, IN request outcome x bank, response TP sent, attempts before
+  // an IN transfer is acknowledged
+  logic       c_ov, c_iv, c_tv, c_av;
+  logic [1:0] c_ok, c_obk, c_ik, c_ibk, c_ar;
+  logic [2:0] c_osq;
+  logic [3:0] c_tty;
+  logic       c_trt;
+
   function automatic logic [7:0] tp_sym(input int i);
     logic [7:0] s1, s2;
     s1 = {4'h0, t_ty};
@@ -133,7 +142,9 @@ module USB3_sva (
       rsp <= 0; rsp_ty <= ACK; rsp_sq <= 0; rsp_rt <= 0; rsp_bk <= 0;
       inp <= 0; act <= 0; aw <= 0; rs <= 0; in_bk <= 0; retry <= 0; tmr <= 0;
       h1 <= 0; h2 <= 0; pcrc <= 0; rcrc <= 0;
+      {c_ov, c_iv, c_av} <= '0; c_ok <= 0; c_obk <= 0; c_ik <= 0; c_ibk <= 0; c_ar <= 0; c_osq <= 0;
     end else begin
+      {c_ov, c_iv, c_av} <= '0;
       {v_aa_in_pkt, v_dec_err, v_bad_idle, v_early_pkt, v_dph_crc, v_unsup, v_no_dpp, v_dpp_end,
        v_lbad, v_inorder, v_dup, v_ooo, v_tp_crc, v_tp_end, v_in_ok, v_in_unwr, v_in_busy,
        v_ack_done, v_ack_seq, v_ack_idle, v_lbad_rs, v_lbad_idle, v_other_tp, v_timeout,
@@ -186,6 +197,8 @@ module USB3_sva (
             if (rx_p != ENDS) begin m_irq <= 1; v_dpp_end <= 1; end
             else begin
               rsp <= 1; rsp_sq <= h2[7:5]; rsp_bk <= h2[4:3]; rsp_rt <= 0; rsp_ty <= ACK;
+              c_ov <= 1; c_obk <= h2[4:3]; c_osq <= h2[7:5];
+              c_ok <= rcrc != ~pcrc ? 3 : (h2[7:5] == rx_exp ? 0 : (h2[7:5] == rx_exp - 3'd1 ? 1 : 2));
               if (rcrc != ~pcrc) begin rsp_ty <= LBAD; m_irq <= 1; v_lbad <= 1; end
               else if (h2[7:5] == rx_exp) begin
                 for (int k = 0; k < 16; k++) mem[{h2[4:3], 4'(k)}] <= stage[k];
@@ -204,6 +217,7 @@ module USB3_sva (
           rk <= 0;
           if (rx_p != ENDS) begin m_irq <= 1; v_tp_end <= 1; end
           else if (h1[3:0] == ACK && h2[1]) begin
+            c_iv <= 1; c_ibk <= h2[3:2]; c_ik <= vblk[h2[3:2]] && !act && !inp ? 0 : (vblk[h2[3:2]] ? 2 : 1);
             if (vblk[h2[3:2]] && !act && !inp) begin
               inp <= 1; in_bk <= h2[3:2]; v_in_ok <= 1;
             end else begin
@@ -213,6 +227,7 @@ module USB3_sva (
           end else if (h1[3:0] == ACK) begin
             if (aw && h2[7:5] == tx_seq) begin
               aw <= 0; act <= 0; tx_seq <= tx_seq + 1; v_ack_done <= 1; v_tx_wrap <= tx_seq == 7;
+              c_av <= 1; c_ar <= retry;
             end else if (aw) v_ack_seq <= 1;
             else v_ack_idle <= 1;
           end else if (h1[3:0] == LBAD) begin
@@ -234,8 +249,10 @@ module USB3_sva (
       tk <= TK_LFPS; ti <= 0; lph <= 0; tb <= 0; m_tx <= IDLE;
       t_ty <= ACK; t_sq <= 0; t_rt <= 0; t_bk <= 0; tcrc <= 0;
       p_rsp <= 0; p_in <= 0; p_rs <= 0; p_sent <= 0;
+      c_tv <= 0; c_tty <= 0; c_trt <= 0;
     end else begin
       p_rsp <= 0; p_in <= 0; p_rs <= 0; p_sent <= 0;
+      c_tv <= 0;
       {v_rsp_busy, v_rsp_first, v_warm_tx, v_resend_dp} <= '0;
       v_rsp_busy <= rsp && tk == TK_DP;
       if (warm) begin
@@ -256,6 +273,7 @@ module USB3_sva (
           if (rsp) begin
             t_ty <= rsp_ty; t_sq <= rsp_sq; t_rt <= rsp_rt; t_bk <= rsp_bk;
             p_rsp <= 1; tk <= TK_TP;
+            c_tv <= 1; c_tty <= rsp_ty; c_trt <= rsp_rt;
             v_rsp_first <= inp || rs;
           end else if (inp || rs) begin
             p_in <= inp; p_rs <= !inp;
@@ -296,6 +314,21 @@ module USB3_sva (
   `SVA_IMP(a_training_symbols, !link_up && !$past(link_up), tx_p == IDLE || tx_p == LFPS)
   `SVA_IMP(a_watchdog_in_transfer, await_ack, in_active)
   `SVA_IMP(a_irq_sticky, irq, ##1 irq)
+
+  covergroup cg_usb3 @(negedge clk);
+    option.per_instance = 1;
+    cp_out: coverpoint c_ok iff (rst_n && c_ov) { bins in_order = {0}; bins duplicate = {1}; bins out_of_order = {2}; bins bad_crc = {3}; }
+    cp_obk: coverpoint c_obk iff (rst_n && c_ov) { bins b[] = {[0:3]}; }
+    x_out_bank: cross cp_out, cp_obk;
+    cp_osq: coverpoint c_osq iff (rst_n && c_ov && c_ok == 0) { bins s[] = {[0:7]}; }
+    cp_in: coverpoint c_ik iff (rst_n && c_iv) { bins accepted = {0}; bins unwritten = {1}; bins busy = {2}; }
+    cp_ibk: coverpoint c_ibk iff (rst_n && c_iv) { bins b[] = {[0:3]}; }
+    x_in_bank: cross cp_in, cp_ibk;
+    cp_tp: coverpoint {c_tty, c_trt} iff (rst_n && c_tv)
+      { bins ack = {{ACK, 1'b0}}; bins ack_retry = {{ACK, 1'b1}}; bins nrdy = {{NRDY, 1'b0}}; bins lbad = {{LBAD, 1'b0}}; }
+    cp_attempts: coverpoint c_ar iff (rst_n && c_av) { bins first = {0}; bins second = {1}; bins third = {2}; bins fourth = {3}; }
+  endgroup
+  cg_usb3 u_cg_usb3 = new;
 
   `FC(rx_lfps_during_rxdet, v_rxdet_lfps)
   `FC(rx_lfps_burst_too_short, v_short)

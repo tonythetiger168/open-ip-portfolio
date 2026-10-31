@@ -144,6 +144,32 @@ module I2S_Audio_sva #(parameter int DW = 32) (
     }
   endgroup
   cg_combo u_cg_combo = new;
+  // sample data: zero / full scale / alternating / other per channel and
+  // depth, both directions
+  function automatic int dcls(input logic [31:0] v, input logic [1:0] d);
+    logic [31:0] m;
+    m = d == 0 ? 32'h0000_FFFF : d == 1 ? 32'h00FF_FFFF : 32'hFFFF_FFFF;
+    v = v & m;
+    dcls = v == 0 ? 0 : v == m ? 1 : (v == (32'h5555_5555 & m) || v == (32'hAAAA_AAAA & m)) ? 2 : 3;
+  endfunction
+  wire [1:0] dep = cfg_depth == 2'd3 ? 2'd2 : cfg_depth;
+  covergroup cg_data @(posedge clk);
+    cp_dep_t: coverpoint dep iff (rst_n && tx_ready && tx_valid) { bins d16 = {0}; bins d24 = {1}; bins d32 = {2}; }
+    cp_tl: coverpoint dcls(32'(tx_l), cfg_depth) iff (rst_n && tx_ready && tx_valid)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_tr: coverpoint dcls(32'(tx_r), cfg_depth) iff (rst_n && tx_ready && tx_valid)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    x_tl: cross cp_dep_t, cp_tl;
+    x_tr: cross cp_dep_t, cp_tr;
+    cp_dep_r: coverpoint dep iff (rst_n && rx_valid && m_rx_ok) { bins d16 = {0}; bins d24 = {1}; bins d32 = {2}; }
+    cp_rl: coverpoint dcls(32'(rx_l), cfg_depth) iff (rst_n && rx_valid && m_rx_ok)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rr: coverpoint dcls(32'(rx_r), cfg_depth) iff (rst_n && rx_valid && m_rx_ok)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    x_rl: cross cp_dep_r, cp_rl;
+    x_rr: cross cp_dep_r, cp_rr;
+  endgroup
+  cg_data u_cg_data = new;
   `FC(depth_code_3, rx_valid && m_rx_ok && cfg_depth == 2'd3)
   `FC(tx_underrun, tx_ready && !tx_valid && ok >= 2)
   `FC(slave_frame_sync_error, irq)

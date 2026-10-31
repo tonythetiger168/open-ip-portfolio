@@ -5,11 +5,16 @@
 # exits 1 unless all of them are CLOSED. Each build directory is removed after
 # scoring (coverage.dat is kept in work/cov/<P>/) so a full run fits on disk.
 #   bash scripts/cov/run_all.sh 4
+# Env: SHARD=K/N runs only every N-th IP starting at the K-th (K = 1..N), so CI
+# can split the regression across N jobs.
 set -u
 cd "$(dirname "$0")/../.."
 JOBS="${1:-4}"
+mkdir -p work/cov
+SHARD="${SHARD:-1/1}"
 ls tb/cov/*_sva.sv | sed 's#tb/cov/##; s#_sva\.sv$##' |
-  xargs -P "$JOBS" -I{} sh -c 'r=$(bash scripts/cov/run_cov.sh {} 2>&1 | grep -E "^(RESULT|BUILD_FAIL|NO_)" | head -1); echo "{} ${r:-NO_RESULT}"; mv -f work/cov/{}/obj/coverage.dat work/cov/{}/ 2>/dev/null; rm -rf work/cov/{}/obj' |
+  awk -v k="${SHARD%/*}" -v n="${SHARD#*/}" '(NR - k) % n == 0' |
+  xargs -P "$JOBS" -I{} sh -c 'r=$(bash scripts/cov/run_cov.sh {} 2>&1 | grep -E "^(RESULT|BUILD_FAIL|NO_|OLD_)" | head -1); echo "{} ${r:-NO_RESULT}"; mv -f work/cov/{}/obj/coverage.dat work/cov/{}/ 2>/dev/null; rm -rf work/cov/{}/obj' |
   sort | tee work/cov/run_all.txt
 n=$(wc -l < work/cov/run_all.txt)
 c=$(grep -c "RESULT: CLOSED" work/cov/run_all.txt)

@@ -1,0 +1,3 @@
+TOGGLE SHA3_top\.dsb\[(1|2)\]:1->0 # constant 1: both domain bytes (0x06 SHA3, 0x1F SHAKE) have bits 1 and 2 set
+TOGGLE SHA3_top\.dsb\[(5|6|7)\]: # constant 0: both domain bytes (0x06 SHA3, 0x1F SHAKE) have bits 5-7 clear
+TOGGLE SHA3_top\.rlm1\[1\]: # constant 0: the last rate lane is 17, 16, 12, 8, 20 or 16, all with bit 1 clear

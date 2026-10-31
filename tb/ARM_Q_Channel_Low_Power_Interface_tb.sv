@@ -267,6 +267,38 @@ module ARM_Q_Channel_Low_Power_Interface_tb;
     @(negedge clk); rst_n = 1'b1; qreqn = 1'b1;
     @(negedge clk);
 
+    // activity-window edges at the request decision: an event in the
+    // request cycle (full window), a request decided in the window's last
+    // active cycle (deny, then the window runs out while denied), and one
+    // decided right after it expired (accept); then a wake event while
+    // stopped followed by an illegal qreqn drop during the exit
+    begin : window_edges
+      repeat (20) @(negedge clk);
+      dev_event = 1'b1; qreqn = 1'b0;
+      @(negedge clk); dev_event = 1'b0; #1;
+      @(negedge clk); #1;
+      chk(qdeny === 1'b1, "event in the request cycle denies");
+      q_restore();
+      repeat (20) @(negedge clk);
+      for (int late = 0; late < 2; late++) begin
+        dev_event = 1'b1;
+        @(negedge clk); dev_event = 1'b0;
+        repeat (14 + late) @(negedge clk);
+        qreqn = 1'b0;
+        repeat (4) @(negedge clk); #1;
+        if (late == 0) chk(qdeny === 1'b1 && qactive === 1'b0, "deny in the window's last cycle");
+        else           chk(qacceptn === 1'b0 && qdeny === 1'b0, "accept right after the window");
+        q_restore();
+        repeat (20) @(negedge clk);
+      end
+      q_request(0);
+      dev_event = 1'b1; @(negedge clk); dev_event = 1'b0;
+      qreqn = 1'b1; @(negedge clk);
+      qreqn = 1'b0; @(negedge clk); #1;
+      chk(qacceptn === 1'b0, "qreqn drop during exit returns to stopped");
+      q_restore();
+    end
+
     if (errors == 0) $display("TEST PASSED: ARM_Q_Channel_Low_Power_Interface");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR

@@ -28,6 +28,29 @@ module HBM3E_Lite_tb;
   HBM3E_Lite_top #(.T_RC(40), .T_WTR(8), .T_REFI(T_REFI), .CL(CL0), .CWL(CWL0)) dut (.*);
   always #5 clk = ~clk;
 
+`ifndef VERILATOR
+  // refresh overrun: with tREFI = 1 an entry falls due again before the
+  // engine has served it, which must set the sticky irq. A second, idle
+  // instance (Icarus only: the bound checker models the main instance's
+  // timing). Its irq stays low through reset and rises within a rotation.
+  logic o_hready, o_hdone, o_irq, o_ck_t, o_ck_c, o_cke, o_cs_n, o_act_n, o_ras_n, o_cas_n, o_we_n;
+  logic o_tv; logic [3:0] o_tc; logic [31:0] o_ta; logic [2:0] o_pc;
+  logic [15:0] o_hrdata; logic [127:0] o_rdline; logic [1:0] o_ba; logic [13:0] o_addr;
+  tri [15:0] o_dq; tri [1:0] o_dqs;
+  HBM3E_Lite_top #(.T_REFI(1)) dut_ovr (
+    .clk(clk), .rst_n(rst_n), .hvalid(1'b0), .hready(o_hready), .hcmd(3'd0), .haddr(32'd0),
+    .hwdata(16'd0), .hrdata(o_hrdata), .rdline(o_rdline), .hdone(o_hdone), .irq(o_irq),
+    .pc_act(o_pc), .ck_t(o_ck_t), .ck_c(o_ck_c), .cke(o_cke), .cs_n(o_cs_n), .act_n(o_act_n),
+    .ras_n(o_ras_n), .cas_n(o_cas_n), .we_n(o_we_n), .ba(o_ba), .addr(o_addr), .dq(o_dq),
+    .dqs(o_dqs), .trace_valid(o_tv), .trace_cmd(o_tc), .trace_addr(o_ta));
+  initial begin
+    @(posedge rst_n);
+    if (o_irq !== 1'b0) begin errors++; $display("ERROR: overrun irq set in reset"); end
+    repeat (32 * 40) @(posedge clk);
+    if (o_irq !== 1'b1) begin errors++; $display("ERROR: no irq on a refresh overrun"); end
+  end
+`endif
+
   function automatic logic [31:0] mk(input int b, input int row, input int line);
     mk = $urandom;
     mk[31:21] = 0; mk[11:7] = b[4:0]; mk[20:12] = row[8:0]; mk[6:4] = line[2:0];

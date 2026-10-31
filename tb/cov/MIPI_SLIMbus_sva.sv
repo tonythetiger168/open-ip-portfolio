@@ -167,6 +167,27 @@ module MIPI_SLIMbus_sva (
       end
     end
 
+  function automatic int dcls(input logic [31:0] v, input logic [2:0] len);
+    logic [31:0] m;
+    m = len >= 4 ? '1 : (32'd1 << (8 * int'(len))) - 1;
+    v &= m;
+    return v == 0 ? 0 : v == m ? 1 : (v == (32'h5555_5555 & m) || v == (32'hAAAA_AAAA & m)) ? 2 : 3;
+  endfunction
+  // samples by segment length and data class both ways, frame information
+  covergroup cg_slim @(negedge clk);
+    option.per_instance = 1;
+    cp_tlen: coverpoint cfg_tx_len iff (rst_n && tx_valid && tx_ready) { bins l[] = {[1:4]}; }
+    cp_tdata: coverpoint dcls(tx_data, cfg_tx_len) iff (rst_n && tx_valid && tx_ready)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    x_tx: cross cp_tlen, cp_tdata;
+    cp_rlen: coverpoint cfg_rx_len iff (rst_n && rx_valid && !rx_err) { bins l[] = {[1:4]}; }
+    cp_rdata: coverpoint dcls(rx_data, cfg_rx_len) iff (rst_n && rx_valid && !rx_err)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    x_rx: cross cp_rlen, cp_rdata;
+    cp_fi: coverpoint fi_info iff (rst_n && fi_valid) { bins zero = {0}; bins ones = {8'hFF}; bins other = {[1:8'hFE]}; }
+  endgroup
+  cg_slim u_cg_slim = new;
+
   // ---------------- assertions ----------------
   `SVA_INV(a_cfg_err, cfg_err == ((cfg_tx_len != 0 && !tx_ok) || (cfg_rx_len != 0 && !rx_ok)))
   `SVA_INV(a_clk_oe, slim_clk_oe == cfg_framer)
