@@ -1,0 +1,8 @@
+# TRNG synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/TRNG_top.sv 
+hierarchy -check -top TRNG_top
+proc; opt; fsm; opt
+techmap; opt
+stat
+write_json TRNG_top.json
+write_verilog TRNG_top_netlist.v
