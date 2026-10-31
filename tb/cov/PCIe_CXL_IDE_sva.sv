@@ -43,6 +43,7 @@ module PCIe_CXL_IDE_sva #(parameter int NS = 2, parameter int CTR_W = 64, parame
   // internal: the moment a message is classified, and the slot registers
   input logic [3:0]        t, r,
   input logic              gt_err, gr_err,
+  input logic              gt_ov, gr_ov, txo_free, rxo_free, gt_clr, gr_clr,
   input logic [NS*6*256-1:0]   ktx, krx,
   input logic [NS*6*CTR_W-1:0] ctx, crx
 );
@@ -183,12 +184,34 @@ module PCIe_CXL_IDE_sva #(parameter int NS = 2, parameter int CTR_W = 64, parame
   int           e_hd [0:1], e_tl [0:1], e_age [0:1];
   int           dn_exp [0:1];           // done pulses expected
   int           c_err [0:1];            // coverage: error code (-1 none)
-  task automatic experr(input int d, input logic [2:0] c, input logic [7:0] s);
-    e_c[d][e_tl[d] % 8] = c; e_s[d][e_tl[d] % 8] = s; e_tl[d]++;
+  // ins: the stream state (index into msec) made Insecure when the error is
+  // signalled, -1 none
+  int           e_i [0:1][0:7];
+  task automatic experr(input int d, input logic [2:0] c, input logic [7:0] s, input int ins);
+    e_c[d][e_tl[d] % 8] = c; e_s[d][e_tl[d] % 8] = s; e_i[d][e_tl[d] % 8] = ins; e_tl[d]++;
     c_err[d] = int'(c);
   endtask
 
   // ---------------- model ----------------
+  // output handshakes, captured at the rising edge they happen on and
+  // checked by the model just after the next falling edge
+  logic         hs_txo, hs_rxo;
+  // engine blocks moved into the output register; ep: expected blocks still
+  // inside an engine (the newest queue entries). An engine clr drops them.
+  logic         xf_t, xf_r;
+  int           ep [0:1];
+  logic [127:0] o_txd, o_rxd;
+  logic [4:0]   o_txn, o_rxn;
+  logic [1:0]   o_txk, o_rxk;
+  logic         o_txl, o_txb, o_txc, o_rxl, o_rxb, o_rxc;
+  always @(posedge clk) begin
+    hs_txo <= txo_valid && txo_ready && rst_n;
+    o_txd <= txo_data; o_txn <= txo_bytes; o_txk <= txo_kind; o_txl <= txo_last; o_txb <= txo_bad; o_txc <= txo_cm;
+    hs_rxo <= rxo_valid && rxo_ready && rst_n;
+    xf_t <= gt_ov && txo_free && rst_n;
+    xf_r <= gr_ov && rxo_free && rst_n;
+    o_rxd <= rxo_data; o_rxn <= rxo_bytes; o_rxk <= rxo_kind; o_rxl <= rxo_last; o_rxb <= rxo_bad; o_rxc <= rxo_cm;
+  end
   wire [3:0]  en4 = 4'(s_en), cm4 = 4'(s_cm);
   wire [31:0] id4m = 32'(s_id);
   logic       m_kerr_q;
@@ -199,6 +222,9 @@ module PCIe_CXL_IDE_sva #(parameter int NS = 2, parameter int CTR_W = 64, parame
   // receive message state
   logic   rm_act, rm_cm, rm_byp, rm_drop, rm_term, rm_ep, rm_ph, rm_hs, rm_hp, rm_dp, rm_mac;
   int     rm_s, rm_epn;
+  int     w_tx, w_rx;                   // clocks an expected output has waited
+  int     grace;                        // clocks after a clr in which pulses are not checked
+  int     dbg_n = 0;                   // clocks an expected output has waited
   logic [7:0]   rm_id;
   logic [127:0] rm_hd;                  // held partial block (plaintext computed at the MAC)
   int           rm_hn;
@@ -216,37 +242,63 @@ module PCIe_CXL_IDE_sva #(parameter int NS = 2, parameter int CTR_W = 64, parame
   task automatic m_reset_msgs();
     tm_act = 0; tm_byp = 0; tm_drop = 0; tm_term = 0; tm_ep = 0; tm_cm = 0;
     rm_act = 0; rm_byp = 0; rm_drop = 0; rm_term = 0; rm_ep = 0; rm_cm = 0; rm_mac = 0;
-    for (int d = 0; d < 2; d++) begin q_hd[d] = 0; q_tl[d] = 0; e_hd[d] = 0; e_tl[d] = 0; dn_exp[d] = 0; end
+    for (int d = 0; d < 2; d++) begin q_hd[d] = 0; q_tl[d] = 0; e_hd[d] = 0; e_tl[d] = 0; dn_exp[d] = 0; ep[d] = 0; end
   endtask
 
   // transmit: an error on a taken block (the packet's rest is dropped and a
   // nullified MAC block ends it)
   task automatic t_fail(input logic [2:0] c, input logic last);
-    experr(0, c, 8'(tm_s));
+    experr(0, c, 8'(tm_s), -1);
     tm_act = 0; tm_ep = 0;
     if (last) push(0, 128'h0, 0, K_MAC, 1, 1, tm_cm);
     else begin tm_drop = 1; tm_term = 1; end
   endtask
   task automatic r_fail(input logic [2:0] c, input logic last);
-    experr(1, c, rm_id);
-    msec[4 + rm_s] = 0;
+    experr(1, c, rm_id, 4 + rm_s);
     rm_act = 0; rm_ep = 0; rm_mac = 0;
     if (last) push(1, 128'h0, 0, K_MAC, 1, 1, rm_cm);
     else begin rm_drop = 1; rm_term = 1; end
   endtask
 
-  always @(posedge clk or negedge rst_n) begin
+  // The model runs just after each falling edge: the core's registers and
+  // outputs are stable then, and every input (set by the testbench at the
+  // falling edge) already holds what the next rising edge samples. So each
+  // evaluation first compares what the last rising edge did, then applies
+  // the events of the coming rising edge.
+  always @(negedge clk) begin
+    #1ps;
     if (!rst_n) begin
       m_reset_keys(); m_reset_msgs();
       f_txo <= 0; f_rxo <= 0; f_txe <= 0; f_rxe <= 0; f_kme <= 0; f_txd <= 0; f_rxd <= 0;
       f_slots <= 0; f_cnt <= 0; f_state <= 0; f_kcode <= 0;
-      e_age[0] = 0; e_age[1] = 0;
+      e_age[0] = 0; e_age[1] = 0; w_tx = 0; w_rx = 0; grace = 0;
     end else begin
       logic ftxo, frxo, ftxe, frxe, fkme, ftxd, frxd, fsl, fcnt, fst, fkc;
       ftxo = 0; frxo = 0; ftxe = 0; frxe = 0; fkme = 0; ftxd = 0; frxd = 0; fsl = 0; fcnt = 0; fst = 0; fkc = 0;
       c_km = -1; c_tmsg = -1; c_rmsg = -1; c_clr = -1; c_hdr = -1; c_pay = -1;
       c_err[0] = -1; c_err[1] = -1;
       c_ksw = 0; c_trunc = 0; c_tbp = txo_valid && !txo_ready; c_rbp = rxo_valid && !rxo_ready;
+
+      // ---- pulses ----
+      if (tx_err) begin
+        if (e_hd[0] == e_tl[0]) ftxe = grace == 0;
+        else begin
+          if (tx_code !== e_c[0][e_hd[0] % 8] || 8'(tx_esid) !== e_s[0][e_hd[0] % 8]) ftxe = 1;
+          if (e_i[0][e_hd[0] % 8] >= 0) msec[e_i[0][e_hd[0] % 8]] = 0;
+          e_hd[0]++;
+        end
+      end
+      if (rx_err) begin
+        if (e_hd[1] == e_tl[1]) frxe = grace == 0;
+        else begin
+          if (rx_code !== e_c[1][e_hd[1] % 8] || rx_eid !== e_s[1][e_hd[1] % 8]) frxe = 1;
+          if (e_i[1][e_hd[1] % 8] >= 0) msec[e_i[1][e_hd[1] % 8]] = 0;
+          e_hd[1]++;
+        end
+      end
+      if (tx_done) begin if (dn_exp[0] == 0) ftxd = grace == 0; else dn_exp[0]--; end
+      if (rx_done) begin if (dn_exp[1] == 0) frxd = grace == 0; else dn_exp[1]--; end
+      if (grace > 0) grace--;
 
       // ---- registers against the model (values of the last clock) ----
       for (int d = 0; d < 2; d++)
@@ -260,43 +312,35 @@ module PCIe_CXL_IDE_sva #(parameter int NS = 2, parameter int CTR_W = 64, parame
           fst = 1;
 
       // ---- outputs against the queues ----
-      if (txo_valid && txo_ready) begin
+      if (hs_txo) begin
         if (q_hd[0] == q_tl[0]) ftxo = 1;
         else begin
           int h;
           h = q_hd[0] % QD;
-          if (txo_data !== q_d[0][h] || txo_bytes !== q_n[0][h] || txo_kind !== q_k[0][h] || txo_last !== q_l[0][h]
-              || txo_bad !== q_b[0][h] || txo_cm !== q_c[0][h]) ftxo = 1;
+          if (o_txd !== q_d[0][h] || o_txn !== q_n[0][h] || o_txk !== q_k[0][h] || o_txl !== q_l[0][h]
+              || o_txb !== q_b[0][h] || o_txc !== q_c[0][h]) ftxo = 1;
           q_hd[0]++;
         end
       end
-      if (rxo_valid && rxo_ready) begin
+      if (hs_rxo) begin
         if (q_hd[1] == q_tl[1]) frxo = 1;
         else begin
           int h;
           h = q_hd[1] % QD;
-          if (rxo_data !== q_d[1][h] || rxo_bytes !== q_n[1][h] || rxo_kind !== q_k[1][h] || rxo_last !== q_l[1][h]
-              || rxo_bad !== q_b[1][h] || rxo_cm !== q_c[1][h]) frxo = 1;
+          if (o_rxd !== q_d[1][h] || o_rxn !== q_n[1][h] || o_rxk !== q_k[1][h] || o_rxl !== q_l[1][h]
+              || o_rxb !== q_b[1][h] || o_rxc !== q_c[1][h]) frxo = 1;
           q_hd[1]++;
         end
       end
-      // ---- pulses ----
-      if (tx_err) begin
-        if (e_hd[0] == e_tl[0]) ftxe = 1;
-        else begin
-          if (tx_code !== e_c[0][e_hd[0] % 8] || 8'(tx_esid) !== e_s[0][e_hd[0] % 8]) ftxe = 1;
-          e_hd[0]++;
-        end
+      // ---- engine blocks in flight ----
+      if (xf_t) ep[0]--;
+      if (xf_r) ep[1]--;
+      if (gt_clr && !clr) begin
+        q_tl[0] -= ep[0] - int'(gt_ov && txo_free); ep[0] = int'(gt_ov && txo_free);
       end
-      if (rx_err) begin
-        if (e_hd[1] == e_tl[1]) frxe = 1;
-        else begin
-          if (rx_code !== e_c[1][e_hd[1] % 8] || rx_eid !== e_s[1][e_hd[1] % 8]) frxe = 1;
-          e_hd[1]++;
-        end
+      if (gr_clr && !clr) begin
+        q_tl[1] -= ep[1] - int'(gr_ov && rxo_free); ep[1] = int'(gr_ov && rxo_free);
       end
-      if (tx_done) begin if (dn_exp[0] == 0) ftxd = 1; else dn_exp[0]--; end
-      if (rx_done) begin if (dn_exp[1] == 0) frxd = 1; else dn_exp[1]--; end
 
       // ================= transmit =================
       if (t == 4'd0 && tx_valid && !gt_err) begin
@@ -319,8 +363,7 @@ module PCIe_CXL_IDE_sva #(parameter int NS = 2, parameter int CTR_W = 64, parame
           i = sl(s, k, sub);
           e = !okst ? 3'd2 : cont ? 3'd0 : !cm4[s] && tx_sub == 2'd3 ? 3'd1 : mc[i] == CMAX ? 3'd4 : 3'd0;
           if (e != 0) begin
-            experr(0, e, 8'(s));
-            if (e == 3'd4) msec[s] = 0;
+            experr(0, e, 8'(s), e == 3'd4 ? s : -1);
             tm_drop = 1; tm_term = cont; tm_ep = 0; tm_s = s; tm_cm = cm4[s];
           end else if (!cont) begin
             g_start(0, mk[i], {s_ivfix[32 * s +: 32], 64'(mc[i])});
@@ -339,7 +382,7 @@ module PCIe_CXL_IDE_sva #(parameter int NS = 2, parameter int CTR_W = 64, parame
       // a payload block offered after the header: the AAD flush may exceed
       // the GCM limit before the block is taken
       if (tx_valid && !tx_hdr && tm_act && !tm_ph && tm_hs && !tm_drop && g_alen[0] > AMAX) begin
-        experr(0, 3'd5, 8'(tm_s));
+        experr(0, 3'd5, 8'(tm_s), -1);
         tm_act = 0; tm_drop = 1; tm_term = 1;
       end
       if (tx_valid && tx_ready) begin
@@ -383,7 +426,7 @@ module PCIe_CXL_IDE_sva #(parameter int NS = 2, parameter int CTR_W = 64, parame
               if (bad) t_fail(3'd1, tx_last);
               else if (g_clen[0] + n > TMAX) t_fail(3'd5, tx_last);
               else begin
-                push(0, g_txt(0, x, n, 0), n, K_DATA, tx_last && tm_cm, 0, tm_cm);
+                push(0, g_txt(0, x, n, 0), n, K_DATA, tx_last && tm_cm, 0, tm_cm); ep[0]++;
                 if (tx_last) begin
                   c_pay = int'(g_clen[0]);
                   if (!tm_cm) begin
@@ -414,8 +457,7 @@ module PCIe_CXL_IDE_sva #(parameter int NS = 2, parameter int CTR_W = 64, parame
         cont = rm_ep && rx_cm && int'(rx_sid) == rm_s;
         if (!ide) rm_byp = 1;
         else if (rm_ep && !cont) begin
-          experr(1, 3'd1, id4m[8 * rm_s +: 8]);
-          msec[4 + rm_s] = 0;
+          experr(1, 3'd1, id4m[8 * rm_s +: 8], 4 + rm_s);
           push(1, 128'h0, 0, K_MAC, 1, 1, 1);
           rm_ep = 0; rm_act = 0; c_trunc = 1;
         end else begin
@@ -442,8 +484,7 @@ module PCIe_CXL_IDE_sva #(parameter int NS = 2, parameter int CTR_W = 64, parame
             rm_id = p[15:8];
           end
           if (e != 0) begin
-            experr(1, e, rm_id);
-            if (ins) msec[4 + s] = 0;
+            experr(1, e, rm_id, ins ? 4 + s : -1);
             rm_drop = 1; rm_term = cont; rm_ep = 0; rm_cm = rx_cm; rm_s = s;
           end else if (rx_cm) begin
             rm_s = s; rm_cm = 1; rm_act = 1;
@@ -467,8 +508,7 @@ module PCIe_CXL_IDE_sva #(parameter int NS = 2, parameter int CTR_W = 64, parame
       end
       if (rx_valid && rx_kind != K_HDR && rx_kind != K_PFX && rm_act && !rm_ph && rm_hs && !rm_drop && !rm_mac
           && g_alen[1] > AMAX && r != 4'd0) begin
-        experr(1, 3'd5, rm_id);
-        msec[4 + rm_s] = 0;
+        experr(1, 3'd5, rm_id, 4 + rm_s);
         rm_act = 0; rm_drop = 1; rm_term = 1;
       end
       if (rx_valid && rx_ready && !(r == 4'd0 && !rx_cm)) begin
@@ -503,7 +543,7 @@ module PCIe_CXL_IDE_sva #(parameter int NS = 2, parameter int CTR_W = 64, parame
               if (rx_kind != K_DATA || n == 0 || n > 16 || rx_last) r_fail(3'd1, rx_last);
               else if (n != 16) begin rm_hd = x; rm_hn = n; rm_dp = 1; end
               else if (g_clen[1] + n > TMAX) r_fail(3'd5, rx_last);
-              else push(1, g_txt(1, x, n, 1), n, K_DATA, 0, 0, 0);
+              else begin push(1, g_txt(1, x, n, 1), n, K_DATA, 0, 0, 0); ep[1]++; end
             end
           end else if (is_mac) begin
             if (!rm_ph && g_alen[1] > AMAX) r_fail(3'd5, rx_last);
@@ -512,12 +552,12 @@ module PCIe_CXL_IDE_sva #(parameter int NS = 2, parameter int CTR_W = 64, parame
             else begin
               logic [95:0] m;
               logic ok;
-              if (rm_dp) push(1, g_txt(1, rm_hd, rm_hn, 1), rm_hn, K_DATA, 0, 0, 0);
+              if (rm_dp) begin push(1, g_txt(1, rm_hd, rm_hn, 1), rm_hn, K_DATA, 0, 0, 0); ep[1]++; end
               m = g_mac(1);
               ok = m == rx_data[127:32];
               push(1, 128'h0, 0, K_MAC, 1, !ok, rm_cm);
               if (ok) dn_exp[1]++;
-              else begin experr(1, 3'd7, rm_id); msec[4 + rm_s] = 0; end
+              else experr(1, 3'd7, rm_id, 4 + rm_s);
               c_rmsg = {rm_cm, ok} + 0;
               rm_act = 0; rm_ep = 0; rm_mac = 0; rm_dp = 0; rm_hn = 0;
             end
@@ -528,7 +568,7 @@ module PCIe_CXL_IDE_sva #(parameter int NS = 2, parameter int CTR_W = 64, parame
             else if (!rm_cm && n != 16) begin rm_hd = x; rm_hn = n; rm_dp = 1; end
             else if (g_clen[1] + n > TMAX) r_fail(3'd5, rx_last);
             else begin
-              push(1, g_txt(1, x, n, 1), n, K_DATA, rx_last && rm_cm, 0, rm_cm);
+              push(1, g_txt(1, x, n, 1), n, K_DATA, rx_last && rm_cm, 0, rm_cm); ep[1]++;
               if (rm_cm && rx_last) begin rm_epn++; rm_act = 0; end
             end
           end
@@ -567,23 +607,21 @@ module PCIe_CXL_IDE_sva #(parameter int NS = 2, parameter int CTR_W = 64, parame
         m_reset_keys();
         tm_act = 0; tm_byp = 0; tm_drop = 0; tm_ep = 0; rm_act = 0; rm_byp = 0; rm_drop = 0; rm_ep = 0; rm_mac = 0;
         rm_dp = 0; rm_hn = 0;
-        q_hd[0] = q_tl[0]; q_hd[1] = q_tl[1]; dn_exp[0] = 0; dn_exp[1] = 0;
+        // a block handed over at the clr edge itself is still output
+        q_tl[0] = txo_valid && txo_ready && q_hd[0] != q_tl[0] ? q_hd[0] + 1 : q_hd[0];
+        q_tl[1] = rxo_valid && rxo_ready && q_hd[1] != q_tl[1] ? q_hd[1] + 1 : q_hd[1];
+        // results still in flight may or may not be signalled
+        dn_exp[0] = 0; dn_exp[1] = 0; e_hd[0] = e_tl[0]; e_hd[1] = e_tl[1]; grace = 3;
       end
       for (int d = 0; d < 2; d++) e_age[d] = e_hd[d] != e_tl[d] ? e_age[d] + 1 : 0;
+      // output waiting: an expected block must appear within a bound once
+      // the output is free
+      w_tx = q_hd[0] != q_tl[0] && !txo_valid ? w_tx + 1 : 0;
+      w_rx = q_hd[1] != q_tl[1] && !rxo_valid ? w_rx + 1 : 0;
       f_txo <= ftxo; f_rxo <= frxo; f_txe <= ftxe; f_rxe <= frxe; f_txd <= ftxd; f_rxd <= frxd;
       f_slots <= fsl; f_cnt <= fcnt; f_state <= fst;
     end
   end
-
-  // output waiting: an expected block must appear within a bound once the
-  // output is free
-  int w_tx, w_rx;
-  always @(posedge clk or negedge rst_n)
-    if (!rst_n) begin w_tx <= 0; w_rx <= 0; end
-    else begin
-      w_tx <= q_hd[0] != q_tl[0] && !txo_valid ? w_tx + 1 : 0;
-      w_rx <= q_hd[1] != q_tl[1] && !rxo_valid ? w_rx + 1 : 0;
-    end
 
   // ---------------- assertions ----------------
   `SVA_INV(a_tx_output, !f_txo)
@@ -608,7 +646,7 @@ module PCIe_CXL_IDE_sva #(parameter int NS = 2, parameter int CTR_W = 64, parame
   `SVA_IMP(a_busy_tx, t != 4'd0, tx_busy)
   `SVA_IMP(a_busy_rx, r != 4'd0, rx_busy)
   `SVA_IMP(a_mac_bytes, txo_valid && txo_kind == K_MAC, txo_last && (txo_bad ? txo_bytes == 0 : txo_bytes == 12))
-  `SVA_IMP(a_end_block, rxo_valid && rxo_kind == 2'd2 && !rxo_last, 1'b0)
+  `SVA_IMP(a_end_block, rxo_valid && rxo_kind == 2'd2, rxo_last && rxo_bytes == 5'd0)
   `SVA_IMP(a_clr_clears, clr, ##1 kv_tx == 0 && kv_rx == 0 && sec_tx == 0 && sec_rx == 0 && ktx == 0 && krx == 0
                               && !txo_valid && !rxo_valid)
   `SVA_RST(a_reset, 1'b1, !txo_valid && !rxo_valid && kv_tx == 0 && kv_rx == 0 && sec_tx == 0 && sec_rx == 0

@@ -46,7 +46,7 @@ def main():
     for i in range(8):
         plan.append(("tlp", i % 2))
     hlens = [12, 16, 20, 32, 4, 8, 28, 13, 17, 30]
-    plens = [0, 4, 16, 64, 128, 1, 15, 17, 33, 48, 100, 160, 255, 8]
+    plens = [0, 4, 16, 64, 128, 1, 15, 17, 33, 48, 100, 160, 255, 8, 480, 479, 464]
     last_cm = {}
     for n, (kind, s) in enumerate(plan):
         cm = kind == "cm"
