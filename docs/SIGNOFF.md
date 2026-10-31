@@ -14,7 +14,7 @@ the five-metric coverage of [COVERAGE_CLOSURE.md](COVERAGE_CLOSURE.md) only.
 | Coverage | `bash scripts/cov/run_cov.sh <P>` and `<P>_apb` (Verilator, bound checker with an independent model) | line, toggle, FSM, SVA, functional all 100% (exclusions justified in `scripts/cov/exclude/`) |
 | Mutation | `python3 scripts/mut/run_mut.py <P> --flow cov -n N` | every mutant killed, or listed as equivalent with a reason in `scripts/mut/equivalent.txt` |
 | Formal | `bash scripts/formal/run_formal.sh <P>` (yosys SAT): the properties in `formal/<P>_props.svh` with every input free after reset | bounded proof to the depth in `formal/<P>.cfg`; k-induction where it closes |
-| Exhaustive | `python3 scripts/formal/exhaust_ml_kem.py`, `python3 scripts/formal/exhaust_ethfec.py`, `python3 scripts/formal/exhaust_ethpcs.py` (Verilator): the arithmetic and data functions and constant tables, cut out of the RTL, against their definitions or the checker's own versions; for the PCS also every reachable gearbox state | every input matches |
+| Exhaustive | `python3 scripts/formal/exhaust_ml_kem.py`, `python3 scripts/formal/exhaust_ml_dsa.py`, `python3 scripts/formal/exhaust_ethfec.py`, `python3 scripts/formal/exhaust_ethpcs.py` (Verilator): the arithmetic and data functions and constant tables, cut out of the RTL, against their definitions or the checker's own versions; for the PCS also every reachable gearbox state | every input matches |
 | Area / depth | `bash scripts/syn/ppa_report.sh <P>` (yosys + ABC, 2-input gates) | area in NAND2 gate equivalents and the deepest flip-flop to flip-flop path in gate levels |
 
 The area and depth numbers are technology-independent estimates: no foundry
@@ -30,9 +30,12 @@ not a timing sign-off.
 | PCIe 3.0 | clean | 100% / 100% | 40/40 killed | bounded proof, 11 properties, depth 25 | 27.0 kGE (2765 flip-flops) | 64 gate levels |
 | CXL 3.0 | clean | 100% / 100% | 40/40 killed (7 equivalent listed) | bounded proof, 10 properties, depth 36 | 139.4 kGE (16554 flip-flops) | 82 gate levels |
 | ML-KEM 1.1 | clean | 100% / 100% | 40/40 killed (4 equivalent listed) | exhaustive arithmetic: pass (see below) | 100.7 kGE logic (2891 flip-flops) + 94 kbit RAM | 53 gate levels |
+| ML-DSA 1.0 | clean | 100% / 100% | 40 sampled: 35 killed, 5 equivalent (8 equivalent listed) | exhaustive arithmetic: pass (see below) | 135.6 kGE logic (3874 flip-flops) + 503 kbit RAM | 59 gate levels |
 | Ethernet RS-FEC 1.0 | clean | 100% / 100% | 40/40 killed (6 equivalent listed) | exhaustive arithmetic: pass (see below) | 366.9 kGE (3661 flip-flops) | 82 gate levels |
 | Ethernet PCS 1.0 | clean | 100% / 100% | 40/40 killed (3 equivalent listed) | exhaustive functions and gearboxes: pass (see below) | 63.4 kGE (2773 flip-flops) + 2 RS-FEC cores | 40 gate levels (82 in the RS-FEC) |
 | Root of Trust 1.0 | clean | 100% / 100% | 40/40 killed (1 equivalent listed) | bounded proof, 13 properties, depth 24 | 27.2 kGE (1783 flip-flops) | 74 gate levels |
+| SHA-3 1.0 | clean | 100% / 100% | 32/32 killed (every site; none equivalent) | bounded proof, 7 properties, depth 30, and k-induction (any depth) | 51.4 kGE (1620 flip-flops) | 20 gate levels |
+| AES-GCM 1.0 | clean | 100% / 100% | 40/40 killed (6 equivalent listed) | bounded proof, 12 properties, depth 24 (reduced AES, see below) | 49.9 kGE (1619 flip-flops) | 56 gate levels |
 | TRNG 1.0 | clean | 100% / 100% | 40/40 killed, Icarus flow (13 equivalent listed) | bounded proof, 7 properties, depth 20 | 21.4 kGE (1431 flip-flops) | 74 gate levels |
 
 Formal properties:
@@ -88,6 +91,38 @@ Formal properties:
   lies beyond the bound, so the output side is checked by the simulation
   checker, which recomputes every seed with its own SHA-256.
 
+- **SHA-3** (`formal/SHA3_props.svh`, 7 properties): the control, return
+  and mode registers are legal; the lane index stays inside the rate block
+  and a permutation starts at lane 0; the round counter runs only in a
+  permutation; a SHA3 digest is squeezed from the first block and within its
+  length; while idle nothing is taken or offered and the 1600-bit state is
+  clear; never ready for input and offering output at once; done and err
+  never together. Start, mode, message words, flags and back-pressure are
+  free. For the proof the round function is cut (`knext` becomes a free
+  value under `FORMAL`): the properties do not depend on it, and the
+  solver could not hold 30 unrolled Keccak rounds. Its function is checked
+  bit-exact against Python's hashlib in simulation and by the bound
+  checker's own Keccak (constants from the FIPS 202 LFSR and rho walk). The
+  properties also hold by k-induction (k <= 4), so at any depth.
+- **AES-GCM** (`formal/AES_GCM_props.svh`, 12 properties): when idle the
+  core holds no key, round key, AES state, H, E(K, J0), GHASH state or IV,
+  nothing runs and no output is pending; AES-128 keeps no second key half;
+  the round counter stays within the key size's rounds; the AES jobs run in
+  order (H, then E(K, J0), then key stream) and a key stream block is held
+  only once both are known; a block is taken only while a message runs,
+  with a key stream block ready, GHASH idle and the output free; the tag is
+  computed only with E(K, J0) known; an output block only within a message;
+  the GHASH operand register is empty between multiplications; after a
+  decryption the computed tag is never output, and tag_ok is set only by a
+  decryption; the text length stays within its limit; done and err end the
+  message. Keys, IV, data, block sizes and flags, back-pressure, start and
+  clr are all free. Under `FORMAL` the core uses the identity S-box and 2 / 3
+  AES rounds (none of the properties depends on the cipher's values; the
+  full AES gave a 47-million-clause problem), so whole messages fit in 24
+  clocks. The AES and GHASH values themselves are checked by simulation
+  against NIST CAVP and Wycheproof vectors, and by a gate-level simulation
+  of the synthesized netlist (below).
+
 - **ML-KEM**: no SAT proof: the 8 KiB buffer and the 2560 x 12-bit
   polynomial store are too large for the open solver flow. Instead
   `scripts/formal/exhaust_ml_kem.py` cuts the arithmetic out of
@@ -100,6 +135,22 @@ Formal properties:
   vectors (NIST ACVP and the reference model, which passes all 240 ACVP
   cases) and by the bound checker, which recomputes every Keccak
   permutation and polynomial step from its inputs.
+- **ML-DSA**: no SAT proof, for the same reason as ML-KEM (a 32 KiB
+  buffer and a 43 x 256 x 23-bit polynomial store).
+  `scripts/formal/exhaust_ml_dsa.py` cuts the arithmetic out of
+  `rtl/ML_DSA_top.sv` unchanged and checks it for every input it can get:
+  the three folds of the reduction mod q = 2^23 - 2^13 + 1 for every high
+  part (and the last fold for every input below 2^27), addq / subq for
+  every a < q against edge and random b and the reverse, Decompose,
+  UseHint and Power2Round for every r < q with both gamma2, the
+  CoeffFromHalfByte sampler for eta 2 and 4, the 256-entry zeta table
+  against 1753^BitRev8(i) and the Keccak round constants. Functional
+  correctness is shown by the FIPS 204 vectors (NIST ACVP KeyGen, SigGen
+  and SigVer for all three parameter sets; the reference model
+  `scripts/mldsa/mldsa_ref.py` passes all 615 ACVP cases) and by the bound
+  checker, which recomputes every Keccak permutation and polynomial step
+  from its inputs, including each rejection check of Sign and each hint
+  decoding check of Verify.
 - **Ethernet RS-FEC**: the datapath is GF(2^10) arithmetic and constant
   GF(2)-linear maps (encoder, syndromes, Chien / Forney evaluation and the
   per-beat rescaling). `scripts/formal/exhaust_ethfec.py` cuts them out of
@@ -132,6 +183,10 @@ Formal properties:
 
 Changes made for this bar:
 
+- SHA-3 1.0 is new: the six FIPS 202 functions on one Keccak-f[1600] core
+  (one round per clock, 64-bit lane streams, hardware padding, endless SHAKE
+  output, the state wiped after every digest), the hash block the plan's
+  ML-DSA and SPDM work builds on.
 - CXL 3.0 deepens the CXL.mem Type 3 slice of 2.0 with a 256-byte flit
   link layer (header and sequence number, 14 generic slots, credit return,
   CRC-64), a CXL.io pass-through path with its own credits, and HDM-DB
@@ -146,6 +201,17 @@ Changes made for this bar:
   arbitration ties after reset (a directed phase now does), and that two
   terms of the DRS-before-NDR order flag had no effect (removed). The core
   and APB tests share one host model (`tb/CXL_host.svh`).
+- AES-GCM 1.0 is new (AES-128 / AES-256, 96-bit IV). The test vectors are
+  the NIST CAVP GCM files and Wycheproof (taken from the
+  pycryptodome-test-vectors package, cut to `scripts/aes_gcm/kat.json`)
+  and random cases from `scripts/aes_gcm/gcm_ref.py`. Mutation testing
+  found a test gap: no message right after a reset carried AAD, so a wrong
+  reset value of the "text seen" flag passed; the first message after
+  reset now has AAD, and the checker also requires tag and tag_ok to stay
+  0 while a message runs. As a first for this repository, the synthesized
+  netlist (yosys + ABC, 2-input gates) was simulated with the core TB: all
+  758 cases pass (`make -f Makefile.AES_GCM gls`, 22 minutes in Icarus). The APB generator got
+  a `"secret"` register option (write-only, reads 0) for the key.
 - Ethernet PCS 1.0 is new: the 802.3 clause 119 PCS (400GBASE-R, 16-lane markers)
   around two RS-FEC cores, with 256b/257b transcoding, the 1+x^39+x^58
   scrambler, the alignment-marker group every 4096 codeword pairs
@@ -171,6 +237,12 @@ Changes made for this bar:
   let the word counter wrap would have passed it (the OTP now holds the
   digest a wrapped counter gives, `IMG_WRAP_DIG`); and the rejected-digest
   cases now flip a bit in the first, the last and a middle digest word.
+- ML-DSA: mutation testing found three test gaps, now closed: no Sign case
+  had ||c t0|| exactly gamma2 (a crafted private key now gives one), no
+  Verify case repeated a hint index while decoding to the same hints (only
+  the order check can reject it), and the checker did not require the z
+  norm check in Verify's decode of z or a started step for each polynomial
+  unit done (two assertions added).
 - Ethernet PCS: mutation testing showed no test had a marker group with
   only its first block damaged (the lock compares all eight); one was added.
 
@@ -220,20 +292,28 @@ These need tools, data or documents this repository does not have:
   lanes, per-lane alignment-marker lock and deskew are not built yet. The
   marker period is a parameter (4096 pairs, the 400G value; tests use 3).
   200GBASE-R (8 lanes) needs its own marker table.
+- **AES-GCM.** No masking or other power / EM side-channel
+  countermeasure and no fault-injection detection (the public repository
+  carries the functional baseline); only 96-bit IVs; 11 / 15 clocks per
+  block, so a multi-Gbit/s link needs a pipelined (unrolled) AES and an
+  aggregated GHASH with powers of H; no CAVP validation.
 - **Root of Trust.** The OTP is a model, with no ECC; there is no
   entropy source, attestation signature (the key is for a crypto engine
   on the sideload port), glitch or clock monitor, or masking of the
   SHA-256; the RAW-exit token hash is fixed in the netlist.
-- **Specification compliance.** ML-KEM is checked bit-exact against FIPS
-  203 (NIST ACVP vectors), but has not been through CAVP / CMVP
-  validation. The UCIe, PCIe and CXL specifications are
+- **Specification compliance.** ML-KEM and ML-DSA are checked bit-exact
+  against FIPS 203 and FIPS 204 (NIST ACVP vectors), but have not been
+  through CAVP / CMVP validation. ML-DSA implements the internal
+  functions (ML-DSA.Sign_internal and Verify_internal on M' or on an
+  external mu); the host forms M' (pure or HashML-DSA prefix and context)
+  and supplies the 32-byte rnd (hedged) or zeros (deterministic). The UCIe, PCIe and CXL specifications are
   member-only. Field layouts, message codes and CRCs follow the structure of
   the specifications as we read them but have not been checked against them,
   against another implementation, or with compliance tests or commercial VIP.
 - **Timing closure.** No foundry standard-cell library, no STA with
   constraints and corners. The deepest paths (Ethernet RS-FEC 82 levels in
   the Berlekamp-Massey step; CXL 82; PCIe 64 in the transmit scheduler; ML-KEM 53 in
-  the compress stage; Root of Trust 74 in the SHA-256 round; UCIe 44) would need pipelining for a GHz-class clock in a
+  the compress stage; ML-DSA 59; Root of Trust 74 in the SHA-256 round; AES-GCM 56; UCIe 44) would need pipelining for a GHz-class clock in a
   modern node.
 - **Memories.** The replay and receive buffers are flip-flop arrays (most of
   the flip-flops counted above); a product would use SRAM macros, with BIST.
@@ -242,18 +322,23 @@ These need tools, data or documents this repository does not have:
   two write ports (base-case multiplication reads six coefficients per
   clock, the NTT reads and writes two); mapping it to SRAM needs banking
   (by coefficient index per NTT layer) or a slower schedule. The 8 KiB
-  buffer still has asynchronous reads.
-- **Side channels (ML-KEM).** The operation sequence and clock count depend
-  only on the parameter set and the public seed rho, and the Decaps
-  rejection is not visible; there is no masking against power or EM
-  analysis and no fault-attack protection, which a certified product
+  buffer still has asynchronous reads. ML-DSA is built the same way: a
+  32 KiB byte buffer with asynchronous reads and a 43-slot polynomial
+  store with three registered read ports and two write ports.
+- **Side channels (ML-KEM, ML-DSA).** ML-KEM's operation sequence and clock
+  count depend only on the parameter set and the public seed rho, and the
+  Decaps rejection is not visible. ML-DSA's Sign time depends on the number
+  of rejected attempts (reported in STATUS.tries), which FIPS 204 allows,
+  and its samplers reject on public or per-attempt data. Neither core has
+  masking against power or EM analysis or fault-attack protection, which a certified product
   (FIPS 140-3 / CC) would need, along with a validated random source.
 - **CDC / RDC.** Each core has one clock and one asynchronous active-low
   reset, so it has no clock crossings; reset deassertion must be synchronised
   by the integrator (no reset synchroniser inside the core), and no RDC tool
   has been run.
 - **DFT, power intent, gate level.** No scan insertion or ATPG, no UPF, no
-  gate-level simulation, no equivalence check of a netlist.
+  equivalence check of a netlist; gate-level simulation only for AES-GCM
+  (generic yosys gates, no timing).
 - **Formal depth.** The bounded proofs use shrunken parameters (see
   `formal/<P>.cfg`) and do not close by induction; they show the properties
   hold for every input sequence up to that depth, not forever.
