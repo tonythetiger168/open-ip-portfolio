@@ -79,6 +79,11 @@ module NVMe_sva #(
     ph = CPL;
   endtask
 
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  bit k_dv, k_wv, k_rv, k_cv;
+  int k_op, k_sc, k_slba, k_nb, k_sq, k_cq;
+  logic [31:0] k_wd, k_rd;
+
   bit e_last_rd;                               // data of the last Write landed (for v_rd_after_wr)
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -95,6 +100,7 @@ module NVMe_sva #(
       rdy = ph != OFF && ph != ABORT;
       full = (cqt + 1) % QD == cqh;
       m_cqe = 0; m_err = 0; m_db = 0;
+      {k_dv, k_wv, k_rv, k_cv} = '0;
       // ---- doorbells
       if (sq_db_valid) begin
         if (rdy && sq_db < QD) begin
@@ -120,6 +126,7 @@ module NVMe_sva #(
       if (o_ph == CPL && full && l_we.size() != 0) v_cq_full = 1;
       if (ld) begin
         pv = 1; pwe = l_we.pop_front(); pa = l_a.pop_front(); pd = l_d.pop_front();
+        if (pwe && o_ph == XFER) begin k_rv = 1; k_rd = pd; end
         if (!pwe) owed++;
         if (o_owed != 0) v_rsp_while_iss = 1;
       end
@@ -127,7 +134,7 @@ module NVMe_sva #(
       if (m_rsp_valid && o_owed != 0) begin
         owed--;
         if (ph == FETCH) fd[got] = m_rsp_data;
-        else if (ph == XFER) ns[c_slba * BLKDW + got] = m_rsp_data;
+        else if (ph == XFER) begin ns[c_slba * BLKDW + got] = m_rsp_data; k_wv = 1; k_wd = m_rsp_data; end
         got++;
       end
       // ---- the engine
@@ -183,6 +190,7 @@ module NVMe_sva #(
               if (fd[2][31:18] != 0) v_prp_lo_hi = 1;
             end else sci = 0;
             v_sc[sci] = 1;
+            k_dv = 1; k_op = op > 2 ? 3 : op; k_sc = sci; k_slba = slo; k_nb = nlb + 1; k_sq = (sqh + QD - 1) % QD;
             c_sc = sc_code(sci);
             c_op = op;
             if (sci == 0) begin
@@ -206,6 +214,7 @@ module NVMe_sva #(
           CPL:
             if (o_ph == CPL && l_we.size() == 0 && !o_pv) begin
               m_cqe = 1; m_err = c_sc != 0;
+              k_cv = 1; k_cq = cqt;
               if (cqt == QD - 1) begin pt = !pt; v_pt_wrap = 1; end
               cqt = (cqt + 1) % QD;
               ph = IDLE;
@@ -227,6 +236,30 @@ module NVMe_sva #(
   `SVA_RST(a_reset, !rst_n, !m_req_valid && !csts_rdy && sq_head == 0 && cq_tail == 0 && {ev_cqe, ev_err, ev_db} == 3'b0)
 
   // ---------------- functional coverage ----------------
+  function automatic int dcls(input logic [31:0] v);
+    return v == 32'd0 ? 0 : v == '1 ? 1 : (v == 32'h5555_5555 || v == 32'hAAAA_AAAA) ? 2 : 3;
+  endfunction
+  covergroup cg_nvme @(negedge clk);
+    option.per_instance = 1;
+    cp_cmd: coverpoint k_op * 8 + k_sc iff (rst_n && k_dv)
+      { bins flush_ok = {0}; bins flush_field = {2}; bins flush_ns = {3};
+        bins write_ok = {8}; bins write_field = {10}; bins write_ns = {11}; bins write_prp_off = {12};
+        bins write_lba = {13}; bins write_prp_hi = {14};
+        bins read_ok = {16}; bins read_field = {18}; bins read_ns = {19}; bins read_prp_off = {20};
+        bins read_lba = {21}; bins read_prp_hi = {22}; bins bad_opcode = {25}; }
+    cp_rw: coverpoint k_op iff (rst_n && k_dv && k_sc == 0 && k_op != 0) { bins write = {1}; bins read = {2}; }
+    cp_slba: coverpoint k_slba iff (rst_n && k_dv && k_sc == 0 && k_op != 0) { bins b[] = {[0:NBLK-1]}; }
+    cp_nb: coverpoint k_nb iff (rst_n && k_dv && k_sc == 0 && k_op != 0) { bins n[] = {[1:NBLK]}; }
+    x_rw_slba: cross cp_rw, cp_slba;
+    cp_sq: coverpoint k_sq iff (rst_n && k_dv) { bins s[] = {[0:QD-1]}; }
+    cp_cq: coverpoint k_cq iff (rst_n && k_cv) { bins s[] = {[0:QD-1]}; }
+    cp_wdata: coverpoint dcls(k_wd) iff (rst_n && k_wv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint dcls(k_rd) iff (rst_n && k_rv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_nvme u_cg_nvme = new;
+
   `FC(sc_success, v_sc[0])
   `FC(sc_invalid_opcode, v_sc[1])
   `FC(sc_invalid_field, v_sc[2])

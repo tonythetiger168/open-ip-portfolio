@@ -1,0 +1,89 @@
+# Equivalent mutants: no observable behaviour changes, so no test can kill
+# them. run_mut.py skips these sites. One per line:
+#   IP | stripped RTL line[#N] | from -> to | reason
+# #N picks the N-th line with that text when it occurs more than once, and
+# to@K only the K-th match of from on the line. An
+# entry that matches no mutant site fails the run, so fix the entry when the
+# RTL changes.
+ACE | line_dirty[acaddr[7:2]] <= 1'b0;#3 | 1'b0 -> 1'b1 | the line is invalidated in the same clock; dirty is only visible on a valid line
+HBM2 | if (ref_walk)      begin ref_walk <= 1'b0; dstate <= D_IDLE; end | 1'b0 -> 1'b1 | ref_walk is reloaded at every host accept before it is read again
+HBM | if (ref_walk)      begin ref_walk <= 1'b0; dstate <= D_IDLE; end | 1'b0 -> 1'b1 | ref_walk is reloaded at every host accept before it is read again
+GDDR6 | bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0]; | 1'b0 -> 1'b1 | overwritten by a later non-blocking assignment in the same clock
+GDDR6 | rd_pending <= 1'b0; | 1'b0 -> 1'b1 | rd_pending is reloaded at every host accept, before the next D_CAS
+USB | if (rx_edge && (line == LN_K)) begin | == -> != | idle is J, so the mutant starts on the second sync edge instead of the first and still locks on the closing KK
+USB2 | if (line == LN_J) rs <= RS_IDLE; | == -> != | RS_IDLE and RS_SE0 act the same until the next J/K edge, and SE0 -> J is not an edge
+USB2 | exp_setup  <= 1'b0; | 1'b0 -> 1'b1 | reloaded on every token before it is used
+APB | waited_q <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; reloaded at every setup phase before it is read
+APB | end else if (access && penable && !pready) begin | && -> || | sets waited_q only outside a wait state; the next setup phase reloads it before pready reads it
+OCP_IP_Open_Core_Protocol | done_err <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; written on every path into O_DONE
+LIN | if (!t_hdr && t_i <= {1'b0, r_len}) t_sum <= csum_add(t_sum, t_byte); | && -> || | only changes t_sum after the checksum byte has been sent
+LIN | if (!t_hdr && t_i <= {1'b0, r_len}) t_sum <= csum_add(t_sum, t_byte); | 1'b0 -> 1'b1 | only changes t_sum after the checksum byte has been sent
+GDDR7_Lite | wire rrd_done = (rrd_cnt == '0) && !ld_rrd_v; | && -> || | a single engine: tRRD has always elapsed by the next ACT
+HBM3E_Lite | if (!req_we && rbuf_valid) begin | && -> || | latency only: the buffered read is returned either way
+HBM3E_Lite | eng_ref_req <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; written at every engine refresh start before it is read
+Avalon_MM | (av_burstcount >  8'd16) ? 5'd16 : | > -> >= | burstcount 16 clamps to 16 either way
+CSI_2 | lb_len <= (wc > LB16) ? LB16 : wc; | > -> >= | wc == LB16 gives LB16 either way
+Ethernet_AVB_TSN | ttc[c] = (open || t >= {3'd0, cyc_rem}) ? cyc_rem : t[23:0]; | >= -> > | t == cyc_rem gives cyc_rem either way
+USB2 | if (s_bm == 8'h80 && s_rq == 8'h08) d_len <= 5'd1; | == -> !=@1 | GET_CONFIGURATION is only accepted with wLength 1, which already gives d_len 1
+SPI | sclk_d <= 1'b0; bit_cnt <= '0; rx_q <= '0; | 1'b0 -> 1'b1 | differs only if sclk is already high when reset is released; mode 0 idles sclk low
+JTAG | sh_byp <= 1'b0; sh_user <= '0; sh_id <= '0; user_q <= '0; upd_tgl <= 1'b0; | 1'b0 -> 1'b1@1 | reset value of the bypass bit; Capture-DR loads it before any Shift-DR reads it
+AHB | valid_q <= 1'b0;#1 | 1'b0 -> 1'b1 | a phantom read data phase in the first clock after reset: write_q is 0 and hrdata is not sampled outside a transfer
+AHB | hresp     = 1'b0;#2 | 1'b0 -> 1'b1 | the default branch is the unused fourth state encoding
+Wishbone | q_rsv[0]  <= 1'b0;  q_rsv[1]  <= 1'b0; | 1'b0 -> 1'b1 | reset value of queue entries; each is loaded with the push that makes it valid
+Wishbone | cls_blk   <= 1'b0; | 1'b0 -> 1'b1 | cls_blk clears in the first clock with stb_i low, and stb_i is low while in reset
+ACE_Lite | werr_q  <= 1'b0; | 1'b0 -> 1'b1 | reset value; loaded at every AW accept before bresp or irq reads it
+DDR4 | ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= 1'b0; | 1'b0 -> 1'b1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
+DDR5 | ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; | 1'b0 -> 1'b1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
+GDDR7 | ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= 1'b0; | 1'b0 -> 1'b1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
+DDR6 | auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0; | 1'b0 -> 1'b1@1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
+DDR6 | auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0; | 1'b0 -> 1'b1@2 | reset value; pre_done is cleared in every clock outside D_PRE
+GDDR7 | auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0; | 1'b0 -> 1'b1@1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
+GDDR7 | auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0; | 1'b0 -> 1'b1@2 | reset value; pre_done is cleared in every clock outside D_PRE
+HBM5 | else if (auto_rd)  begin auto_rd <= 1'b0; dstate <= D_RD; end | 1'b0 -> 1'b1 | auto_rd is reloaded at every host accept before it is read again
+LPDDR5 | else if (auto_wr)  begin auto_wr <= 1'b0; dstate <= D_WR; end | 1'b0 -> 1'b1 | auto_wr is reloaded at every host accept before it is read again
+LPDDR5X | else if (auto_rd)  begin auto_rd <= 1'b0; dstate <= D_RD; end | 1'b0 -> 1'b1 | auto_rd is reloaded at every host accept before it is read again
+DDR4_Lite | ld_rrd_v <= 1'b0; ld_wtr_v <= 1'b0; ld_rfc_v <= 1'b0; ref_ack <= 1'b0; | 1'b0 -> 1'b1 | reset values: a timer load or a REF acknowledge in the first clock after reset only delays the first command (ref_pending is already clear)
+D_PHY | tshift    <= {1'b0, tshift[7:1]};#2 | 1'b0 -> 1'b1 | the bit shifted in is never sent: tshift is reloaded or left after 8 bits
+D_PHY | tshift <= {1'b0, tshift[7:1]};#1 | 1'b0 -> 1'b1 | the bit shifted in is never sent: the escape command is decoded from esc_cmd_q
+DisplayPort2 | sym_d = D10_2; sym_k = 1'b0;#1 | 1'b0 -> 1'b1 | the encoder uses k only for K28.x and x.7 symbols; D10.2 encodes the same
+eCPRI_over_Ethernet | rx_push_f    = {1'b0, rx_pay[0], rx_pay[1]}; | 1'b0 -> 1'b1 | bit 16 of the field is not sent in a reset response
+QSPI | end else if (sclk_d && !sclk) begin | && -> || | the next output bit is presented right after the sampling edge instead of at the falling edge; the master samples only on rising edges
+QSPI | io_out <= {2'b00, tx_q[7 - bit_cnt], 1'b0}; | 1'b0 -> 1'b1 | io[0] is an input in standard mode (io_oe = 0010)
+WTB | tsh    <= {B_PRE[6:0], 1'b0}; | 1'b0 -> 1'b1 | the pre-shifted LSB is never sent: tsh is reloaded after the 8th bit
+UCIe | for (int k = 15; k > 0; k--) m[528 * k +: 528] = m[528 * (k - 1) +: 528]; | > -> >= | constant function: the extra k = 0 step writes row 0, which the next statement clears
+UCIe | rsp_got <= 1'b0; | 1'b0 -> 1'b1 | reset value; cleared on every entry to ACTREQ, the only state that reads it
+ML_KEM | h_done <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; step_done reads it only while a hash step runs, and none runs after reset
+ML_KEM | pscl <= 1'b0; | 1'b0 -> 1'b1 | reset value; read only while prun (reset 0), and every step start clears it
+ML_KEM | spend <= 1'b0; | 1'b0 -> 1'b1 | reset value; read only while prun (reset 0), and every step start clears it
+ML_KEM | diff <= 1'b0; | 1'b0 -> 1'b1 | reset value; read only by CSEL, which always follows the CMP that clears it
+Ethernet_RS_FEC | p1long <= 1'b0; p1snz <= 1'b0; p1sl <= '0; | 1'b0 -> 1'b1@1 | reset value; loaded from the BM result on every Chien start, read only while the Chien search runs
+Ethernet_RS_FEC | p1long <= 1'b0; p1snz <= 1'b0; p1sl <= '0; | 1'b0 -> 1'b1@2 | reset value; loaded with the syndrome flag on every Chien start, read only while the Chien search runs
+Ethernet_RS_FEC | p2st <= C_IDLE; p2b <= '0; p2l <= '0; p2w <= '0; p2fix <= 1'b0; p2mark <= 1'b0; p2sl <= '0; | 1'b0 -> 1'b1@1 | reset value; loaded on every correction start, read only while the correction stage runs
+Ethernet_RS_FEC | p2st <= C_IDLE; p2b <= '0; p2l <= '0; p2w <= '0; p2fix <= 1'b0; p2mark <= 1'b0; p2sl <= '0; | 1'b0 -> 1'b1@2 | reset value; loaded on every correction start, read only while the correction stage runs
+Ethernet_RS_FEC | rdq <= '0; eq <= '0; v1 <= 1'b0; f1 <= 1'b0; m1 <= 1'b0; | 1'b0 -> 1'b1@2 | reset value; written on every correction beat that sets v1, and read only when v1 is set
+Ethernet_RS_FEC | rdq <= '0; eq <= '0; v1 <= 1'b0; f1 <= 1'b0; m1 <= 1'b0; | 1'b0 -> 1'b1@3 | reset value; written on every correction beat that sets v1, and read only when v1 is set
+Root_of_Trust | otp_req <= 1'b0; otp_we <= 1'b0; otp_addr <= '0; otp_wdata <= '0; | 1'b0 -> 1'b1@2 | otp_we reset value: the OTP takes otp_we only with otp_req, which resets to 0, and every one of the ten places that raises otp_req sets otp_we with it
+Ethernet_PCS | wire          temit = (tlast ? tfill >= 10'd40 : tfill >= 10'd640) && te_rdy; | >= -> >@2 | a fill of exactly 640 before the last beat of a pair cannot occur: it would need 257 x n = 640 x (beats + 1) with fewer than 17 beats, and 257 is prime (scripts/formal/exhaust_ethpcs.py enumerates the reachable fills)
+Ethernet_PCS | rpb <= '0; rpc <= '0; rsh <= '1; rlk <= R_HUNT; amacc <= 1'b0; | 1'b0 -> 1'b1 | amacc reset value: amacc is only read at block 7 of a pair, and block 0 overwrites it (rpb == 0 term) after reset, where rpb starts at 0
+Ethernet_PCS | if (!ramslot && (lock || rpb >= 6'd8)) rsh <= rdsc[314:257]; | >= -> > | skipping the descrambler history update at block 8 while out of lock: lock changes only at block 7, so block 9 of the same pair always overwrites all 58 bits before any block is descrambled for output
+CXL | t_act <= 1'b0; t_io <= 1'b0; t_nop <= 1'b0; t_lio <= 1'b0; t_rr <= 1'b0; t_j <= '0; t_crc <= '1; | 1'b0 -> 1'b1@2 | reset value of the flit-kind bit t_io: read only while t_act, and set when a flit starts
+CXL | t_act <= 1'b0; t_io <= 1'b0; t_nop <= 1'b0; t_lio <= 1'b0; t_rr <= 1'b0; t_j <= '0; t_crc <= '1; | 1'b0 -> 1'b1@3 | reset value of the flit-kind bit t_nop: read only while t_act, and set when a flit starts
+CXL | rqw <= '0; rqr <= '0; wqw <= '0; wqr <= '0; arb <= 1'b0; | 1'b0 -> 1'b1 | reset value of the Req / RwD tie-break: every pick sets it, and the first pick after reset is never a tie (messages arrive one unit per clock and are picked the clock after; nothing else can hold the first one back)
+CXL | mwv = bi_en && meta[dpa] == 2'b00 && sf_cnt >= (DW+1)'(SFE) ? 2'b00 : hd[3:2]; | +1 -> + 2 | a wider cast of the same constant: SFE <= LINES fits in DW+1 bits
+CXL | ndr_v <= 1'b0; drs_v <= 1'b0; drs_hs <= 1'b0; d_first <= 1'b0; ndr_op <= '0; ndr_tag <= '0; drs_tag <= '0; | 1'b0 -> 1'b1@3 | reset value of drs_hs: read only together with drs_v, and cleared when a DRS is made
+CXL | ndr_v <= 1'b0; drs_v <= 1'b0; drs_hs <= 1'b0; d_first <= 1'b0; ndr_op <= '0; ndr_tag <= '0; drs_tag <= '0; | 1'b0 -> 1'b1@4 | reset value of d_first: read only while both an NDR and a DRS wait, and each of them sets it when made
+CXL | for (int k = LINES - 1; k >= 0; k--) | - 1 -> - 2 | the victim search skips offset LINES - 1 from vp: it is the smallest offset only if no other line is valid, but an eviction needs SFE >= 2 valid lines (SFE is 4 here)
+AES_GCM | m <= M_IDLE; kreg <= '0; ivr <= '0; k256 <= 1'b0; dec <= 1'b0; tlen <= '0; | 1'b0 -> 1'b1@1 | k256 left at 1 after a message: it is only read while a message runs, and every start writes it first
+AES_GCM | m <= M_IDLE; kreg <= '0; ivr <= '0; k256 <= 1'b0; dec <= 1'b0; tlen <= '0; | 1'b0 -> 1'b1@2 | dec left at 1 after a message: it is only read while a message runs (GHASH input, tag at done), and every start writes it first
+AES_GCM | out_valid <= 1'b0; out_data <= '0; out_bytes <= '0; out_last <= 1'b0;#2 | 1'b0 -> 1'b1@2 | out_last set by an abort: it is only meaningful with out_valid, which the abort clears, and every output block writes it
+AES_GCM | wire [LEN_W:0] alen_n = {1'b0, alen} + (LEN_W + 1)'(in_bytes); | + 1 -> + 2 | a wider cast of in_bytes: the sum is truncated to the same LEN_W + 1 bits
+AES_GCM | m <= M_IDLE; k256 <= 1'b0; dec <= 1'b0; tlen <= '0; kreg <= '0; ivr <= '0; | 1'b0 -> 1'b1@1 | k256 reset value: it is only read while a message runs, and every start writes it first
+AES_GCM | m <= M_IDLE; k256 <= 1'b0; dec <= 1'b0; tlen <= '0; kreg <= '0; ivr <= '0; | 1'b0 -> 1'b1@2 | dec reset value: it is only read while a message runs, and every start writes it first
+ML_DSA | 7'd25: begin h_on = 1'b1; h_strm = 1'b1; h_w3 = 1'b1; h_a1 = 14'(A_RPP); h_l1 = 15'd64; h_ni = 2'd2; | 1'b1 -> 1'b0@3 | throughput only: ExpandMask then takes the same SHAKE256 bytes one per clock instead of three
+ML_DSA | if (nb >= 6'd8 || !pcnt[8]) begin#2 | >= -> > | ends an Encode step one clock sooner at its last byte only: the issue stage (the same test with >=, first occurrence) still issues that byte's token in the same clock, so the bytes written are the same
+ML_DSA | prun <= 1'b0; pdrn <= '0; pcnt <= '0; plyr <= '0; pscl <= 1'b0; bb <= '0; nb <= '0; pbc <= '0; | 1'b0 -> 1'b1@2 | pscl reset value: read only while prun (reset 0), and every step start clears it
+ML_DSA | if (!rst_n) bad <= 1'b0; | 1'b0 -> 1'b1 | reset value: bad is read only at the end of an operation, and every start clears it
+ML_DSA | qs <= Q_IDLE; pc <= '0; ci <= '0; cj <= '0; opr <= '0; psr <= '0; extm <= 1'b0; mln <= '0; kap <= '0; | 1'b0 -> 1'b1 | reset value: extm is loaded from ext_mu at every start and read only while busy
+ML_DSA | default: fin = 1'b1; | 1'b1 -> 1'b0 | unreachable default (excluded in coverage): prun is set only for the unit operations listed in the case
+ML_DSA | it.sh = 3'(nb >= 6'd8 ? nb - 6'd8 : nb); | >= -> > | at nb = 8 both arms give 0 after the 3-bit truncation
+ML_DSA | h_done <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value: cleared again on the first clock after reset, and step_done reads it only in Q_WAIT, at least two clocks after a start

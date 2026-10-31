@@ -270,6 +270,19 @@ module RGMII_tb;
     repeat (40) @(posedge clk);
     if (count !== 5'd0) begin errors++; $display("ERROR: RGMII sent queued bytes after reset"); end
 
+    // byte classes end to end: 00, FF, 55, AA looped back and read
+    begin : data_classes
+      logic [7:0] v [4];
+      v[0] = 8'h00; v[1] = 8'hFF; v[2] = 8'h55; v[3] = 8'hAA;
+      for (int i = 0; i < 4; i++) wr(v[i]);
+      wait (count == 5'd4);
+      repeat (10) @(posedge clk);
+      for (int i = 0; i < 4; i++) begin
+        rd(i[3:0], got);
+        if (got !== v[i]) begin errors++; $display("ERROR: RGMII class byte %0d got=%h", i, got); end
+      end
+    end
+
     if (errors == 0) $display("TEST PASSED: RGMII");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR

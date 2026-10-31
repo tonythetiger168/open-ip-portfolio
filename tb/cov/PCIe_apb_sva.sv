@@ -14,11 +14,14 @@ module PCIe_apb_sva (
   input logic [31:0] PRDATA,
   input logic PREADY, PSLVERR, irq,
   input logic  c_link_up,
+  input logic  c_pm_req,
+  input logic  c_aspm_ok,
   input logic [7:0] c_tlp_data,
   input logic  c_tlp_last,
   input logic [7:0] c_rx_data,
   input logic  c_rx_last,
   input logic  c_dl_up,
+  input logic [1:0] c_pm_state,
   input logic  c_tlp_valid,
   input logic  c_tlp_ready,
   input logic  c_rx_valid,
@@ -72,7 +75,7 @@ module PCIe_apb_sva (
       m_w[2] <= 32'h0;
       m_w[3] <= 32'h0;
       m_w[4] <= 32'h0;
-      m_w[5] <= 32'h0;
+      m_w[5] <= 32'h4;
       m_w[6] <= 32'h0;
       m_w[7] <= 32'h0;
       m_w[8] <= 32'h0;
@@ -82,7 +85,7 @@ module PCIe_apb_sva (
       m_w[1] <= (m_w[1] & ~((m_wr && m_map && m_idx == 1) ? PWDATA & m_be : 0)) | 32'(m_set);
       if (m_wr && m_map && m_idx == 2) m_w[2] <= ((m_w[2] & ~m_be) | (PWDATA & m_be)) & 32'h3FFF;
       if (m_wr && m_map && m_idx == 4) m_w[4] <= ((m_w[4] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
-      if (m_wr && m_map && m_idx == 5) m_w[5] <= ((m_w[5] & ~m_be) | (PWDATA & m_be)) & 32'h1;
+      if (m_wr && m_map && m_idx == 5) m_w[5] <= ((m_w[5] & ~m_be) | (PWDATA & m_be)) & 32'h7;
       if (m_wr && m_map && m_idx == 6 && !m_state_TX) m_w[6] <= ((m_w[6] & ~m_be) | (PWDATA & m_be)) & 32'h1FF;
       if (m_wr && m_map && m_idx == 6 && !m_state_TX) m_state_TX <= 1;
       if (m_state_TX && c_tlp_ready) m_state_TX <= 0;
@@ -95,7 +98,7 @@ module PCIe_apb_sva (
 
   function automatic logic [31:0] m_read(input logic [9:0] i);
     case (i)
-      0: return 32'h50430200;
+      0: return 32'h50430300;
       1: return m_w[1];
       2: return m_w[2];
       3: return 32'({m_state_RX, m_state_TX});
@@ -103,7 +106,7 @@ module PCIe_apb_sva (
       5: return m_w[5];
       6: return m_w[6];
       7: return m_w[7];
-      8: return (32'(c_dl_up) << 0);
+      8: return (32'(c_dl_up) << 0) | (32'(c_pm_state) << 1);
       default: return 0;
     endcase
   endfunction
@@ -116,11 +119,13 @@ module PCIe_apb_sva (
   `SVA_IMP(a_prdata_zero_outside_read, !m_rd, PRDATA == 0)
   `SVA_INV(a_irq_pin, irq == |(m_w[1][13:0] & m_w[2][13:0]))
   `SVA_INV(a_core_link_up, c_link_up == m_w[5][0:0])
+  `SVA_INV(a_core_pm_req, c_pm_req == m_w[5][1:1])
+  `SVA_INV(a_core_aspm_ok, c_aspm_ok == m_w[5][2:2])
   `SVA_INV(a_core_tlp_data, c_tlp_data == m_w[6][7:0])
   `SVA_INV(a_core_tlp_last, c_tlp_last == m_w[6][8:8])
   `SVA_INV(a_core_tlp_valid, c_tlp_valid == m_state_TX)
   `SVA_INV(a_core_rx_ready, c_rx_ready == (!m_state_RX || (m_rd && m_map && m_idx == 7)))
-  `SVA_RST(a_reset_values, !PRESETN, PRDATA == 0 && !irq && c_link_up == 1'h0 && c_tlp_data == 8'h0 && c_tlp_last == 1'h0 && !c_tlp_valid && c_rx_ready)
+  `SVA_RST(a_reset_values, !PRESETN, PRDATA == 0 && !irq && c_link_up == 1'h0 && c_pm_req == 1'h0 && c_aspm_ok == 1'h1 && c_tlp_data == 8'h0 && c_tlp_last == 1'h0 && !c_tlp_valid && c_rx_ready)
 
   // ---------------- functional coverage ----------------
   `FC(rd_ID, m_rd && m_map && m_idx == 0)

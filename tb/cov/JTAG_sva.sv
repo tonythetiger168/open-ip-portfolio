@@ -71,6 +71,36 @@ module JTAG_sva #(parameter logic [31:0] IDCODE = 32'h1CAF_0001) (
   `SVA_INV(a_irq_matches_updates, n_irq <= n_upd - n_upd_base && n_upd - n_upd_base - n_irq <= 1)
   `SVA_NXT(a_irq_pulse, irq, !irq)
 
+  // every TAP arc (state x TMS), the instruction loaded at Update-IR, the
+  // DR shift length per instruction at Update-DR (short / exact / long),
+  // USER register value classes
+  int m_shn;
+  always_ff @(posedge tck or negedge trst_n)
+    if (!trst_n) m_shn <= 0;
+    else if (m_st == CAP_DR) m_shn <= 0;
+    else if (m_st == SH_DR) m_shn <= m_shn + 1;
+  function automatic logic [1:0] ucls(input logic [7:0] v);
+    ucls = (v == 8'h00) ? 2'd0 : (v == 8'hFF) ? 2'd1 : (v == 8'h55 || v == 8'hAA) ? 2'd2 : 2'd3;
+  endfunction
+  wire [1:0] ir_k = (m_ir == 4'b0001) ? 2'd0 : (m_ir == 4'b0010) ? 2'd1 : 2'd2;
+  covergroup cg_tap @(posedge tck);
+    option.per_instance = 1;
+    cp_st: coverpoint m_st iff (trst_n);
+    cp_tms: coverpoint tms iff (trst_n);
+    x_arc: cross cp_st, cp_tms;
+    cp_ir_new: coverpoint m_shir iff (trst_n && m_st == UPD_IR)
+      { bins idcode = {4'b0001}; bins user = {4'b0010}; bins bypass = {4'b1111};
+        bins unused = {[0:0], [3:14]}; }
+    cp_dr_ir: coverpoint ir_k iff (trst_n && m_st == UPD_DR)
+      { bins idcode = {0}; bins user = {1}; bins bypass = {2}; }
+    cp_dr_len: coverpoint (m_shn < len ? 0 : m_shn == len ? 1 : 2) iff (trst_n && m_st == UPD_DR)
+      { bins short_ = {0}; bins exact = {1}; bins long_ = {2}; }
+    x_dr: cross cp_dr_ir, cp_dr_len;
+    cp_user: coverpoint ucls(m_shdr[7:0]) iff (trst_n && m_st == UPD_DR && m_ir == 4'b0010)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_tap u_cg_tap = new;
+
   `FC_CK(idcode_scanned, tck, m_st == SH_DR && m_ir == 4'b0001 ##1 m_st == SH_DR [*31])
   `FC_CK(user_updated, tck, m_st == UPD_DR && m_ir == 4'b0010)
   `FC_CK(bypass_unused_opcode, tck, m_st == SH_DR && !(m_ir inside {4'b0001, 4'b0010, 4'b1111}))

@@ -347,6 +347,36 @@ module SATA_sva (
   wire       m_on  = burst || dw_on;
   wire       m_bit = burst ? off[0] : tsr[0];
 
+  // covergroup: frames sent (kind x outcome, attempt), frames received
+  // (type, length, verdict), the LBA walk
+  int c_sk, c_so, c_sr, c_rt, c_rl, c_rg, c_lb;
+  always @(posedge clk) begin
+    c_sk = -1; c_rt = -1; c_lb = -1; c_sr = -1;
+    if (rst_n && ph == READY && ss == SW && rq && rw == ROK) c_sr = retry;
+    if (rst_n && ph == READY && (s_ok_p || s_fail_p)) begin
+      c_sk = dat ? 3 : cmd; c_so = s_ok_p;
+    end
+    if (rst_n && ph == READY && rq && rs == RD && rw == EOF) begin
+      c_rt = ft == 8'h34 ? 0 : ft == 8'h46 ? 1 : ft == 8'h39 ? 2 : 3;
+      c_rl = ovf ? 11 : rcnt;
+      c_rg = !ovf && rcnt >= 2 && rlast == ~rcrc_p;
+    end
+    if (rst_n && v_wrap) c_lb = 2;
+    else if (rst_n && v_wr_ok) c_lb = lba == 0 ? 0 : 1;
+  end
+  covergroup cg_sata @(negedge clk);
+    cp_skind: coverpoint c_sk iff (c_sk >= 0) { bins identify = {0}; bins wr_cmd = {1}; bins rd_cmd = {2}; bins wr_data = {3}; }
+    cp_sok: coverpoint c_so iff (c_sk >= 0) { bins fail = {0}; bins ok = {1}; }
+    x_send: cross cp_skind, cp_sok;
+    cp_try: coverpoint c_sr iff (c_sr >= 0) { bins first = {0}; bins second = {1}; bins third = {2}; }
+    cp_rtype: coverpoint c_rt iff (c_rt >= 0) { bins d2h = {0}; bins data = {1}; bins dma_act = {2}; bins other = {3}; }
+    cp_rlen: coverpoint c_rl iff (c_rt >= 0) { bins act = {2}; bins mid = {[3:5]}; bins d2h = {6};
+                                               bins data = {10}; bins over = {11}; }
+    cp_rgood: coverpoint c_rg iff (c_rt >= 0) { bins bad = {0}; bins good = {1}; }
+    cp_lba: coverpoint c_lb iff (c_lb >= 0) { bins first = {0}; bins middle = {1}; bins wrap = {2}; }
+  endgroup
+  cg_sata u_cg_sata = new();
+
   `SVA_RST(a_reset_outputs, !rst_n, !tx_p && !tx_n && !irq)
   `SVA_INV(a_tx_p, tx_p == (m_on && m_bit))
   `SVA_INV(a_tx_n, tx_n == (m_on && !m_bit))

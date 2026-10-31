@@ -67,6 +67,31 @@ module MDIO_sva #(parameter logic [4:0] PHY_ADDR = 5'h0C) (
   wire wr_own   = last && rise && m_op == 2'b01 && m_sh[26:22] == PHY_ADDR;
   wire wr_other = last && rise && m_op == 2'b01 && m_sh[26:22] != PHY_ADDR;
   wire rd_other = m_act && rise && m_cnt == 6 && m_op == 2'b10 && {m_sh[3:0], d1} != PHY_ADDR;
+  // every register written and read on this PHY, opcode x PHY address
+  // match, write / read data classes, preamble length before ST
+  function automatic logic [1:0] dcls(input logic [15:0] v);
+    dcls = (v == 16'h0000) ? 2'd0 : (v == 16'hFFFF) ? 2'd1 :
+           (v == 16'h5555 || v == 16'hAAAA) ? 2'd2 : 2'd3;
+  endfunction
+  wire rd_start = m_match && m_cnt == 13 && rise;
+  covergroup cg_mgmt @(posedge clk);
+    option.per_instance = 1;
+    cp_wreg: coverpoint m_sh[21:17] iff (rst_n && wr_own) { bins r[] = {[0:31]}; }
+    cp_rreg: coverpoint m_reg iff (rst_n && rd_start) { bins r[] = {[0:31]}; }
+    cp_op: coverpoint m_op iff (rst_n && last && rise)
+      { bins op00 = {0}; bins write = {1}; bins read = {2}; bins op11 = {3}; }
+    cp_own: coverpoint (m_sh[26:22] == PHY_ADDR) iff (rst_n && last && rise)
+      { bins other = {0}; bins own = {1}; }
+    x_op_own: cross cp_op, cp_own;
+    cp_wdata: coverpoint dcls({m_sh[14:0], d1}) iff (rst_n && wr_own)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint dcls(m_rdv) iff (rst_n && rd_start)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_pre: coverpoint m_ones iff (rst_n && rise && !m_act && d1 && m_st0)
+      { bins one = {1}; bins short_ = {[2:31]}; bins full = {[32:63]}; }
+  endgroup
+  cg_mgmt u_cg_mgmt = new;
+
   `FC(write_own_phy, wr_own)
   `FC(write_other_phy, wr_other)
   `FC(write_reg0, wr_own && m_sh[21:17] == 5'd0)

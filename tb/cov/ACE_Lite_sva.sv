@@ -120,6 +120,69 @@ module ACE_Lite_sva #(parameter int DW = 32, AW = 32) (
   endgroup
   cg_aw u_cg_aw = new; cg_ar u_cg_ar = new; cg_w u_cg_w = new; cg_resp u_cg_resp = new;
 
+  // ACE-Lite transaction types (snoop x domain), first error cause per
+  // direction, legal size / length classes, write byte lanes and data
+  // classes of in-range write and OKAY read beats
+  function automatic logic [1:0] dcls(input logic [DW-1:0] v);
+    dcls = (v == '0) ? 2'd0 : (v == '1) ? 2'd1 :
+           (v == {(DW/2){2'b01}} || v == {(DW/2){2'b10}}) ? 2'd2 : 2'd3;
+  endfunction
+  function automatic logic [2:0] cause(input logic [1:0] bu, input logic [2:0] sz,
+                                       input logic [AW-1:0] a, input logic [7:0] len);
+    logic [AW:0] last_a;
+    last_a = {1'b0, a} + {{(AW-9){1'b0}}, len, 2'b00};
+    cause = (bu != 2'b01) ? 3'd0 : (sz > 3'd2) ? 3'd1 : (a[AW-1:10] != '0) ? 3'd2 :
+            (last_a[AW:10] != '0) ? 3'd3 : 3'd4;
+  endfunction
+  wire w_legal = aw_hs && cause(awburst, awsize, awaddr, awlen) == 3'd4;
+  wire r_legal = ar_hs && cause(arburst, arsize, araddr, arlen) == 3'd4;
+  covergroup cg_txn @(posedge clk);
+    option.per_instance = 1;
+    cp_wtxn: coverpoint {awsnoop, awdomain} iff (rst_n && aw_hs)
+      { bins write_no_snoop = {5'b000_00, 5'b000_11}; bins write_unique = {5'b000_01, 5'b000_10};
+        bins write_line_unique = {5'b001_01, 5'b001_10}; }
+    cp_wok: coverpoint w_legal iff (rst_n && aw_hs) { bins ok = {1}; bins err = {0}; }
+    x_wtxn_ok: cross cp_wtxn, cp_wok;
+    cp_rtxn: coverpoint {arsnoop, ardomain} iff (rst_n && ar_hs)
+      { bins read_no_snoop = {6'b0000_00, 6'b0000_11}; bins read_once = {6'b0000_01, 6'b0000_10};
+        bins clean_shared = {[6'b1000_00:6'b1000_11]}; bins clean_invalid = {[6'b1001_00:6'b1001_11]};
+        bins make_invalid = {[6'b1101_00:6'b1101_11]}; }
+    cp_rok: coverpoint r_legal iff (rst_n && ar_hs) { bins ok = {1}; bins err = {0}; }
+    x_rtxn_ok: cross cp_rtxn, cp_rok;
+    cp_wcause: coverpoint cause(awburst, awsize, awaddr, awlen) iff (rst_n && aw_hs)
+      { bins burst = {0}; bins size = {1}; bins oor = {2}; bins crosses_1kb = {3}; bins ok = {4}; }
+    cp_rcause: coverpoint cause(arburst, arsize, araddr, arlen) iff (rst_n && ar_hs)
+      { bins burst = {0}; bins size = {1}; bins oor = {2}; bins crosses_1kb = {3}; bins ok = {4}; }
+    cp_wsize: coverpoint awsize iff (rst_n && w_legal) { bins b1 = {0}; bins b2 = {1}; bins b4 = {2}; }
+    cp_rsize: coverpoint arsize iff (rst_n && r_legal) { bins b1 = {0}; bins b2 = {1}; bins b4 = {2}; }
+    cp_wlen: coverpoint awlen iff (rst_n && w_legal)
+      { bins one = {0}; bins mid = {[1:14]}; bins max16 = {15}; bins long_ = {[16:255]}; }
+    cp_rlen: coverpoint arlen iff (rst_n && r_legal)
+      { bins one = {0}; bins mid = {[1:14]}; bins max16 = {15}; bins long_ = {[16:255]}; }
+    cp_wbar: coverpoint awbar iff (rst_n && w_legal) { bins none = {0}; bins barrier = {[1:3]}; }
+    cp_rbar: coverpoint arbar iff (rst_n && r_legal) { bins none = {0}; bins barrier = {[1:3]}; }
+  endgroup
+  covergroup cg_beat @(posedge clk);
+    option.per_instance = 1;
+    cp_lane: coverpoint wstrb iff (rst_n && w_hs && !m_werr && !w_oor)
+      { bins b0 = {4'b0001}; bins b1 = {4'b0010}; bins b2 = {4'b0100}; bins b3 = {4'b1000};
+        bins lo_half = {4'b0011}; bins hi_half = {4'b1100}; bins full = {4'b1111}; }
+    cp_wdata: coverpoint dcls(wdata) iff (rst_n && w_hs && !m_werr && !w_oor && wstrb == 4'hF)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint dcls(rdata) iff (rst_n && r_hs && !r_bad)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_txn u_cg_txn = new; cg_beat u_cg_beat = new;
+  logic [AW-1:0] m_last_wa;
+  logic          m_last_wok;
+  always_ff @(posedge clk or negedge rst_n)
+    if (!rst_n) begin m_last_wa <= '0; m_last_wok <= 0; end
+    else if (aw_hs) begin m_last_wa <= awaddr; m_last_wok <= w_legal; end
+  `FC(write_other_snoop, aw_hs && !({awsnoop, awdomain} inside {5'b000_00, 5'b000_01, 5'b000_10,
+                                    5'b000_11, 5'b001_01, 5'b001_10}))
+  `FC(read_other_snoop, ar_hs && !(arsnoop inside {4'b0000, 4'b1000, 4'b1001, 4'b1101}))
+  `FC(read_after_write_same_addr, r_legal && m_last_wok && araddr == m_last_wa && !m_wbusy)
+
   `FC(b_backpressure, bvalid && !bready)
   `FC(r_backpressure, rvalid && !rready)
   `FC(w_bubble, wready && !wvalid)

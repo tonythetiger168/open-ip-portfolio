@@ -70,6 +70,41 @@ module AXI4_Lite_sva #(parameter int DW = 32, AW = 32) (
   endgroup
   cg_xfer u_cg_xfer = new;
 
+  // byte lanes, data classes, address class x strobe class, early W data,
+  // and how long B / R were held off before the handshake
+  function automatic logic [1:0] dcls(input logic [DW-1:0] v);
+    dcls = (v == '0) ? 2'd0 : (v == '1) ? 2'd1 :
+           (v == {(DW/2){2'b01}} || v == {(DW/2){2'b10}}) ? 2'd2 : 2'd3;
+  endfunction
+  logic [2:0] m_bwait, m_rwait;
+  always_ff @(posedge clk or negedge rst_n)
+    if (!rst_n) begin m_bwait <= 0; m_rwait <= 0; end
+    else begin
+      m_bwait <= (bvalid && !bready) ? ((m_bwait == 7) ? 7 : m_bwait + 1) : 0;
+      m_rwait <= (rvalid && !rready) ? ((m_rwait == 7) ? 7 : m_rwait + 1) : 0;
+    end
+  covergroup cg_data @(posedge clk);
+    option.per_instance = 1;
+    cp_lane: coverpoint wstrb iff (rst_n && w_hs && in_rng(m_wa))
+      { bins b0 = {4'b0001}; bins b1 = {4'b0010}; bins b2 = {4'b0100}; bins b3 = {4'b1000};
+        bins lo_half = {4'b0011}; bins hi_half = {4'b1100}; }
+    cp_wdata: coverpoint dcls(wdata) iff (rst_n && w_hs && in_rng(m_wa) && wstrb == 4'hF)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint dcls(rdata) iff (rst_n && r_hs && in_rng(m_ra))
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_wcls: coverpoint {m_wa[AW-1:10] != 0, m_wa[1:0] != 0} iff (rst_n && w_hs)
+      { bins ok = {2'b00}; bins misaligned = {2'b01}; bins oor = {2'b10}; }
+    cp_scls: coverpoint (wstrb == 0 ? 2'd0 : wstrb == 4'hF ? 2'd1 : 2'd2) iff (rst_n && w_hs)
+      { bins none = {0}; bins full = {1}; bins partial = {2}; }
+    x_addr_strb: cross cp_wcls, cp_scls;
+    cp_bwait: coverpoint m_bwait iff (rst_n && b_hs)
+      { bins none = {0}; bins one = {1}; bins few = {[2:3]}; bins many = {[4:7]}; }
+    cp_rwait: coverpoint m_rwait iff (rst_n && r_hs)
+      { bins none = {0}; bins one = {1}; bins few = {[2:3]}; bins many = {[4:7]}; }
+  endgroup
+  cg_data u_cg_data = new;
+  `FC(w_valid_before_aw, wvalid && !awvalid && !m_wpend && !m_bpend)
+
   `FC(b_backpressure, bvalid && !bready)
   `FC(r_backpressure, rvalid && !rready)
   `FC(w_late, m_wpend && !wvalid)

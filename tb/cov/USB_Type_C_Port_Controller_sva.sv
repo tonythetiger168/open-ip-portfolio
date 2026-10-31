@@ -54,6 +54,28 @@ module USB_Type_C_Port_Controller_sva (
   `SVA_INV(a_irq_model, irq == (flt || m_int != 0))
   `SVA_INV(a_readback_model, reg_rdata == m_rd)
 
+  // CC1 x CC2 line levels in each connection state, orientation x role
+  // while attached, every register read and written, which interrupt
+  // bits a W1C clears while set
+  covergroup cg_port @(posedge clk);
+    option.per_instance = 1;
+    cp_cc1: coverpoint cc1 iff (rst_n) { bins open_ = {0}; bins rd = {1}; bins ra = {2}; bins flt = {3}; }
+    cp_cc2: coverpoint cc2 iff (rst_n) { bins open_ = {0}; bins rd = {1}; bins ra = {2}; bins flt = {3}; }
+    x_cc: cross cp_cc1, cp_cc2;
+    cp_st: coverpoint st iff (rst_n) { bins unattached = {0}; bins wait_ = {1}; bins attached = {2}; }
+    cp_cand: coverpoint {flt, cand} iff (rst_n)
+      { bins none = {2'b00}; bins one_rd = {2'b01}; bins fault = {2'b10, 2'b11}; }
+    x_st_cand: cross cp_st, cp_cand;
+    cp_or: coverpoint m_or iff (rst_n && st == 2) { bins cc1 = {0}; bins cc2 = {1}; }
+    cp_role: coverpoint m_src iff (rst_n && st == 2) { bins sink = {0}; bins source = {1}; }
+    x_or_role: cross cp_or, cp_role;
+    cp_rreg: coverpoint reg_addr iff (rst_n && reg_rd) { bins r[] = {[0:7]}; }
+    cp_wreg: coverpoint reg_addr iff (rst_n && reg_wr) { bins r[] = {[0:7]}; }
+    cp_w1c: coverpoint (reg_wdata[2:0] & m_int) iff (rst_n && reg_wr && reg_addr == 3 && m_int != 0)
+      { bins attach = {3'b001}; bins detach = {3'b010}; bins fault = {3'b100}; bins several = {3'b011, 3'b101, 3'b110, 3'b111}; }
+  endgroup
+  cg_port u_cg_port = new;
+
   `FC(attach_cc1, st == 1 && deb == 99 && cand && !flt && !m_or)
   `FC(attach_cc2, st == 1 && deb == 99 && cand && !flt && m_or)
   `FC(debounce_glitch, ev_glitch)

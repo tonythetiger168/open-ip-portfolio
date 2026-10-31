@@ -54,6 +54,11 @@ module WTB_sva #(
   logic [31:0] s_w;
   // pulses
   logic        p_bad, p_cfg, p_ovf, p_tok, p_done;
+  // covergroup samples
+  function automatic int dcls(input logic [31:0] v);
+    dcls = v == 0 ? 0 : v == 32'hFFFF_FFFF ? 1 : (v == 32'h5555_5555 || v == 32'hAAAA_AAAA) ? 2 : 3;
+  endfunction
+  int c_tk, c_tf, c_tw, c_rl, c_rb, c_rw, c_pw;
   // coverage events
   logic v_pass_empty, v_max_fr, v_window, v_window0, v_txpp, v_d16, v_d0, v_bcast, v_notme,
         v_rxpp, v_crc, v_ed, v_long, v_own, v_tok_other, v_claim, v_claim_to, v_claim_low,
@@ -89,6 +94,7 @@ module WTB_sva #(
       o_dl_i = dl_i; o_idle = idle; o_hold = hold; o_ccnt = ccnt; o_hw = hw;
       {p_bad, p_cfg, p_ovf, p_tok, p_done} = '0;
       s_start = 0; s_pop = 0;
+      c_tk = -1; c_rl = -1; c_rw = -1; c_pw = -1;
 
       // ---------------- station ----------------
       tok_me = o_done && f_fc == 8'h01 && f_da == my_addr;
@@ -130,6 +136,8 @@ module WTB_sva #(
         end
       endcase
 
+      if (s_start) begin c_tk = s_fc; c_tf = frs; c_tw = dcls(s_w); end
+
       // ---------------- configuration + TX FIFO ----------------
       push = cpu_we && cpu_addr == 2'd0;
       pop = o_pop && o_tcnt != 0;
@@ -149,6 +157,9 @@ module WTB_sva #(
       if (deliver && f_len == 16) v_d16 = 1;
       if (deliver && f_len == 0) v_d0 = 1;
       if (deliver && f_da == 8'hFF) v_bcast = 1;
+      if (deliver) begin c_rl = f_len; c_rb = f_da == 8'hFF; end
+      if (cpu_re && o_rcnt != 0) c_rw = dcls(rxf[r_rd]);
+      if (cpu_we && cpu_addr == 2'd0) c_pw = dcls(cpu_wdata);
       rpush = o_dl != 0;
       rpop = cpu_re && o_rcnt != 0;
       rpush_ok = rpush && (o_rcnt != 8 || rpop);
@@ -224,6 +235,19 @@ module WTB_sva #(
   `SVA_IMP(a_cpu_rdata, rx_count != 0, cpu_rdata == rxf[r_rd])
   `SVA_INV(a_token_held, token_held == (st == HOLD || st == PASS))
   `SVA_INV(a_irq, irq == (p_bad || p_cfg || p_ovf || p_tok))
+
+  covergroup cg_wtb @(negedge clk);
+    cp_tkind: coverpoint c_tk iff (c_tk >= 0) { bins claim = {0}; bins token = {1}; bins data = {2}; }
+    cp_tframe: coverpoint c_tf iff (c_tk == 2) { bins f[] = {[1:MAX_FR]}; }
+    cp_tdata: coverpoint c_tw iff (c_tk == 2) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rlen: coverpoint c_rl iff (c_rl >= 0) { bins empty = {0}; bins part = {[1:3]}; bins word = {4};
+                                               bins mid = {[5:15]}; bins full = {16}; }
+    cp_rdest: coverpoint c_rb iff (c_rl >= 0) { bins me = {0}; bins bcast = {1}; }
+    x_rx: cross cp_rlen, cp_rdest;
+    cp_rdata: coverpoint c_rw iff (c_rw >= 0) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_pdata: coverpoint c_pw iff (c_pw >= 0) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_wtb u_cg_wtb = new();
 
   // ---------------- functional coverage ----------------
   `FC(token_passed_with_empty_fifo, v_pass_empty)

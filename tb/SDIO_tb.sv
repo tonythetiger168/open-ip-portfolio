@@ -357,6 +357,17 @@ module SDIO_tb;
     quiet();
     run_card(0);
 
+    // classes left by the main run: function errors on a CMD52 read and a
+    // CMD53 write, fixed-address CMD53 of one and 32 bytes, CMD52 writes
+    // of all zeros and all ones
+    cmd_r5(6'd52, a52(0, 0, 0, 3, 0), 8'h12, 8'h00, "read function 0");
+    cmd_r5(6'd53, a53(1, 0, 0, 1, 0, 1), 8'h12, 8'h00, "CMD53 write function 0");
+    for (int k = 0; k < 32; k++) blk[k] = 8'(k * 3 + 1);
+    cmd53_write(7, 1, 0, 0); cmd53_read(7, 1, 0);
+    cmd53_write(9, 32, 0, 0); cmd53_read(9, 1, 0);
+    cmd52(1, 20, 8'h00, 0); cmd52(1, 21, 8'hFF, 0);
+    cmd52(0, 20, 0, 0); cmd52(0, 21, 0, 0);
+
     if (errors == 0) $display("TEST PASSED: SDIO");
     else             $display("TEST FAILED: %0d errors", errors);
     $finish;

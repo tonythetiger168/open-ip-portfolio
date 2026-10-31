@@ -364,6 +364,27 @@ module USB_tb;
     setup8(s); in_tx(0); expect_pid(STALL, "set_configuration 2");
     s = pack8(8'h00, 8'h05, 8'h80, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00);   // address 128: bad
     setup8(s); in_tx(0); expect_pid(STALL, "set_address 128");
+    // each supported request with one field off its legal value: stalled
+    for (int r = 0; r < 5; r++)
+      for (int f = 0; f < 3; f++) begin
+        case (r)
+          0: s = pack8(8'h80, 8'h06, 8'h00, 8'h01, 8'h00, 8'h00, 8'h12, 8'h00);  // GET_DESCRIPTOR
+          1: s = pack8(8'h80, 8'h08, 8'h00, 8'h00, 8'h00, 8'h00, 8'h01, 8'h00);  // GET_CONFIGURATION
+          2: s = pack8(8'h00, 8'h05, 8'h11, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00);  // SET_ADDRESS
+          3: s = pack8(8'h00, 8'h09, 8'h01, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00);  // SET_CONFIGURATION
+          default: s = pack8(8'h40, 8'h01, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00, 8'h00);  // vendor
+        endcase
+        case (f)
+          0: s[23:16] = s[23:16] ^ 8'h02;    // wValue (GET_DESCRIPTOR: descriptor index 2)
+          1: s[39:32] = 8'h01;               // wIndex
+          default: s[55:48] = s[55:48] + 8'd1;   // wLength
+        endcase
+        if (r == 3 && f == 0) s[23:16] = 8'h02;
+        // skip the fields a request ignores, and SET_ADDRESS wValue (any address < 128 is legal)
+        if (!((r == 0 && f != 0) || (r == 4 && f != 2) || (r == 2 && f == 0))) begin
+          setup8(s); in_tx(0); expect_pid(STALL, "request with one field off");
+        end
+      end
     // SETUP with 7 bytes: stalled
     token(SETUP, A, 0);
     for (int i = 0; i < 7; i++) dbuf[i] = 8'h00;
@@ -461,6 +482,13 @@ module USB_tb;
     A = 0; h_t0 = 0; h_t1 = 0;
     in_tx(1); expect_pid(NAK, "after reset");
 
+    out_tx(3, DATA0, 2, STALL);                        // OUT to a missing endpoint
+    // an OUT DATA0 where DATA1 is due (after the SETUP): acked, ignored
+    s = pack8(8'h80, 8'h08, 8'h00, 8'h00, 8'h00, 8'h00, 8'h01, 8'h00);
+    setup8(s);
+    out_tx(0, DATA0, 0, ACK);
+    in_tx(0); expect_pid(DATA1, "get_configuration after the duplicate");
+    out_tx(0, DATA1, 0, ACK);
     if (errors == 0) $display("TEST PASSED: USB");
     else             $display("TEST FAILED: %0d errors", errors);
     $finish;

@@ -57,8 +57,14 @@ module Ethernet_sva (
   bit          v_pad, v_nopad, v_ur_hdr, v_held, v_promisc_only, v_drop, v_runt, v_long, v_vlan_ok, v_vlan_long;
   bit          v_crc, v_phy, v_pause_ok, v_pause_ign, v_div0, v_div31, v_sat, v_bad_pre, v_nopre;
 
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  bit          c_tl, c_tb, c_da, c_end, c_rb;
+  int          c_tlen, c_dak, c_ty, c_len, c_st;
+  logic [7:0]  c_tbd, c_rbd;
+
   always @(posedge clk or negedge rst_n)
     if (!rst_n) begin
+      {c_tl, c_tb, c_da, c_end, c_rb} = '0; c_tlen = 0; c_dak = 0; c_ty = 0; c_len = 0; c_st = 0; c_tbd = 0; c_rbd = 0;
       bc = 0; tph = 0; tk = 0; tlen = 0; tgap = 0; tcrc = 0; m_d = 0; {m_en, m_er, m_done, m_ur} = '0; mp = 0;
       rph = 0; rn = 0; ri = 0; {seen55, racc, rer} = '0; rcrc = 0; rda = 0; rty = 0; rop = 0; rqa = 0;
       for (int i = 0; i < 8; i++) ring[i] = 0;
@@ -66,6 +72,7 @@ module Ethernet_sva (
     end else begin : b_step
       bit byte_t;
       {m_done, m_ur, m_rv, m_fr} = '0;
+      {c_tl, c_tb, c_da, c_end, c_rb} = '0;
       byte_t = bc == int'(cfg_div);
       bc = byte_t ? 0 : (bc + 1) % 32;
       if (byte_t) begin
@@ -85,6 +92,8 @@ module Ethernet_sva (
           end
           2: if (tx_valid) begin
             m_d = tx_data; tcrc = crc_b(tcrc, tx_data); tlen++;
+            c_tb = 1; c_tbd = tx_data;
+            if (tx_last) begin c_tl = 1; c_tlen = tlen; end
             if (tx_last) begin
               tph = tlen >= 60 ? 4 : 3; tk = 0;
               if (tlen >= 60) v_nopad = 1; else v_pad = 1;
@@ -121,12 +130,15 @@ module Ethernet_sva (
           1: if (grx_dv) begin
                if (ri >= 6 && racc) begin m_rv = 1; m_rd = ring[(ri - 6) % 8]; m_rl = 0; end
                ring[ri % 8] = grxd;
+               c_rb = 1; c_rbd = grxd;
                rcrc = crc_b(rcrc, grxd);
                if (grx_er) rer = 1;
                if (rn < 6) rda = {rda[39:0], grxd};
                if (rn == 5) begin
                  racc = cfg_promisc || rda == cfg_mac || rda == 48'hFFFF_FFFF_FFFF || rda == 48'h0180_C200_0001;
                  if (!racc) v_drop = 1;
+                 c_da = 1;
+                 c_dak = rda == cfg_mac ? 0 : (rda == 48'hFFFF_FFFF_FFFF ? 1 : (rda == 48'h0180_C200_0001 ? 2 : (cfg_promisc ? 3 : 4)));
                  if (cfg_promisc && rda != cfg_mac && rda != 48'hFFFF_FFFF_FFFF && rda != 48'h0180_C200_0001) v_promisc_only = 1;
                end
                if (rn == 12 || rn == 13) rty = {rty[7:0], grxd};
@@ -144,6 +156,8 @@ module Ethernet_sva (
             le = rn < 64 || rn > (rty == 16'h8100 ? 1522 : 1518);
             pz = rty == 16'h8808 && rop == 16'h0001 && rn >= 18;
             m_rv = 1; m_rd = ring[(ri - 5) % 8]; m_rl = 1; m_rs = {pz, rer, le, ce};
+            c_end = 1; c_ty = rty == 16'h8100 ? 0 : (rty == 16'h8808 ? 1 : 2); c_st = {le, ce};
+            c_len = rn < 64 ? 0 : (rn == 64 ? 1 : (rn < 1518 ? 2 : (rn == 1518 ? 3 : (rn <= 1522 ? 4 : 5))));
             if (ce) v_crc = 1;
             if (rer) v_phy = 1;
             if (rn < 64) v_runt = 1;
@@ -169,6 +183,26 @@ module Ethernet_sva (
   `SVA_RST(a_reset, 1'b1, !gtx_en && !gtx_er && !tx_ready && !rx_valid && !tx_paused && !tx_done)
 
   // ---------------- functional coverage ----------------
+  // transmit frame length class and host byte classes; receive DA kind,
+  // type x length class, CRC x length error, line byte classes
+  function automatic int dcls(input logic [7:0] v);
+    return v == 8'h00 ? 0 : (v == 8'hFF ? 1 : (v == 8'h55 || v == 8'hAA ? 2 : 3));
+  endfunction
+  covergroup cg_eth @(negedge clk);
+    option.per_instance = 1;
+    cp_tlen: coverpoint c_tlen iff (rst_n && c_tl)
+      { bins padded = {[1:59]}; bins min60 = {60}; bins mid = {[61:1513]}; bins max = {[1514:65535]}; }
+    cp_tbyte: coverpoint dcls(c_tbd) iff (rst_n && c_tb) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rbyte: coverpoint dcls(c_rbd) iff (rst_n && c_rb) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_da: coverpoint c_dak iff (rst_n && c_da)
+      { bins own = {0}; bins broadcast = {1}; bins pause_mc = {2}; bins promisc = {3}; bins dropped = {4}; }
+    cp_ty: coverpoint c_ty iff (rst_n && c_end) { bins vlan = {0}; bins mac_ctrl = {1}; bins other = {2}; }
+    cp_len: coverpoint c_len iff (rst_n && c_end)
+      { bins runt = {0}; bins min64 = {1}; bins mid = {2}; bins max1518 = {3}; bins vlan_range = {4}; bins over = {5}; }
+    cp_st: coverpoint c_st iff (rst_n && c_end) { bins good = {0}; bins crc = {1}; bins len = {2}; bins both = {3}; }
+  endgroup
+  cg_eth u_cg_eth = new;
+
   `FC(padded_frame, v_pad)
   `FC(unpadded_frame, v_nopad)
   `FC(underrun_in_header, v_ur_hdr)

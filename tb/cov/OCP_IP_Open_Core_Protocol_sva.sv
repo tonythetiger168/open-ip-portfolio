@@ -88,7 +88,7 @@ module OCP_IP_Open_Core_Protocol_sva #(parameter int DW = 32, parameter int AW =
     end
   end
 
-  wire [2:0] exp_cmd = !issuing ? 3'd0 : !m_wr ? 3'd2 : m_np ? 3'd5 : 3'd1;
+  wire [2:0] exp_cmd = !issuing ? 3'd0 : !m_wr ? 3'd2 : m_np ? 3'd1 : 3'd5;
 
   `SVA_RST(a_reset_quiet, !rst_n, MCmd == 3'd0 && req_ready && !resp_valid && !irq)
   `SVA_INV(a_req_ready, req_ready == (ph == P_IDLE || ph == P_COLLECT))
@@ -125,11 +125,27 @@ module OCP_IP_Open_Core_Protocol_sva #(parameter int DW = 32, parameter int AW =
   `FC_RST(reset_mid_collect, rst_n && ph == P_COLLECT ##1 !rst_n)
 
   covergroup cg_len @(posedge clk iff (rst_n && acc_desc));
-    coverpoint clamp { bins l1 = {1}; bins l2 = {2}; bins l3 = {3}; bins l4 = {4};
-                       bins l5 = {5}; bins l6 = {6}; bins l7 = {7}; bins l8 = {8}; }
-    coverpoint {req_rw, req_posted} { bins rd = {2'b00, 2'b01}; bins wr = {2'b10}; bins wrnp = {2'b11}; }
+    cp_len: coverpoint clamp { bins l1 = {1}; bins l2 = {2}; bins l3 = {3}; bins l4 = {4};
+                               bins l5 = {5}; bins l6 = {6}; bins l7 = {7}; bins l8 = {8}; }
+    cp_kind: coverpoint {req_rw, req_posted} { bins rd = {2'b00, 2'b01}; bins wr = {2'b10}; bins wrnp = {2'b11}; }
+    x_kind_len: cross cp_kind, cp_len;
   endgroup
   cg_len u_cg_len = new();
+  // OCP pins: accepted command, write data, read data, response per phase
+  function automatic int dcls(input logic [DW-1:0] v);
+    dcls = v == 0 ? 0 : &v ? 1 : (v == {(DW/2){2'b01}} || v == {(DW/2){2'b10}}) ? 2 : 3;
+  endfunction
+  covergroup cg_ocp @(posedge clk);
+    cp_cmd: coverpoint MCmd iff (rst_n && MCmd != 0 && SCmdAccept) { bins wr = {1}; bins rd = {2}; bins wrnp = {5}; }
+    cp_wdata: coverpoint dcls(MData) iff (rst_n && SCmdAccept && (MCmd == 1 || MCmd == 5))
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint dcls(SData) iff (rst_n && ph == P_RD && SResp == 2'd1)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rph: coverpoint ph iff (rst_n && (ph == P_RD || ph == P_WR) && SResp != 0) { bins rd = {P_RD}; bins wr = {P_WR}; }
+    cp_resp: coverpoint SResp iff (rst_n && (ph == P_RD || ph == P_WR) && SResp != 0) { bins dva = {1}; bins fail = {2}; bins err = {3}; }
+    x_resp: cross cp_rph, cp_resp;
+  endgroup
+  cg_ocp u_cg_ocp = new();
 endmodule
 
 bind OCP_IP_Open_Core_Protocol_top OCP_IP_Open_Core_Protocol_sva #(.DW(DW), .AW(AW)) u_sva (.*);

@@ -2,6 +2,17 @@
 
 Protocol IP `UEC`, version 2.0. Apache-2.0.
 
+| Item | Value |
+|---|---|
+| Core | `UEC_top` (`rtl/UEC_top.sv`) |
+| Register interface | APB4 slave `UEC_apb`, 32-bit data, 12-bit byte address, zero wait states |
+| Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
+| ID register | 0x55450200 (code 0x5545, version 2.0) |
+| Registers | 10 words, 0x000 to 0x024 |
+| Interrupts | 8 sources into one level-high `irq` |
+| Data streams | TX (to the core), RX (from the core) |
+| Protocol pins | 7 pass-through |
+
 ## Overview
 
 UEC_top v2.0: Ultra Ethernet Transport-style packet delivery sublayer (PDS), one packet delivery context (PDC) in reliable unordered delivery (RUD) mode: PSNs, a retransmit window, cumulative + selective ACKs, NACKs for no receive buffer, a retransmit timer
@@ -64,12 +75,44 @@ The core parameters MAXP (16), W (4), RXB (2) and RTO (256 clocks) keep their de
 | `tb/cov/UEC_sva.sv`, `tb/cov/UEC_apb_sva.sv` | coverage checkers (core, wrapper) |
 | `scripts/apb/specs/UEC.json` | register spec the wrapper, TB, checker and this page are generated from |
 
-```
-make -f Makefile.UEC sim syn            # core test + synthesis (Icarus, Yosys)
-make -f Makefile.UEC apb                # wrapper test + synthesis
-bash scripts/cov/run_cov.sh UEC          # core coverage (Verilator)
-bash scripts/cov/run_cov.sh UEC_apb      # wrapper coverage
-```
+How to run the tests and the coverage flow: see [Running and verifying](#running-and-verifying).
+
+## Parameters
+
+`UEC_apb` has the core's parameters and passes them to `UEC_top` unchanged.
+
+| Parameter | Type | Default |
+|---|---|---|
+| `MAXP` | int | `16` |
+| `W` | int | `4` |
+| `RXB` | int | `2` |
+| `RTO` | int | `256` |
+
+## Wrapper pins
+
+Pins of `UEC_apb`. Widths of the pass-through pins are at the default parameters.
+
+| Pin | Dir | Width | Description |
+|---|---|---|---|
+| `PCLK` | input | 1 | APB clock; also the core clock |
+| `PRESETN` | input | 1 | APB reset, active low; also the core reset |
+| `PSEL` | input | 1 | slave select |
+| `PENABLE` | input | 1 | access phase |
+| `PWRITE` | input | 1 | 1 = write, 0 = read |
+| `PADDR` | input | 12 | byte address; bits [1:0] must be 0 |
+| `PWDATA` | input | 32 | write data |
+| `PSTRB` | input | 4 | write byte strobes |
+| `PRDATA` | output | 32 | read data |
+| `PREADY` | output | 1 | always high in the access phase (no wait states) |
+| `PSLVERR` | output | 1 | error: unmapped or misaligned address |
+| `irq` | output | 1 | interrupt, level high: \|(IRQ_STATUS & IRQ_ENABLE) |
+| `net_tx_valid` | output | 1 | protocol pin, core port `net_tx_valid` |
+| `net_tx_ready` | input | 1 | protocol pin, core port `net_tx_ready` |
+| `net_tx_data` | output | 8 | protocol pin, core port `net_tx_data` |
+| `net_tx_last` | output | 1 | protocol pin, core port `net_tx_last` |
+| `net_rx_valid` | input | 1 | protocol pin, core port `net_rx_valid` |
+| `net_rx_data` | input | 8 | protocol pin, core port `net_rx_data` |
+| `net_rx_last` | input | 1 | protocol pin, core port `net_rx_last` |
 
 ## Core ports
 
@@ -121,23 +164,29 @@ Pass-through pins: `net_tx_valid`, `net_tx_ready`, `net_tx_data`, `net_tx_last`,
 | 0x018 | PSN | RW | 0x00000000 | Start PSNs (taken while CTRL.enable is 0) |
 | 0x01C | TX | RW | 0x00000000 | Packet byte to send; one write per byte, LAST on the final byte (a packet is cut after MAXP = 16 bytes). Bytes are taken while the retransmit window (W = 4 packets) has room |
 | 0x020 | RX | RO (pop) | 0x00000000 | Received packet byte (packets in arrival order); reading it pops it. While RX is not read the core's RXB = 2 receive buffers fill and further packets are NACKed |
-| 0x024 | STATUS | RO | 0x00000000 | Sender state |
+| 0x024 | STATUS | RO | core | Sender state |
+
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x028 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
-| Register | Bits | Field | Description |
-|---|---|---|---|
-| ID | 31:16 | CODE | 0x5545 |
-| ID | 15:8 | MAJOR | 2 |
-| ID | 7:0 | MINOR | 0 |
-| CTRL | 0 | `enable` | the PDC is open; clearing it drops every packet, frame and buffer and loads the start PSNs |
-| PSN | 15:0 | `start_psn_tx` | the first PSN this end sends |
-| PSN | 31:16 | `start_psn_rx` | the first PSN this end expects |
-| TX | 7:0 | `tx_data` | byte |
-| TX | 8 | `tx_last` | last byte of the packet |
-| RX | 7:0 | `rx_data` | byte |
-| RX | 8 | `rx_last` | last byte of the packet |
-| STATUS | 2:0 | `outstanding` | packets written and not yet acknowledged (0..4) |
+| Register | Bits | Field | Access | Reset | Description |
+|---|---|---|---|---|---|
+| ID | 31:16 | CODE | RO | 0x5545 | IP code |
+| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 7:0 | MINOR | RO | 0x00 | minor version |
+| IRQ_STATUS | 7:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
+| IRQ_ENABLE | 7:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
+| FLAGS | 1:0 | one bit per stream flag | RO | 0x0 | see FLAGS |
+| SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
+| CTRL | 0 | `enable` | RW | 0x0 | the PDC is open; clearing it drops every packet, frame and buffer and loads the start PSNs |
+| PSN | 15:0 | `start_psn_tx` | RW | 0x0 | the first PSN this end sends |
+| PSN | 31:16 | `start_psn_rx` | RW | 0x0 | the first PSN this end expects |
+| TX | 7:0 | `tx_data` | RW | 0x0 | byte |
+| TX | 8 | `tx_last` | RW | 0x0 | last byte of the packet |
+| RX | 7:0 | `rx_data` | RO (pop) | 0x0 | byte |
+| RX | 8 | `rx_last` | RO (pop) | 0x0 | last byte of the packet |
+| STATUS | 2:0 | `outstanding` | RO | core | packets written and not yet acknowledged (0..4) |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -166,11 +215,58 @@ A bit is set while its source is active, stays set until written with 1, and a s
 * **TX** feeds `tx_data`, `tx_last`/`tx_valid`. Writing TX commits the beat: FLAGS.TX_FULL is set and `tx_valid` stays high until the core's `tx_ready`; then TX_DONE is set. A write while full is dropped and sets TX_OVF.
 * **RX** takes `rx_data`, `rx_last` from the core with `rx_valid` / `rx_ready`: `rx_ready` is high while the register is empty (or is being read in the same clock), and a captured beat sets FLAGS/IRQ RX_AVAIL. Reading RX pops it. Nothing is dropped: the core holds its data until the register is free.
 
+## Programming sequence
+
+1. Release PRESETN. Read ID (0x000) and check it is 0x55450200.
+2. Write 0xFF to IRQ_STATUS (0x004) to clear any stale bits.
+3. Configure the core: write CTRL (0x014), PSN (0x018). Reset values are in the register map; PSTRB selects the bytes written.
+4. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0xFF enables all).
+5. To send on TX: wait until FLAGS.TX_FULL (bit 0) is 0, or for IRQ TX_DONE, then write TX (0x01C). The last write commits the beat. TX_OVF means a write came while the register was full and was dropped.
+6. To receive on RX: wait for IRQ RX_AVAIL or FLAGS.RX_AVAIL (bit 1), then read RX (0x020). Reading the last word frees the register for the next beat; write 1 to IRQ_STATUS.RX_AVAIL (bit 7) to clear it.
+7. Read STATUS (0x024) for the core's live `outstanding`; it needs no clearing.
+8. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
+
+## Running and verifying
+
+All commands run from the repository root. Icarus Verilog 12 and Yosys 0.33 are enough for steps 1 to 3; step 4 also needs Verilator 5.052 and pyslang (see [README, Setup](../../README.md#setup)).
+
+| Step | Command | Pass when | Output |
+|---|---|---|---|
+| 1. Core test | `make -f Makefile.UEC sim` | a `TEST PASSED` line, no `ERROR` | console |
+| 2. Core synthesis | `make -f Makefile.UEC syn` | Yosys ends without `ERROR`; `stat` prints the cell count | `work/UEC_top.json` |
+| 3. APB wrapper test + synthesis | `make -f Makefile.UEC apb` | `TEST PASSED: UEC_apb`, then Yosys without `ERROR` | console, `work/UEC_apb.json` |
+| 4. Coverage (core, wrapper) | `bash scripts/cov/run_cov.sh UEC`<br>`bash scripts/cov/run_cov.sh UEC_apb` | `RESULT: CLOSED` (all five metrics 100%) | `work/cov/UEC/score.json`, `work/cov/UEC_apb/score.json` |
+
+Expected end of a step 4 run:
+
+```
+===== UEC =====
+TEST: PASSED   SVA_FAILURES: 0
+LINE ... TOGGLE ... FSM ... SVA ... FUNCTIONAL  (each n/n, 100.0%)
+RESULT: CLOSED
+```
+
+**Core test** (`tb/UEC_tb.sv`): drives `UEC_top` through its own ports against a protocol peer or model and checks every result itself; any mismatch prints `ERROR`, and `TEST PASSED` is printed only when there were none.
+
+**APB wrapper test** (`tb/UEC_apb_tb.sv`), in this order:
+
+1. Reset values of every register, ID included.
+2. Writes to read-only registers are ignored.
+3. Each RW register: all ones, all zeros, then 16 random writes with every PSTRB byte-lane pattern, read back each time.
+4. Unmapped and misaligned addresses, reads and writes: PSLVERR, read data 0, no side effect on other registers.
+5. Back-to-back transfers with no idle cycle.
+6. IP traffic through the registers only (`tb/apb/UEC_apb_func.svh`): the programming sequence above, every interrupt bit set, enabled and cleared, stream FULL/AVAIL/OVF cases (100% wrapper toggle coverage confirms each bit moved).
+7. PRESETN asserted mid-run: `irq` and PRDATA go to 0, registers return to reset values.
+
+**Checkers** (`tb/cov/UEC_sva.sv`, `tb/cov/UEC_apb_sva.sv`): SVA protocol and APB assertions plus covergroups, bound in by the coverage flow. An assertion failure prints `SVA_FAIL` and fails the run even when the test itself passed.
+
+Whole portfolio: `bash scripts/ci_regression.sh` runs steps 1 to 3 for every IP (what CI runs), and `bash scripts/cov/run_all.sh 4` runs step 4 for every IP.
+
 ## Verification
 
 Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVERAGE_CLOSURE.md](../COVERAGE_CLOSURE.md) for the flow. Line and toggle count only the named RTL file.
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/UEC_top.sv` | pass | 90/90 | 1132/1132 | n/a | 7/7 | 42/42 |
+| core `rtl/UEC_top.sv` | pass | 90/90 | 1132/1132 | n/a | 7/7 | 79/79 |
 | wrapper `rtl/UEC_apb.sv` | pass | 37/37 | 720/720 | n/a | 14/14 | 69/69 |

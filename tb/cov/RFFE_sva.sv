@@ -38,6 +38,11 @@ module RFFE_sva (
   logic [8:0]  rf;
   // coverage
   bit          v_type [0:7], v_stall, v_stall_at_cmd, v_bc16, v_long8, v_perr, v_div15, v_rd_ok;
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  bit          c_acc, c_sa0, c_wv, c_rv, c_rp, c_dn, c_dp;
+  logic [2:0]  c_ty, l_ty;
+  logic [3:0]  c_bc;
+  logic [7:0]  c_wd, c_rd;
 
   function automatic void put_frame(input logic [7:0] d);
     for (int i = 7; i >= 0; i--) begin cells[n] = int'(d[i]); n++; end
@@ -47,7 +52,7 @@ module RFFE_sva (
   function automatic void fetch;
     if (ci < n && cells[ci] == C_DATA) begin
       if (wr_valid) begin
-        m_wr = 1;
+        m_wr = 1; c_wd = wr_data;
         for (int i = 0; i < 8; i++) cells[ci + i] = int'(wr_data[7 - i]);
         cells[ci + 8] = int'(~^wr_data);
       end else ph = P_WAIT;
@@ -59,10 +64,12 @@ module RFFE_sva (
       n = 0; ci = 0; ph = P_IDLE; t = 0; halves = 0; nrb = 0;
       {m_sclk, m_oe, m_do, s0, s1, seq_perr, m_wr, m_rv, m_rp, m_done, m_dp} = '0;
       m_rd = 0; rf = 0;
+      {c_acc, c_sa0, c_wv, c_rv, c_rp, c_dn, c_dp} = '0; c_ty = 0; l_ty = 0; c_bc = 0; c_wd = 0; c_rd = 0;
     end else begin : b_step
       bit tick, smp;
       int old_ph;
       {m_wr, m_rv, m_done} = '0;
+      c_acc = 0;
       smp = s1;
       s1 = s0; s0 = sdata_i;
       old_ph = ph;
@@ -73,6 +80,7 @@ module RFFE_sva (
           logic [7:0] c;
           int nd, nr;
           v_type[cmd_type] = 1;
+          c_acc = 1; c_ty = cmd_type; l_ty = cmd_type; c_sa0 = cmd_sa == 0; c_bc = cmd_bc;
           if (cmd_type == 7) begin m_done = 1; m_dp = 0; end
           else begin
             case (cmd_type)
@@ -139,6 +147,7 @@ module RFFE_sva (
         default: ;
       endcase
       if (ph != P_IDLE && cfg_div == 15) v_div15 = 1;
+      c_wv = m_wr; c_rv = m_rv; c_rd = m_rd; c_rp = m_rp; c_dn = m_done; c_dp = m_dp;
     end
 
   // ---------------- assertions ----------------
@@ -154,6 +163,37 @@ module RFFE_sva (
   `SVA_RST(a_reset, 1'b1, !sclk && !sdata_oe && cmd_ready && !busy && !done && !rd_valid && !wr_ready)
 
   // ---------------- functional coverage ----------------
+  // command type x unicast / broadcast, byte-count edges of the extended
+  // and long types, write and read data classes per command type, read
+  // parity errors and completion status per type
+  function automatic int dcls(input logic [7:0] v);
+    return v == 8'h00 ? 0 : (v == 8'hFF ? 1 : (v == 8'h55 || v == 8'hAA ? 2 : 3));
+  endfunction
+  function automatic int ext_idx(input logic [2:0] ty, input logic [3:0] bc);
+    int c;
+    if (ty <= 4) c = bc == 0 ? 0 : (bc == 15 ? 2 : 1);
+    else c = bc[2:0] == 0 ? 0 : (bc[2:0] == 7 ? 2 : 1);
+    return (int'(ty) - 3) * 3 + c;
+  endfunction
+  function automatic int ty3(input logic [2:0] ty);   // 1 / 2 short, 3 / 4 extended, 5 / 6 long
+    return ty <= 2 ? 0 : (ty <= 4 ? 1 : 2);
+  endfunction
+  covergroup cg_seq @(negedge clk);
+    option.per_instance = 1;
+    cp_kind: coverpoint {c_ty, c_sa0} iff (rst_n && c_acc)
+      { bins k[] = {[0:13]}; bins reserved = {14, 15}; }
+    cp_ext: coverpoint ext_idx(c_ty, c_bc) iff (rst_n && c_acc && c_ty >= 3 && c_ty <= 6)
+      { bins e[] = {[0:11]}; }
+    cp_wdata: coverpoint ty3(l_ty) * 4 + dcls(c_wd) iff (rst_n && c_wv)
+      { bins w[] = {[0:11]}; }
+    cp_rdata: coverpoint ty3(l_ty) * 4 + dcls(c_rd) iff (rst_n && c_rv && !c_rp)
+      { bins r[] = {[0:11]}; }
+    cp_rperr: coverpoint ty3(l_ty) iff (rst_n && c_rv && c_rp)
+      { bins p[] = {[0:2]}; }
+    cp_done: coverpoint {l_ty, c_dp} iff (rst_n && c_dn)
+      { bins ok[] = {0, 2, 4, 6, 8, 10, 12, 14}; bins perr[] = {5, 9, 13}; }
+  endgroup
+  cg_seq u_cg_seq = new;
   `FC(reg0_write, v_type[0])
   `FC(reg_write, v_type[1])
   `FC(reg_read, v_type[2])

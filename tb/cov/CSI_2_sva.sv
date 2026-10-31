@@ -150,9 +150,27 @@ module CSI_2_sva #(parameter int LINE_BYTES = 512) (
   covergroup cg_hdr @(posedge clk iff (rst_n && ph == P && nbit == 7 && nbyte == 3 && hok));
     coverpoint hfix[5:0] { bins fs = {0}; bins fe = {1}; bins ls = {2}; bins le = {3};
                            bins gen = {[8:15]}; bins rsvd_short = {[4:7]}; bins lng = {[16:63]}; }
-    coverpoint hfix[7:6];
+    cp_vc: coverpoint hfix[7:6];
+    cp_kind: coverpoint hfix[5:0] { bins fs = {0}; bins fe = {1}; bins ls_le = {[2:3]}; bins short_ = {[4:15]}; bins lng = {[16:63]}; }
+    x_vc_kind: cross cp_vc, cp_kind;
+    cp_corr: coverpoint {hcorr, hfix != {b[2], b[1], b[0]}} { bins clean = {2'b00}; bins ecc_bit = {2'b10}; bins data_bit = {2'b11}; }
+    cp_wc: coverpoint hfix[23:8] iff (hfix[5:0] >= 6'h10) { bins zero = {0}; bins one = {1}; bins few = {[2:15]};
+                                                             bins mid = {[16:LB-1]}; bins full = {LB}; bins over = {[LB+1:16'hFFFF]}; }
   endgroup
   cg_hdr u_cg = new();
+  // long-packet payload: every byte value, first / middle / last position,
+  // CRC verdict per length class
+  covergroup cg_pay @(posedge clk iff (rst_n && rx_valid && bdone && ph == P && lng && nbyte >= 4 && nbyte < 4 + wc));
+    cp_byte: coverpoint nb { bins v[] = {[0:255]}; }
+    cp_pos: coverpoint (nbyte == 4 ? 0 : nbyte == 3 + wc ? 2 : 1) { bins first = {0}; bins middle = {1}; bins last = {2}; }
+  endgroup
+  cg_pay u_cg_pay = new();
+  covergroup cg_crc @(posedge clk iff (rst_n && rx_valid && bdone && ph == P && lng && nbyte == 5 + wc));
+    cp_ok: coverpoint {nb, c_lo[7:0]} == c { bins bad = {0}; bins good = {1}; }
+    cp_len: coverpoint (wc == 0 ? 0 : wc <= 16 ? 1 : wc <= LB ? 2 : 3) { bins zero = {0}; bins short_ = {1}; bins mid = {2}; bins over = {3}; }
+    x_crc: cross cp_ok, cp_len;
+  endgroup
+  cg_crc u_cg_crc = new();
 endmodule
 
 bind CSI_2_top CSI_2_sva #(.LINE_BYTES(LINE_BYTES)) u_sva (.*);

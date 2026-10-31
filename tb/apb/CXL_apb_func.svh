@@ -1,248 +1,269 @@
 // SPDX-License-Identifier: Apache-2.0
-// CXL-specific part of tb/CXL_apb_tb.sv. The host sends M2S Req and RwD
-// messages through REQ0/REQ1 and RWD0..RWD3 and reads S2M NDR and DRS
-// messages from NDR and DRS0..DRS2, one transaction at a time against a
-// reference memory (data, meta state, poison), so every response field is
-// predicted.
-// Covered through the registers: full and partial writes, reads, MemInv
-// with each meta state (Cmp, Cmp-S, Cmp-E), poison set, read and cleared,
-// out of range, dropped opcodes, reserved fields (each event interrupt),
-// a stall with the responses unread that fills the Req FIFO and takes
-// DevLoad through every grade, writes to full REQ and RWD (overflow),
-// random traffic, every stream event and interrupt bit.
-localparam int LINES = 16;
+// CXL-specific part of tb/CXL_apb_tb.sv. The link and CXL.io pins pass
+// through the wrapper, so the host model of the core TB (tb/CXL_host.svh)
+// drives them unchanged: M2S flits with Req, RwD and BIRsp messages, S2M
+// flits checked and parsed, CXL.io both ways, all against a reference
+// memory. The registers carry the rest: CTRL sets the HDM base and HDM-DB,
+// BI sends device back-invalidation requests and BIDONE returns their
+// results (checked against the core's own), STATUS is compared with the
+// reference's count of lines not Invalid after each phase, and IRQ_STATUS
+// with the events the core raised in the phase (each one then seen masked,
+// driving the pin, and cleared).
+// Covered: HDM-H traffic in three back-pressure modes with a moving base,
+// poison, the range edges, every error flit (CRC, type, sequence, unit
+// code, odd RwD), Req overflow, every line held (STATUS 16), HDM-DB with
+// evictions, device BI requests (legal and illegal BIRsps), a BI write
+// while full (BI_OVF) and two completions unread (BIDONE_OVF).
+localparam int LINES = 16, RQD = 4, WQD = 2, SFE = 4, IOD = 2;
+wire  rst_n = PRESETN;
+logic bi_en = 0;
+`define CXL_CLK PCLK
+`define CXL_C dut.u_core
+`define CXL_BI_APB
+`include "CXL_host.svh"
 
-logic [511:0] rm [0:LINES-1];
-logic [1:0]   rmt [0:LINES-1];
-bit           rps [0:LINES-1];
-logic [15:0]  base = 0;
-logic [15:0]  ntag = 16'h0100;
-
-function automatic logic [15:0] addr_of(input int off);
-  return base + 16'(off);
-endfunction
-function automatic bit in_range(input int off);
-  return off >= 0 && off < LINES;
-endfunction
-// the meta field the core acts on
-function automatic logic [1:0] eff_mf(input logic [1:0] mf, input logic [2:0] snp);
-  return mf == 2'b01 || mf == 2'b10 || snp[2] ? 2'b11 : mf;
-endfunction
-
-// ---------------- messages ----------------
-task automatic w_req(input logic [3:0] op, input logic [1:0] mf, input logic [1:0] mv, input logic [2:0] snp,
-                     input logic [15:0] a, input logic [15:0] tag);
-  while (dut.full_REQ) @(negedge PCLK);
-  wr(A_REQ0, {tag, a});
-  wr(A_REQ1, {21'd0, snp, mv, mf, op});
+// one APB user at a time: the BI thread and the phase checks
+bit         apb_lock = 0;
+logic [31:0] en_cur = 0;
+logic [1:0] bd_q [$];                          // the core's BI results not yet read
+always @(negedge PCLK) if (PRESETN && dut.u_core.bi_done) bd_q.push_back(dut.u_core.bi_state);
+task automatic lock();
+  while (apb_lock) @(negedge PCLK);
+  apb_lock = 1;
 endtask
-// RwD beats from beat s on (beat 0 carries the header)
-task automatic w_rwd(input logic [3:0] op, input logic [1:0] mf, input logic [1:0] mv, input logic [2:0] snp,
-                     input bit po, input logic [15:0] a, input logic [15:0] tag, input logic [511:0] d,
-                     input logic [63:0] be, input int s = 0);
-  for (int b = s; b < 8; b++) begin
-    while (dut.full_RWD) @(negedge PCLK);
-    if (b == 0) wr(A_RWD0, {tag, a});
-    wr(A_RWD1, d[64 * b +: 32]);
-    wr(A_RWD2, d[64 * b + 32 +: 32]);
-    wr(A_RWD3, {12'd0, po, snp, mv, mf, op, be[8 * b +: 8]});
+task automatic unlock();
+  apb_lock = 0;
+endtask
+task automatic set_ctrl();
+  lock();
+  wr(A_CTRL, {15'd0, bi_en, hdm_base});
+  unlock();
+endtask
+// pop BIDONE and compare it with the core's result
+task automatic get_bidone();
+  logic [1:0] e;
+  poll(A_FLAGS, 1 << FLAG_BIDONE_AVAIL, 1 << FLAG_BIDONE_AVAIL, 5000);
+  rd(A_BIDONE);
+  e = bd_q.size() > 0 ? bd_q.pop_front() : 2'bxx;
+  if (rdv !== {30'd0, e}) fail($sformatf("BIDONE %h, expected %b", rdv, e));
+endtask
+// device BI requests through the registers, one at a time
+initial forever begin
+  @(negedge PCLK);
+  if (bi_req_n > 0 && PRESETN && $urandom % 20 == 0) begin
+    lock();
+    wr(A_BI, {26'd0, 2'($urandom), 4'($urandom)});
+    poll(A_FLAGS, 1 << FLAG_BI_FULL, 0, 5000);
+    n_bi_acc++; bi_req_n--;
+    get_bidone();
+    unlock();
   end
-endtask
-task automatic g_ndr(input logic [15:0] tag, input logic [1:0] op, input logic [1:0] mv, input int dl = 0);
-  poll(A_FLAGS, 1 << FLAG_NDR_AVAIL, 1 << FLAG_NDR_AVAIL, 2000);
-  rd(A_NDR);
-  if (rdv[21:0] !== {2'(dl), mv, op, tag})
-    fail($sformatf("NDR %h, expected tag %h opcode %0d meta %b devload %0d", rdv, tag, op, mv, dl));
-endtask
-task automatic g_drs(input logic [15:0] tag, input logic [1:0] mv, input bit po, input logic [511:0] d,
-                     input int dl = 0);
-  logic [63:0] x;
-  for (int b = 0; b < 8; b++) begin
-    poll(A_FLAGS, 1 << FLAG_DRS_AVAIL, 1 << FLAG_DRS_AVAIL, 2000);
-    rd(A_DRS0); x[31:0] = rdv;
-    rd(A_DRS1); x[63:32] = rdv;
-    if (x !== d[64 * b +: 64]) fail($sformatf("DRS beat %0d: %h, expected %h", b, x, d[64 * b +: 64]));
-    rd(A_DRS2);
-    if (rdv[21:0] !== {b == 7, po, 2'(dl), mv, tag})
-      fail($sformatf("DRS beat %0d: %h, expected tag %h meta %b poison %0d devload %0d", b, rdv, tag, mv, po, dl));
-  end
-endtask
+end
 
-// ---------------- transactions against the reference ----------------
-task automatic t_write(input logic [3:0] op, input logic [1:0] mf, input logic [1:0] mv, input logic [2:0] snp,
-                       input bit po, input int off, input logic [511:0] d, input logic [63:0] be);
-  logic [1:0] old;
-  ntag++;
-  w_rwd(op, mf, mv, snp, po, addr_of(off), ntag, d, be);
-  if (op == 4'd1 || op == 4'd2) begin
-    old = in_range(off) ? rmt[off] : 2'b00;
-    if (in_range(off)) begin
-      for (int k = 0; k < 64; k++) if (op == 4'd1 || be[k]) rm[off][8 * k +: 8] = d[8 * k +: 8];
-      rps[off] = po || op == 4'd2 && rps[off];
-      if (eff_mf(mf, snp) == 2'b00) rmt[off] = mv;
-    end
-    g_ndr(ntag, 2'd0, old);
-  end
-endtask
-task automatic t_req(input logic [3:0] op, input logic [1:0] mf, input logic [1:0] mv, input logic [2:0] snp,
-                     input int off);
-  logic [1:0] old, emf;
-  bit         in;
-  ntag++;
-  in = in_range(off);
-  old = in ? rmt[off] : 2'b00;
-  emf = eff_mf(mf, snp);
-  w_req(op, mf, mv, snp, addr_of(off), ntag);
-  case (op)
-    4'd1, 4'd2: begin
-      g_drs(ntag, old, !in || rps[off], in ? rm[off] : 512'd0);
-      if (in && op == 4'd1 && emf == 2'b00) rmt[off] = mv;
-    end
-    4'd0, 4'd9, 4'd10: begin
-      g_ndr(ntag, op != 4'd10 && emf == 2'b00 ? (mv == 2'b11 ? 2'd1 : mv == 2'b10 ? 2'd2 : 2'd0) : 2'd0, old);
-      if (in && emf == 2'b00) rmt[off] = mv;
-    end
-    default: cycles(5);                            // no response
-  endcase
-endtask
-function automatic logic [511:0] rnd_line();
-  logic [511:0] d;
-  for (int i = 0; i < 16; i++) d[32 * i +: 32] = $urandom;
-  return d;
-endfunction
-
-task automatic irq_expect(input int b);
+// after a phase: STATUS, the events seen, then each interrupt bit set is
+// seen masked, driving the pin and cleared; a new random enable mask
+task automatic phase_end(input string ph);
+  int          n;
+  logic [31:0] st;
+  drain(ph);
+  while (apb_lock || bd_q.size() != 0) wait_clk(1);
+  lock();
+  n = 0;
+  for (int l = 0; l < LINES; l++) if (rmt[l] != 2'b00) n++;
+  rd_exp(A_STATUS, n);
   rd(A_IRQ_STATUS);
-  if (!rdv[b]) fail($sformatf("IRQ bit %0d not set (%h)", b, rdv));
+  st = rdv;
+  if (st[7:0] !== ev_mask) fail($sformatf("%s: IRQ_STATUS %h, events %b", ph, st, ev_mask));
+  if (st != 0) begin
+    wr(A_IRQ_ENABLE, 0);
+    if (irq !== 1'b0) fail("irq with every interrupt masked");
+    wr(A_IRQ_ENABLE, IRQ_ALL);
+    cycles(1);
+    if (irq !== 1'b1) fail("no irq with an interrupt pending and enabled");
+    wr(A_IRQ_STATUS, st);
+    rd_exp(A_IRQ_STATUS, 0);
+  end
+  en_cur = $urandom & IRQ_ALL;
+  wr(A_IRQ_ENABLE, en_cur);
+  unlock();
+endtask
+task automatic ptraffic(input int nq, input int nw, input string ph);
+  fork
+    req_driver(nq);
+    rwd_driver(nw);
+  join
+  phase_end(ph);
 endtask
 
 task automatic ip_func;
-  logic [511:0] d;
-  logic [15:0]  t0;
-  for (int l = 0; l < LINES; l++) begin rm[l] = '0; rmt[l] = 2'b00; rps[l] = 0; end
-  wr(A_IRQ_ENABLE, 0);
-  base = 16'h1230;
-  wr(A_CTRL, {16'd0, base});
-  // reset memory, full writes (meta Shared), read back
-  t_req(4'd1, 2'b11, 2'b00, 3'd0, 3);
-  for (int l = 0; l < 4; l++) t_write(4'd1, 2'b00, 2'b11, 3'd0, 0, l, rnd_line(), '1);
-  for (int l = 0; l < 4; l++) t_req(4'd2, 2'b11, 2'b00, 3'd1, l);
-  irq_expect(IRQ_RWD_DONE);
-  irq_expect(IRQ_REQ_DONE);
-  irq_expect(IRQ_NDR_AVAIL);
-  irq_expect(IRQ_DRS_AVAIL);
-  // MemRd with Meta0-State, MemInv to each state, MemClnEvct
-  t_req(4'd1, 2'b00, 2'b10, 3'd0, 0);
-  t_req(4'd0, 2'b00, 2'b11, 3'd2, 0);
-  t_req(4'd0, 2'b00, 2'b10, 3'd2, 1);
-  t_req(4'd9, 2'b00, 2'b00, 3'd0, 2);
-  t_req(4'd10, 2'b00, 2'b10, 3'd0, 3);
-  t_req(4'd8, 2'b00, 2'b10, 3'd0, 3);
-  // partial writes, poison set by a partial write, read, cleared by a full one
-  t_write(4'd2, 2'b11, 2'b00, 3'd0, 0, 1, rnd_line(), {32'h0F0F_00FF, 32'h8001_7E00});
-  t_write(4'd2, 2'b11, 2'b00, 3'd0, 1, 2, rnd_line(), 64'h00FF_0000_0000_FF00);
-  t_req(4'd1, 2'b11, 2'b00, 3'd0, 2);
-  irq_expect(IRQ_POISON_RD);
-  t_write(4'd1, 2'b11, 2'b00, 3'd0, 0, 2, rnd_line(), '0);
-  t_req(4'd1, 2'b11, 2'b00, 3'd0, 2);
-  // errors: out of range, dropped opcodes, reserved fields
-  t_req(4'd1, 2'b00, 2'b11, 3'd0, -1);
-  t_write(4'd1, 2'b00, 2'b11, 3'd0, 0, LINES, rnd_line(), '1);
-  irq_expect(IRQ_ERR_RANGE);
-  t_req(4'd3, 2'b00, 2'b11, 3'd0, 0);
-  t_write(4'd4, 2'b00, 2'b11, 3'd0, 0, 0, rnd_line(), '1);
-  irq_expect(IRQ_ERR_OPCODE);
-  t_req(4'd0, 2'b01, 2'b11, 3'd0, 1);
-  t_req(4'd0, 2'b00, 2'b11, 3'd5, 1);
-  irq_expect(IRQ_ERR_PROTO);
-
-  // a stall: the responses are not read, the Req FIFO fills; DevLoad on
-  // the way out: Light, Light (held in the core), then Severe, Severe,
-  // Moderate, Optimal, Light
-  t0 = ntag + 1;
-  for (int i = 0; i < 7; i++) begin ntag++; w_req(4'd10, 2'b11, 2'b00, 3'd0, addr_of(i), ntag); end
-  cycles(5);
-  wr(A_REQ1, 32'h7FF);                          // REQ full: dropped
-  irq_expect(IRQ_REQ_OVF);
-  rd(A_FLAGS);
-  if (rdv[3:0] !== 4'b0101) fail($sformatf("FLAGS %h in the Req stall", rdv));
-  for (int i = 0; i < 7; i++)
-    g_ndr(t0 + 16'(i), 2'd0, rmt[i], i < 2 ? 0 : i < 4 ? 3 : i == 4 ? 2 : i == 5 ? 1 : 0);
-  // the same for reads (DRS); the first holds the core's DRS until all its
-  // beats are read: Light, then Severe, Severe, Moderate, Optimal, Light
-  t0 = ntag + 1;
-  for (int i = 0; i < 6; i++) begin ntag++; w_req(4'd2, 2'b11, 2'b00, 3'd0, addr_of(i), ntag); end
-  cycles(5);
-  for (int i = 0; i < 6; i++)
-    g_drs(t0 + 16'(i), rmt[i], rps[i], rm[i], i == 0 ? 0 : i < 3 ? 3 : i == 3 ? 2 : i == 4 ? 1 : 0);
-  // a write stall: two completions unread, a MemWr waits in the core, the
-  // next message's first beat waits in RWD, RWD written again: dropped
-  ntag++; w_req(4'd0, 2'b11, 2'b00, 3'd0, addr_of(5), ntag);
-  ntag++; w_req(4'd0, 2'b11, 2'b00, 3'd0, addr_of(6), ntag);
-  d = rnd_line();
-  ntag++; w_rwd(4'd1, 2'b11, 2'b00, 3'd0, 0, addr_of(7), ntag, d, '1);
-  ntag++;
-  wr(A_RWD0, {ntag, addr_of(8)});
-  wr(A_RWD1, d[31:0]);
-  wr(A_RWD2, d[63:32]);
-  wr(A_RWD3, {12'd0, 1'b0, 3'd0, 2'b00, 2'b11, 4'd1, 8'hFF});
-  cycles(5);
-  wr(A_RWD3, 32'hFFFFF);
-  irq_expect(IRQ_RWD_OVF);
-  rd(A_FLAGS);
-  if (rdv[3:0] !== 4'b0110) fail($sformatf("FLAGS %h in the RwD stall", rdv));
-  g_ndr(ntag - 3, 2'd0, rmt[5]);
-  g_ndr(ntag - 2, 2'd0, rmt[6]);
-  g_ndr(ntag - 1, 2'd0, rmt[7]);
-  rm[7] = d;
-  rps[7] = 0;
-  w_rwd(4'd1, 2'b11, 2'b00, 3'd0, 0, addr_of(8), ntag, d, '1, 1);
-  g_ndr(ntag, 2'd0, rmt[8]);
-  rm[8] = d;
-  rps[8] = 0;
-  t_req(4'd1, 2'b11, 2'b00, 3'd0, 7);
-  t_req(4'd1, 2'b11, 2'b00, 3'd0, 8);
-  // reading empty registers
-  rd(A_NDR);
-  rd(A_DRS2);
-
-  // random traffic, the base moved
-  base = 16'hEDCF;
-  wr(A_CTRL, {16'd0, base});
-  for (int i = 0; i < 60; i++) begin : b_rnd
-    int off, r;
-    logic [1:0] mf;
-    logic [2:0] snp;
-    r = $urandom % 100;
-    off = $urandom % 100 < 10 ? 16 + $urandom % 1000 : $urandom % LINES;
-    mf = $urandom % 2 ? 2'b00 : 2'b11;
-    snp = $urandom % 4;
-    if (r < 40) t_write($urandom % 2 ? 4'd1 : 4'd2, mf, $urandom, snp, $urandom % 5 == 0, off, rnd_line(),
-                        {$urandom, $urandom});
-    else if (r < 75) t_req($urandom % 2 ? 4'd1 : 4'd2, mf, $urandom, snp, off);
-    else t_req($urandom % 3 == 0 ? 4'd0 : $urandom % 2 ? 4'd9 : 4'd10, mf, $urandom, snp, off);
-  end
-  ntag = 16'hFF7F;                              // tags with the high bits set
-  t_write(4'd1, 2'b11, 2'b00, 3'd4, 0, 5, rnd_line(), '1);   // reserved SnpType
-  t_write(4'd12, 2'b00, 2'b00, 3'd0, 0, 5, rnd_line(), '1);  // dropped
-  t_req(4'd7, 2'b11, 2'b00, 3'd0, 4);                        // dropped
-  t_req(4'd1, 2'b11, 2'b00, 3'd0, 5);
-  base = 16'h0000;
-  wr(A_CTRL, 0);
-
-  // interrupts: masked, raising irq, cleared one by one
-  rd(A_IRQ_STATUS);
-  if (rdv[9:0] != 10'h3FF) fail($sformatf("IRQ_STATUS %h, expected every bit", rdv));
-  if (irq) fail("irq high with every bit masked");
+  ref_clear();
+  exp_clear();
+  hdm_base = 16'h1230;
+  set_ctrl();
   wr(A_IRQ_ENABLE, IRQ_ALL);
-  if (!irq) fail("irq low with every bit enabled");
-  for (int b = 0; b < 10; b++) wr(A_IRQ_STATUS, 1 << b);
-  rd(A_IRQ_STATUS);
-  if (rdv[9:0] != 0) fail($sformatf("IRQ_STATUS %h after clearing", rdv));
-  if (irq) fail("irq high with nothing pending");
-  // NDR_AVAIL drives the pin
-  wr(A_IRQ_ENABLE, 1 << IRQ_NDR_AVAIL);
-  t_req(4'd0, 2'b11, 2'b00, 3'd0, 0);
-  if (!irq) fail("irq low with NDR_AVAIL pending");
-  wr(A_IRQ_ENABLE, 0);
+  ho_ndr = 2; ho_drs = 2; ho_bis = 1; ho_io = 2;
+  wait_clk(3);
+  // reads of the reset memory
+  p_out = 0;
+  for (int l = 0; l < LINES; l++) begin f_off = l; send_req(4'd2); end
+  f_off = -100;
+  phase_end("reset memory");
+  // HDM-H traffic, three back-pressure modes, moving base, CXL.io both ways
+  for (int m = 0; m < 3; m++) begin
+    tx_mode = m == 2 ? 3 : m;
+    io_rx_mode = m;
+    h_gap = m == 1 ? 0 : 20;
+    h_beat_gap = m == 1 ? 0 : 1;
+    p_out = 10;
+    for (int i = 0; i < 2; i++) begin hio_flit(); dio_flit(); end
+    ptraffic(60, 40, $sformatf("traffic %0d", m));
+    hdm_base = m == 0 ? 16'hFFF8 : 16'h5557;
+    set_ctrl();
+  end
+  tx_mode = 0; io_rx_mode = 0; h_gap = 20; h_beat_gap = 1;
+  // poison set, read, cleared
+  for (int l = 0; l < 2; l++) begin
+    f_off = l;
+    f_po = 1; send_rwd(4'd1); wait_clk(40);
+    send_req(4'd1); wait_clk(40);
+    f_po = 0; send_rwd(4'd1); wait_clk(40);
+  end
+  f_po = -1;
+  phase_end("poison");
+  // the range edges
+  for (int i = 0; i < 2; i++) begin
+    f_off = i == 0 ? -1 : LINES;
+    send_rwd(4'd1); wait_clk(40);
+    send_req(4'd1); wait_clk(40);
+  end
+  f_off = -100;
+  phase_end("range edges");
+  // error flits: bad CRC, reserved type, a skipped sequence number, a
+  // reserved unit code, an RwD header in a second unit
+  for (int e = 1; e <= 5; e++) begin
+    h_err = e;
+    while (h_err != 0) begin
+      if (e >= 3) begin send_req(rnd_req_op()); send_rwd(4'd1); end
+      wait_clk(30);
+    end
+    ptraffic(10, 5, $sformatf("error flit %0d", e));
+  end
+  // Req messages without credit: the FIFO fills, two are dropped
+  tx_mode = 4;
+  wait_clk(20);
+  h_ovf = 1; f_mf = 3;
+  for (int i = 0; i < RQD + 2; i++) begin
+    f_off = i % LINES;
+    send_req(i >= RQD ? 4'd8 : 4'd0);
+  end
+  x_ovf += 2; hc_req += 2;
+  f_off = -100; f_mf = -1;
+  wait_clk(600);
+  h_ovf = 0; tx_mode = 0;
+  phase_end("Req overflow");
+  // every line taken (STATUS reads 16), then given back
+  p_out = 0; f_mf = 0;
+  for (int l = 0; l < LINES; l++) begin f_off = l; f_mv = 2; send_req(4'd0); end
+  phase_end("every line held");
+  for (int l = 0; l < LINES; l++) begin f_off = l; f_mv = 0; send_req(4'd10); end
+  f_off = -100; f_mf = -1; f_mv = -1;
+  phase_end("every line given back");
+  // HDM-DB: evictions, device BI requests, illegal BIRsps
+  bi_en = 1;
+  set_ctrl();
+  for (int m = 0; m < 2; m++) begin
+    tx_mode = m;
+    bi_illegal = m == 1 ? 30 : 0;
+    bi_wb = 30;
+    p_out = 5;
+    bi_req_n = 15;
+    ptraffic(80, 40, $sformatf("HDM-DB %0d", m));
+  end
+  bi_illegal = 0;
+  // BISnpCur and BISnpData on lines held Any or Shared: the host's answer
+  // leaves them Invalid, Shared or Any
+  p_out = 0;
+  for (int i = 0; i < 12; i++) begin
+    f_off = i % 4; f_mf = 0; f_mv = i % 3 == 0 ? 3 : 2;
+    send_req(4'd1);
+    phase_end("line taken");
+    lock();
+    wr(A_BI, {26'd0, 2'(i % 2), 4'(i % 4)});
+    poll(A_FLAGS, 1 << FLAG_BI_FULL, 0, 100);
+    n_bi_acc++;
+    get_bidone();
+    rd(A_BIDONE);                              // empty: the last result again
+    unlock();
+  end
+  f_off = -100; f_mf = -1; f_mv = -1; p_out = 5;
+  phase_end("BISnpCur and BISnpData");
+  // a result captured in the clock BIDONE is popped: one result unread, a
+  // BI request on an Invalid line, then the read at each offset
+  for (int d = 0; d < 8; d++) begin
+    int l;
+    l = -1;
+    for (int k = 0; k < LINES; k++) if (rmt[k] == 2'b00 && l < 0) l = k;
+    lock();
+    wr(A_BI, {26'd0, 2'd2, 4'(l)});
+    poll(A_FLAGS, 1 << FLAG_BIDONE_AVAIL, 1 << FLAG_BIDONE_AVAIL, 100);
+    wr(A_BI, {26'd0, 2'd2, 4'(l)});
+    repeat (d) @(negedge PCLK);
+    apb_now(0, A_BIDONE, 0, 0);
+    cycles(6);
+    rd(A_FLAGS);
+    if (rdv[FLAG_BIDONE_AVAIL]) rd(A_BIDONE);
+    n_bi_acc += 2;
+    bd_q.delete();
+    unlock();
+    phase_end($sformatf("BIDONE pop at offset %0d", d));
+  end
+  // two BI requests completed at once (lines Invalid), BIDONE unread: the
+  // second result is dropped
+  begin : b_bidone_ovf
+    int l1, l2;
+    l1 = -1; l2 = -1;
+    for (int l = 0; l < LINES; l++) if (rmt[l] == 2'b00) begin if (l1 < 0) l1 = l; else if (l2 < 0) l2 = l; end
+    if (l2 < 0) fail("no two lines Invalid");
+    lock();
+    for (int i = 0; i < 2; i++) begin
+      wr(A_BI, {26'd0, 2'd2, 4'(i == 0 ? l1 : l2)});
+      poll(A_FLAGS, 1 << FLAG_BI_FULL, 0, 100);
+      n_bi_acc++;
+    end
+    cycles(4);
+    get_bidone();
+    if (bd_q.size() != 1) fail($sformatf("%0d BI results pending, expected 1", bd_q.size()));
+    bd_q.delete();
+    unlock();
+  end
+  phase_end("BIDONE overflow");
+  // a BI request written with HDM-DB off waits; a second write is dropped;
+  // HDM-DB on lets the first through
+  bi_en = 0;
+  set_ctrl();
+  lock();
+  wr(A_BI, {26'd0, 2'd3, 4'd5});
+  wr(A_BI, {26'd0, 2'd0, 4'd6});
+  cycles(20);
+  rd_exp(A_FLAGS, 1 << FLAG_BI_FULL);
+  unlock();
+  bi_en = 1;
+  set_ctrl();
+  lock();
+  poll(A_FLAGS, 1 << FLAG_BI_FULL, 0, 100);
+  n_bi_acc++;
+  get_bidone();
+  unlock();
+  phase_end("BI while HDM-DB off");
+  bi_en = 0;
+  set_ctrl();
+  tx_mode = 0;
+  ptraffic(30, 20, "HDM-H again");
+  // left pending for the reset at the end: a BI result
+  bi_en = 1;
+  set_ctrl();
+  lock();
+  wr(A_BI, {26'd0, 2'd2, 4'd0});
+  cycles(10);
+  unlock();
 endtask

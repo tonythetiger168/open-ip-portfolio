@@ -2,6 +2,13 @@
   "title": "SPI slave (mode 0, MSB first): a byte shifted in on MOSI while the TX byte shifts out on MISO",
   "code": "0x5350",
   "version": "2.0",
+  "features": [
+    "SPI slave, mode 0 (CPOL = 0, CPHA = 0), MSB first, 8-bit frames.",
+    "MOSI is sampled on each SCLK rising edge while CSn is low; MISO shifts out the TX byte, starting with bit 7.",
+    "CSn high resets the bit counter, so each frame starts on a byte boundary.",
+    "RX reads the receive shift register, which holds a complete byte when IRQ BYTE is set; TX is the byte sent in the next frame and reads back.",
+    "Interrupt BYTE once per received byte."
+  ],
   "tb_clk_ns": 10,
   "regs": [
     {"name": "CORE", "kind": "bus", "wen": "wen", "waddr": "waddr", "wdata": "wdata", "ren": "ren", "raddr": "raddr", "rdata": "rdata",

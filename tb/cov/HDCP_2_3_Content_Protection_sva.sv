@@ -135,6 +135,10 @@ module HDCP_2_3_Content_Protection_sva #(
   logic v_auth, v_auth_rpt, v_pair_bad, v_lc_bad, v_lc_to, v_bad_type, v_msg_to, v_exh,
         v_start_busy, v_restart, v_set_wins, v_backpressure, v_lc_last, v_msg_last;
 
+  logic         c_w, c_tx, c_stall, tx_waited;
+  logic [3:0]   c_wst, c_txt;
+  logic [1:0]   c_out;
+  initial begin c_w = 0; c_tx = 0; c_stall = 0; tx_waited = 0; c_wst = 0; c_txt = 0; c_out = 0; end
   wire w8 = (st == AKE_CERT) || (st == PAIR_RX) || (st == LC_WAIT) || (st == RPT_WAIT);
   wire m_txv  = (st == AKE_INIT) || (st == PAIR_TX) || (st == LC_TX) || (st == SKE_TX);
   wire m_pixr = (st == AUTH) && !exh && (!m_ev || enc_ready);
@@ -203,6 +207,19 @@ module HDCP_2_3_Content_Protection_sva #(
                   else wc--;
         default: ;
       endcase
+      // coverage samples: outcome of each wait state, each sent message
+      c_w = 0; c_tx = 0;
+      if ((o_st == AKE_CERT || o_st == PAIR_RX || o_st == LC_WAIT || o_st == RPT_WAIT) &&
+          (rxm_valid || st == IDLE)) begin
+        c_w = 1; c_wst = 4'(o_st);
+        c_out = bad ? 2'd2 : !rxm_valid ? 2'd1 : (st == IDLE) ? 2'd3 : 2'd0;
+      end
+      if ((o_st == AKE_INIT || o_st == PAIR_TX || o_st == LC_TX || o_st == SKE_TX) && txm_ready) begin
+        c_tx = 1; c_stall = tx_waited;
+        c_txt = (o_st == AKE_INIT) ? 4'd2 : (o_st == PAIR_TX) ? 4'd4 : (o_st == LC_TX) ? 4'd9 : 4'd11;
+      end
+      tx_waited = (st == AKE_INIT || st == PAIR_TX || st == LC_TX || st == SKE_TX) &&
+                  st == o_st;
       if (reg_we && reg_addr == 3'd0 && reg_wdata[2] && err != 0) v_set_wins = 1;
       // pixel pipeline (old state)
       if (o_st == AUTH) begin
@@ -253,6 +270,33 @@ module HDCP_2_3_Content_Protection_sva #(
   `SVA_NXT(a_enc_held_under_backpressure, enc_valid && !enc_ready, enc_valid && $stable(enc_data))
 
   // ---------------- functional coverage ----------------
+  // outcome of every wait state (answered, timed out, unexpected message
+  // type, answer rejected), every sent message type with / without a
+  // ready stall, key byte written per index, register read per address,
+  // pixel data classes. Sampled at the falling edge from model values.
+  covergroup cg_auth @(negedge clk);
+    option.per_instance = 1;
+    cp_wait: coverpoint {c_wst, c_out} iff (rst_n && c_w)
+      { bins cert_ok = {{4'(AKE_CERT), 2'd0}}; bins cert_timeout = {{4'(AKE_CERT), 2'd1}};
+        bins cert_bad_type = {{4'(AKE_CERT), 2'd2}};
+        bins pair_ok = {{4'(PAIR_RX), 2'd0}}; bins pair_timeout = {{4'(PAIR_RX), 2'd1}};
+        bins pair_bad_type = {{4'(PAIR_RX), 2'd2}}; bins pair_mismatch = {{4'(PAIR_RX), 2'd3}};
+        bins lc_ok = {{4'(LC_WAIT), 2'd0}}; bins lc_timeout = {{4'(LC_WAIT), 2'd1}};
+        bins lc_bad_type = {{4'(LC_WAIT), 2'd2}}; bins lc_mismatch = {{4'(LC_WAIT), 2'd3}};
+        bins rpt_ok = {{4'(RPT_WAIT), 2'd0}}; bins rpt_timeout = {{4'(RPT_WAIT), 2'd1}};
+        bins rpt_bad_type = {{4'(RPT_WAIT), 2'd2}}; }
+    cp_txt: coverpoint c_txt iff (rst_n && c_tx)
+      { bins ake_init = {2}; bins pairing = {4}; bins lc_init = {9}; bins ske = {11}; }
+    cp_stall: coverpoint c_stall iff (rst_n && c_tx) { bins direct = {0}; bins stalled = {1}; }
+    x_tx: cross cp_txt, cp_stall;
+    cp_kidx: coverpoint idx iff (rst_n && reg_we && reg_addr == 3'd5);
+    cp_rreg: coverpoint reg_addr iff (rst_n && !reg_we) { bins r[] = {[0:7]}; }
+    cp_pix: coverpoint (pix_data == 0 ? 2'd0 : pix_data == '1 ? 2'd1 : 2'd2)
+            iff (rst_n && pix_valid && m_pixr)
+      { bins zero = {0}; bins ones = {1}; bins other = {2}; }
+  endgroup
+  cg_auth u_cg_auth = new;
+
   `FC(authenticated, v_auth)
   `FC(authenticated_via_repeater, v_auth_rpt)
   `FC(pairing_ack_mismatch, v_pair_bad)

@@ -53,6 +53,10 @@ module UALink_sva #(
   bit v_rd [0:7], v_wr [0:7], v_add, v_swp, v_cas_hit, v_cas_miss, v_bad_cmd, v_bad_align, v_bad_atlen, v_ur_rd, v_ur_wr;
   bit v_ur_at, v_be_part, v_rd_wait, v_wr_wait, v_at_wait, v_data_wait, v_last_early, v_last_missing, v_nocrd_req;
   bit v_nocrd_od, v_over_rd, v_over_wr, v_q_full, v_d_full, v_data_ahead, v_add_carry;
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  bit c_tv, c_wv, c_rv;
+  int c_cmd, c_st, c_w, c_len;
+  logic [63:0] c_wd, c_rd;
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -67,6 +71,7 @@ module UALink_sva #(
       bit qpop, dpop;
       {o_rd, o_wr, o_err, o_proto, o_qc, o_dc} = '0;
       nq0 = q.size(); nd0 = d.size(); qpop = 0; dpop = 0;
+      {c_tv, c_wv, c_rv} = '0;
       if (nq0 == RQ) v_q_full = 1;
       if (nd0 == DQ) v_d_full = 1;
       // ---- execution
@@ -80,6 +85,7 @@ module UALink_sva #(
           bad = cmd > 4 || r[5:3] != 0 || at && len != 0;
           stat = bad ? 2 : int'(r[18:6]) + (at ? 0 : len) >= MW ? 1 : 0;
           w = int'(r[18:6]) % MW;
+          c_tv = 1; c_cmd = cmd > 4 ? 5 : cmd; c_st = stat; c_w = w; c_len = len;
           if (cmd > 4) v_bad_cmd = 1;
           else if (r[5:3] != 0) v_bad_align = 1;
           else if (at && len != 0) v_bad_atlen = 1;
@@ -98,6 +104,7 @@ module UALink_sva #(
           if (cmd == 1 && stat == 0) begin
             for (int k = 0; k < 8; k++) if (b[1 + k]) m[w + beat][8*k +: 8] = b[9 + 8*k +: 8];
             if (b[8:1] != 8'hFF && b[8:1] != 8'h00) v_be_part = 1;
+            if (b[8:1] == 8'hFF) begin c_wv = 1; c_wd = b[72:9]; end
           end
           if (beat < 2) op[beat] = b[72:9];
           beat++; left--;
@@ -107,6 +114,7 @@ module UALink_sva #(
           hr--;
           o_rd = 1; o_rt = tag; o_rs = stat; o_err = stat != 0;
           o_rdat = stat == 0 ? m[w + beat] : 0;
+          if (stat == 0) begin c_rv = 1; c_rd = o_rdat; end
           o_rl = stat != 0 || beat == len;
           if (stat == 0 && beat == len) v_rd[len] = 1;
           beat++;
@@ -161,6 +169,26 @@ module UALink_sva #(
   `SVA_RST(a_reset, !rst_n, !req_crd && !od_crd && !rd_valid && !wr_valid && !ev_err && !ev_proto)
 
   // ---------------- functional coverage ----------------
+  function automatic int dcls(input logic [63:0] v);
+    return v == 64'd0 ? 0 : v == '1 ? 1 : (v == {32{2'b01}} || v == {32{2'b10}}) ? 2 : 3;
+  endfunction
+  covergroup cg_ualink @(negedge clk);
+    option.per_instance = 1;
+    cp_req: coverpoint c_cmd * 4 + c_st iff (rst_n && c_tv)
+      { bins rd_ok = {0}; bins rd_ur = {1}; bins rd_bad = {2}; bins wr_ok = {4}; bins wr_ur = {5}; bins wr_bad = {6};
+        bins add_ok = {8}; bins add_ur = {9}; bins add_bad = {10}; bins swp_ok = {12}; bins swp_ur = {13};
+        bins swp_bad = {14}; bins cas_ok = {16}; bins cas_ur = {17}; bins cas_bad = {18}; bins unknown = {22}; }
+    cp_rw: coverpoint c_cmd iff (rst_n && c_tv && c_st == 0 && c_cmd < 2) { bins rd = {0}; bins wr = {1}; }
+    cp_len: coverpoint c_len iff (rst_n && c_tv && c_st == 0 && c_cmd < 2) { bins l[] = {[0:7]}; }
+    x_len: cross cp_rw, cp_len;
+    cp_word: coverpoint c_w iff (rst_n && c_tv && c_st == 0) { bins w[] = {[0:MW-1]}; }
+    cp_wdata: coverpoint dcls(c_wd) iff (rst_n && c_wv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rdata: coverpoint dcls(c_rd) iff (rst_n && c_rv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_ualink u_cg_ualink = new;
+
   `FC(read_1_beats, v_rd[0])
   `FC(read_2_beats, v_rd[1])
   `FC(read_3_beats, v_rd[2])

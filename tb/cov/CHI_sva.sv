@@ -50,6 +50,10 @@ module CHI_sva #(
   bit v_comp_first, v_both_busy, v_interleave, v_bad_op, v_bad_dbid, v_bad_id, v_dup_id, v_nocrd_req, v_nocrd_dat;
   bit v_cr15, v_rsp_starve, v_dat_starve, v_q_full, v_be_part, v_be_none, v_both_comp;
   int last_s = -1;
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  bit c_qv, c_qin, c_wv, c_dv;
+  int c_qk, c_qln, c_wid, c_did;
+  logic [127:0] c_wd, c_rd;
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -67,6 +71,7 @@ module CHI_sva #(
       int          hs, hln, hd0, hnb, cslot, wfree;
       {m_rl, m_dl, m_rv, m_dv, m_err, m_pro} = '0;
       push = 0; pop = 0;
+      {c_qv, c_wv, c_dv} = '0;
       o_cr = cr; o_cd = cd;
       if (cr == 15) v_cr15 = 1;
       if (txrsplcrdv) cr = (cr + 1) % 16;
@@ -108,6 +113,7 @@ module CHI_sva #(
         else begin : b_wr
           bit all;
           wgot[s][id] = 1;
+          if (!werr[s] && rxdatflit[143:128] == 16'hFFFF) begin c_wv = 1; c_wid = id; c_wd = rxdatflit[127:0]; end
           if (last_s >= 0 && last_s != s) v_interleave = 1;
           last_s = s;
           if (rxdatflit[143:128] == 16'hFFFF) ; else if (rxdatflit[143:128] == 0) v_be_none = 1; else v_be_part = 1;
@@ -139,6 +145,7 @@ module CHI_sva #(
       if (rspg) begin
         cr--;
         m_rv = 1;
+        c_qv = !hrd; c_qin = hin; c_qln = hln; c_qk = hwr ? (hop == 6'h1D ? 1 : 0) : 2;
         if (hrd) begin
           m_rf = {hd[40:26], 4'h8, 2'b00, 8'h00};
           rc = 1;
@@ -167,6 +174,8 @@ module CHI_sva #(
         id = (hd0 + bt) % 4;
         for (int b = 0; b < 16; b++) d[8 * b +: 8] = hin && hs != 7 ? mb[hln * 64 + id * 16 + b] : 8'h00;
         m_dv = 1;
+        if (bt == 0) begin c_qv = 1; c_qin = hin && hs != 7; c_qln = hln; c_qk = 3; end
+        if (hin && hs != 7) begin c_dv = 1; c_did = id; c_rd = d; end
         m_df = {hd[40:26], hs == 7 ? 2'b11 : hin ? 2'b00 : 2'b10, 2'(id), d};
         if (bt == 0 && (!hin || hs == 7)) begin m_err = 1; v_derr_rd = 1; end
         bt++;
@@ -192,6 +201,26 @@ module CHI_sva #(
   `SVA_RST(a_reset, !rst_n, !rxreqlcrdv && !rxdatlcrdv && !txrspflitv && !txdatflitv && !ev_err && !ev_proto)
 
   // ---------------- functional coverage ----------------
+  function automatic int dcls(input logic [127:0] v);
+    return v == 128'd0 ? 0 : v == '1 ? 1 : (v == {64{2'b01}} || v == {64{2'b10}}) ? 2 : 3;
+  endfunction
+  covergroup cg_chi @(negedge clk);
+    option.per_instance = 1;
+    cp_req: coverpoint c_qk iff (rst_n && c_qv)
+      { bins write_ptl = {0}; bins write_full = {1}; bins unsupported = {2}; bins read = {3}; }
+    cp_range: coverpoint c_qin iff (rst_n && c_qv) { bins in_range = {1}; bins out_of_range = {0}; }
+    x_req: cross cp_req, cp_range { ignore_bins na = binsof(cp_req.unsupported); }
+    cp_rline: coverpoint c_qln iff (rst_n && c_qv && c_qk == 3 && c_qin) { bins l[] = {[0:LINES-1]}; }
+    cp_wline: coverpoint c_qln iff (rst_n && c_qv && c_qk < 2 && c_qin) { bins l[] = {[0:LINES-1]}; }
+    cp_wid: coverpoint c_wid iff (rst_n && c_wv) { bins d[] = {[0:3]}; }
+    cp_wdata: coverpoint dcls(c_wd) iff (rst_n && c_wv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rid: coverpoint c_did iff (rst_n && c_dv) { bins d[] = {[0:3]}; }
+    cp_rdata: coverpoint dcls(c_rd) iff (rst_n && c_dv)
+      { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_chi u_cg_chi = new;
+
   `FC(read_size_0, v_rd_size[0])
   `FC(read_size_4, v_rd_size[4])
   `FC(read_size_5, v_rd_size[5])

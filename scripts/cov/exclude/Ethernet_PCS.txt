@@ -1,0 +1,3 @@
+TOGGLE \.tfill\[6\]: # constant 0: an exhaustive search of the transmit gearbox states (fill +257 a block, -640 a beat, -40 the last beat of a pair, never 1024 or more) reaches 0..937 with bit 6 always clear
+TOGGLE \.tfill_e\[6\]: # constant 0: tfill_e is tfill less 0, 40 or 640, among the same reachable levels (bit 6 always clear)
+TOGGLE \.(a|b)_eres: # constant 0: the encoders are fed whole pairs from the gearbox, so e_in_first never comes in the middle of a codeword (ev_eresync is for the RS-FEC IP used on its own)

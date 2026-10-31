@@ -658,6 +658,13 @@ module eUSB2_tb;
 `endif
     // ---- coverage-closure scenarios (both simulators) ---------------
     extra_tests;
+    // every register with each data class, read back, then defaults again
+    for (int a = 0; a < 8; a++) begin
+      ctrl_write(3'(a), 8'h55, 1'b0); ctrl_read(3'(a), 8'h55);
+      ctrl_write(3'(a), 8'hAA, 1'b0); ctrl_read(3'(a), 8'hAA);
+      ctrl_write(3'(a), 8'hFF, 1'b0); ctrl_read(3'(a), 8'hFF);
+      ctrl_write(3'(a), a == 0 ? 8'd8 : 8'd0, 1'b0);
+    end
 
     // ---- summary -----------------------------------------------------
     if (errors == 0)

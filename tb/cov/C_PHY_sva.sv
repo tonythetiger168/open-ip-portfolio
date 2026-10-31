@@ -168,6 +168,44 @@ module C_PHY_sva (
   `SVA_INV(a_rx_active, rx_active == (r_ph == SYNC || r_ph == DATA || r_ph == POST))
 
   // ---------------- coverage ----------------
+  // symbol x position in the word on both sides, word classes both
+  // ways, words per TX burst (registered on the rising edge, sampled on
+  // the falling one)
+  function automatic int dcls(input logic [15:0] v);
+    return v == 16'h0 ? 0 : (v == 16'hFFFF ? 1 : (v == 16'h5555 || v == 16'hAAAA ? 2 : 3));
+  endfunction
+  logic        c_ts, c_rs, c_tw, c_rw, c_bd;
+  logic [2:0]  c_tsym, c_rsym;
+  int          c_tpos, c_rpos, nw, c_bn;
+  logic [15:0] c_twv, c_rwv;
+  always_ff @(posedge clk or negedge rst_n)
+    if (!rst_n) begin
+      {c_ts, c_rs, c_tw, c_rw, c_bd} <= '0; c_tsym <= 0; c_rsym <= 0; c_tpos <= 0; c_rpos <= 0;
+      nw <= 0; c_bn <= 0; c_twv <= 0; c_rwv <= 0;
+    end else begin
+      c_ts <= t_ph == DATA && t_tran && !(t_cnt == 6 && t_wv >= 65536);
+      c_tsym <= t_sym; c_tpos <= t_cnt;
+      c_rs <= r_ph == DATA && r_tran && !r_err && !r_post;
+      c_rsym <= r_sym; c_rpos <= r_cnt;
+      c_tw <= t_word; c_twv <= t_wv[15:0];
+      c_rw <= r_word; c_rwv <= r_wv[15:0];
+      if (t_enter) nw <= 0; else if (t_word) nw <= nw + 1;
+      c_bd <= t_done; c_bn <= nw;
+    end
+  covergroup cg_trio @(negedge clk);
+    option.per_instance = 1;
+    cp_tsym: coverpoint c_tsym iff (rst_n && c_ts) { bins s[] = {[0:4]}; }
+    cp_tpos: coverpoint c_tpos iff (rst_n && c_ts) { bins p[] = {[0:6]}; }
+    x_tsym_pos: cross cp_tsym, cp_tpos;
+    cp_rsym: coverpoint c_rsym iff (rst_n && c_rs) { bins s[] = {[0:4]}; }
+    cp_rpos: coverpoint c_rpos iff (rst_n && c_rs) { bins p[] = {[0:6]}; }
+    x_rsym_pos: cross cp_rsym, cp_rpos;
+    cp_twd: coverpoint dcls(c_twv) iff (rst_n && c_tw) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_rwd: coverpoint dcls(c_rwv) iff (rst_n && c_rw) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    cp_burst: coverpoint c_bn iff (rst_n && c_bd) { bins one = {1}; bins few = {[2:7]}; bins many = {[8:1023]}; }
+  endgroup
+  cg_trio u_cg_trio = new;
+
   `FC(tx_word_continues, f_multi)
   `FC(tx_underrun_ends_burst, f_underrun)
   `FC(tx_new_word_waiting_at_done, f_b2b)

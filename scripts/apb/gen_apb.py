@@ -11,7 +11,9 @@ Writes
                           IP-specific task ip_func() from tb/apb/<P>_apb_func.svh
   tb/cov/<P>_apb_sva.sv   checker bound into the wrapper (register model, SVA, FC)
   syn/<P>_apb_yosys.ys    synthesis script of core + wrapper
-  docs/ip/<P>.md          IP page: overview, pins, register map, verification
+  docs/ip/<P>.md          IP page: summary, overview, parameters, pins, register
+                          map, fields, interrupts, programming sequence, coverage
+  docs/ip/README.md       index of the pages (with --all)
 
 Register map (32-bit words, PADDR[11:0], byte addresses):
   0x000 ID          RO   {code[15:0], major[7:0], minor[7:0]}
@@ -23,6 +25,7 @@ Register map (32-bit words, PADDR[11:0], byte addresses):
 
 Spec ("regs" entries, ports are core ports):
   {"name", "kind": "rw",  "fields": [port | {"port", "reset", "desc"}]}  core inputs
+      ("secret": true: write-only, reads 0, e.g. a key)
   {"name", "kind": "ro",  "fields": [port | {"port", "desc"}]}           core outputs
   {"name", "kind": "cmd", "fields": [...]}   1-bit core inputs, write-1 pulses one clock
   {"name", "kind": "stream_in",  "data", "valid", ["ready"]}   core input stream:
@@ -47,6 +50,8 @@ Spec ("regs" entries, ports are core ports):
   "tie": {port: "value"}               core inputs tied off
   "pins": [ports]                      mapped core outputs that also drive
                                        wrapper pins (e.g. read in STATUS)
+  "features": [lines], "notes": [lines], "sequence": [lines], "verification": [lines]
+                                       doc-only text for docs/ip/<P>.md
   "irq_at_reset": [irq names]          irqs a continuously running core may set
                                        as soon as reset ends (the TB allows them)
 Every other core port passes through to the wrapper unchanged. The core clock
@@ -115,6 +120,7 @@ class Word:
     def __init__(self, name, kind, reg=None, desc=""):
         self.name, self.kind, self.reg, self.desc = name, kind, reg, desc
         self.fields, self.off, self.last = [], 0, True
+        self.secret = False
 
     @property
     def wb(self):
@@ -194,7 +200,10 @@ def layout(spec, width, dirn):
                 if k == "cmd":
                     assert width[f["port"]] == 1, f
                 mapped.add(f["port"])
-            words += pack(r["name"], k, fl, width, r.get("desc", ""))
+            ws = pack(r["name"], k, fl, width, r.get("desc", ""))
+            for w in ws:
+                w.secret = k == "rw" and bool(r.get("secret"))
+            words += ws
         elif k in ("stream_in", "stream_out"):
             exp = "input" if k == "stream_in" else "output"
             dports = data_ports(r)
@@ -531,6 +540,8 @@ def gen_rtl(P, spec, core):
         elif w.kind == "scratch":
             v = "scratch"
         elif w.kind == "rw":
+            if w.secret:
+                continue                     # write-only: reads 0
             v = f"32'(r_{w.name})"
         elif w.kind == "cmd":
             continue
@@ -556,10 +567,13 @@ def gen_rtl(P, spec, core):
 
 def main():
     args = sys.argv[1:]
-    if args == ["--all"]:
+    full = args == ["--all"]
+    if full:
         args = sorted(f[:-5] for f in os.listdir(SPEC_DIR) if f.endswith(".json"))
-    for P in args:
-        gen_one(P)
+    done = [gen_one(P) for P in args]
+    if full:
+        import gen_apb_tb
+        open(os.path.join(ROOT, "docs", "ip", "README.md"), "w").write(gen_apb_tb.gen_index(done))
 
 
 def gen_one(P):
@@ -585,7 +599,7 @@ def gen_one(P):
         mtxt = mtxt.replace("\nclean:", "\napb:\n"
             "\t$(SIM) $(VFLAGS) -I tb -o simv_apb rtl/$(S)_top.sv $(DEPS) rtl/$(S)_apb.sv tb/$(S)_apb_tb.sv\n"
             "\t./simv_apb\n"
-            "\tcd work && $(SYN) ../syn/$(S)_apb_yosys.ys\n\nclean:")
+            "\tmkdir -p work && cd work && $(SYN) ../syn/$(S)_apb_yosys.ys\n\nclean:")
         mtxt = mtxt.replace("rm -f simv ", "rm -f simv simv_apb ")
         mtxt = mtxt.replace(".PHONY: all sim syn clean", ".PHONY: all sim syn apb clean")
         files[f"Makefile.{P}"] = mtxt
@@ -593,6 +607,7 @@ def gen_one(P):
         os.makedirs(os.path.dirname(os.path.join(ROOT, f)), exist_ok=True)
         open(os.path.join(ROOT, f), "w").write(txt)
     print(f"{P}: {len(words)} words, {len(irqb)} irq bits, {len(pt)} pass-through pins")
+    return P, spec, len(words), len(irqb)
 
 
 if __name__ == "__main__":

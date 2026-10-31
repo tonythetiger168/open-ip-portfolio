@@ -31,6 +31,18 @@ files into the DUT and scores the run with `scripts/cov/score.py`:
   that never fires counts as an SVA hole. `fc_*` cover properties make up the
   functional coverage.
 
+Every core checker also has at least one covergroup, and every bin counts
+toward the functional metric. The covergroups cover the transaction space
+rather than single events: command or packet kind crossed with length,
+outcome or response, address and position corners, and data classes (all
+zeros, all ones, alternating 0x55 / 0xAA, other) in both directions. The
+covergroups sample model state, or registered copies set at the clock, at
+the next negedge. Where random traffic cannot reach a bin, the testbench has
+a directed block for it, outside any `ifdef VERILATOR`, so iverilog runs it
+too. Bound covergroups only sample the first instance of a module under
+Verilator, so directed traffic in a two-instance testbench goes through
+instance 0.
+
 `RESULT: CLOSED` means the test printed `TEST PASSED`, no assertion failed,
 and all five metrics are at 100% after exclusions.
 
@@ -43,16 +55,54 @@ partially-encoded enum, a tie-off that is constant by construction, and the
 upper bits of a counter whose largest load is below the next power of two.
 FSM, SVA and functional coverage have no exclusions.
 
-Totals: 110 line points out of 11516 and 3765 toggle points out of 127254
-for the cores; 455 toggle points out of 92640 for the wrappers.
+Totals: 125 line points out of 13509 and 4558 toggle points out of 181566
+for the cores; 503 toggle points out of 113538 for the wrappers.
 
-* Of the 3765 core toggle exclusions, 3675 are in the 24 memory controllers.
+Verilator leaves signals wider than 256 bits out of toggle coverage by
+default. An IP with wider buses (UCIe: 544-bit flits, Ethernet_RS_FEC:
+320-bit beats and the 460-bit riBM registers) raises the limit in
+`scripts/cov/flags/<P>.txt`, which `run_cov.sh` passes to Verilator for the
+core and wrapper runs, so those bits are scored too.
+
+* Of the 3925 core toggle exclusions, 3675 are in the 24 memory controllers.
   Each bank keeps its own timing counters (tRP, tRAS, tRC, tRFC, tREFI), and
   the top bits of every one of them are constant because the largest load
   fits in fewer bits. One regex line in the exclusion file covers each
   counter, so a few lines expand to hundreds of points: HBM 502, LPDDR5 404
   and LPDDR6 372 are the largest. The address bits above the 14-bit row and
   8-bit column are also excluded, and so are the tied Hi-Z strobe pins.
+* The 7 UCIe line exclusions are the body of a constant function that
+  builds the parallel CRC network once at elaboration; Verilator counts its
+  lines, but no simulation clock ever runs them.
+* The 134 ML_KEM toggle exclusions are bits of the buffer addresses,
+  lengths and constants (rates, domain bytes, du / dv, 12 k) that are the
+  same for all three parameter sets: every field is a whole number of
+  32-byte blocks and the lengths are fixed by FIPS 203. Its 3 line
+  exclusions are defensive `default:` items.
+* The 8 Ethernet_PCS toggle exclusions: bit 6 of the transmit gearbox
+  fill level (and of the level after a beat leaves) is never set, as an
+  exhaustive search of the gearbox states shows
+  (`scripts/formal/exhaust_ethpcs.py`); and the encoders' realignment
+  events, which the PCS cannot cause (it feeds them whole pairs).
+* Ethernet_PCS uses two Ethernet_RS_FEC cores. They are compiled into its
+  run but not scored there (`COVLIB` in `Makefile.Ethernet_PCS`): the
+  RS-FEC is closed by its own run.
+* The Root_of_Trust line exclusion is the `default:` item of its control
+  state machine: it can only be reached through a fault in the state
+  register, and it raises alert 7 and stops the core.
+* The 615 ML_DSA toggle exclusions are bits of values fixed by the FIPS 204
+  parameter sets (k, l, eta, gamma1, gamma2, beta, tau, omega and the byte
+  lengths and buffer addresses derived from them, the hash areas and
+  rates, the polynomial slot groups), and the high bits of the Sign attempt
+  counter and of kappa: 8 or more attempts need a rare message and about
+  0.4M clocks each, while the retry path is covered with up to 4 attempts.
+  Its 4 line exclusions are three defensive `default:` items and zeta
+  index 0, which the NTT never uses. The wrapper excludes the same attempt
+  counter bits (26 points).
+* The 10 SHA3 toggle exclusions are constant bits: the domain byte is
+  0x06 (SHA3) or 0x1F (SHAKE), so bits 1 and 2 never fall and bits 5-7
+  never rise; and bit 1 of the last rate lane (17, 16, 12, 8, 20 or 16) is
+  always clear.
 * The wrapper exclusions are only the core's constant pins, seen again at
   the wrapper's pass-through ports.
 * Verilator does not score toggles inside unpacked memory arrays, such as a
@@ -61,138 +111,149 @@ for the cores; 455 toggle points out of 92640 for the wrappers.
 
 ## Results
 
-Regression run on 2026-10-23, seed 1 (`scripts/cov/run_all.sh 4`, 242 runs,
-all closed). The tables come from `python3 scripts/cov/report.py`.
+Regression run on 2026-10-24, seed 1 (`scripts/cov/run_all.sh 4`, 242 runs,
+all closed), with the PCIe, UCIe, ML_KEM and Ethernet_RS_FEC rows (core and
+wrapper) re-run on 2026-10-28 after their v3.0 / v1.0 changes, ML_KEM
+again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
+2026-10-29, and SHA3, AES_GCM and ML_DSA added on 2026-10-30. The tables come from
+`python3 scripts/cov/report.py`.
 
 ### Cores
 
-121/121 closed.
+128/128 closed.
 
 | IP | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
-| ACE | 59/61 (+2 excl.) | 1122/1128 (+6 excl.) | 17/17 | 16/16 | 42/42 | pass |
-| ACE_Lite | 40/41 (+1 excl.) | 588/592 (+4 excl.) | 10/10 | 15/15 | 51/51 | pass |
-| AHB | 26/28 (+2 excl.) | 298/298 | 6/6 | 12/12 | 23/23 | pass |
-| APB | 21/21 | 288/288 | 6/6 | 14/14 | 19/19 | pass |
-| ARM_Local_Translation_Interface | 51/51 | 2122/2122 | 6/6 | 5/5 | 22/22 | pass |
-| ARM_Q_Channel_Low_Power_Interface | 26/27 (+1 excl.) | 34/34 | 14/14 | 9/9 | 9/9 | pass |
-| ARM_Serial_Wire_Debug | 95/95 | 552/552 | 23/23 | 6/6 | 42/42 | pass |
-| ATB | 8/8 | 217/218 (+1 excl.) | n/a | 8/8 | 19/19 | pass |
-| AVSBus__Adaptive_Voltage_Scaling_ | 50/51 (+1 excl.) | 352/352 | 12/12 | 5/5 | 11/11 | pass |
-| AXI | 59/60 (+1 excl.) | 650/650 | 10/10 | 16/16 | 63/63 | pass |
-| AXI4 | 58/59 (+1 excl.) | 690/690 | 10/10 | 16/16 | 64/64 | pass |
-| AXI4_Lite | 38/39 (+1 excl.) | 506/510 (+4 excl.) | 10/10 | 13/13 | 18/18 | pass |
-| AXI_Stream | 5/5 | 172/172 | n/a | 6/6 | 16/16 | pass |
-| Avalon_MM | 50/51 (+1 excl.) | 338/338 | 7/7 | 15/15 | 31/31 | pass |
-| Avalon_ST | 4/4 | 170/170 | n/a | 6/6 | 16/16 | pass |
-| Bluetooth5 | 140/140 | 1316/1316 | 24/24 | 7/7 | 24/24 | pass |
-| CAN | 162/162 | 1379/1402 (+23 excl.) | 21/21 | 11/11 | 84/84 | pass |
-| CCIX_Cache_Coherent_Interconnect | 115/115 | 606/606 | 29/29 | 5/5 | 46/46 | pass |
-| CHI | 53/53 | 1492/1492 | n/a | 5/5 | 31/31 | pass |
-| CPRI_v8_0__eCPRI_over_CPR_ | 244/244 | 634/634 | 7/7 | 6/6 | 27/27 | pass |
-| CSE | 182/182 | 1386/1386 | 8/8 | 5/5 | 8/8 | pass |
-| CSI_2 | 53/53 | 508/520 (+12 excl.) | 23/23 | 8/8 | 27/27 | pass |
-| CXL | 64/64 | 1416/1416 | n/a | 6/6 | 56/56 | pass |
-| CXS_CCIX_Stream_Interface | 81/81 | 1244/1244 | 14/14 | 4/4 | 25/25 | pass |
-| C_PHY | 87/89 (+2 excl.) | 306/306 | 24/24 | 13/13 | 22/22 | pass |
-| Crypto___Security_Engine | 111/112 (+1 excl.) | 2982/2982 | 11/11 | 8/8 | 23/23 | pass |
-| DDR | 88/91 (+3 excl.) | 576/602 (+26 excl.) | 24/24 | 24/24 | 22/22 | pass |
-| DDR4 | 93/97 (+4 excl.) | 740/858 (+118 excl.) | 24/24 | 24/24 | 23/23 | pass |
-| DDR4_Lite | 158/161 (+3 excl.) | 2272/2330 (+58 excl.) | 43/43 | 31/31 | 26/26 | pass |
-| DDR5 | 105/108 (+3 excl.) | 1134/1346 (+212 excl.) | 24/24 | 25/25 | 25/25 | pass |
-| DDR6 | 88/91 (+3 excl.) | 1064/1236 (+172 excl.) | 21/21 | 24/24 | 24/24 | pass |
-| DDR7 | 122/125 (+3 excl.) | 1702/1858 (+156 excl.) | 31/31 | 25/25 | 29/29 | pass |
-| DFI_5_0__MC_PHY_Interface_ | 53/53 | 788/788 | 14/14 | 7/7 | 25/25 | pass |
-| DSI | 144/145 (+1 excl.) | 1218/1218 | 41/41 | 11/11 | 24/24 | pass |
-| D_PHY | 157/157 | 282/282 | 89/89 | 15/15 | 38/38 | pass |
-| DigRF | 172/172 | 748/748 | 15/15 | 19/19 | 36/36 | pass |
-| DisplayPort2 | 219/219 | 500/500 | 81/81 | 11/11 | 27/27 | pass |
-| Ethernet | 75/75 | 726/726 | 33/33 | 8/8 | 22/22 | pass |
-| Ethernet_AVB_TSN | 61/61 | 2336/2336 | n/a | 11/11 | 31/31 | pass |
-| FC | 160/160 | 720/720 | 17/17 | 10/10 | 42/42 | pass |
-| FlexRay | 147/147 | 2312/2312 | 40/40 | 8/8 | 47/47 | pass |
-| GDDR5 | 100/104 (+4 excl.) | 1042/1364 (+322 excl.) | 24/24 | 25/25 | 24/24 | pass |
-| GDDR6 | 99/103 (+4 excl.) | 1064/1274 (+210 excl.) | 24/24 | 24/24 | 26/26 | pass |
-| GDDR7 | 101/105 (+4 excl.) | 1090/1292 (+202 excl.) | 24/24 | 26/26 | 40/40 | pass |
-| GDDR7_Lite | 188/191 (+3 excl.) | 3530/3596 (+66 excl.) | 43/43 | 32/32 | 29/29 | pass |
-| GMII | 17/17 | 614/616 (+2 excl.) | n/a | 7/7 | 7/7 | pass |
-| GPIO | 11/11 | 122/122 | n/a | 4/4 | 12/12 | pass |
-| HBM | 88/92 (+4 excl.) | 1676/2178 (+502 excl.) | 24/24 | 24/24 | 23/23 | pass |
-| HBM2 | 86/90 (+4 excl.) | 1166/1188 (+22 excl.) | 24/24 | 24/24 | 22/22 | pass |
-| HBM3 | 88/92 (+4 excl.) | 1564/1586 (+22 excl.) | 24/24 | 24/24 | 23/23 | pass |
-| HBM3E | 111/115 (+4 excl.) | 2382/2402 (+20 excl.) | 24/24 | 24/24 | 23/23 | pass |
-| HBM3E_Lite | 179/182 (+3 excl.) | 3852/3894 (+42 excl.) | 51/51 | 32/32 | 27/27 | pass |
-| HBM4 | 100/103 (+3 excl.) | 1846/1866 (+20 excl.) | 24/24 | 25/25 | 25/25 | pass |
-| HBM5 | 89/92 (+3 excl.) | 1816/1846 (+30 excl.) | 24/24 | 24/24 | 23/23 | pass |
-| HDCP_2_3_Content_Protection | 177/178 (+1 excl.) | 3430/3430 | 25/25 | 10/10 | 16/16 | pass |
-| HDMI_2_1 | 75/75 | 466/466 | n/a | 8/8 | 16/16 | pass |
-| HSI | 51/51 | 920/920 | 11/11 | 15/15 | 33/33 | pass |
+| ACE | 59/61 (+2 excl.) | 1122/1128 (+6 excl.) | 17/17 | 16/16 | 78/78 | pass |
+| ACE_Lite | 40/41 (+1 excl.) | 588/592 (+4 excl.) | 10/10 | 15/15 | 125/125 | pass |
+| AES_GCM | 92/92 | 8438/8438 | 8/8 | 19/19 | 57/57 | pass |
+| AHB | 26/28 (+2 excl.) | 298/298 | 6/6 | 12/12 | 51/51 | pass |
+| APB | 21/21 | 288/288 | 6/6 | 14/14 | 45/45 | pass |
+| ARM_Local_Translation_Interface | 51/51 | 2122/2122 | 6/6 | 5/5 | 93/93 | pass |
+| ARM_Q_Channel_Low_Power_Interface | 26/27 (+1 excl.) | 34/34 | 14/14 | 9/9 | 43/43 | pass |
+| ARM_Serial_Wire_Debug | 95/95 | 552/552 | 23/23 | 6/6 | 97/97 | pass |
+| ATB | 8/8 | 217/218 (+1 excl.) | n/a | 8/8 | 73/73 | pass |
+| AVSBus__Adaptive_Voltage_Scaling_ | 50/51 (+1 excl.) | 352/352 | 12/12 | 5/5 | 35/35 | pass |
+| AXI | 59/60 (+1 excl.) | 650/650 | 10/10 | 16/16 | 120/120 | pass |
+| AXI4 | 58/59 (+1 excl.) | 690/690 | 10/10 | 16/16 | 123/123 | pass |
+| AXI4_Lite | 38/39 (+1 excl.) | 506/510 (+4 excl.) | 10/10 | 13/13 | 56/56 | pass |
+| AXI_Stream | 5/5 | 172/172 | n/a | 6/6 | 61/61 | pass |
+| Avalon_MM | 50/51 (+1 excl.) | 338/338 | 7/7 | 15/15 | 59/59 | pass |
+| Avalon_ST | 4/4 | 170/170 | n/a | 6/6 | 61/61 | pass |
+| Bluetooth5 | 140/140 | 1316/1316 | 24/24 | 7/7 | 80/80 | pass |
+| CAN | 162/162 | 1379/1402 (+23 excl.) | 21/21 | 11/11 | 122/122 | pass |
+| CCIX_Cache_Coherent_Interconnect | 115/115 | 606/606 | 29/29 | 5/5 | 127/127 | pass |
+| CHI | 53/53 | 1492/1492 | n/a | 5/5 | 93/93 | pass |
+| CPRI_v8_0__eCPRI_over_CPR_ | 244/244 | 634/634 | 7/7 | 6/6 | 299/299 | pass |
+| CSE | 182/182 | 1386/1386 | 8/8 | 5/5 | 41/41 | pass |
+| CSI_2 | 53/53 | 508/520 (+12 excl.) | 23/23 | 8/8 | 334/334 | pass |
+| CXL | 194/194 | 3134/3134 | 6/6 | 8/8 | 472/472 | pass |
+| CXS_CCIX_Stream_Interface | 81/81 | 1244/1244 | 14/14 | 4/4 | 55/55 | pass |
+| C_PHY | 87/89 (+2 excl.) | 306/306 | 24/24 | 13/13 | 127/127 | pass |
+| Crypto___Security_Engine | 111/112 (+1 excl.) | 2982/2982 | 11/11 | 8/8 | 82/82 | pass |
+| DDR | 88/91 (+3 excl.) | 576/602 (+26 excl.) | 24/24 | 24/24 | 65/65 | pass |
+| DDR4 | 93/97 (+4 excl.) | 740/858 (+118 excl.) | 24/24 | 24/24 | 66/66 | pass |
+| DDR4_Lite | 158/161 (+3 excl.) | 2272/2330 (+58 excl.) | 43/43 | 31/31 | 98/98 | pass |
+| DDR5 | 105/108 (+3 excl.) | 1134/1346 (+212 excl.) | 24/24 | 25/25 | 68/68 | pass |
+| DDR6 | 88/91 (+3 excl.) | 1064/1236 (+172 excl.) | 21/21 | 24/24 | 67/67 | pass |
+| DDR7 | 122/125 (+3 excl.) | 1702/1858 (+156 excl.) | 31/31 | 25/25 | 72/72 | pass |
+| DFI_5_0__MC_PHY_Interface_ | 53/53 | 788/788 | 14/14 | 7/7 | 120/120 | pass |
+| DSI | 144/145 (+1 excl.) | 1218/1218 | 41/41 | 11/11 | 42/42 | pass |
+| D_PHY | 157/157 | 282/282 | 89/89 | 15/15 | 61/61 | pass |
+| DigRF | 172/172 | 748/748 | 15/15 | 19/19 | 93/93 | pass |
+| DisplayPort2 | 219/219 | 500/500 | 81/81 | 11/11 | 304/304 | pass |
+| Ethernet | 75/75 | 726/726 | 33/33 | 8/8 | 52/52 | pass |
+| Ethernet_AVB_TSN | 61/61 | 2336/2336 | n/a | 11/11 | 89/89 | pass |
+| Ethernet_PCS | 158/158 | 10332/10340 (+8 excl.) | 9/9 | 14/14 | 41/41 | pass |
+| Ethernet_RS_FEC | 86/86 | 8658/8658 | 14/14 | 15/15 | 24/24 | pass |
+| FC | 160/160 | 720/720 | 17/17 | 10/10 | 565/565 | pass |
+| FlexRay | 147/147 | 2312/2312 | 40/40 | 8/8 | 64/64 | pass |
+| GDDR5 | 100/104 (+4 excl.) | 1042/1364 (+322 excl.) | 24/24 | 25/25 | 67/67 | pass |
+| GDDR6 | 99/103 (+4 excl.) | 1064/1274 (+210 excl.) | 24/24 | 24/24 | 69/69 | pass |
+| GDDR7 | 101/105 (+4 excl.) | 1090/1292 (+202 excl.) | 24/24 | 26/26 | 83/83 | pass |
+| GDDR7_Lite | 188/191 (+3 excl.) | 3530/3596 (+66 excl.) | 43/43 | 32/32 | 113/113 | pass |
+| GMII | 17/17 | 614/616 (+2 excl.) | n/a | 7/7 | 56/56 | pass |
+| GPIO | 11/11 | 122/122 | n/a | 4/4 | 70/70 | pass |
+| HBM | 88/92 (+4 excl.) | 1676/2178 (+502 excl.) | 24/24 | 24/24 | 66/66 | pass |
+| HBM2 | 86/90 (+4 excl.) | 1166/1188 (+22 excl.) | 24/24 | 24/24 | 65/65 | pass |
+| HBM3 | 88/92 (+4 excl.) | 1564/1586 (+22 excl.) | 24/24 | 24/24 | 66/66 | pass |
+| HBM3E | 111/115 (+4 excl.) | 2382/2402 (+20 excl.) | 24/24 | 24/24 | 66/66 | pass |
+| HBM3E_Lite | 179/182 (+3 excl.) | 3852/3894 (+42 excl.) | 51/51 | 32/32 | 183/183 | pass |
+| HBM4 | 100/103 (+3 excl.) | 1846/1866 (+20 excl.) | 24/24 | 25/25 | 68/68 | pass |
+| HBM5 | 89/92 (+3 excl.) | 1816/1846 (+30 excl.) | 24/24 | 24/24 | 66/66 | pass |
+| HDCP_2_3_Content_Protection | 177/178 (+1 excl.) | 3430/3430 | 25/25 | 10/10 | 71/71 | pass |
+| HDMI_2_1 | 75/75 | 466/466 | n/a | 8/8 | 39/39 | pass |
+| HSI | 51/51 | 920/920 | 11/11 | 15/15 | 73/73 | pass |
 | I2C | 45/45 | 112/112 | 17/17 | 17/17 | 21/21 | pass |
-| I2S | 37/37 | 356/356 | n/a | 4/4 | 10/10 | pass |
-| I2S_Audio | 68/68 | 710/710 | n/a | 6/6 | 23/23 | pass |
+| I2S | 37/37 | 356/356 | n/a | 4/4 | 52/52 | pass |
+| I2S_Audio | 68/68 | 710/710 | n/a | 6/6 | 93/93 | pass |
 | I3C | 47/47 | 114/114 | 17/17 | 22/22 | 23/23 | pass |
-| Interlaken_v1_2 | 120/120 | 2926/2926 | 14/14 | 9/9 | 38/38 | pass |
-| JESD204C | 74/74 | 1298/1298 | 18/18 | 9/9 | 21/21 | pass |
-| JTAG | 86/86 | 150/150 | 48/48 | 6/6 | 10/10 | pass |
-| LIN | 131/131 | 1256/1256 | 29/29 | 11/11 | 116/116 | pass |
-| LPDDR | 91/93 (+2 excl.) | 578/612 (+34 excl.) | 30/30 | 28/28 | 26/26 | pass |
-| LPDDR4 | 115/119 (+4 excl.) | 1119/1336 (+217 excl.) | 24/24 | 26/26 | 27/27 | pass |
-| LPDDR5 | 109/113 (+4 excl.) | 1636/2040 (+404 excl.) | 24/24 | 26/26 | 24/24 | pass |
-| LPDDR5X | 113/117 (+4 excl.) | 1130/1330 (+200 excl.) | 24/24 | 26/26 | 27/27 | pass |
-| LPDDR5X_Lite | 186/189 (+3 excl.) | 2748/2800 (+52 excl.) | 51/51 | 33/33 | 29/29 | pass |
-| LPDDR6 | 121/124 (+3 excl.) | 1820/2192 (+372 excl.) | 24/24 | 27/27 | 25/25 | pass |
-| LPDDR7 | 119/123 (+4 excl.) | 1158/1354 (+196 excl.) | 24/24 | 26/26 | 28/28 | pass |
-| MDIO | 25/25 | 140/140 | n/a | 5/5 | 15/15 | pass |
-| MIPI_DBI__Display_Bus_Interface_ | 68/68 | 264/264 | 18/18 | 15/15 | 27/27 | pass |
-| MIPI_DPI__Display_Pixel_Interface_ | 30/30 | 1070/1070 | n/a | 6/6 | 10/10 | pass |
-| MIPI_I3C | 122/123 (+1 excl.) | 500/500 | 39/39 | 7/7 | 20/20 | pass |
-| MIPI_RFFE | 68/69 (+1 excl.) | 732/732 | 19/19 | 7/7 | 18/18 | pass |
-| MIPI_SLIMbus | 74/74 | 748/748 | 8/8 | 16/16 | 32/32 | pass |
-| MIPI_SPMI | 86/86 | 756/756 | 23/23 | 7/7 | 26/26 | pass |
-| MIPI_SoundWire | 102/102 | 1024/1024 | 8/8 | 16/16 | 30/30 | pass |
+| Interlaken_v1_2 | 120/120 | 2926/2926 | 14/14 | 9/9 | 75/75 | pass |
+| JESD204C | 74/74 | 1298/1298 | 18/18 | 9/9 | 41/41 | pass |
+| JTAG | 86/86 | 150/150 | 48/48 | 6/6 | 83/83 | pass |
+| LIN | 131/131 | 1256/1256 | 29/29 | 11/11 | 132/132 | pass |
+| LPDDR | 91/93 (+2 excl.) | 578/612 (+34 excl.) | 30/30 | 28/28 | 69/69 | pass |
+| LPDDR4 | 115/119 (+4 excl.) | 1119/1336 (+217 excl.) | 24/24 | 26/26 | 70/70 | pass |
+| LPDDR5 | 109/113 (+4 excl.) | 1636/2040 (+404 excl.) | 24/24 | 26/26 | 67/67 | pass |
+| LPDDR5X | 113/117 (+4 excl.) | 1130/1330 (+200 excl.) | 24/24 | 26/26 | 70/70 | pass |
+| LPDDR5X_Lite | 186/189 (+3 excl.) | 2748/2800 (+52 excl.) | 51/51 | 33/33 | 113/113 | pass |
+| LPDDR6 | 121/124 (+3 excl.) | 1820/2192 (+372 excl.) | 24/24 | 27/27 | 68/68 | pass |
+| LPDDR7 | 119/123 (+4 excl.) | 1158/1354 (+196 excl.) | 24/24 | 26/26 | 71/71 | pass |
+| MDIO | 25/25 | 140/140 | n/a | 5/5 | 104/104 | pass |
+| MIPI_DBI__Display_Bus_Interface_ | 68/68 | 264/264 | 18/18 | 15/15 | 55/55 | pass |
+| MIPI_DPI__Display_Pixel_Interface_ | 30/30 | 1070/1070 | n/a | 6/6 | 80/80 | pass |
+| MIPI_I3C | 122/123 (+1 excl.) | 500/500 | 39/39 | 7/7 | 72/72 | pass |
+| MIPI_RFFE | 68/69 (+1 excl.) | 732/732 | 19/19 | 7/7 | 91/91 | pass |
+| MIPI_SLIMbus | 74/74 | 748/748 | 8/8 | 16/16 | 83/83 | pass |
+| MIPI_SPMI | 86/86 | 756/756 | 23/23 | 7/7 | 98/98 | pass |
+| MIPI_SoundWire | 102/102 | 1024/1024 | 8/8 | 16/16 | 53/53 | pass |
+| ML_DSA | 651/655 (+4 excl.) | 9587/10202 (+615 excl.) | 43/43 | 36/36 | 78/78 | pass |
+| ML_KEM | 553/556 (+3 excl.) | 7314/7448 (+134 excl.) | 31/31 | 23/23 | 54/54 | pass |
 | M_PHY | 119/120 (+1 excl.) | 392/392 | 16/16 | 8/8 | 286/286 | pass |
-| NVMe | 68/68 | 602/602 | 17/17 | 5/5 | 45/45 | pass |
-| OCP | 31/31 | 308/308 | 11/11 | 11/11 | 32/32 | pass |
-| OCP_IP_Open_Core_Protocol | 48/49 (+1 excl.) | 1086/1098 (+12 excl.) | 15/15 | 13/13 | 29/29 | pass |
-| ONFI | 119/119 | 458/458 | 17/17 | 5/5 | 25/25 | pass |
-| PCIe | 133/133 | 1146/1146 | 22/22 | 7/7 | 41/41 | pass |
-| PWM | 11/11 | 256/276 (+20 excl.) | n/a | 5/5 | 14/14 | pass |
-| QSPI | 46/46 | 156/156 | n/a | 6/6 | 27/27 | pass |
-| RFFE | 70/70 | 236/236 | 16/16 | 10/10 | 18/18 | pass |
-| RGMII | 23/23 | 624/624 | n/a | 7/7 | 9/9 | pass |
-| SAS | 142/142 | 1050/1050 | 50/50 | 6/6 | 21/21 | pass |
-| SAS_4__Serial_Attached_SCSI_ | 154/154 | 1618/1618 | 57/57 | 6/6 | 34/34 | pass |
-| SATA | 228/228 | 1474/1474 | 75/75 | 5/5 | 33/33 | pass |
-| SD | 137/137 | 1850/1850 | 18/18 | 7/7 | 32/32 | pass |
-| SDIO | 92/93 (+1 excl.) | 1342/1342 | 30/30 | 5/5 | 17/17 | pass |
-| SPI | 15/15 | 108/108 | n/a | 5/5 | 15/15 | pass |
-| SPMI | 44/44 | 162/162 | 12/12 | 6/6 | 11/11 | pass |
-| TileLink__TL_UL_TL_C_ | 22/22 | 382/386 (+4 excl.) | 4/4 | 7/7 | 23/23 | pass |
-| Toggle_Mode_NAND | 98/98 | 246/246 | 31/31 | 7/7 | 22/22 | pass |
-| UALink | 70/70 | 1722/1722 | 8/8 | 5/5 | 42/42 | pass |
-| UART | 59/59 | 130/130 | 17/17 | 8/8 | 140/140 | pass |
-| UCIe | 33/33 | 738/738 | n/a | 5/5 | 19/19 | pass |
-| UEC | 90/90 | 1132/1132 | n/a | 7/7 | 42/42 | pass |
-| UFS | 102/103 (+1 excl.) | 1156/1156 | 26/26 | 5/5 | 20/20 | pass |
-| USB | 234/234 | 910/910 | 47/47 | 4/4 | 31/31 | pass |
-| USB2 | 272/272 | 998/998 | 57/57 | 8/8 | 38/38 | pass |
-| USB2_0 | 109/111 (+2 excl.) | 476/476 | 23/23 | 11/11 | 41/41 | pass |
-| USB3 | 137/137 | 720/720 | 80/80 | 8/8 | 41/41 | pass |
-| USB3_2 | 173/173 | 954/954 | 31/31 | 7/7 | 48/48 | pass |
-| USB4 | 98/98 | 820/820 | 13/13 | 7/7 | 45/45 | pass |
-| USB_PD | 119/119 | 650/650 | 42/42 | 5/5 | 20/20 | pass |
-| USB_Type_C_Port_Controller | 28/29 (+1 excl.) | 132/132 | 7/7 | 5/5 | 14/14 | pass |
-| UniPro | 169/169 | 2144/2144 | 24/24 | 5/5 | 39/39 | pass |
-| UniPro_Mem | 142/142 | 2116/2116 | 14/14 | 5/5 | 24/24 | pass |
-| WTB | 105/105 | 2140/2140 | 59/59 | 8/8 | 24/24 | pass |
-| Wishbone | 26/27 (+1 excl.) | 438/440 (+2 excl.) | 6/6 | 9/9 | 29/29 | pass |
-| XGMII | 33/33 | 1054/1054 | n/a | 7/7 | 12/12 | pass |
-| _1_Wire | 42/42 | 150/150 | 20/20 | 6/6 | 10/10 | pass |
-| eCPRI_over_Ethernet | 217/217 | 1986/1986 | 8/8 | 6/6 | 43/43 | pass |
-| eMMC | 120/120 | 1622/1622 | 17/17 | 6/6 | 25/25 | pass |
-| eUSB2 | 107/108 (+1 excl.) | 394/394 | 16/16 | 6/6 | 34/34 | pass |
+| NVMe | 68/68 | 602/602 | 17/17 | 5/5 | 119/119 | pass |
+| OCP | 31/31 | 308/308 | 11/11 | 11/11 | 77/77 | pass |
+| OCP_IP_Open_Core_Protocol | 48/49 (+1 excl.) | 1086/1098 (+12 excl.) | 15/15 | 13/13 | 75/75 | pass |
+| ONFI | 119/119 | 458/458 | 17/17 | 5/5 | 61/61 | pass |
+| PCIe | 192/192 | 1834/1838 (+4 excl.) | 22/22 | 8/8 | 128/128 | pass |
+| PWM | 11/11 | 256/276 (+20 excl.) | n/a | 5/5 | 29/29 | pass |
+| QSPI | 46/46 | 156/156 | n/a | 6/6 | 60/60 | pass |
+| RFFE | 70/70 | 236/236 | 16/16 | 10/10 | 83/83 | pass |
+| RGMII | 23/23 | 624/624 | n/a | 7/7 | 56/56 | pass |
+| Root_of_Trust | 169/170 (+1 excl.) | 4548/4548 | 46/46 | 16/16 | 57/57 | pass |
+| SAS | 142/142 | 1050/1050 | 50/50 | 6/6 | 64/64 | pass |
+| SAS_4__Serial_Attached_SCSI_ | 154/154 | 1618/1618 | 57/57 | 6/6 | 95/95 | pass |
+| SATA | 228/228 | 1474/1474 | 75/75 | 5/5 | 64/64 | pass |
+| SD | 137/137 | 1850/1850 | 18/18 | 7/7 | 71/71 | pass |
+| SDIO | 92/93 (+1 excl.) | 1342/1342 | 30/30 | 5/5 | 67/67 | pass |
+| SHA3 | 66/66 | 6872/6882 (+10 excl.) | 19/19 | 11/11 | 87/87 | pass |
+| SPI | 15/15 | 108/108 | n/a | 5/5 | 46/46 | pass |
+| SPMI | 44/44 | 162/162 | 12/12 | 6/6 | 62/62 | pass |
+| TileLink__TL_UL_TL_C_ | 22/22 | 382/386 (+4 excl.) | 4/4 | 7/7 | 68/68 | pass |
+| Toggle_Mode_NAND | 98/98 | 246/246 | 31/31 | 7/7 | 75/75 | pass |
+| UALink | 70/70 | 1722/1722 | 8/8 | 5/5 | 108/108 | pass |
+| UART | 59/59 | 130/130 | 17/17 | 8/8 | 526/526 | pass |
+| UCIe | 139/146 (+7 excl.) | 4540/4562 (+22 excl.) | 7/7 | 8/8 | 230/230 | pass |
+| UEC | 90/90 | 1132/1132 | n/a | 7/7 | 79/79 | pass |
+| UFS | 102/103 (+1 excl.) | 1156/1156 | 26/26 | 5/5 | 56/56 | pass |
+| USB | 234/234 | 910/910 | 47/47 | 4/4 | 56/56 | pass |
+| USB2 | 272/272 | 998/998 | 57/57 | 8/8 | 81/81 | pass |
+| USB2_0 | 109/111 (+2 excl.) | 476/476 | 23/23 | 11/11 | 316/316 | pass |
+| USB3 | 137/137 | 720/720 | 80/80 | 8/8 | 100/100 | pass |
+| USB3_2 | 173/173 | 954/954 | 31/31 | 7/7 | 92/92 | pass |
+| USB4 | 98/98 | 820/820 | 13/13 | 7/7 | 83/83 | pass |
+| USB_PD | 119/119 | 650/650 | 42/42 | 5/5 | 67/67 | pass |
+| USB_Type_C_Port_Controller | 28/29 (+1 excl.) | 132/132 | 7/7 | 5/5 | 81/81 | pass |
+| UniPro | 169/169 | 2144/2144 | 24/24 | 5/5 | 134/134 | pass |
+| UniPro_Mem | 142/142 | 2116/2116 | 14/14 | 5/5 | 106/106 | pass |
+| WTB | 105/105 | 2140/2140 | 59/59 | 8/8 | 60/60 | pass |
+| Wishbone | 26/27 (+1 excl.) | 438/440 (+2 excl.) | 6/6 | 9/9 | 69/69 | pass |
+| XGMII | 33/33 | 1054/1054 | n/a | 7/7 | 54/54 | pass |
+| _1_Wire | 42/42 | 150/150 | 20/20 | 6/6 | 73/73 | pass |
+| eCPRI_over_Ethernet | 217/217 | 1986/1986 | 8/8 | 6/6 | 87/87 | pass |
+| eMMC | 120/120 | 1622/1622 | 17/17 | 6/6 | 64/64 | pass |
+| eUSB2 | 107/108 (+1 excl.) | 394/394 | 16/16 | 6/6 | 74/74 | pass |
 
-Totals: line 11406/11516 (+110 excluded), toggle 123489/127254 (+3765 excluded), fsm 2500/2500, sva 1450/1450, functional 3770/3770.
+Totals: line 13476/13601 (+125 excluded), toggle 185446/190004 (+4558 excluded), fsm 2683/2683, sva 1590/1590, functional 12263/12263.
 
 For the IPs rebuilt last (UniPro, DisplayPort2, SAS-4, SATA, the clone
 rewrites and the memory family), the checker was also tested with deliberate
@@ -205,12 +266,13 @@ The wrapper's coverage scope is the wrapper alone (`u_core` is excluded),
 because the core is closed by its own run above. The wrapper has no state
 machine, so FSM is n/a.
 
-121/121 closed.
+128/128 closed.
 
 | APB wrapper | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
 | ACE_Lite_apb | 19/19 | 766/770 (+4 excl.) | n/a | 7/7 | 23/23 | pass |
 | ACE_apb | 19/19 | 924/930 (+6 excl.) | n/a | 7/7 | 23/23 | pass |
+| AES_GCM_apb | 93/93 | 4310/4310 | n/a | 37/37 | 113/113 | pass |
 | AHB_apb | 19/19 | 604/604 | n/a | 7/7 | 23/23 | pass |
 | APB_apb | 19/19 | 594/594 | n/a | 7/7 | 23/23 | pass |
 | ARM_Local_Translation_Interface_apb | 36/36 | 960/960 | n/a | 20/20 | 53/53 | pass |
@@ -231,7 +293,7 @@ machine, so FSM is n/a.
 | CPRI_v8_0__eCPRI_over_CPR__apb | 33/33 | 592/592 | n/a | 11/11 | 52/52 | pass |
 | CSE_apb | 41/41 | 1274/1274 | n/a | 15/15 | 59/59 | pass |
 | CSI_2_apb | 26/26 | 600/612 (+12 excl.) | n/a | 8/8 | 33/33 | pass |
-| CXL_apb | 57/57 | 1638/1638 | n/a | 28/28 | 97/97 | pass |
+| CXL_apb | 34/34 | 1132/1132 | n/a | 12/12 | 83/83 | pass |
 | CXS_CCIX_Stream_Interface_apb | 38/38 | 1334/1334 | n/a | 14/14 | 59/59 | pass |
 | C_PHY_apb | 33/33 | 616/616 | n/a | 11/11 | 64/64 | pass |
 | Crypto___Security_Engine_apb | 57/57 | 2036/2036 | n/a | 22/22 | 68/68 | pass |
@@ -247,6 +309,8 @@ machine, so FSM is n/a.
 | DigRF_apb | 44/44 | 842/842 | n/a | 16/16 | 95/95 | pass |
 | DisplayPort2_apb | 22/22 | 558/558 | n/a | 7/7 | 33/33 | pass |
 | Ethernet_AVB_TSN_apb | 55/55 | 2140/2140 | n/a | 26/26 | 62/62 | pass |
+| Ethernet_PCS_apb | 156/156 | 5356/5356 | n/a | 44/44 | 211/211 | pass |
+| Ethernet_RS_FEC_apb | 124/124 | 5732/5732 | n/a | 35/35 | 167/167 | pass |
 | Ethernet_apb | 40/40 | 808/808 | n/a | 15/15 | 67/67 | pass |
 | FC_apb | 34/34 | 600/600 | n/a | 13/13 | 71/71 | pass |
 | FlexRay_apb | 50/50 | 1890/1890 | n/a | 24/24 | 95/95 | pass |
@@ -289,28 +353,32 @@ machine, so FSM is n/a.
 | MIPI_SLIMbus_apb | 40/40 | 996/996 | n/a | 18/18 | 72/72 | pass |
 | MIPI_SPMI_apb | 19/19 | 396/396 | n/a | 7/7 | 23/23 | pass |
 | MIPI_SoundWire_apb | 44/44 | 1114/1114 | n/a | 21/21 | 91/91 | pass |
+| ML_DSA_apb | 42/42 | 858/884 (+26 excl.) | n/a | 18/18 | 63/63 | pass |
+| ML_KEM_apb | 39/39 | 776/776 | n/a | 16/16 | 61/61 | pass |
 | M_PHY_apb | 36/36 | 542/542 | n/a | 14/14 | 60/60 | pass |
 | NVMe_apb | 32/32 | 868/868 | n/a | 14/14 | 43/43 | pass |
 | OCP_IP_Open_Core_Protocol_apb | 37/37 | 1074/1086 (+12 excl.) | n/a | 13/13 | 57/57 | pass |
 | OCP_apb | 19/19 | 612/612 | n/a | 7/7 | 23/23 | pass |
 | ONFI_apb | 40/40 | 818/818 | n/a | 15/15 | 72/72 | pass |
-| PCIe_apb | 34/34 | 628/628 | n/a | 12/12 | 91/91 | pass |
+| PCIe_apb | 34/34 | 640/640 | n/a | 14/14 | 91/91 | pass |
 | PWM_apb | 19/19 | 466/466 | n/a | 9/9 | 28/28 | pass |
 | QSPI_apb | 21/21 | 448/448 | n/a | 11/11 | 32/32 | pass |
 | RFFE_apb | 40/40 | 664/664 | n/a | 15/15 | 68/68 | pass |
 | RGMII_apb | 36/36 | 498/498 | n/a | 11/11 | 60/60 | pass |
+| Root_of_Trust_apb | 51/51 | 2034/2034 | n/a | 18/18 | 69/69 | pass |
 | SAS_4__Serial_Attached_SCSI__apb | 20/20 | 406/406 | n/a | 7/7 | 25/25 | pass |
 | SAS_apb | 19/19 | 402/402 | n/a | 7/7 | 23/23 | pass |
 | SATA_apb | 19/19 | 402/402 | n/a | 7/7 | 23/23 | pass |
 | SDIO_apb | 19/19 | 404/404 | n/a | 7/7 | 23/23 | pass |
 | SD_apb | 19/19 | 404/404 | n/a | 7/7 | 23/23 | pass |
+| SHA3_apb | 44/44 | 1006/1006 | n/a | 15/15 | 66/66 | pass |
 | SPI_apb | 21/21 | 440/440 | n/a | 11/11 | 28/28 | pass |
 | SPMI_apb | 28/28 | 518/518 | n/a | 8/8 | 42/42 | pass |
 | TileLink__TL_UL_TL_C__apb | 19/19 | 660/664 (+4 excl.) | n/a | 7/7 | 23/23 | pass |
 | Toggle_Mode_NAND_apb | 20/20 | 426/426 | n/a | 7/7 | 25/25 | pass |
 | UALink_apb | 19/19 | 792/792 | n/a | 7/7 | 27/27 | pass |
 | UART_apb | 30/30 | 502/502 | n/a | 9/9 | 51/51 | pass |
-| UCIe_apb | 35/35 | 1332/1332 | n/a | 10/10 | 61/61 | pass |
+| UCIe_apb | 98/98 | 6914/6936 (+22 excl.) | n/a | 30/30 | 139/139 | pass |
 | UEC_apb | 37/37 | 720/720 | n/a | 14/14 | 69/69 | pass |
 | UFS_apb | 19/19 | 402/402 | n/a | 7/7 | 23/23 | pass |
 | USB2_0_apb | 20/20 | 402/402 | n/a | 7/7 | 25/25 | pass |
@@ -331,4 +399,4 @@ machine, so FSM is n/a.
 | eMMC_apb | 19/19 | 412/412 | n/a | 7/7 | 23/23 | pass |
 | eUSB2_apb | 20/20 | 406/406 | n/a | 7/7 | 25/25 | pass |
 
-Totals: line 3674/3674, toggle 92185/92640 (+455 excluded), fsm 0/0, sva 1335/1335, functional 5705/5705.
+Totals: line 4263/4263, toggle 117345/117848 (+503 excluded), fsm 0/0, sva 1524/1524, functional 6519/6519.

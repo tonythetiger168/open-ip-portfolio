@@ -5,13 +5,15 @@
 module JTAG_tb;
   logic clk = 0, rst_n = 0;
   logic tck = 0, tms = 1, tdi = 0, trst_n = 1;
-  logic tdo;
+  logic tdo, irq;
+  int n_irq = 0;
   logic tdo_s;
   int errors = 0;
 
   JTAG_top dut (
     .clk(clk), .rst_n(rst_n), .tck(tck), .tms(tms), .tdi(tdi),
-    .trst_n(trst_n), .tdo(tdo), .irq());
+    .trst_n(trst_n), .tdo(tdo), .irq(irq));
+  always @(posedge clk) if (irq === 1'b1) n_irq++;   // one pulse per USER update
 
   always #5 clk = ~clk;
 
@@ -160,9 +162,12 @@ module JTAG_tb;
     end
 
     // ---- USER reg write 0xA5 then read back ----
+    if (n_irq != 0) begin errors++; $display("ERROR: JTAG irq before any USER update"); end
     goto_rti;
     load_ir(4'b0010);                      // USER
     scan_dr(8, 32'h0000_00A5, rd);
+    repeat (6) @(posedge clk);
+    if (n_irq != 1) begin errors++; $display("ERROR: JTAG irq pulses after one USER update: %0d", n_irq); end
     goto_rti;
     load_ir(4'b0010);
     scan_dr(8, 32'h0, rd);
@@ -300,6 +305,31 @@ module JTAG_tb;
     @(negedge clk) rst_n = 1'b0;
     repeat (3) @(negedge clk);
     rst_n = 1'b1;
+
+    // USER register value classes (each scan returns the previous value),
+    // then an IDCODE scan 8 bits longer than the register: the first 32
+    // TDO bits are the IDCODE, the rest are the TDI bits shifted through
+    begin : value_classes
+      logic [31:0] d;
+      goto_rti();
+      load_ir(4'b0010);
+      scan_dr(8, 32'hFF, d);
+      scan_dr(8, 32'h55, d);
+      if (d[7:0] !== 8'hFF) begin errors++; $display("ERROR: JTAG USER FF readback %h", d[7:0]); end
+      scan_dr(8, 32'hAA, d);
+      if (d[7:0] !== 8'h55) begin errors++; $display("ERROR: JTAG USER 55 readback %h", d[7:0]); end
+      scan_dr(8, 32'h00, d);
+      if (d[7:0] !== 8'hAA) begin errors++; $display("ERROR: JTAG USER AA readback %h", d[7:0]); end
+      load_ir(4'b0001);
+      jcyc(1'b1, 1'b0); jcyc(1'b0, 1'b0); jcyc(1'b0, 1'b0);
+      for (int k = 0; k < 40; k++) begin
+        jcyc(k == 39, (k < 8) ? 1'b1 : 1'b0);
+        if (k < 32) d[k] = tdo_s;
+        else if (tdo_s !== 1'b1) begin errors++; $display("ERROR: JTAG long scan bit %0d", k); end
+      end
+      jcyc(1'b1, 1'b0); jcyc(1'b0, 1'b0);
+      if (d !== 32'h1CAF_0001) begin errors++; $display("ERROR: JTAG long IDCODE scan %h", d); end
+    end
 
     if (errors == 0) $display("TEST PASSED: JTAG");
     else             $display("TEST FAILED: %0d errors", errors);

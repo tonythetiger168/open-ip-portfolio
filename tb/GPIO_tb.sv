@@ -199,6 +199,20 @@ module GPIO_tb;
     end
 `endif
 
+    // walking one on the inputs: each pin alone raises the level irq,
+    // and the input register reads exactly that pin
+    gpio_oe = 8'h00; drive_en = 1'b1; drive_mask = 8'hFF;
+    for (int i = 0; i < 8; i++) begin
+      drive_val = 8'h01 << i;
+      repeat(2) @(posedge clk); #1;
+      if (dut.irq !== 1'b1) begin errors++; $display("ERROR: GPIO pin %0d alone did not raise irq", i); end
+      rd(4'd0, got);
+      if (got !== (8'h01 << i)) begin errors++; $display("ERROR: GPIO walking-one pin %0d read=%h", i, got); end
+    end
+    drive_val = 8'h00;
+    repeat(2) @(posedge clk); #1;
+    if (dut.irq !== 1'b0) begin errors++; $display("ERROR: GPIO irq stuck with all inputs low"); end
+
     // reset with the output register set clears both registers
     drive_en = 1'b0; gpio_oe = 8'hFF;
     wr(4'd0, 8'h81);
@@ -209,6 +223,15 @@ module GPIO_tb;
     rd(4'd1, got);
     if (got !== 8'h00) begin errors++; $display("ERROR: GPIO out_q not cleared by reset"); end
     gpio_oe = 8'h00;
+
+    // output register data patterns, read back
+    for (int i = 0; i < 3; i++) begin
+      logic [7:0] p;
+      p = i == 0 ? 8'hFF : i == 1 ? 8'h55 : 8'hAA;
+      wr(4'd0, p); rd(4'd1, got);
+      if (got !== p) begin errors++; $display("ERROR: GPIO out_q %h exp %h", got, p); end
+    end
+    wr(4'd0, 8'h00);
 
     if (errors == 0) $display("TEST PASSED: GPIO");
     else             $display("TEST FAILED: %0d errors", errors);

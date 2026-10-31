@@ -277,6 +277,22 @@ module XGMII_tb;
     end
 `endif
 
+    // alternating-bit bytes on lane 0 of two full columns, read back
+    begin : data_classes
+      logic [7:0] v [8];
+      for (int i = 0; i < 8; i++) v[i] = 8'(i);
+      v[0] = 8'h55; v[4] = 8'hAA;
+      @(negedge clk); rst_n = 1'b0; @(negedge clk); rst_n = 1'b1;
+      repeat (10) @(posedge clk);
+      for (int i = 0; i < 8; i++) wr(v[i]);
+      wait (count == 5'd8);
+      repeat (10) @(posedge clk);
+      for (int i = 0; i < 8; i++) begin
+        rd(i[3:0], got);
+        if (got !== v[i]) begin errors++; $display("ERROR: XGMII class byte %0d got=%h", i, got); end
+      end
+    end
+
     if (errors == 0) $display("TEST PASSED: XGMII");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR

@@ -2,6 +2,13 @@
   "title": "PWM generator: programmable period and duty, output and its complement",
   "code": "0x5057",
   "version": "2.0",
+  "features": [
+    "`DW`-bit (default 32) period and duty registers, written through the core register port.",
+    "Counter runs 0 .. PERIOD-1 and wraps; PERIOD = 0 stops it and holds the outputs low (`pwm_out` = 0, `pwm_n_out` = 1).",
+    "`pwm_out` is high while counter < DUTY; DUTY >= PERIOD gives 100 % duty, DUTY = 0 gives 0 %.",
+    "`pwm_n_out` is always the complement of `pwm_out` (no dead time).",
+    "Interrupt PERIOD_END once per period, in the last count (counter = PERIOD-1)."
+  ],
   "tb_clk_ns": 10,
   "regs": [
     {"name": "CORE", "kind": "bus", "wen": "wen", "waddr": "waddr", "wdata": "wdata",

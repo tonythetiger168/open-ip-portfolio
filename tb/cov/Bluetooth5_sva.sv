@@ -54,6 +54,10 @@ module Bluetooth5_sva #(
         v_bad_type, v_bad_llid, v_long, v_conn_len, v_timeout, v_wrap, v_hop_wrap, v_known,
         v_scan_off, v_rx_conn_bad_crc, v_lat_skip;
 
+  // per-step copies for the covergroup (set at posedge, sampled at negedge)
+  logic c_pv, c_pc, c_new, c_ack, c_ev;
+  int   c_ty, c_len, c_ch;
+
   function automatic logic [7:0] tbyte(input int k, input int i, input logic [31:0] a,
                                        input logic s, input logic n);
     if (i == 0)      tbyte = a[0] ? 8'h55 : 8'hAA;
@@ -97,6 +101,7 @@ module Bluetooth5_sva #(
 
       // ---- irq ----
       m_irq = o_err;
+      c_pv = 0; c_ev = 0;
 
       // ---- transmitter ----
       g_adv = 0; g_scan = 0; g_data = 0;
@@ -181,6 +186,7 @@ module Bluetooth5_sva #(
           ctim = 0;
           if (ch + hop >= 37) v_hop_wrap = 1;
           ch = (ch + hop) % 37;
+          c_ev = 1; c_ch = ch;
           if (seen) miss = 0;
           else if (tmo != 0 && ((miss + 1) & 16'hFFFF) >= tmo) begin
             conn = 0; q_data = 0; err = 1; v_timeout = 1;
@@ -191,6 +197,10 @@ module Bluetooth5_sva #(
           end
           seen = 0;
         end else ctim++;
+      end
+      if (o_done && o_ok) begin
+        c_pv = 1; c_pc = o_conn; c_ty = o_conn ? o_h0[1:0] : o_h0[3:0]; c_len = o_plen;
+        c_new = o_h0[3] == o_rsn; c_ack = o_h0[2] != o_tsn;
       end
       if (o_done) begin
         if (!o_ok) begin
@@ -243,6 +253,23 @@ module Bluetooth5_sva #(
   `SVA_IMP(a_txd_low_when_idle, !tx_act, !txd)
   `SVA_NXT(a_irq_on_timeout, v_timeout, irq)
   `SVA_NXT(a_irq_on_bad_crc, v_bad_crc, irq)
+
+  // good packets by PDU type / LLID and length, SN / NESN outcomes, every
+  // data channel a connection event lands on
+  covergroup cg_ble @(negedge clk);
+    option.per_instance = 1;
+    cp_adv: coverpoint c_ty iff (rst_n && c_pv && !c_pc)
+      { bins ind = {0}; bins direct = {1}; bins nonconn = {2}; bins scan_req = {3}; bins scan_rsp = {4};
+        bins connect = {5}; bins scan_ind = {6}; bins reserved = {[7:15]}; }
+    cp_llid: coverpoint c_ty iff (rst_n && c_pv && c_pc)
+      { bins reserved = {0}; bins cont = {1}; bins start = {2}; bins ctrl = {3}; }
+    cp_seq: coverpoint {c_new, c_ack} iff (rst_n && c_pv && c_pc && c_ty != 0)
+      { bins retx_nack = {2'b00}; bins retx_ack = {2'b01}; bins new_nack = {2'b10}; bins new_ack = {2'b11}; }
+    cp_dlen: coverpoint c_len iff (rst_n && c_pv && c_pc && c_ty != 0)
+      { bins empty = {0}; bins some = {[1:15]}; bins max = {16}; }
+    cp_ch: coverpoint c_ch iff (rst_n && c_ev) { bins c[] = {[0:36]}; }
+  endgroup
+  cg_ble u_cg_ble = new;
 
   // ---------------- functional coverage ----------------
   `FC(adv_ind_sent, v_adv)

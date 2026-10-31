@@ -1,0 +1,74 @@
+name: coverage
+
+# Five-metric coverage regression (line / toggle / FSM / SVA / functional) for
+# every core and APB wrapper: scripts/cov/run_all.sh, split across shards.
+# Fails if any IP is not CLOSED.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: coverage-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  VERILATOR_VERSION: v5.052
+
+jobs:
+  verilator:
+    # Ubuntu ships Verilator 5.020, which silently drops covergroups, so build
+    # the pinned release once and cache the install tree.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: ~/verilator
+          key: verilator-${{ env.VERILATOR_VERSION }}-ubuntu-24.04
+      - name: Build Verilator
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git make autoconf g++ flex bison libfl-dev help2man python3
+          git clone -b "$VERILATOR_VERSION" --depth 1 https://github.com/verilator/verilator.git /tmp/verilator
+          cd /tmp/verilator
+          autoconf && ./configure --prefix="$HOME/verilator" && make -j"$(nproc)" && make install
+
+  run:
+    needs: verilator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/verilator
+          key: verilator-${{ env.VERILATOR_VERSION }}-ubuntu-24.04
+          fail-on-cache-miss: true
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y g++ make libfl2 python3-pip
+          pip install --break-system-packages pyslang==12.0.0
+          echo "$HOME/verilator/bin" >> "$GITHUB_PATH"
+      - name: Coverage regression (shard ${{ matrix.shard }}/8)
+        run: SHARD=${{ matrix.shard }}/8 bash scripts/cov/run_all.sh "$(nproc)"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-shard-${{ matrix.shard }}
+          path: |
+            work/cov/run_all.txt
+            work/cov/*/score.json
+            work/cov/*/build.log
+            work/cov/*/run.log
+          retention-days: 7

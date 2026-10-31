@@ -5,8 +5,12 @@
 
 ## 基線與產品邊界
 來源main 5480c40221b8c2a5e57c6228122fd1de8d3f9c3e；已讀同名改善計畫、docs/ip/HDMI_2_1.md及rtl/HDMI_2_1_top.sv。遞迴tree未發現AGENTS.md／CLAUDE.md；盤點時無open PR。檔名HDMI_2_1不能作為完整HDMI 2.1能力宣告。
-現有640×480 internal pattern TMDS demo可重用encoder、control code、TERC4與packet測試；無外部pixel stream、無可配置timing，serialization為每pixel 10個clk的邏輯模型，非量產高速PHY。文檔前段仍稱BCH XOR簡化，但RTL後段已有固定AVI/SPD的BCH常數；新設計應以獨立packet oracle檢查，不宣稱動態packet ECC已完整。
-既有文件列core line75/75、toggle466/466、SVA8/8、functional16/16及wrapper20/20、416/416、7/7、25/25；均為原demo歷史證據，本輪未重跑，不能延伸為PHY／HDCP／FRL／RX或產品認證。原generated文件／wrapper不在本PR改動，避免後續生成覆蓋。
+現有640×480 internal pattern TMDS demo可重用encoder、control code、TERC4與packet測試；無外部pixel stream、無可配置timing，serialization為每pixel 10個clk的邏輯模型，非量產高速PHY。2026-10-26舊文檔前段曾稱BCH XOR簡化；2026-11-01已同步為固定AVI/SPD的BCH常數；新設計應以獨立packet oracle檢查，不宣稱動態packet ECC已完整。
+既有文件列core line75/75、toggle466/466、SVA8/8、functional39/39及wrapper20/20、416/416、7/7、25/25；均為原demo歷史證據，本輪未重跑，不能延伸為PHY／HDCP／FRL／RX或產品認證。原generated文件／wrapper不在本PR改動，避免後續生成覆蓋。
+
+## 2026-11-01 main 核對
+最新main df9d0ed755c80d40aa42c4de55d6fd163c105c90。HDMI文件新增完整wrapper pins／programming sequence／執行步驟；core functional coverage目前記39/39（原16/16已過時），其餘列值依本文件基線。Makefile的syn/apb新增mkdir -p work，保留fresh-clone修正；不重做generator或全portfolio回歸。
+現有HDMI核心仍無external video stream，沒有可配置timing／DDC EDID／audio／量產PHY；上述產品邊界不因coverage擴大而改變。本輪只審計源碼／文件，未重跑Icarus／Verilator／Yosys。新byte profile reference已在總repo檢查，但不等同HDMI sink實作。
 
 ## 系統分工與方塊圖
 ```mermaid

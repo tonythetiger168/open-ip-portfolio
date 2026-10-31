@@ -296,6 +296,47 @@ module UniPro_sva #(parameter int ACK_WAIT = 600) (
                          cpu_addr == 6 ? {22'd0, p_cnf, p_vld, p_val} : 32'd0;
   wire        m_irq    = x_crc | x_frm | x_mof | x_cof | x_rex | x_qof;
 
+  // covergroup: CPU queue writes (TC, CPort, data), acknowledged sends
+  // (sequence, attempt), good received frames (kind, length, sequence,
+  // payload), control commands, message buffer reads
+  function automatic int dcls(input logic [31:0] v, input int w);
+    logic [31:0] m;
+    m = w == 32 ? 32'hFFFF_FFFF : (32'd1 << w) - 1;
+    v = v & m;
+    dcls = v == 0 ? 0 : v == m ? 1 : (v == (32'h5555_5555 & m) || v == (32'hAAAA_AAAA & m)) ? 2 : 3;
+  endfunction
+  int c_qt, c_qp, c_qd, c_as, c_at, c_rk, c_rl, c_rs, c_rd, c_rc, c_md;
+  always @(posedge clk) begin : cgs
+    bit ok;
+    c_qt = -1; c_as = -1; c_rk = -1; c_rc = -1; c_md = -1;
+    if (rst_n && cpu_we && cpu_addr <= 1) begin c_qt = cpu_addr[0]; c_qp = cport; c_qd = dcls(cpu_wdata, 32); end
+    if (rst_n && o && g_ack && g_seq == os) begin c_as = os; c_at = tries; end
+    ok = fend && fc_l == 0 && fl_l >= 5 && int'(fb[2]) == fl_l - 5 && int'(fb[2]) <= 16;
+    if (rst_n && ok && fb[0][3:0] != 4'hF && fb[1][3:0] == xseq) begin
+      c_rk = fb[0][3:0] == 0 ? 0 : 1; c_rl = int'(fb[2]); c_rs = xseq;
+      c_rd = int'(fb[2]) == 0 ? 4 : dcls(32'(fb[3]), 8);
+    end
+    if (rst_n && ok && fb[0][3:0] == 4'hF && fb[2] == 3) c_rc = fb[3] > 5 ? 6 : int'(fb[3]);
+    if (rst_n && cpu_re && cpu_addr == 4 && m_n != 0) c_md = dcls(32'(mb[m_r]), 8);
+  end
+  covergroup cg_unipro @(negedge clk);
+    cp_qtc: coverpoint c_qt iff (c_qt >= 0) { bins tc[] = {[0:1]}; }
+    cp_qport: coverpoint c_qp iff (c_qt >= 0) { bins p[] = {[0:14]}; }
+    cp_qdata: coverpoint c_qd iff (c_qt >= 0) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+    x_q: cross cp_qtc, cp_qdata;
+    cp_aseq: coverpoint c_as iff (c_as >= 0) { bins s[] = {[0:15]}; }
+    cp_atry: coverpoint c_at iff (c_as >= 0) { bins t[] = {[0:3]}; }
+    cp_rkind: coverpoint c_rk iff (c_rk >= 0) { bins cport0 = {0}; bins other = {1}; }
+    cp_rlen: coverpoint c_rl iff (c_rk >= 0) { bins empty = {0}; bins one = {1}; bins mid = {[2:15]}; bins full = {16}; }
+    x_r: cross cp_rkind, cp_rlen;
+    cp_rseq: coverpoint c_rs iff (c_rk >= 0) { bins s[] = {[0:15]}; }
+    cp_rdata: coverpoint c_rd iff (c_rk >= 0) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; bins none = {4}; }
+    cp_rcmd: coverpoint c_rc iff (c_rc >= 0) { bins get = {0}; bins set = {1}; bins get_rsp = {2}; bins set_cnf = {3};
+                                               bins ack = {4}; bins nac = {5}; bins unknown = {6}; }
+    cp_mdata: coverpoint c_md iff (c_md >= 0) { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
+  endgroup
+  cg_unipro u_cg_unipro = new();
+
   `SVA_RST(a_reset_outputs, !rst_n, tx_bit && !irq)
   `SVA_INV(a_tx_bit, tx_bit == m_tx)
   `SVA_INV(a_irq, irq == m_irq)

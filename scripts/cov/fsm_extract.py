@@ -23,6 +23,16 @@ def proto_sources(p):
     deps = re.search(r"^DEPS\s*:?=(.*)$", mk, re.M).group(1).split()
     return s, [f"rtl/{s}_top.sv"] + deps
 
+def covlib_modules(p):
+    """Modules of the Makefile's COVLIB files: IPs used as sub-blocks that are
+    closed by their own coverage run, so their FSMs are not covered here."""
+    mk = open(f"Makefile.{p}").read()
+    m = re.search(r"^COVLIB\s*:?=(.*)$", mk, re.M)
+    mods = set()
+    for f in (m.group(1).split() if m else []):
+        mods |= set(re.findall(r"^module\s+(\w+)", open(f).read(), re.M))
+    return mods
+
 def strip(e):
     while e is not None and e.kind == ExpressionKind.Conversion:
         e = e.operand
@@ -178,7 +188,7 @@ def extract(proto):
     for f in srcs:
         c.addSyntaxTree(SyntaxTree.fromFile(f))
     out = {}
-    seen_defs = set()
+    seen_defs = covlib_modules(proto)
 
     def do_instance(inst):
         body = inst.body
