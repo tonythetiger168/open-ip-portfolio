@@ -60,7 +60,8 @@ the stream Insecure and ends what was output with END rxo_bad = 1.
 - Transmit errors drop the message; if blocks were already sent it is
 ended by a nullified MAC block (txo_bad = 1, 0 bytes).
 - Error codes (tx_code / rx_code): 1 format, 2 stream not enabled /
-Secure / of that type, 3 key set not loaded, 4 counter exhausted,
+Secure / of that type, 3 sub-stream key not loaded (a stream made
+Secure as cachemem, then switched to TLPs), 4 counter exhausted,
 5 too long for the GCM counters (LEN_W), 6 unknown Stream ID (receive),
 7 MAC mismatch (receive). km_code: 1 bad stream / sub-stream, 2 key set
 incomplete at km_go, 3 sideload key not valid, 4 key set in use.
@@ -437,8 +438,8 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/PCIe_CXL_IDE_top.sv` | pass | 331/331 (+2 excl.) | 18012/18012 (+10 excl.) | 62/62 | 23/23 | 51/51 |
-| wrapper `rtl/PCIe_CXL_IDE_apb.sv` | not run | | | | | |
+| core `rtl/PCIe_CXL_IDE_top.sv` | pass | 340/340 (+2 excl.) | 18012/18012 (+10 excl.) | 62/62 | 23/23 | 51/51 |
+| wrapper `rtl/PCIe_CXL_IDE_apb.sv` | pass | 107/107 | 4836/4836 | n/a | 53/53 | 155/155 |
 
 Core: tb/PCIe_CXL_IDE_tb.sv (NS = 2, CTR_W = 4, LEN_W = 9) runs 72 known-answer cases from tb/PCIe_CXL_IDE_vec.svh (TLPs on every sub-stream and key set, header and payload lengths 4..480 bytes, cachemem epochs of 1..4 flits, key refreshes), each sent through the transmit side, compared, then looped back through the receive side; random loopback TLPs; every key management error; every transmit and receive error (framing, stream state, key set, counter exhaustion on all 24 slots, length limits, unknown Stream ID, tampered ciphertext / header / MAC); epoch truncation and bypass traffic inside epochs; clr and reset in every phase; output back-pressure down to 2 % ready.
 Expected values come from scripts/ide/ide_ref.py (on scripts/aes_gcm/gcm_ref.py), every case cross-checked against Python's cryptography AESGCM. The core checker tb/cov/PCIe_CXL_IDE_sva.sv has its own AES-256 (S-box computed from the field inverse) and GHASH and models the key slots, counters, stream states and both directions block by block: every output block, error, done pulse, key slot and counter is compared every clock.

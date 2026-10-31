@@ -446,6 +446,10 @@ module PCIe_CXL_IDE_tb;
     tx_bad(2'd2, 2'd0, 3'd2, 0, "transmit on stream 2");
     tx_bad(2'd3, 2'd1, 3'd2, 0, "transmit on stream 3");
     tx_bad(2'd0, 2'd3, 3'd1, 0, "transmit on sub-stream 3");
+    // stream 1 made Secure as cachemem (sub-stream 0 only), then switched to TLPs
+    cfg(1, 1'b1, 1'b0, 8'h22, 32'h1);
+    tx_bad(2'd1, 2'd1, 3'd3, 0, "sub-stream key not loaded");
+    cfg(1, 1'b1, 1'b1, 8'h22, 32'h1);
     // framing errors after the prefix
     tpn = 0; tp_add(r128(), 16, 1'b0, 1'b1);
     tx_bad(2'd0, 2'd0, 3'd1, 1, "TLP without a header");
@@ -787,10 +791,12 @@ module PCIe_CXL_IDE_tb;
     rdy_t = 10; rdy_r = 10;
     for (int i = 0; i < 6; i++) loop_tlp(0, 2'(i % 3), 12 + 4 * i, 16 * i + 8, 1'b1, 1'b1);
     // a protected TLP right behind a bypass TLP whose output is still held
+    rdy_t = 2;
     tp_tlp(12, 20, 0, 0, 1'b1);
     tx_send(1'b0, 2'd0, 2'd0);
     tx_send(1'b1, 2'd0, 2'd0);
     drain(5000);
+    rdy_t = 10;
     rdy_t = 2;
     tpn = 0; tp_add(r128(), 16, 1'b1, 1'b0);
     for (int j = 0; j < 4; j++) tp_add(r128(), 16, 1'b0, 1'b0);
@@ -807,6 +813,7 @@ module PCIe_CXL_IDE_tb;
     make_tlp(0, 2'd1, 32, 48);
     ri_from_sv();
     ri_k[4] = K_HDR;
+    rdy_r = 2;
     rx_bad(2'd0, 3'd1, 1, "header block in the payload, output held");
     rdy_t = 100; rdy_r = 100;
     resync(0);

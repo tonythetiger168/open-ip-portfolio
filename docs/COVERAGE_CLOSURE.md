@@ -55,12 +55,13 @@ partially-encoded enum, a tie-off that is constant by construction, and the
 upper bits of a counter whose largest load is below the next power of two.
 FSM, SVA and functional coverage have no exclusions.
 
-Totals: 121 line points out of 12854 and 3943 toggle points out of 171364
-for the cores; 477 toggle points out of 112654 for the wrappers.
+Totals: 123 line points out of 13286 and 3953 toggle points out of 197814
+for the cores; 477 toggle points out of 121800 for the wrappers.
 
 Verilator leaves signals wider than 256 bits out of toggle coverage by
 default. An IP with wider buses (UCIe: 544-bit flits, Ethernet_RS_FEC:
-320-bit beats and the 460-bit riBM registers) raises the limit in
+320-bit beats and the 460-bit riBM registers, PCIe_CXL_IDE: the 3072-bit
+key stores) raises the limit in
 `scripts/cov/flags/<P>.txt`, which `run_cov.sh` passes to Verilator for the
 core and wrapper runs, so those bits are scored too.
 
@@ -106,12 +107,13 @@ Regression run on 2026-10-24, seed 1 (`scripts/cov/run_all.sh 4`, 242 runs,
 all closed), with the PCIe, UCIe, ML_KEM and Ethernet_RS_FEC rows (core and
 wrapper) re-run on 2026-10-28 after their v3.0 / v1.0 changes, ML_KEM
 again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
-2026-10-29, and SHA3 and AES_GCM added on 2026-10-30. The tables come from
+2026-10-29, SHA3 and AES_GCM added on 2026-10-30, and PCIe_CXL_IDE added on
+2026-10-31. The tables come from
 `python3 scripts/cov/report.py`.
 
 ### Cores
 
-126/126 closed.
+127/127 closed.
 
 | IP | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
@@ -205,6 +207,7 @@ again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
 | OCP_IP_Open_Core_Protocol | 48/49 (+1 excl.) | 1086/1098 (+12 excl.) | 15/15 | 13/13 | 75/75 | pass |
 | ONFI | 119/119 | 458/458 | 17/17 | 5/5 | 61/61 | pass |
 | PCIe | 192/192 | 1834/1838 (+4 excl.) | 22/22 | 8/8 | 128/128 | pass |
+| PCIe_CXL_IDE | 338/340 (+2 excl.) | 18002/18012 (+10 excl.) | 62/62 | 23/23 | 51/51 | pass |
 | PWM | 11/11 | 256/276 (+20 excl.) | n/a | 5/5 | 29/29 | pass |
 | QSPI | 46/46 | 156/156 | n/a | 6/6 | 60/60 | pass |
 | RFFE | 70/70 | 236/236 | 16/16 | 10/10 | 83/83 | pass |
@@ -243,7 +246,7 @@ again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
 | eMMC | 120/120 | 1622/1622 | 17/17 | 6/6 | 64/64 | pass |
 | eUSB2 | 107/108 (+1 excl.) | 394/394 | 16/16 | 6/6 | 74/74 | pass |
 
-Totals: line 12825/12946 (+121 excluded), toggle 175859/179802 (+3943 excluded), fsm 2640/2640, sva 1554/1554, functional 12185/12185.
+Totals: line 13163/13286 (+123 excluded), toggle 193861/197814 (+3953 excluded), fsm 2702/2702, sva 1577/1577, functional 12236/12236.
 
 For the IPs rebuilt last (UniPro, DisplayPort2, SAS-4, SATA, the clone
 rewrites and the memory family), the checker was also tested with deliberate
@@ -256,7 +259,7 @@ The wrapper's coverage scope is the wrapper alone (`u_core` is excluded),
 because the core is closed by its own run above. The wrapper has no state
 machine, so FSM is n/a.
 
-126/126 closed.
+127/127 closed.
 
 | APB wrapper | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
@@ -350,6 +353,7 @@ machine, so FSM is n/a.
 | OCP_apb | 19/19 | 612/612 | n/a | 7/7 | 23/23 | pass |
 | ONFI_apb | 40/40 | 818/818 | n/a | 15/15 | 72/72 | pass |
 | PCIe_apb | 34/34 | 640/640 | n/a | 14/14 | 91/91 | pass |
+| PCIe_CXL_IDE_apb | 107/107 | 4836/4836 | n/a | 53/53 | 155/155 | pass |
 | PWM_apb | 19/19 | 466/466 | n/a | 9/9 | 28/28 | pass |
 | QSPI_apb | 21/21 | 448/448 | n/a | 11/11 | 32/32 | pass |
 | RFFE_apb | 40/40 | 664/664 | n/a | 15/15 | 68/68 | pass |
@@ -388,4 +392,4 @@ machine, so FSM is n/a.
 | eMMC_apb | 19/19 | 412/412 | n/a | 7/7 | 23/23 | pass |
 | eUSB2_apb | 20/20 | 406/406 | n/a | 7/7 | 25/25 | pass |
 
-Totals: line 4221/4221, toggle 116487/116964 (+477 excluded), fsm 0/0, sva 1506/1506, functional 6456/6456.
+Totals: line 4328/4328, toggle 121323/121800 (+477 excluded), fsm 0/0, sva 1559/1559, functional 6611/6611.
