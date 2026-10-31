@@ -25,6 +25,7 @@ Register map (32-bit words, PADDR[11:0], byte addresses):
 
 Spec ("regs" entries, ports are core ports):
   {"name", "kind": "rw",  "fields": [port | {"port", "reset", "desc"}]}  core inputs
+      ("secret": true: write-only, reads 0, e.g. a key)
   {"name", "kind": "ro",  "fields": [port | {"port", "desc"}]}           core outputs
   {"name", "kind": "cmd", "fields": [...]}   1-bit core inputs, write-1 pulses one clock
   {"name", "kind": "stream_in",  "data", "valid", ["ready"]}   core input stream:
@@ -119,6 +120,7 @@ class Word:
     def __init__(self, name, kind, reg=None, desc=""):
         self.name, self.kind, self.reg, self.desc = name, kind, reg, desc
         self.fields, self.off, self.last = [], 0, True
+        self.secret = False
 
     @property
     def wb(self):
@@ -198,7 +200,10 @@ def layout(spec, width, dirn):
                 if k == "cmd":
                     assert width[f["port"]] == 1, f
                 mapped.add(f["port"])
-            words += pack(r["name"], k, fl, width, r.get("desc", ""))
+            ws = pack(r["name"], k, fl, width, r.get("desc", ""))
+            for w in ws:
+                w.secret = k == "rw" and bool(r.get("secret"))
+            words += ws
         elif k in ("stream_in", "stream_out"):
             exp = "input" if k == "stream_in" else "output"
             dports = data_ports(r)
@@ -535,6 +540,8 @@ def gen_rtl(P, spec, core):
         elif w.kind == "scratch":
             v = "scratch"
         elif w.kind == "rw":
+            if w.secret:
+                continue                     # write-only: reads 0
             v = f"32'(r_{w.name})"
         elif w.kind == "cmd":
             continue

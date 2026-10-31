@@ -106,7 +106,7 @@ Regression run on 2026-10-24, seed 1 (`scripts/cov/run_all.sh 4`, 242 runs,
 all closed), with the PCIe, UCIe, ML_KEM and Ethernet_RS_FEC rows (core and
 wrapper) re-run on 2026-10-28 after their v3.0 / v1.0 changes, ML_KEM
 again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
-2026-10-29, and SHA3 added on 2026-10-30. The tables come from
+2026-10-29, and SHA3 and AES_GCM added on 2026-10-30. The tables come from
 `python3 scripts/cov/report.py`.
 
 ### Cores
@@ -117,6 +117,7 @@ again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
 |---|---|---|---|---|---|---|
 | ACE | 59/61 (+2 excl.) | 1122/1128 (+6 excl.) | 17/17 | 16/16 | 78/78 | pass |
 | ACE_Lite | 40/41 (+1 excl.) | 588/592 (+4 excl.) | 10/10 | 15/15 | 125/125 | pass |
+| AES_GCM | 92/92 | 8438/8438 | 8/8 | 19/19 | 57/57 | pass |
 | AHB | 26/28 (+2 excl.) | 298/298 | 6/6 | 12/12 | 51/51 | pass |
 | APB | 21/21 | 288/288 | 6/6 | 14/14 | 45/45 | pass |
 | ARM_Local_Translation_Interface | 51/51 | 2122/2122 | 6/6 | 5/5 | 93/93 | pass |
@@ -242,7 +243,7 @@ again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
 | eMMC | 120/120 | 1622/1622 | 17/17 | 6/6 | 64/64 | pass |
 | eUSB2 | 107/108 (+1 excl.) | 394/394 | 16/16 | 6/6 | 74/74 | pass |
 
-Totals: line 12733/12854 (+121 excluded), toggle 167421/171364 (+3943 excluded), fsm 2632/2632, sva 1535/1535, functional 12128/12128.
+Totals: line 12825/12946 (+121 excluded), toggle 175859/179802 (+3943 excluded), fsm 2640/2640, sva 1554/1554, functional 12185/12185.
 
 For the IPs rebuilt last (UniPro, DisplayPort2, SAS-4, SATA, the clone
 rewrites and the memory family), the checker was also tested with deliberate
@@ -261,6 +262,7 @@ machine, so FSM is n/a.
 |---|---|---|---|---|---|---|
 | ACE_Lite_apb | 19/19 | 766/770 (+4 excl.) | n/a | 7/7 | 23/23 | pass |
 | ACE_apb | 19/19 | 924/930 (+6 excl.) | n/a | 7/7 | 23/23 | pass |
+| AES_GCM_apb | 93/93 | 4310/4310 | n/a | 37/37 | 113/113 | pass |
 | AHB_apb | 19/19 | 604/604 | n/a | 7/7 | 23/23 | pass |
 | APB_apb | 19/19 | 594/594 | n/a | 7/7 | 23/23 | pass |
 | ARM_Local_Translation_Interface_apb | 36/36 | 960/960 | n/a | 20/20 | 53/53 | pass |
@@ -386,4 +388,4 @@ machine, so FSM is n/a.
 | eMMC_apb | 19/19 | 412/412 | n/a | 7/7 | 23/23 | pass |
 | eUSB2_apb | 20/20 | 406/406 | n/a | 7/7 | 25/25 | pass |
 
-Totals: line 4128/4128, toggle 112177/112654 (+477 excluded), fsm 0/0, sva 1469/1469, functional 6343/6343.
+Totals: line 4221/4221, toggle 116487/116964 (+477 excluded), fsm 0/0, sva 1506/1506, functional 6456/6456.

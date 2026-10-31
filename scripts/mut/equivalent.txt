@@ -73,3 +73,9 @@ CXL | mwv = bi_en && meta[dpa] == 2'b00 && sf_cnt >= (DW+1)'(SFE) ? 2'b00 : hd[3
 CXL | ndr_v <= 1'b0; drs_v <= 1'b0; drs_hs <= 1'b0; d_first <= 1'b0; ndr_op <= '0; ndr_tag <= '0; drs_tag <= '0; | 1'b0 -> 1'b1@3 | reset value of drs_hs: read only together with drs_v, and cleared when a DRS is made
 CXL | ndr_v <= 1'b0; drs_v <= 1'b0; drs_hs <= 1'b0; d_first <= 1'b0; ndr_op <= '0; ndr_tag <= '0; drs_tag <= '0; | 1'b0 -> 1'b1@4 | reset value of d_first: read only while both an NDR and a DRS wait, and each of them sets it when made
 CXL | for (int k = LINES - 1; k >= 0; k--) | - 1 -> - 2 | the victim search skips offset LINES - 1 from vp: it is the smallest offset only if no other line is valid, but an eviction needs SFE >= 2 valid lines (SFE is 4 here)
+AES_GCM | m <= M_IDLE; kreg <= '0; ivr <= '0; k256 <= 1'b0; dec <= 1'b0; tlen <= '0; | 1'b0 -> 1'b1@1 | k256 left at 1 after a message: it is only read while a message runs, and every start writes it first
+AES_GCM | m <= M_IDLE; kreg <= '0; ivr <= '0; k256 <= 1'b0; dec <= 1'b0; tlen <= '0; | 1'b0 -> 1'b1@2 | dec left at 1 after a message: it is only read while a message runs (GHASH input, tag at done), and every start writes it first
+AES_GCM | out_valid <= 1'b0; out_data <= '0; out_bytes <= '0; out_last <= 1'b0;#2 | 1'b0 -> 1'b1@2 | out_last set by an abort: it is only meaningful with out_valid, which the abort clears, and every output block writes it
+AES_GCM | wire [LEN_W:0] alen_n = {1'b0, alen} + (LEN_W + 1)'(in_bytes); | + 1 -> + 2 | a wider cast of in_bytes: the sum is truncated to the same LEN_W + 1 bits
+AES_GCM | m <= M_IDLE; k256 <= 1'b0; dec <= 1'b0; tlen <= '0; kreg <= '0; ivr <= '0; | 1'b0 -> 1'b1@1 | k256 reset value: it is only read while a message runs, and every start writes it first
+AES_GCM | m <= M_IDLE; k256 <= 1'b0; dec <= 1'b0; tlen <= '0; kreg <= '0; ivr <= '0; | 1'b0 -> 1'b1@2 | dec reset value: it is only read while a message runs, and every start writes it first

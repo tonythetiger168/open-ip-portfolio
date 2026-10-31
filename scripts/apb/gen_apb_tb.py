@@ -11,6 +11,8 @@ ACCESS = {"id": "RO", "irq_status": "W1C", "irq_enable": "RW", "flags": "RO",
 
 
 def access(w):
+    if w.kind == "rw" and w.secret:
+        return "WO"
     if w.kind == "bus":
         return {(True, True): "RW (core)", (True, False): "WO (core)", (False, True): "RO (core)"}[
             (w.bus_widx is not None, w.bus_ridx is not None)]
@@ -180,6 +182,15 @@ def gen_tb(P, spec, core, words, irqb, flagb, pt):
     a("    end")
     a("    wr(a, rst); rd_exp(a, rst);")
     a("  endtask")
+    if any(w.kind == "rw" and w.secret for w in words):
+        a("  // write-only (secret) register: the same writes, every read returns 0 (the")
+        a("  // checker follows the value onto the core port)")
+        a(f"  task automatic wo_test(input logic [{AW-1}:0] a, input logic [31:0] m, input logic [31:0] rst);")
+        a("    wr(a, 32'hFFFF_FFFF); rd_exp(a, 0);")
+        a("    wr(a, 32'h0);         rd_exp(a, 0);")
+        a("    for (int i = 0; i < 16; i++) begin wrs(a, $urandom, i[3:0]); rd_exp(a, 0); end")
+        a("    wr(a, rst); rd_exp(a, 0);")
+        a("  endtask")
     a("")
     a(f"  `include \"apb/{P}_apb_func.svh\"")
     a("")
@@ -189,7 +200,7 @@ def gen_tb(P, spec, core, words, irqb, flagb, pt):
     a("    rd_exp(A_SCRATCH, 0);")
     for w in words:
         if w.kind == "rw":
-            a(f"    rd_exp(A_{w.name}, 32'h{w.reset():X});")
+            a(f"    rd_exp(A_{w.name}, 32'h{0 if w.secret else w.reset():X});" + ("                     // write-only: reads 0" if w.secret else ""))
         if w.kind == "sin":
             a(f"    rd_exp(A_{w.name}, 0);")
         if w.kind == "cmd":
@@ -204,7 +215,7 @@ def gen_tb(P, spec, core, words, irqb, flagb, pt):
     a("    rw_test(A_IRQ_ENABLE, IRQ_ALL, 0);")
     for w in words:
         if w.kind == "rw" and not next((r for r in spec["regs"] if r["name"] == w.reg), {}).get("no_rw_test"):
-            a(f"    rw_test(A_{w.name}, 32'h{wmask(w):X}, 32'h{w.reset():X});")
+            a(f"    {'wo' if w.secret else 'rw'}_test(A_{w.name}, 32'h{wmask(w):X}, 32'h{w.reset():X});")
         if w.kind in ("ro", "sout"):
             a(f"    wr(A_{w.name}, 32'hFFFF_FFFF);                     // read-only: ignored")
     a("    // unmapped and misaligned: PSLVERR, read data 0, no side effects")
@@ -391,7 +402,7 @@ def gen_sva(P, spec, core, words, irqb, flagb, pt):
                 st = n[:-5] if n.endswith("_FULL") else n[:-6]
                 bits.append(f"m_state_{st}")
             v = "32'({" + ", ".join(reversed(bits)) + "})" if bits else "0"
-        elif w.kind == "cmd":
+        elif w.kind == "cmd" or w.kind == "rw" and w.secret:
             v = "0"
         elif w.kind == "bus":
             v = f"32'(c_{bus_of(spec, w)['rdata']})" if w.bus_ridx is not None else "0"
