@@ -6,7 +6,8 @@
 # free after the first clock (reset itself may come back at any time).
 # Then k-induction is tried for INDUCT steps; when it fails the bounded
 # result stands and is reported as such. PARAMS (formal/<P>.cfg) shrinks
-# the core so the solver can reach a useful depth.
+# the core so the solver can reach a useful depth; FILES (optional) lists
+# further RTL files the core instantiates.
 #   bash scripts/formal/run_formal.sh PCIe
 # On a failure the counterexample is work/formal/<P>/cex.vcd, and
 #   python3 scripts/formal/fail_report.py work/formal/<P>/cex.vcd <signals>
@@ -20,7 +21,7 @@ W=work/formal/$P
 mkdir -p "$W"
 CH=""
 for kv in $PARAMS; do CH="$CH -set ${kv%%=*} ${kv#*=}"; done
-READ="read_verilog -sv -formal -I formal rtl/${P}_top.sv; chparam $CH ${P}_top; prep -top ${P}_top; \
+READ="read_verilog -sv -formal -I formal rtl/${P}_top.sv ${FILES:-}; chparam $CH ${P}_top; prep -top ${P}_top; ${FILES:+flatten;} \
   memory_map; opt -fast; async2sync; dffunmap"
 echo "===== $P formal ($PARAMS) ====="
 rm -f "$W/cex.vcd"

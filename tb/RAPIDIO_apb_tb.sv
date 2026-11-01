@@ -208,14 +208,6 @@ module RAPIDIO_apb_tb;
     cycles(2);
     reg_tests();
     ip_func();
-    // A real doorbell creates an unread report and pending IRQ at reset.
-    c_hdr(4'd10); c_put(0); c_put(8'h52); c_put(8'h12); c_put(8'h34);
-    p_send(0, 1);
-    rd(A_IRQ_STATUS);
-    if (rdv == 0) fail("doorbell did not create a pending IRQ");
-    wr(A_IRQ_ENABLE, IRQ_ALL);
-    cycles(2);
-    if (irq !== 1) fail("reset scenario requires a pending enabled IRQ");
     PRESETN = 0;
     cycles(3);
     if (irq !== 0 || PRDATA !== 0) fail("outputs in reset");

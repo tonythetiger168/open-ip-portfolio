@@ -1,0 +1,4660 @@
+{
+"source": "pycryptodome-test-vectors 1.0.26: NIST CAVP GCM (AES-128, 96-bit IV, Count 0 of every section) and Project Wycheproof aes_gcm_test.json (96-bit IV, 128/256-bit keys)",
+"kats": [
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD0 Tag128",
+"key": "11754cd72aec309bf52f7687212e8957",
+"iv": "3c819d9a9bed087615030b65",
+"aad": "",
+"ct": "",
+"tag": "250327c674aaf477aef2675748cf6971",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD0 Tag120",
+"key": "272f16edb81a7abbea887357a58c1917",
+"iv": "794ec588176c703d3d2a7a07",
+"aad": "",
+"ct": "",
+"tag": "b6e6f197168f5049aeda32dafbdaeb",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD0 Tag112",
+"key": "81b6844aab6a568c4556a2eb7eae752f",
+"iv": "ce600f59618315a6829bef4d",
+"aad": "",
+"ct": "",
+"tag": "89b43e9dbc1b4f597dbbc7655bb5",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD0 Tag104",
+"key": "cde2f9a9b1a004165ef9dc981f18651b",
+"iv": "29512c29566c7322e1e33e8e",
+"aad": "",
+"ct": "",
+"tag": "2e58ce7dabd107c82759c66a75",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD0 Tag96",
+"key": "b01e45cc3088aaba9fa43d81d481823f",
+"iv": "5a2c4a66468713456a4bd5e1",
+"aad": "",
+"ct": "",
+"tag": "014280f944f53c681164b2ff",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD0 Tag64",
+"key": "37537a1046d71481796f25f407d5bbf1",
+"iv": "7471c076847d67cc16e9b0f6",
+"aad": "",
+"ct": "",
+"tag": "b5c76f188b101250",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD0 Tag32",
+"key": "884eb636a277ecc4c34a43cc59075ca9",
+"iv": "44e8019f4026ff0c1f8b3e2f",
+"aad": "",
+"ct": "",
+"tag": "054d063f",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD128 Tag128",
+"key": "77be63708971c4e240d1cb79e8d77feb",
+"iv": "e0e00f19fed7ba0136a797f3",
+"aad": "7a43ec1d9c0a5a78a0b16533a6213cab",
+"ct": "",
+"tag": "209fcc8d3675ed938e9c7166709dd946",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD128 Tag120",
+"key": "da0b615656135194ba6d3c851099bc48",
+"iv": "d39d4b4d3cc927885090e6c3",
+"aad": "e7e5e6f8dac913036cb2ff29e8625e0e",
+"ct": "",
+"tag": "ab967711a5770461724460b07237e2",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD128 Tag112",
+"key": "7e0986937a88eef894235aba4a2f43b2",
+"iv": "92c4a631695907166b422d60",
+"aad": "85c185f8518f9f2cd597a8f9208fc76b",
+"ct": "",
+"tag": "3bb916b728df94fe9d1916736be1",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD128 Tag104",
+"key": "c3db570d7f0c21e86b028f11465d1dc9",
+"iv": "f86970f58ceef89fc7cb679e",
+"aad": "c095240708c0f57c288d86090ae34ee1",
+"ct": "",
+"tag": "e043c52160d652e82c7262fcf4",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD128 Tag96",
+"key": "bea48ae4980d27f357611014d4486625",
+"iv": "32bddb5c3aa998a08556454c",
+"aad": "8a50b0b8c7654bced884f7f3afda2ead",
+"ct": "",
+"tag": "8e0f6d8bf05ffebe6f500eb1",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD128 Tag64",
+"key": "f106707b6feaf55ff3716682babb153c",
+"iv": "a8fe0334b48d9315d900e7c9",
+"aad": "c37b8f27d53ac3df1b8e6f705d0a24f4",
+"ct": "",
+"tag": "6da65b0b5be02142",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD128 Tag32",
+"key": "13dcd21d1c1430de6774067f6ad5f473",
+"iv": "fd71056931d8d4ef3c2613a7",
+"aad": "40582c192ee0c3256cf0c12ec8abe39a",
+"ct": "",
+"tag": "b20e0bf6",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD160 Tag128",
+"key": "2fb45e5b8f993a2bfebc4b15b533e0b4",
+"iv": "5b05755f984d2b90f94b8027",
+"aad": "e85491b2202caf1d7dce03b97e09331c32473941",
+"ct": "",
+"tag": "c75b7832b2a2d9bd827412b6ef5769db",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD160 Tag120",
+"key": "9bf406339fcef9675bbcf156aa1a0661",
+"iv": "8be4a9543d40f542abacac95",
+"aad": "7167cbf56971793186333a6685bbd58d47d379b3",
+"ct": "",
+"tag": "5e7968d7bbd5ba58cfcc750e2ef8f1",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD160 Tag112",
+"key": "a2e962fff70fd0f4d63be728b80556fc",
+"iv": "1fa7103483de43d09bc23db4",
+"aad": "2a58edf1d53f46e4e7ee5e77ee7aeb60fc360658",
+"ct": "",
+"tag": "fa37f2dbbefab1451eae1d0d74ca",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD160 Tag104",
+"key": "6bf4fdce82926dcdfc52616ed5f23695",
+"iv": "cc0f5899a10615567e1193ed",
+"aad": "3340655592374c1da2f05aac3ee111014986107f",
+"ct": "",
+"tag": "8ad3385cce3b5e7c985908192c",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD160 Tag96",
+"key": "4df7a13e43c3d7b66b1a72fac5ba398e",
+"iv": "97179a3a2d417908dcf0fb28",
+"aad": "cbb7fc0010c255661e23b07dbd804b1e06ae70ac",
+"ct": "",
+"tag": "37791edae6c137ea946cfb40",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD160 Tag64",
+"key": "3f8777b7c6a4d0962da25da68363f84d",
+"iv": "73f30f2b5aa317f9fcff5482",
+"aad": "e12756b90bac548fb300756668dbd0e395ecd5ca",
+"ct": "",
+"tag": "cb8e9900c2dfe6a6",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD160 Tag32",
+"key": "1ea8bc7bc395877342e911d476ae32e2",
+"iv": "3333c4f484aa2f906a8e7c28",
+"aad": "30a5a9270a017047eab5bf10effc5055532b874b",
+"ct": "",
+"tag": "bd514ad3",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD384 Tag128",
+"key": "99e3e8793e686e571d8285c564f75e2b",
+"iv": "c2dd0ab868da6aa8ad9c0d23",
+"aad": "b668e42d4e444ca8b23cfdd95a9fedd5178aa521144890b093733cf5cf22526c5917ee476541809ac6867a8c399309fc",
+"ct": "",
+"tag": "3f4fba100eaf1f34b0baadaae9995d85",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD384 Tag120",
+"key": "e9f33caaf7deacf43be45407c0784554",
+"iv": "f66aaec224fcb05c5c5f891e",
+"aad": "32971e5f1daa18803f2ed2fd37c459d77395623e1b348aadfffad908e862c8baf87673fef5d616e9a427b285d3d4cbc5",
+"ct": "",
+"tag": "ed41a470a31b549c38fb87cbfe9dd8",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD384 Tag112",
+"key": "1e6c5c5f0f383b3d5c25886646bfa4c2",
+"iv": "a9ccce95354c3987337453f9",
+"aad": "66cd9ddfce6905dc4bb8948ededeedbc30a190ce5ee26440708982335cc408da66453368570cb53d7c6e82c918f45e61",
+"ct": "",
+"tag": "38432ddb259e0ab9ee702fcedd11",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD384 Tag104",
+"key": "6aae9dd3d7543531cc6ca35bbe89dccc",
+"iv": "695eddc2d843c8081f94794f",
+"aad": "4de3c5b86642bbb35e584b5c3bd802e7d28d58a919be232b72ebdd4cecee982d7053247fda1b1433ee37325b725327f3",
+"ct": "",
+"tag": "29a4aadc562c6879ac2b6d314b",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD384 Tag96",
+"key": "c77acd1b0918e87053cb3e51651e7013",
+"iv": "39ff857a81745d10f718ac00",
+"aad": "407992f82ea23b56875d9a3cb843ceb83fd27cb954f7c5534d58539fe96fb534502a1b38ea4fac134db0a42de4be1137",
+"ct": "",
+"tag": "2a5dc173285375dc82835876",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD384 Tag64",
+"key": "a05943f605470563043528153c07c4ee",
+"iv": "0c4ac1e4df5437ff40a7417e",
+"aad": "cdb7eaed8ee623767b42011c4e4d4cd62b348a8ab68ce7c7f848f3b6b828f92ccfb6e27bd4fdcb892ed1fe701f91f0ec",
+"ct": "",
+"tag": "d024e82511880474",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD384 Tag32",
+"key": "31f3db349138c53719a04269153dbbbd",
+"iv": "857918200b71b95353336161",
+"aad": "7080c306e1563b2be2d767bc00d7b4b89f7a23ac5b94d2a45c9551b8a5539f2028b256f2e4073c6c894b220ce0034ba2",
+"ct": "",
+"tag": "59ece7bb",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD720 Tag128",
+"key": "20b5b6b854e187b058a84d57bc1538b6",
+"iv": "94c1935afc061cbf254b936f",
+"aad": "ca418e71dbf810038174eaa3719b3fcb80531c7110ad9192d105eeaafa15b819ac005668752b344ed1b22faf77048baf03dbddb3b47d6b00e95c4f005e0cc9b7627ccafd3f21b3312aa8d91d3fa0893fe5bff7d44ca46f23afe0",
+"ct": "",
+"tag": "b37286ebaf4a54e0ffc2a1deafc9f6db",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD720 Tag120",
+"key": "c34b23cff0d158d64042b104acd03753",
+"iv": "c05f0a54a224a652b82efd29",
+"aad": "94a009421c6889deb233b727cfd333bcda46bd2c9fb5ed60e2807a24c9a5146ba024d8d8525221583d02924bfca32213694169a121091c7c2ee0c3427a5c16a8210ea70c6b8ee0bcc7d782f0607a75e40a8d788a9ec469e05eee",
+"ct": "",
+"tag": "1f8da8c6e25ff2f2116dad939428dd",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD720 Tag112",
+"key": "21474dc6523587a077ea361bece2e9bc",
+"iv": "cae71485a5bc18f0c59cf35f",
+"aad": "327c02ac3cc55f29a91198938eb8fa2656246bf04d79783d34243db36991bcdbf8ed863fed4293bccddf577a0f81b130b96dc02ed51181ec89a052e58c60c1d68c28efc1dbb51e2613c5864af85402f18ac1b1d5cf4d3070afd0",
+"ct": "",
+"tag": "78b0309b6595e0beb8b877a0cf51",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD720 Tag104",
+"key": "7674e09a02011df80cb66abf646c4448",
+"iv": "c9191abd553ca614e09b3784",
+"aad": "3911e9620a863cb435a74305be2d104d569a6e4ef796de23e8ec3b79b013244713dd4a2b1d3310de6ca74ecf51c44a2c3de573c8dfb6cf8c3c2763aa0add823b4426374591869ab5a5c08252d81dad73384d8965eb4a810be4e1",
+"ct": "",
+"tag": "92cf1e6b89d22b456bd8e1d63d",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD720 Tag96",
+"key": "d3da4c1b8a0da47207ee9384ce85d123",
+"iv": "02e07988f6e899465e64413a",
+"aad": "5ac3c5f477a5486ade9619937c0b94b4567a6810f37481f08070cc7f6c6b83887b3f3b67511ecb01e94833648f9afcc7be1d30e75733f158e34611c95fa735678e3e20ddbef118375d25ac8f5abcf14329289ca5b8be04e051e7",
+"ct": "",
+"tag": "0463ea5b69c9029fa48de21a",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD720 Tag64",
+"key": "338c8bc1b1bdc40b58f26024b1370d3a",
+"iv": "3b1856853f945c3301af1891",
+"aad": "69f72d74c4877db4a7da6137a24f8fed5c2c72f800b5dc01ebaef34ce3a4367412506bd33a4177a355d875aba6ed1134104512976a9580e4f86863054d03c47a0b82f55f8ed73bfef83f565422db63e086b30926cde208f83141",
+"ct": "",
+"tag": "742efac14fcb01f3",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT0 AAD720 Tag32",
+"key": "fec14f1c775ec5dc2976be559d4fb689",
+"iv": "3b23453a96c86f192042b60c",
+"aad": "6deddbe4c4caf59abcd3058b63b86798b89542afd586e4bccdec8f8c57d174385d9a6072cbde979bedb90f7052140f09e25b3a5052531488e4bb20c543a74112ba4c524e04fcb1d43dcf05731b41fd38a06cf4835d69e08f482c",
+"ct": "",
+"tag": "4fdff79e",
+"pt": ""
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD0 Tag128",
+"key": "7fddb57453c241d03efbed3ac44e371c",
+"iv": "ee283a3fc75575e33efd4887",
+"aad": "",
+"ct": "2ccda4a5415cb91e135c2a0f78c9b2fd",
+"tag": "b36d1df9b9d5e596f83e8b7f52971cb3",
+"pt": "d5de42b461646c255c87bd2962d3b9a2"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD0 Tag120",
+"key": "a10c0047bc237c96caf74c9676d6ff1f",
+"iv": "c81820692baad8837f0112e7",
+"aad": "",
+"ct": "f2f03455ec73027b27042be0e66e4b8e",
+"tag": "368be4de43c27e8466cf2da86e3215",
+"pt": "b65c3e50f9852b745f66b13e8d4f66cf"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD0 Tag112",
+"key": "4a93d060e5840ea1a316a93833a3d7ae",
+"iv": "c1e53efb263be5a3991aa67f",
+"aad": "",
+"ct": "9bd752f9e2a66a084bcae54ca49fe379",
+"tag": "172793bee6cfefd22542a20ad246",
+"pt": "9b50e6860424b1991d4e2096e054e650"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD0 Tag104",
+"key": "0cecc3a1ccc9f703c1fc494f18fb19c9",
+"iv": "54bff4beb52b953987ddd632",
+"aad": "",
+"ct": "3d9989937f68818a67804b29099ba1f6",
+"tag": "2b38ad12cafc1ce95283e633a6",
+"pt": "086d474358211f0ff5bc289e0a897c15"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD0 Tag96",
+"key": "f00fdd018c02e03576008b516ea971ad",
+"iv": "3b3e276f9e98b1ecb7ce6d28",
+"aad": "",
+"ct": "55d2da7a3fb773b8a073db499e24bf62",
+"tag": "cba06bb4f6e097199250b0d1",
+"pt": "2853e66b7b1b3e1fa3d1f37279ac82be"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD0 Tag64",
+"key": "9d6380d680247607ab2ab360d5b755dc",
+"iv": "f9b1df61d9f40419e93835b1",
+"aad": "",
+"ct": "be80cd6d41fec4d891e0bbd34232d85e",
+"tag": "33e5ed3a94b45de1",
+"pt": "56a65181f0bc6eb8139898ee5c8dba43"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD0 Tag32",
+"key": "69a6bff9f9eccb3a0ed6260e67785df6",
+"iv": "1cf93bab893917f844f62653",
+"aad": "",
+"ct": "8f25ab02e2a20be2e5a90901f21baac8",
+"tag": "32d17b9f",
+"pt": "ad5265f5feb4e437ff6556394ae768fe"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD128 Tag128",
+"key": "c939cc13397c1d37de6ae0e1cb7c423c",
+"iv": "b3d8cc017cbb89b39e0f67e2",
+"aad": "24825602bd12a984e0092d3e448eda5f",
+"ct": "93fe7d9e9bfd10348a5606e5cafa7354",
+"tag": "0032a1dc85f1c9786925a2e71d8272dd",
+"pt": "c3b3c41f113a31b73d9a5cd432103069"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD128 Tag120",
+"key": "89c54b0d3bc3c397d5039058c220685f",
+"iv": "bc7f45c00868758d62d4bb4d",
+"aad": "48d16cda0337105a50e2ed76fd18e114",
+"ct": "fc2d4c4eee2209ddbba6663c02765e69",
+"tag": "55e783b00156f5da0446e2970b877f",
+"pt": "582670b0baf5540a3775b6615605bd05"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD128 Tag112",
+"key": "bad6049678bf75c9087b3e3ae7e72c13",
+"iv": "a0a017b83a67d8f1b883e561",
+"aad": "f7c27b51d5367161dc2ff1e9e3edc6f2",
+"ct": "36f032f7e3dc3275ca22aedcdc68436b",
+"tag": "99a2227f8bb69d45ea5d8842cd08",
+"pt": "a1be93012f05a1958440f74a5311f4a1"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD128 Tag104",
+"key": "66a3c722ccf9709525650973ecc100a9",
+"iv": "1621d42d3a6d42a2d2bf9494",
+"aad": "d7a9b6523b8827068a6354a6d166c6b9",
+"ct": "fef3b20f40e08a49637cc82f4c89b860",
+"tag": "3fd5c0132acfab97b5fff651c4",
+"pt": "61fa9dbbed2190fbc2ffabf5d2ea4ff8"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD128 Tag96",
+"key": "562ae8aadb8d23e0f271a99a7d1bd4d1",
+"iv": "f7a5e2399413b89b6ad31aff",
+"aad": "2b9680b886b3efb7c6354b38c63b5373",
+"ct": "e2b7e5ed5ff27fc8664148f5a628a46d",
+"tag": "cbf2015184fffb82f2651c36",
+"pt": "bbdc3504d803682aa08a773cde5f231a"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD128 Tag64",
+"key": "af2904e234458af8ce0d616866c981fc",
+"iv": "ef6381fdeb7877845f46edcd",
+"aad": "41946f4a8304875ab3db0dec08d6c990",
+"ct": "b13b49e06b9e615a86d4c17ac10da212",
+"tag": "ac8af4dc584da9a6",
+"pt": "13836338abcfc03b89dd93f1dd691b01"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD128 Tag32",
+"key": "6dfb5dc68af6ae2f3242e9184f100918",
+"iv": "37d36f5c54d53479d4745dd1",
+"aad": "dd0fa6e494031139d71ee45f00d56fa4",
+"ct": "418d6c132a4f5bbe245133936ada9c73",
+"tag": "9ae38ddb",
+"pt": "47809d16c2c6ec685962c90e53fe1bba"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD160 Tag128",
+"key": "d4a22488f8dd1d5c6c19a7d6ca17964c",
+"iv": "f3d5837f22ac1a0425e0d1d5",
+"aad": "f1c5d424b83f96c6ad8cb28ca0d20e475e023b5a",
+"ct": "c2bd67eef5e95cac27e3b06e3031d0a8",
+"tag": "f23eacf9d1cdf8737726c58648826e9c",
+"pt": "7b43016a16896497fb457be6d2a54122"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD160 Tag120",
+"key": "bcf1ca1448301114f636fedeadb159fe",
+"iv": "66c0b0f6f7ec37d0c54bdd5b",
+"aad": "4baba64bc9b6d4d1b3391f3ed984a59bb3070880",
+"ct": "074e9b20745027a796afc3eeb675cb1c",
+"tag": "39e2fc37b85e1fbd6c6ff575955aee",
+"pt": "835fcca70ff1dc9a97e7d84006494ef1"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD160 Tag112",
+"key": "87f96a86404a2c793b26d7e12c5aaffa",
+"iv": "5c6699381a9360ec83dd98dc",
+"aad": "f89016b26cea39ea38a038a0f18af53f72f7fd17",
+"ct": "4f3112a81a3531261ce900d92b43faf2",
+"tag": "c3a2481fc31a33b46c6b64041d5d",
+"pt": "43b2b8c81cfcc1e5a27b171e80dcf74f"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD160 Tag104",
+"key": "c97913d36714ac704c2d5ebea527127a",
+"iv": "3a69cfb6794b7bb46879d06b",
+"aad": "41184b06da9113f756aa85c03cf47b8dd44c7eea",
+"ct": "40d11ff798c0ee7dc7a3143bde884fd8",
+"tag": "853a4f70ab0e8919dbc0e7de32",
+"pt": "8bb70d751a272feb663154f0ee898a17"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD160 Tag96",
+"key": "90bf5dc928e91cc2f05f8c55dc1ffbc0",
+"iv": "db658c4362e7d6a03faa8492",
+"aad": "ee192a6b71e57f3f2b27efc9b1cb385d6c1be0c4",
+"ct": "93d95389595d76131b8b763e50a5fe79",
+"tag": "0c37dd797b78bdecceb9c2a7",
+"pt": "99eac872b13b623f255bcdc0eeb1c529"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD160 Tag64",
+"key": "e9ac1e944502a2a76768872d5f994c21",
+"iv": "abd6886bd16151d08d86fe70",
+"aad": "347e12e6e8ffe41286dd35ef6a3618ae25d9be73",
+"ct": "816f73be161083f525d1aae1c12c0484",
+"tag": "5f7224f6af05e7f1",
+"pt": "cd1f675f713866b209ecbf9c6bc819cb"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD160 Tag32",
+"key": "3b1ae3fe807438ac41d55c502a328d0c",
+"iv": "f5c78a5a51858eb5d52c85d4",
+"aad": "ca3ecf694a9846352c6eae137f66e62eff812b51",
+"ct": "444465fb35d98855326c377deccda908",
+"tag": "05a58716",
+"pt": "4730889c1132fae9af1c6ce572060902"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD384 Tag128",
+"key": "89850dd398e1f1e28443a33d40162664",
+"iv": "e462c58482fe8264aeeb7231",
+"aad": "d74e99d1bdaa712864eec422ac507bddbe2b0d4633cd3dff29ce5059b49fe868526c59a2a3a604457bc2afea866e7606",
+"ct": "ba80e244b7fc9025cd031d0f63677e06",
+"tag": "d84a8c3eac57d1bb0e890a8f461d1065",
+"pt": "2805cdefb3ef6cc35cd1f169f98da81a"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD384 Tag120",
+"key": "34d0b595ad6bbc3a2247653b92281044",
+"iv": "c50560b00fcede78f8b2301a",
+"aad": "20ee0faa94305c3fce1bf2497ab7b0bafbf7e8f367041efa0b83978a841d823cba074229b4db5b6edfa87afabdf1719d",
+"ct": "80cfafbf7a5dfb73fff636b9c908e8ec",
+"tag": "3676053eec80f914982f2a59e05805",
+"pt": "aa3c338ff8bbe59579d1fd8088e3b34f"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD384 Tag112",
+"key": "c860d3dbf4a7322f0c0aaf56fe5e7a49",
+"iv": "b99f8052213c2cbe0ffbc8d9",
+"aad": "f0f5e40ee9e7551110a2975a37e1ad913c8e79dcd49520fc4cf40923723253a27887400fd0be7bc10cd11bb9496c0c77",
+"ct": "4ba78481e792de13bd799d878fa2d1b3",
+"tag": "3f43176f1618ca7874bde73c92ee",
+"pt": "9fbba3208fca54b63c21d6888018b8d6"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD384 Tag104",
+"key": "370dde28752229e955beeba5146a1575",
+"iv": "c7417274d97ff4d8a5d22223",
+"aad": "bcb1ac1bdaca8c9e40875acd1447fa3369b4b9b2d890460f544d8b53311777cdcc9f81c3a4b9b0dbdc17adf474fcd7cc",
+"ct": "f6bdc3698b07507f55c7812ee5106a67",
+"tag": "3369e6348ae0114e95ecc23848",
+"pt": "d52756ca1f2eb44f33748ed3da033d60"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD384 Tag96",
+"key": "3bb66ab4c77c70c399d4988cf1130606",
+"iv": "fd5fe227d3d1bff3d1b23b76",
+"aad": "6b84fa6489858a474d4196959193d115adc4bf255077412abb6ec8bf7449bcc0365ca092ddfa287a3b747a2ab9e17138",
+"ct": "0a41ac0d07f1e2064950701995dea905",
+"tag": "20d2cd594bad3a31df8f2d75",
+"pt": "6b63c187ff5e0fa0ffffc6493b5de747"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD384 Tag64",
+"key": "da702d199f311acbd48565e1e4b30afa",
+"iv": "5a12239ac5f37c01b98861a0",
+"aad": "3e2ac3f351f88ddd44d43af8351661951f72aa5dfb78a6890de4d1b87678d7f92e5425829c7d9359e7ce5459af37578f",
+"ct": "9e9ebe5ff58d80c30fe1c00984f973d3",
+"tag": "935dc2279dd0af1e",
+"pt": "20f1434b9c8577a85065697a7d012298"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD384 Tag32",
+"key": "99e8e1861e55cf4e853a910c70901f2d",
+"iv": "437b73e624906652956bd2fb",
+"aad": "41e328808d081b677d8f51bdaedf0aa7b42e4de88c1a9004196d7ca5e0e4f9aab3a78f26cf01d60deec62dad8f9fd62b",
+"ct": "8ccc27bca436f983c761d5c5ef28138a",
+"tag": "a2f11ce5",
+"pt": "fd239ba3aeef41608fc7013c472b581d"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD720 Tag128",
+"key": "bd7c5c63b7542b56a00ebe71336a1588",
+"iv": "87721f23ba9c3c8ea5571abc",
+"aad": "a6ec8075a0d3370eb7598918f3b93e48444751624997b899a87fa6a9939f844e008aa8b70e9f4c3b1a19d3286bf543e7127bfecba1ad17a5ec53fccc26faecacc4c75369498eaa7d706aef634d0009279b11e4ba6c993e5e9ed9",
+"ct": "41eb28c0fee4d762de972361c863bc80",
+"tag": "9cb567220d0b252eb97bff46e4b00ff8",
+"pt": "de15ddbb1e202161e8a79af6a55ac6f3"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD720 Tag120",
+"key": "ce14817d05dcda036ec4434ba92e53a1",
+"iv": "d775bd3b5462d0f19a861c9b",
+"aad": "776f926da43f8777aef22940017986e3be3cb49c3c7e31911ec998d12781bf9a20f95b05b3f0c9f208f03b115c4eff2f44d8396192ee57d33d76aed87646730856da5ef4de4d714cb6d00f832382ebc3da680114970d27b3f1ea",
+"ct": "6b8325b2814d951e6996b46d67d53658",
+"tag": "dbe02d070ff9ab6ad7a9b66a6af9cb",
+"pt": "b682b34158056ef8bd2a1bc7f9ea5434"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD720 Tag112",
+"key": "c2f41b514bae75244cda812c89b55437",
+"iv": "0a2417b62034e8db6374b4a2",
+"aad": "334bc8cb6575fc7643ff07bdc50c7b4d4a968aea21d6fdaa5574634fdcb459cb0e6aa6614bb749e968cfd1af76a3558ce2a98287d94c5b6db879d663d2de92040f089edc44c74c05a22f957aeea160fa816ec27f472bd532559a",
+"ct": "59a7f7c84664cbf1315265a3dd1506ed",
+"tag": "aa62c95f0607f3254a0859a6f727",
+"pt": "95b40a6ba83c0a4783a7f928bafe1f10"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD720 Tag104",
+"key": "721650a90c883f594620dbbe757b7be1",
+"iv": "b9f4d10deb5f0d47985363f5",
+"aad": "9ca1de950eb2a50167918632021583fd6f4c96785484697f51ac6ccabdb010553fa063e0378a04d3d686d571e22fd69583a15cb6bfec0b15de16d7a705e5124bdc1b7c57d66fe9352c60345eaea22e3ec9ee44f4aedd35007cf2",
+"ct": "935b347caa07d8b6a2c838bd3bff6252",
+"tag": "408f7a09caf7f45ae4ba531e05",
+"pt": "6c41cdb0fe5682554c9e500bb288ff5a"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD720 Tag96",
+"key": "6eb218a824c247d6f6b46513910c1ef6",
+"iv": "2e05f3e91e9859187becbc61",
+"aad": "61bd8e1ea9483b688ca3d7351c73667e63937a6025d976d4f8145373e702a8c77d198cd0faae516c940cf3703deef5eec6cadb913acea5e9d8b8b6071dd81c78cda11498d7c7a3f69e58453464920deb3d7353e0f72492576202",
+"ct": "f743864b8438ecf74498395cd5ce25ae",
+"tag": "549d3804f614aff3075f7a3c",
+"pt": "2879cb688023c90643b2731e5325f092"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD720 Tag64",
+"key": "0cbd055597abb14bd88470cb8c829b95",
+"iv": "5d45ce2fe7818efb884b109e",
+"aad": "5c3230fb8f8ca4467d73574ed8501cd2f97f62f611f1692161321c3ac793fb9e98e993bb187c4452469057aaf7ae1ed880ff84fd03390c4ae4b75aced0693ed13625db910e96d940c23ad912d387f89ebef42a0d762a4b7d3fa8",
+"ct": "a05017dc1015bc7a510283900973f59f",
+"tag": "b434504ae5ac7735",
+"pt": "a5ed9ecd416e546b393d682907ebfea0"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT128 AAD720 Tag32",
+"key": "a7508078717b11f06c876ea8f8d78f7b",
+"iv": "e570bfd3bf034c20583190f5",
+"aad": "523a4475f9fb83670dd087f3459c2396aa9b833f93770a686ada376619ffa8b5a028d95e1b6098c5ac9931df4d9207ba2a509432a5509d7d385ce96b94a3c005b2432bb0e57e18be45833ed60ad9eefce15ee2974121f2188053",
+"ct": "3de746ff0795a1c7ae63581372a3816d",
+"tag": "dd431451",
+"pt": "ebe0519af8f154eb778c59aefe00e65f"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD0 Tag128",
+"key": "fe9bb47deb3a61e423c2231841cfd1fb",
+"iv": "4d328eb776f500a2f7fb47aa",
+"aad": "",
+"ct": "b88c5c1977b35b517b0aeae967",
+"tag": "43fd4727fe5cdb4b5b42818dea7ef8c9",
+"pt": "f1cc3818e421876bb6b8bbd6c9"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD0 Tag120",
+"key": "44d7adbd92bc0127b8affa4bcc28e2b1",
+"iv": "2665e67e19eacfc7c9935486",
+"aad": "",
+"ct": "7a2b46903ed1feac05d6245162",
+"tag": "28753d2ffa06bc17f2f6c0d3196618",
+"pt": "251e20dcaf91b5cc15d84d50d4"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD0 Tag112",
+"key": "692ab3ccdadfd4aabc53d60c77f08bdd",
+"iv": "15d732dc9de8e1b1a8d63596",
+"aad": "",
+"ct": "de4e7d7f6d4f190584372f6180",
+"tag": "eb95ea5576108cf136d9d71374d0",
+"pt": "f58e22112b42074dcbb5b9248d"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD0 Tag104",
+"key": "55e06f02d0edfb2fb996495520ac3700",
+"iv": "efe5d8e8602d9bdaa4db2334",
+"aad": "",
+"ct": "f3e8e133cfcfd6c2923ff45940",
+"tag": "d2e96f9a3c6688946bf3469f66",
+"pt": "0327609765c6edabc79ec25caf"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD0 Tag96",
+"key": "60f2c7ebe9d736763e58b4a33411bd1b",
+"iv": "75528a49a96a2e889d18d2fe",
+"aad": "",
+"ct": "441ff603ae77d1d6147aabf179",
+"tag": "934b415f82e8b80bc83a9d8a",
+"pt": "d64aeb92c924c4621577e0ae7c"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD0 Tag64",
+"key": "9baf422360487605d1c1dc40cc37cd32",
+"iv": "1468e805df0be0a94fc19904",
+"aad": "",
+"ct": "8cb980eb90c8fbc0cfc1f96a70",
+"tag": "ee50c620d73efb3b",
+"pt": "b9bd3f50613aab4c01ba3d0cfd"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD0 Tag32",
+"key": "62e609df44c681bff6a6ed8e8f48ba10",
+"iv": "08abe642eea52d46186cb82b",
+"aad": "",
+"ct": "5926f7d3e01ad6ef87291b096a",
+"tag": "5c8937f8",
+"pt": "ff05ba2788b2177071bea1c6be"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD128 Tag128",
+"key": "dfefde23c6122bf0370ab5890e804b73",
+"iv": "92d6a8029990670f16de79e2",
+"aad": "a2b16d78251de6c191ce350e5c5ef242",
+"ct": "bf78de948a847c173649d4b4d0",
+"tag": "9da3829968cdc50794d1c30d41cd4515",
+"pt": "64260a8c287de978e96c7521d0"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD128 Tag120",
+"key": "6792da189a2240ab853c8b6c05b94658",
+"iv": "a6159f26e5d09d9c8472ce01",
+"aad": "1d76fc16940bc77c772b8fb871327de1",
+"ct": "1137ad31d6ce148486042be48d",
+"tag": "d3d391799be08fd499e448377b40ce",
+"pt": "ec4ef2dda99b33b109dbb042bf"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD128 Tag112",
+"key": "aa0e62fd07409c542f540909d06f1e01",
+"iv": "da1b9f26fff5fc32a12b5069",
+"aad": "f4c009f26bfb3692fc05dc21cce7ff82",
+"ct": "2eceb8036386dffac21f108814",
+"tag": "9aa5f8c7154030c73fca616d1c16",
+"pt": "af937f3c93a7197f20a59524ea"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD128 Tag104",
+"key": "27e3626a8347f252519f3a391712f65a",
+"iv": "e50b6bbe4ac7307f75421a71",
+"aad": "96fe6e72597f596ae93907a820ba79a8",
+"ct": "34d347fa1b56d2cf691f1ce062",
+"tag": "cb083ec9d63075bea3bba1c0d4",
+"pt": "bf386209503082f15ed8461ddd"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD128 Tag96",
+"key": "1efb999a6e6321c473bddc598838a93b",
+"iv": "1571c934050479cb19743c6c",
+"aad": "78ebc32a9e8ecbf0805c55a63b791b2f",
+"ct": "c10c4eba4857af5856e531f1a0",
+"tag": "e2e20d097a3e6fe7a2a7fe89",
+"pt": "9da0445b68a66bd98b80ab178b"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD128 Tag64",
+"key": "f9844de997835781b9ff71752a96a539",
+"iv": "0614849226f61da4111f63ce",
+"aad": "46af9fdc3266745be4629e866945ce69",
+"ct": "256e4169994a9d9d6f67a05f80",
+"tag": "aad3a268c2470495",
+"pt": "8e8678d6f5ec116360f67980c0"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD128 Tag32",
+"key": "cc0282d06b3c6a805dc676dbcd077506",
+"iv": "5596781b0c103ca601e5bd05",
+"aad": "fb6aee4838f634cbaff8e0d53336a3f3",
+"ct": "bdb075cd7919a9600348d5a38b",
+"tag": "b89861a0",
+"pt": "9ba8c0e5284fc002a4ca830031"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD160 Tag128",
+"key": "fe0121f42e599f88ff02a985403e19bb",
+"iv": "3bb9eb7724cbe1943d43de21",
+"aad": "2662d895035b6519f3510eae0faa3900ad23cfdf",
+"ct": "59fe29b07b0de8d869efbbd9b4",
+"tag": "d24c3e9c1c73c0af1097e26061c857de",
+"pt": "fd331ca8646091c29f21e5f0a1"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD160 Tag120",
+"key": "c774933843e3cc8f616d4a0157fc2b71",
+"iv": "d2360ebd3f0bf83a1171a19d",
+"aad": "beaa525dd2c1032f41b92b8434d033e33af3aad8",
+"ct": "4bf7ec0ec2f14a66445c4e24d2",
+"tag": "1a04a0a879691419ebf678bb005a52",
+"pt": "3dd02d4b4671f509c2222a720f"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD160 Tag112",
+"key": "4e8f1ec2b72534a87f3b4a41f48b030c",
+"iv": "7347b3d1adac9fe8da4a593e",
+"aad": "8659334c6e63743b9421659747a50ca840f8beae",
+"ct": "e8a04fb01a2c3d83209f06bd7a",
+"tag": "c0b434e14e2c56f1d36114df4308",
+"pt": "5eae3fcfc8b1e44d8be5166a4c"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD160 Tag104",
+"key": "7cf80b0693638c6a13b8f4a976a2eebe",
+"iv": "0e37f699124a02ef49ae1cf8",
+"aad": "c875e4c1f5daa3fb32a5f17730836fc09aa81eb7",
+"ct": "e30f4476e4813fc652620c3779",
+"tag": "8d3a7280e588b3d2edb596f0a2",
+"pt": "49e7a9b084057fbd5bf5265d58"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD160 Tag96",
+"key": "71ab626ec43877507b8839d0459b9617",
+"iv": "3c510743b4d0eac01b11d277",
+"aad": "dd81936292cdd2fbe0dfad9df6a8ab3ae604b1b4",
+"ct": "b157ddb284c349e4e7210ba988",
+"tag": "ff3e52ce299484f4aa3981a4",
+"pt": "0a70bf6813a8a93c2a020fdb6b"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD160 Tag64",
+"key": "5ad5c4db9e8d612d55652064f42924b3",
+"iv": "64090a91461aaa4772bc1c9a",
+"aad": "303ddf7f4b9ece773046034e494d5901e295a91b",
+"ct": "8e2e864f544afa2e5638142274",
+"tag": "b1875f70291649f7",
+"pt": "42ed864375e49cae4f50a66814"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD160 Tag32",
+"key": "778d7ca9a46412b44ac70233140b9c0d",
+"iv": "9191ba713297216a6ed05f74",
+"aad": "73808b7ca1cadee1e8f9561134a0feece329a7bf",
+"ct": "2a6cf485d30dacb9a1445bfc22",
+"tag": "08d1d193",
+"pt": "b8a2ed29143a11fa1a1148ef01"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD384 Tag128",
+"key": "cbd3b8dbfcfb11ce345706e6cd73881a",
+"iv": "dc62bb68d0ec9a5d759d6741",
+"aad": "0944b661fe6294f3c92abb087ec1b259b032dc4e0c5f28681cbe6e63c2178f474326f35ad3ca80c28e3485e7e5b252c8",
+"ct": "206f6b3bb032dfecd39f8340b1",
+"tag": "425a21b2ea90580c889134032b914bb5",
+"pt": "85f83bf598dfd55bc8bfde2a64"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD384 Tag120",
+"key": "f2d198bb5546f0873af09f71ef2abf96",
+"iv": "57fd7b26e925b451be6b32a9",
+"aad": "452baa6b0fea849940a60ac080e237bfa54154daf3cf77877e74820d99d92bb2c72773d6e584a54339efaa8cd11b992b",
+"ct": "aa2cdd644730402838505200b7",
+"tag": "d14dff1e33b14529adb4f3473a2d5f",
+"pt": "2cb2e93c3008c7402b5c596efb"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD384 Tag112",
+"key": "b24146f4dbc8641b3094b7573d3e3a39",
+"iv": "acdf22c477d5c96a803c4623",
+"aad": "89f7e0fe41afcf6a08e4fb26c3409327464e271a33fa0db4d6af6f3f9928ea803db288293a502b77af6cdb112e774e5a",
+"ct": "25ae62ff6b0dd42e1f972ff4db",
+"tag": "3761810fb1b370defdf24cb3d30a",
+"pt": "e5ef27d8d3364542f2a119ca23"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD384 Tag104",
+"key": "4104e13d5d779c0e8f945e495aed3b65",
+"iv": "b59cc853b6b82615c004f40b",
+"aad": "2c6845909de74064bf0d367fc88924e8c1dae3d64d2cecd34c89c606353c4704a21f3cf0c1319620d309883e23f31552",
+"ct": "495a205acfb5c611567a27e8ed",
+"tag": "7c6fdcf8e0cee3387dec06a792",
+"pt": "e3af068c1d000a704d01678a2c"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD384 Tag96",
+"key": "537c1b656172a652e0d86ccf2e028b4c",
+"iv": "9a26588437ab984a2a6eebe0",
+"aad": "7d75e3ccd50408d8045a5c48f24ab78c8a1857abb39f9a636f3b6617f98b0d8add34f7a41c07d9b63f4308e7c890d5e4",
+"ct": "5b6263a72df97d5557536029ef",
+"tag": "e41d027fd28e8b4ef9803c46",
+"pt": "3719e5b980689cfa97a5e5e158"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD384 Tag64",
+"key": "6705d6b018fe88215d73b35a24d68673",
+"iv": "cd54e94cad7d113fbaa894e3",
+"aad": "665ef5dbeb6d059fbd502af8acb05c99c75aa21dddaf89edf51ae95debac9d263168601e125c238fc0ad873933f41702",
+"ct": "872b7058804db52f51a966ce6b",
+"tag": "75161d0d4801a3cf",
+"pt": "5a11e1aca6721a142ae451dbae"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD384 Tag32",
+"key": "aa6e9a7cf708f19de082eebc28d63343",
+"iv": "539d2492b706cdf5e03b4468",
+"aad": "b44f259fa13d100a2caa43858e7bf3811dbb85002d613ce4f7baa3f73c72dad00ac5e84023c1af776b6920161aaee8ee",
+"ct": "f83227f67ec8b2bf7acd6d3afd",
+"tag": "f75bfed4",
+"pt": "c5838fe240d4f90276fbdb65ad"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD720 Tag128",
+"key": "e5b1e7a94e9e1fda0873571eec713429",
+"iv": "5ddde829a81713346af8e5b7",
+"aad": "b0ce75da427fba93da6d3455b2b440a877599a6d8d6d2d66ee90b5cf9a33baaa8329a9ffaac290e8e33f2af2548c2a8a181b3d4d9f8fac860cc26b0d26b9cc53bc9f405afa73605ebeb376f2d1d7fcb065bab92f20f295556ade",
+"ct": "c211d9079d5562659db01e17d1",
+"tag": "884893fb035d3d7237d47c363de62bb3",
+"pt": "850069e5ed768b5dc9ed7ad485"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD720 Tag120",
+"key": "5cc91adc381f4ed2ca75d7ed3357add0",
+"iv": "b6c657cdabb285153a3f893b",
+"aad": "a865d813a49cbe43a3bedec387e6c44ea3c6eac734022eaa6ef90a295fcb82c1bad8411641271c8859a73fbebde470fcef6dbdab212b2e9a2107b2490dfbee268855eed4743193f3c576dca6816c5e0e8350de2488cf6ae385d7",
+"ct": "4468c3bfa889fff6c8857ab9e8",
+"tag": "47bcc825c92fb7853bcc61b741ebea",
+"pt": "358bffedf8f6faad58344c436c"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD720 Tag112",
+"key": "7d8e80316b593db8302bfbb9a94ae134",
+"iv": "a7ce7f21e2cb4fc8d1831f9a",
+"aad": "6213de090af2b553e4d54fa9efd802820b44e2489bd5eb76fdd151ecc931707e27db5242e5b4f68c8b41dd5a5adef116b818bc48be12dcc5be1c558a98aedb95f5a9c6822b14f9a2fee15120a08dae07027509a33a5df4c606a2",
+"ct": "b6ca3791764ca5202949a2b39f",
+"tag": "e1cc7b2a622c08da0594c7b61443",
+"pt": "52206404d281e856db6a50af36"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD720 Tag104",
+"key": "3e59188306249ecc7fadf0670c22ee89",
+"iv": "55c2abe3cb84956ddd080059",
+"aad": "b9460aaabbaee85fe1901d36c73950f55776c412339599ed894d46189d38901f46c61b1118c8623c6be804e89210946477a3f8b0784f243199978668a8e4eb9217f06bedc7e020d9992cf3c4056c18b1a55d348872ce1a30b972",
+"ct": "f47fdbbaa09ed29334c19750d2",
+"tag": "df12c1e5eb040a5df440c1d6e6",
+"pt": "c702bf46ccce1ce2b5ba48902b"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD720 Tag96",
+"key": "0ef21489e942ae5240e41749346a86a2",
+"iv": "431ae3f1a702cc34b55b90bf",
+"aad": "d6d20f982bdad4b70213bbc5f3921f068e7784c30070ffe5c06f0daa8019b6ed95b95ba294630c21008d749eb71e83e847fb6ca797aaa3035e714cdb13a867ad90b2ebaa652d50a5b6adc84e34afc1985449f45eed08cac3cb34",
+"ct": "ec8fdf5f4afb96ebe0e845dc3b",
+"tag": "45d4b03158be4e07953767ee",
+"pt": "882deb960fd0f8c98c707ade59"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD720 Tag64",
+"key": "62bc26ef01a81185b11b4cbd8ff6241c",
+"iv": "0515b732ad0f3993701dca2d",
+"aad": "04001ce914c93440bfd91510340d2d4c8a0cb0827314057f54d670ea9cb80b5280ce38e002afe3c31bbd06e89918ee616b7f62b56f274c2f6752e4fbfa67841ea48351103cace2d3b99a52e2ed2e6ca1a229ee85db6e6f425923",
+"ct": "ca2e42a14386ad9cc6a18d8172",
+"tag": "0db4670ca6f3f03c",
+"pt": "2810be0ebb5e06c039d42ad304"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT104 AAD720 Tag32",
+"key": "49de16bff05831355cef99f9d8b91256",
+"iv": "9d2498e2ac3f8a2094ca41d3",
+"aad": "1fffcbb9ac79abdeb186eb220b76673401658b3ba2aa284ea8c5cb2dc6986a42a7039c3cca64106e80c015ac16c0b5a51b8d6ee3144d8127190890d69b39c8f395239ebefd69a1b9b52ae096d6c2a64917673d5b40e2718a37c8",
+"ct": "0f01c15de1a3c210f78a9f4887",
+"tag": "1b39418e",
+"pt": "b3c20c8b0f4198568c1338ca57"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD0 Tag128",
+"key": "9971071059abc009e4f2bd69869db338",
+"iv": "07a9a95ea3821e9c13c63251",
+"aad": "",
+"ct": "0556c159f84ef36cb1602b4526b12009c775611bffb64dc0d9ca9297cd2c6a01",
+"tag": "7870d9117f54811a346970f1de090c41",
+"pt": "f54bc3501fed4f6f6dfb5ea80106df0bd836e6826225b75c0222f6e859b35983"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD0 Tag120",
+"key": "7966794bf87eb327cb769d976ab8253d",
+"iv": "3b1f7a03e6889ba91d9d47e8",
+"aad": "",
+"ct": "65871636ebb9900cf028e3780829b7499703f98ce32dbcd565c8693dcd295bfd",
+"tag": "9b92bfcaadb9c5f77035bfa3fb73fe",
+"pt": "cc5746fdcb1b9c7dd1e8afaf5c2d80c18a3cfaa8f7dbf73cd5553c55b0fbf2dc"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD0 Tag112",
+"key": "c75116c19f5ea4ed1b10bf0eaaebe5a1",
+"iv": "48a53fc17d4300f4a23a5a39",
+"aad": "",
+"ct": "d58b89300c62e0b0ea729d6de39545ea35ddc5a04e22b709f45af532bc67d90d",
+"tag": "c428abd4bf85468d57236ed16d36",
+"pt": "4569944fcde5b3f4ae4d50eb7a0e3ef88dab44b684c737b90aa88cf579bf0558"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD0 Tag104",
+"key": "e3e0bcf46f565a13a1ca1e8f208f0704",
+"iv": "91cc27784f7e7a896d69a72d",
+"aad": "",
+"ct": "d8fa8d604423f43e63017ff30a14647f4882ae7a84d7148825220fe7f7525b23",
+"tag": "8209485226c374609498dcd43e",
+"pt": "e46a3ecea28397c65ff156b257e1d5d8d4ae60a4204e0b7cbd796d5f461e89f4"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD0 Tag96",
+"key": "82ba8dc240bc3e5ea1c98ae5c8bc58a3",
+"iv": "a016b0b2ab3e259f738ba228",
+"aad": "",
+"ct": "b7ea8f84d5b05f23d71678c4e546306d53703a25043cd7102579bac8cdd9bc4e",
+"tag": "796964243c22d258fa4fc4f4",
+"pt": "42f6d57361d1afc1558ff23bd333b6adfa7fd622c436b27513c6391174a72473"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD0 Tag64",
+"key": "ffbb6a934d2237ff63679d7aac96b8c8",
+"iv": "a6f4fc59f3e27c93c7f3f2f0",
+"aad": "",
+"ct": "c0a1b31ee17337e09e69a9a414a0ec420d92edd1013cac9251ef5b126f934195",
+"tag": "03c15d84a5ae94e6",
+"pt": "652d173aecf0c6772a7aab8c492688eb5d1b374379c4f2924a7b2498d7d430b6"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD0 Tag32",
+"key": "433c8242818ec61cebc9166be03a884a",
+"iv": "e3bdb99eef0d5a27ebe9b243",
+"aad": "",
+"ct": "4bb2d805a18b03a7f8f4530669647e38f729f6ffcb68d60598cc51e30569bf93",
+"tag": "8c61a6b1",
+"pt": "800317b4295d8a92c083e8dbc841ed94d39f4d9ba88a75b7faca5a82928a35c0"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD128 Tag128",
+"key": "298efa1ccf29cf62ae6824bfc19557fc",
+"iv": "6f58a93fe1d207fae4ed2f6d",
+"aad": "021fafd238463973ffe80256e5b1c6b1",
+"ct": "dfce4e9cd291103d7fe4e63351d9e79d3dfd391e3267104658212da96521b7db",
+"tag": "542465ef599316f73a7a560509a2d9f2",
+"pt": "cc38bccd6bc536ad919b1395f5d63801f99f8068d65ca5ac63872daf16b93901"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD128 Tag120",
+"key": "9ef362289bf33f7da3b9b4f7ab29f33b",
+"iv": "0909451a28a7fa31d52ae092",
+"aad": "5f3a7c466f2f52dd757886a145aa58c7",
+"ct": "46e2291a45589cc6560e49da5142e3e2544f1e784d10cfc4c33d7a6b83531f9a",
+"tag": "8c2f35869d4072a29fc28a0e4fab46",
+"pt": "00de8cb9b946977f03b1a2c0bb40ac6a8269f11fb5a4d52d64b0c7722871d167"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD128 Tag112",
+"key": "eadbc13f80921a64a1d137b58ba14146",
+"iv": "9bc0c1f65281a0868396a6e5",
+"aad": "c5e8358ea0cc11abe3ebbf6d59b19e8c",
+"ct": "2b29fe2e7722721cba732167f6c328893b972bfe6e1153b576e2f5e335d64289",
+"tag": "3e4f7c4001d0cd23a17f2211399f",
+"pt": "b37d2482be592493f53d91074a91d58378b8409878fc9c3f93c2c2594001a821"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD128 Tag104",
+"key": "61756f683efc346a41eaea8b784d7b31",
+"iv": "495f8a3a9c9decac4d6c26f9",
+"aad": "077cef6673b92afd2d03d37acf1aa55a",
+"ct": "b1d27b42487e54ceec0674a3322a48adee52a5fd4407bb88e323c426643ef17c",
+"tag": "7815392e78c44305309fcc6906",
+"pt": "23465acb9276259d00de9eca1be55633b03847e8bfba2781263af5a4620e9577"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD128 Tag96",
+"key": "051ac3c43bd191a647ef60e2d6e2af40",
+"iv": "658214a110a0b36fe1638f56",
+"aad": "a5386e231dfe0c36d3c581da89b58d0d",
+"ct": "a48b87d8044081aefdbc878098f0c3fe510e3d3fed0d9318605b168d5d63cf0c",
+"tag": "f2c704c667ce2007dba3c2ff",
+"pt": "21d8a0ff8a7699e5758d3c9bad81f5dd65cb1e72e9d41b8b1d9288fa73024b9c"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD128 Tag64",
+"key": "76faaf2bfbd103b5fae725f4990b8282",
+"iv": "4f32472c588fcbae5012ce70",
+"aad": "6e4141d7f79d4e2682cd605e3e39033c",
+"ct": "11e3c43c549d277e42feb0d2ef39715ac8d86bd925ed7e64f17b97688daeef8b",
+"tag": "37d7c65a03635f8d",
+"pt": "58be7470b3b0de22a8f902fda1100215b56831805920be92a7e57d81c150acba"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD128 Tag32",
+"key": "a3e0991188de2b06d820a889a7bc6aa2",
+"iv": "bed30dda59bbcdbb139f564a",
+"aad": "bb3a20cf1104ad8344fc0118b4ab1bee",
+"ct": "fd99483c1de9e8ed2fcb49c5a10ffbdad4d8de29567dbe3f256fb5dbeb728d55",
+"tag": "17834856",
+"pt": "7fe6ee7564a5777e6a5262788d5cc4e0f3d5a1eefee5609b808dfea541a225da"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD160 Tag128",
+"key": "fedc7155192d00b23cdd98750db9ebba",
+"iv": "a76b74f55c1a1756a08338b1",
+"aad": "2ad206c4176e7e552aa08836886816fafa77e759",
+"ct": "15823805da89a1923bfc1d6f87784d56bad1128b4dffdbdeefbb2fa562c35e68",
+"tag": "d23dc455ced49887c717e8eabeec2984",
+"pt": "6831435b8857daf1c513b148820d13b5a72cc490bda79a98a6f520d8763c39d1"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD160 Tag120",
+"key": "64583c24068cd6c17434ab6d9e29259c",
+"iv": "980bcaff2f91b23480c938aa",
+"aad": "5e96a6449b4ed3fcf825b27ab010c2821461a05a",
+"ct": "957d6cc5ff84f4fed5981a01d299e8a0c43f457086f5ca773b8cc7ba09cb5ac3",
+"tag": "13acc4ce9c5df7f6ca80893f977672",
+"pt": "f803fb0d5c545b4bb59ace26cc5961f372fe7d351853d963582a8943f598977a"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD160 Tag112",
+"key": "dd66d45fb5f20cf57569d19c760892e3",
+"iv": "9891a99d8a5aad157f9f5fc8",
+"aad": "20f4d5aa96113741a58a363f3ee6fabddaad6e4f",
+"ct": "a16a06e2e75c3d10cfda5b2a7c03c5a8cfa8e53787300c104bf48499f17f3976",
+"tag": "40c4d702758c467c55a38d8204d0",
+"pt": "a704df78893fb7a6c9f9f8210e40f88c406a8ce662cf78d79e7d609bce088b80"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD160 Tag104",
+"key": "8cc1089455f87eb8839cb93f41399e9c",
+"iv": "147eddce8b9ad6a3658ddf32",
+"aad": "f062a37a1d6726bd8111be3e488de3a676c18559",
+"ct": "5e5aee9805c6b02ae0c4de42cba36cfdf332afcabfac19c5ea407f970f47706e",
+"tag": "346786aedcc23d63df6bdde590",
+"pt": "b54533da68342aa5d5799b42916d77e8b7d8149090ac1144cd41940098f57c4e"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD160 Tag96",
+"key": "b4ad9a826ac50d244102f1f8ca9142c2",
+"iv": "d7dd062d0981faf163f5e1e1",
+"aad": "bdbee42acbbc5efc021dbea63f7df5271763a75a",
+"ct": "3fdb1e150bcfaefdf74a30713d0842eadeab1e80149313fcc5ffda703c1ed4cf",
+"tag": "5b1cf40cd64ea5a49893f7ff",
+"pt": "06dbb7f7e3162f1014d1f63e02fd0240c87d7735229e5e4ca21d26335254ad2f"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD160 Tag64",
+"key": "653a6208c95313be1c279379eeeb9a37",
+"iv": "eaf78603d2dcc894e61c20f6",
+"aad": "b494bdab6bba3c4286a6d8924b40910c562d9e99",
+"ct": "7996fe1a4881fb2616d82e93b1e4370d374537c6b14325b9fe90fd60df393c77",
+"tag": "76b30c4df67057d2",
+"pt": "b51b7d7b43c6f3f5b6a5005e23d76fde51e466af52ee7d50172bc8325f242c97"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD160 Tag32",
+"key": "fb5a677263c01a7117a8232c074596b4",
+"iv": "5e4ad8a21be0c7666fc17781",
+"aad": "bfe2c12dd3625cdbb5adaea28e44420d02bd7456",
+"ct": "655809e72a8a5ebc270129f4b089cdcba4d364584eb8d32c497413b51d187002",
+"tag": "a7dcd629",
+"pt": "5a68fed78f5ee1bb5cb6ca1a9cbe8f9464a102429de84b8fcb095a01d06c32dc"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD384 Tag128",
+"key": "48b7f337cdf9252687ecc760bd8ec184",
+"iv": "3e894ebb16ce82a53c3e05b2",
+"aad": "7d924cfd37b3d046a96eb5e132042405c8731e06509787bbeb41f258275746495e884d69871f77634c584bb007312234",
+"ct": "d263228b8ce051f67e9baf1ce7df97d10cd5f3bc972362055130c7d13c3ab2e7",
+"tag": "71446737ca1fa92e6d026d7d2ed1aa9c",
+"pt": "bb2bac67a4709430c39c2eb9acfabc0d456c80d30aa1734e57997d548a8f0603"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD384 Tag120",
+"key": "98fff67e64e46be5ee2e05cc9af6d012",
+"iv": "2dfb429a48697c34006da886",
+"aad": "a0ca5861c0226c5b5a6514c82b77815a9e0eb359d0d46d0333c3f2bae14da0c40330c00216b4aa64b7c1edb871c328f6",
+"ct": "c22feeb3e27dc3299345030139ee816719a8a89939037895d74965fa0240af5b",
+"tag": "f196ec546c4c0af08be088bab97191",
+"pt": "29b91b4a68a99f97c41c7508f17a5c7a7afc9e1aca83e129b085bd637ff67c01"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD384 Tag112",
+"key": "8216be94211913b43aeeb83440079dd6",
+"iv": "96cca3507bce2d2611f9ed4f",
+"aad": "f965027c6fd8e08d6db6aca51849f199ff3490ef49e3e760a5799723c413850692592782e14c2f2ab1437378be37f96d",
+"ct": "5de9cf04a453db8ed1d8ec50f97214fd80a2d28ab34b4a77e94573533f27cf9e",
+"tag": "2537db24b8a49702ed2bf5d980a3",
+"pt": "d8c2fd266e893f1875e68ce3fc5f66b8680ef119dc13c419db5535e7768856a6"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD384 Tag104",
+"key": "e66839168f8cbad64b536771ae5ae404",
+"iv": "30d846e3fe468e63d34da233",
+"aad": "cd3c92a126ea368c8f80bfeb15be2746ba19bc43f01cf490251bbb0222545b484802e47c4745a8c8ddfa89e77aaa735f",
+"ct": "ae1256294b1a9f1a8fe279d2c4a347a7c75fdf04844a65d065f7db7097dad39a",
+"tag": "8a95aa4fe5e192a604529b174c",
+"pt": "50e717086768e79217d1b557c5690cdf1de78913eacb9782b9bfb4d7a0ce28bc"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD384 Tag96",
+"key": "5e957c5fb001b8bc54882e2041bc7ac7",
+"iv": "f4a52123d6c57baa83cdf241",
+"aad": "c92a43cf9ad7286b092efec106de66791aec01db22f898cc44d18cd81c89cbe60ab81965e77ebdbcbbe7c753a320d9ca",
+"ct": "55a08444c1324e5ad3f7110cf2d3bd1c4a2a6dd7bc860569169640a3b46123fc",
+"tag": "d3a627e90ecbb1e79f331ebe",
+"pt": "ca3ae33e9cba1349aa55ed4a1479ec5577430c1148e92816851b7a7eb88f0732"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD384 Tag64",
+"key": "0f5d56f73a1e20768f2ca4041c971289",
+"iv": "a959bceaba0db45e69f6c61c",
+"aad": "fdc7513cb14cb5813eea7455c80f606d4d464a2f7b1f095d674c58fb9cc490314baf3640141b35cf4cbe3f32db0c011c",
+"ct": "d97a31669a706d2cb9b6acea8290bbd3665f89073c1680b809e9ca6799cdea2b",
+"tag": "37528da2f535013b",
+"pt": "ad63ed6013730a621d5e021b1a0039fe64d89b80a47b298ab97399559322a8ef"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD384 Tag32",
+"key": "0a43d0a4eb14fb15d62948035f30f6f7",
+"iv": "43a2807bd0f94ad1ddbbdaf7",
+"aad": "829439cbfeac7f93ba3cbaaa86f0c8b5d18004a9cb6f2715f1754d9646e8ee309d8a7acc66faee703b70bc19cdb73e81",
+"ct": "85a2bd384cd3966cdb50460703367c66d4c5fc94017001b3713e786880b6eac5",
+"tag": "4afdd716",
+"pt": "2e07b6c297315073df344777267697b650377a2dc9a532d908bf9edcfc5f135f"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD720 Tag128",
+"key": "8fbf7ca12fd525dde91e625873fe51c2",
+"iv": "200bea517b9790a1cfadaf5e",
+"aad": "a414c07fe2e60bec9ccc409e9e899c6fe60580bb2607c861f7f08523e69cda1b9c3a711d1d9c35091771e4c950b9996d0ad04f2e00d1b3105853542a96e09ffffc2ec80f8cf88728f594f0aeb14f98a688234e8bfbf70327b364",
+"ct": "fe678ef76f69ac95db553b6dadd5a07a9dc8e151fe6a9fa3a1cd621636b87868",
+"tag": "7c860774f88332b9a7ce6bbd0272a727",
+"pt": "39d3e6277c4b4963840d1642e6faae0a5be2da97f61c4e55bb57ce021903d4c4"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD720 Tag120",
+"key": "460590642579c79ec4c4a4246d924948",
+"iv": "22187cf94c9ef081342bcf05",
+"aad": "93d76cb023627ecbd9a88c99a7081658447c28167340071038f3f5593efb802265440db85214f6dfb6883106958e8e86814aa1f66ede379c90d00471406bdc16ad95d1945fc322475eae81a4971e4a0f2ac258b1702c37efdb0f",
+"ct": "f0e61dce702959e4eb450c110ba928bfc9642d59e14f4ac6da5ac3ab0e20dd43",
+"tag": "68d1386f475cc2bed90af1674527d9",
+"pt": "d29b60e1adebe5a5fc548d6b906b8987d4ec7a76719f6ce6f7a0501eaaef9b0c"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD720 Tag112",
+"key": "a590c9f1c4f4c00542f0d66494684611",
+"iv": "f47547d364c74829ad9ac5a7",
+"aad": "bb840a2badd089c9b81b388d4d1a50bebffcc817ac02e478b043e597bf6b75956f51cdf27b3f4fece4038e2195e3df0097c2179917ceb981a5171d3e410f3cab62d4998e813ced9be7bd5114f96f3e483c2fbfb5eff2714eab20",
+"ct": "033ad67289768b90a836908a25379737dba4281515547f3bbe18fa1647ff9f71",
+"tag": "1b9da421dd613da7fc1a08feb37b",
+"pt": "b96763d9b91897d2d5573d8626365877dc8be783628afcfbd8b1557240b93557"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD720 Tag104",
+"key": "d5784e69a09ec11456e98dfafaf7d83a",
+"iv": "ce3604a1ffefcacc6f13f077",
+"aad": "da474b2160cd8eb908f9408830269b5099026b7157f8d5cf0c9a7730e1b167f868c5eb38424ec48ae90b794f81002148e8c03e20be1663c4d5e2048ef8657f0803d9232aebebb8e524e5db1abaff9874067e3aa7b6e7e995d070",
+"ct": "6d5404db2cd37e66178598ef8ce0f866b8669b5c1b6c4fe4b33e3144fc92e9d2",
+"tag": "5c7777d91d32c850eba64a1e72",
+"pt": "9efc582135762272f409f69993f582fca56132329742da221f65ba409ee3ad72"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD720 Tag96",
+"key": "47ba09bfa8c132db16b2113fd96a92c2",
+"iv": "bf0b72698674a73eaf06e767",
+"aad": "0da0428d16687f5ea1b6e51cbabe54bc1b2b7692c6564760ffbac875d75103ca1f74db6e0f2b5c93e7060e742462449072f5c86bf138326f68289c7d0f3dfbcb7bad8280c96b044927a12d0e19e669ff11ca20a29438e709f111",
+"ct": "c81f251657da4a75cd1fd5b195a17b50916105bcdc8630bb167bc901c5c78d55",
+"tag": "70c87fbb472396754e69dbbd",
+"pt": "a653571928bec89842315f21a59ed165cbefb5fb6d92c3fda5a2feab18d45cbe"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD720 Tag64",
+"key": "b78d31d1a7c54552b2ecfd5fc6c569c9",
+"iv": "f37442ae882a2cbef8e77355",
+"aad": "a255e3ab3ceef8b33f943d0e04730ddf95eb3075ffb5e350b8bdf34a428e360b8427d01130d01b3c25c263795fb4c246c456a2c8e4fe59c3cd17a5004f1fc0ce5870b39fbd785ae14d5b359602a5d0edb75a2b6c0b39e9eb94c1",
+"ct": "fdeb9d412b102150c2eb2f13cf858951c311d1ef51b38874842b5deaf8d2563b",
+"tag": "d646caeba209b018",
+"pt": "e535a8e2d991e5e36b7812264663ce2f53a34c63b6a20ac70a643b3ec3a5b65d"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT256 AAD720 Tag32",
+"key": "23dc8d23d95b6fd1251741a64f7d4f41",
+"iv": "f416f48ad44d9efa1179e167",
+"aad": "45074844c97d515c65bbe37c210a5a4b08c21c588efe5c5f73c4d9c17d34dacddc0bb6a8a53f7bf477b9780c1c2a928660df87016b2873fe876b2b887fb5886bfd63216b7eaecc046372a82c047eb043f0b063226ee52a12c69b",
+"ct": "8ad20486778e87387efb3f2574e509951c0626816722018129e578b2787969d3",
+"tag": "91e1bc09",
+"pt": "6cb9b71dd0ccd42cdf87e8e396fc581fd8e0d700e360f590593b748e105390de"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD0 Tag128",
+"key": "594157ec4693202b030f33798b07176d",
+"iv": "49b12054082660803a1df3df",
+"aad": "",
+"ct": "c1b7a46a335f23d65b8db4008a49796906e225474f4fe7d39e55bf2efd97fd82d4167de082ae30fa01e465a601235d8d68bc69",
+"tag": "ba92d3661ce8b04687e8788d55417dc2",
+"pt": "3feef98a976a1bd634f364ac428bb59cd51fb159ec1789946918dbd50ea6c9d594a3a31a5269b0da6936c29d063a5fa2cc8a1c"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD0 Tag120",
+"key": "f734040c4ac1cda0b67b174a1488208b",
+"iv": "42f294eff8259b1389f337b2",
+"aad": "",
+"ct": "cb8e9966ce21617e2d16ec5e4cb94ee4af87b9e4443cc777c2a453bf0eba19ed7b753dc95ffaee151e7c95874d361a05849c68",
+"tag": "135d8eba41dac874ba69e1b7f462e9",
+"pt": "8f19aa5fa3394532c48eb78f9346f4d9b6a8f7fd0f794aeb77b2ada2f6742b5ffe632ce37d40c1163e42055098a4e7a237a2c9"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD0 Tag112",
+"key": "c5e15665689d356f659afed4e8396012",
+"iv": "1e8aa807c2209cd3b47013a4",
+"aad": "",
+"ct": "9af1aceab7e891cc32aee982b857b4c9a80d0bd0901de1a5f66b7ed7d84a013972f6cf3892b6061adaad686ff5ba46175f5181",
+"tag": "2b800be8a4c7df943596709e2103",
+"pt": "5abe38b6060ed4094a81bc5baedb3445036912ed1c764bd4ea61a0c06c0af94a5c7b5f115d239264efda1b99ed652314265621"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD0 Tag104",
+"key": "d9525d15f82f2be670141008d014e534",
+"iv": "a1197ba5328d0c4fca81fec4",
+"aad": "",
+"ct": "527c7ced38dc93f952d504f8adf9b5ee002f15dbd80537ef28d97c6f2e1fdee13db30f94d99242759dc32d6f1b2a229d57fb15",
+"tag": "2299e70813dc93f83028a81be3",
+"pt": "83b8f9b774577a5a691bb29f47a005f1dbb0966f9cf072d163082a5b71bee05547de8eff7271674c168b9933a0176dd8c73901"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD0 Tag96",
+"key": "9aa701eaf1146ae9a8aa14f36294e8e0",
+"iv": "fd78280e023ff4cdcaab5e67",
+"aad": "",
+"ct": "010428fc5b03162f7e001fd2f4f2d1a8ab13ce97063c82cfe62e7cd5b26551b03a55358857159959ab021e7015f370b6fc1f16",
+"tag": "87b981bdd2c37fcc6ff734a9",
+"pt": "806f21e96bcd6c8ec1b7f688978c0ffd24492cd38eb62361fd73eeffbee4d9f9d7ad32d408ffc6706647bc723c620c83020f06"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD0 Tag64",
+"key": "45dc36ca3d5b8883d1d4239e7f2b7810",
+"iv": "e389a874ff22bff067176428",
+"aad": "",
+"ct": "39d0eaa03c45e06718e11e0a1260d48a3b358b70e26b155ce8bfba2be03be64dc2146ea206b3ec6be77591ae6a08efb825cf2e",
+"tag": "fe5f5a574a9b5fac",
+"pt": "30e1c2f3c2aeb369598ef64845aca159e7f540370d476cad02795fd42088bbaa682ed01bd855ae828103047634eda8a4e73f37"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD0 Tag32",
+"key": "6ed971b85e07a5ec4757f2ac31802e84",
+"iv": "277d38cd09c4a542862d0255",
+"aad": "",
+"ct": "62e0218ff3c817f1181e27c4102e8e0e69b9acdaec47020ad8968c97642b06ea289e54a9fda40942f4f0763adf9cc4aed2c075",
+"tag": "4812d1f8",
+"pt": "af2d72ee8687b6c497a5ea5b1599b4820aedafbcd48567286bc999e13788c00b7199517f31740297752523fe301579dea781c2"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD128 Tag128",
+"key": "b61553bb854895b929751cd0c5f80384",
+"iv": "8863f999ae64e55d0bbd7457",
+"aad": "d914b5f2d1b08ce53ea59cb310587245",
+"ct": "acfab4632b8a25805112f13d85e082bc89dc49bd92164fa8a2dad242c3a1b2f2696f2fdff579025f3f146ea97da3e47dc34b65",
+"tag": "5d9b5f4a9868c1c69cbd6fd851f01340",
+"pt": "9b1b113217d0c4ea7943cf123c69c6ad2e3c97368c51c9754145d155dde1ee8640c8cafff17a5c9737d26a137eee4bf369096d"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD128 Tag120",
+"key": "b2fd772487a547221e55aaabd4750949",
+"iv": "b1a10e8336561d4d771d3edd",
+"aad": "476706104ddf000bf141fa13dfa1e1f6",
+"ct": "5e7b9545df2f794f0f94a06f329b1025d8999f467227d36a4428955750dbe2060ebeae418fcb1763e326a2dd0af59eb5c6cbc6",
+"tag": "5c41524a5bc303813e6b669198de8f",
+"pt": "8c168466c3d0b8fa99fc5cce529c3ee760f871dbbda8af23112e68907b748d63cf01677b7a12700f0e00ce6bf5256e58a559f9"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD128 Tag112",
+"key": "4981931fe54c0ceb12ad9a900f754e2e",
+"iv": "42bce935be8b534537ba9811",
+"aad": "d2d91e639fe30a02ee3f968c452b2995",
+"ct": "1e989f33f03dcda1e42ef5797c6705f86236e3342688133b7158780756c87e84fd1a31cdc4be0d1ee3e0f948d631436cb60ae7",
+"tag": "1be225d442daab0195aa27acbb92",
+"pt": "83f30548afbcd03f09600763dff95d9797ed4684b2292accd738cef418863962fb5e08140bc6207eced3884230ee677379609f"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD128 Tag104",
+"key": "3c6665500085a438ecefc3359440bd66",
+"iv": "def31891e5a1208e369bf13d",
+"aad": "7968d89440c0564953ad72ca2c5f3f39",
+"ct": "2d207d1648189e9dd9f55fc497ce291efea160814c75a1bd749c0e46ea7b3db0c2e8612f8816653912807247154c92ba2fc91d",
+"tag": "fec0b7447e1721736de46be115",
+"pt": "3c9b052cf0e0e1e6468eed05ed0dcff4860d76e2dd2c756c87d51ad5e3e18e13560ebee71e292afffa87f701573457faf389c4"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD128 Tag96",
+"key": "0493024bab2833edef571ce7224750ab",
+"iv": "ab8dedbcdc57f283493fe7b3",
+"aad": "8aca2645dd27195855b62f7d39ace11e",
+"ct": "b5d0733ade2203f5095bff60c9f5abef7770e38a56a9699e9608a69969141a912a0b186f7cabe2dc187cb77331c625832510e2",
+"tag": "d34a843edbf8234abffeb7de",
+"pt": "5f6691c5813169d128e7af7678281085af09fb1ddacfc89e1a14cf14372d74eda6298a0772a594eb5a80a4c56b65744c2347d2"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD128 Tag64",
+"key": "03da36ff01156bc69ef862b6ab797db0",
+"iv": "83a9ae8af0ced78058e2c235",
+"aad": "fc8ebec58d67f769c8b0948896f510ed",
+"ct": "be4d0ebacf3a45f4ff71c58d8c2515044d0cf4154db8c635c830e016c44ce498bedfeaaf0c87c83adc08065d7d3231a657641a",
+"tag": "497f06fa6d7ebdea",
+"pt": "d093d2cbff629a0dd6a597b4b6125a44dd771103f79201575e6df535790c2f8c29cce5c090f055354a2f0b4f0289657f851097"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD128 Tag32",
+"key": "c692470a8a7d3fefea6901db64f2904e",
+"iv": "de3f853639e495eedb58e267",
+"aad": "28423be900993a0b594e5ad71c6fff18",
+"ct": "4e7eeb7853c2588d8a3af3283698c70ce2f360f3ad587145cf68ae8b3601d2ced5bf04c2807c7fd5222344883fd08e64b89d51",
+"tag": "668fb277",
+"pt": "99132df39de42d3fab3f3291ed9a78b963b5efc70f5da13e05a8de9069763542ca66848e521fc8e27b0bff4c51a55ca5247740"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD160 Tag128",
+"key": "fe47fcce5fc32665d2ae399e4eec72ba",
+"iv": "5adb9609dbaeb58cbd6e7275",
+"aad": "88319d6e1d3ffa5f987199166c8a9b56c2aeba5a",
+"ct": "98f4826f05a265e6dd2be82db241c0fbbbf9ffb1c173aa83964b7cf5393043736365253ddbc5db8778371495da76d269e5db3e",
+"tag": "291ef1982e4defedaa2249f898556b47",
+"pt": "7c0e88c88899a779228465074797cd4c2e1498d259b54390b85e3eef1c02df60e743f1b840382c4bccaf3bafb4ca8429bea063"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD160 Tag120",
+"key": "818764b6b4b09a3ff683d1fcfaad0ed6",
+"iv": "b7d89cb6313e845c79b5a26e",
+"aad": "2f0190fb6d7c1992533c4726428cb88565fcf43a",
+"ct": "88af11a5fa1994e6c2bb7f68f9621c532340dc3bc452f0e88c87b19acb1cb52496da9c99fb1e38f540695eb2071295c80ed3f9",
+"tag": "1bef6a307e9c90699c3334be062dfe",
+"pt": "f34ab4e0ffb13daed82bbeb8af5f5fb03f4e67251b4529c2ae3d3d90ce645eca4d961299c584075916d71ae114d3a6efa7e425"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD160 Tag112",
+"key": "1310738642a9d807d543898c7fef4d78",
+"iv": "3da7eed04415e72417ba05bc",
+"aad": "f8e36a113a9a576bd7622cedbd1862fa5c2f3cda",
+"ct": "b28ccab1bbb42b6af91ca1a94d1f16ba380041c9adf58bc4835e32c784e3fc03057ed537fbe9b95e0f640f44521b696f985294",
+"tag": "179b820b7c92d72cdcdcd908d994",
+"pt": "7ce446a8112b42422d955b1a19acf1ea492efdf810a621bc109cfc2137a853a92c06186c04d5040901a7244653100679637042"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD160 Tag104",
+"key": "544e01f1a4ef48ee8dbd40e02180a225",
+"iv": "148bbdeb2e4d90cdae56cbf1",
+"aad": "29ffea1b5c3048ff15651b0616a7b42403ecf6ec",
+"ct": "05e32f659199ab2065e35f75d6ee96c703ed31e40a3bbb0db40ab5dc2ff6ae9cb2b8642c2f966fb8a26769c3a6cb66c561dcef",
+"tag": "1cfa2fc5b217cb36a687128dbd",
+"pt": "63644b700f4122c06622fcba09a1887c35c0cc41c53c66f810d25d917d65b527dafed943e3bc1865c30b1a14817251fab8b2b5"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD160 Tag96",
+"key": "c476bd4e3ecff8c2f8a8fee734526574",
+"iv": "1e46088fbabc814f69655c02",
+"aad": "f74f0a8b09ea6dcf92aae8fe1de010da392e62cd",
+"ct": "ab538de082910ad59ab524643f497cc1920e1c4ffcb13861f931583b4bd92d01b4ceecb8684ffef8221dcdf3836c761a9cfe36",
+"tag": "f813dc70f36471c543e20d68",
+"pt": "99fd4cfd8f44659f18d8fe70ddfa5d3d069ddc0059a3328c442d09d08554ac39233cd700c4820007b5091e57220ee1da1db301"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD160 Tag64",
+"key": "a23fa086472b1e881e5f31d05db3450a",
+"iv": "903110cea4b8b4ec66eedd08",
+"aad": "0659b0ed2203a803d3102f049ced636f18da4614",
+"ct": "efde6f2a64f0f593993f42a6d023eda00e10a7ed2ab33a633739a570163cfd1f1b252b50e7cbe486cf198e234854c7d240bb2f",
+"tag": "ef1c6117eeb86e09",
+"pt": "b8d92413ca9a7c219280c3bf0d65356b682ce5737d216c314fa973812e37d565db716f51f10c3fdb109f2c3683c2130e7df35b"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD160 Tag32",
+"key": "e64903a77d2c8f54e5741354895f9f25",
+"iv": "75bfc0f3c6ac071af0434318",
+"aad": "416b40f14bdb9f0acef996c963d23bcf10b72518",
+"ct": "898abb3d7069c05919046fe48ca9a443a5d2bd2d28503fd0a2716b2ef5a175f74868f7917f5542144b6704df8a42cc11c965c3",
+"tag": "5c526f9d",
+"pt": "19561f57d57d9a961bbc6ac5634556d005fa6010d90bd218c6277537a43f8d3fa8f29a16e4cc495b49b8af195d917cb760c34f"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD384 Tag128",
+"key": "3c50622868f450aa0928990c15e1eb36",
+"iv": "811d5290768d57e7d87bb6c7",
+"aad": "dae2c7e0a3d3fd2bc04eca19b15178a003b5cf84890c28c2a615f20f8adb427f70698c12b2ef87780c1193fbb8cd1674",
+"ct": "a51425b0608d3b4b46d4ec05ca1ddaf02bdd2089ae0554ecfb2a1c84c63d82dc71ddb9ab1b1f0b49de2ad27c2b5173e7000aa6",
+"tag": "bd9b5efca48008cd973a4f7d2c723844",
+"pt": "edd0a8f82833e919740fe2bf9edecf4ac86c72dc89490cef7b6983aaaf99fc856c5cc87d63f98a7c861bf3271fea6da86a15ab"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD384 Tag120",
+"key": "12fce9eb72ba01b134c0f23e0a3a3580",
+"iv": "b3f0d404c9dd36d8b34393d8",
+"aad": "6b6a855df51746b97b5b78198e8e5780c2f2ffb324dfaa52b7e2aab2fcd7cd9f67001c234110d4724a529a5ad7c8468a",
+"ct": "0ef6554f0a7ad45cdef373e2e2a86669e7503345c5d4cdd91cb57001326684344a9ecbd20830efe24742d1d1cfbe08023f8f25",
+"tag": "572409bdf9a6bf3edf7e05ef08f7a1",
+"pt": "adddebd5a611adbb807e817836e78421cdc263a8ba4d29f9fbab3015027d1bcbe69b0f4b287fab093da00842e26caa716b9d7d"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD384 Tag112",
+"key": "8adf79d97bf600f2661a388f5e983f34",
+"iv": "5308ed747cd7f02283a57797",
+"aad": "77b341f83c71d048d9a422d70fb635e3d2dc14b03cc089917540cfd84cced9a0bd3a200af36a97c205380e7f0483d058",
+"ct": "e2e99c720427c27c0e2075fc9a57453d8c5de7f9e9d66694418026da8f598c1aa8815748c547fea937194df16743aec3d940c6",
+"tag": "46018aac9a5ec9dc05029d0c663c",
+"pt": "c8e23a6c8b256856439c3e9c01383812e3842f2c93bb4cea965fda454f285cfb1547b6b26114bbf9289e1c184c526faba5dcec"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD384 Tag104",
+"key": "c7c5c3dda325672ae0b04a958879658c",
+"iv": "22748aea07f28d4f91ad1c83",
+"aad": "be947b822bf527eb60e93bca0eccce5fd8d04ce666b6da8a64215b368be806e4a908224d122e680cb10f682e253ed828",
+"ct": "713a624918e06fdcbb3a0c415a55088055dd10104f21bc3a8a82783dfdea8571602b225e57892904cf7c267ef91050f83d41dd",
+"tag": "dc116c691f682217c708a3fa07",
+"pt": "7bc7616f0a6ef6d4d7acd4222bd499f7455dca5126a4d2d10a14c0ac7776e44297fb4c6e5c15a3546b86771d6348179d063887"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD384 Tag96",
+"key": "0424cc645b91c1bafe23b06c934ab387",
+"iv": "667c46eec15c4a6776a1ff09",
+"aad": "06dbf32f862b398b442857e4790c5e6bf20eeb3d8d22f0c2a752aad1bdad6d80ac3657cf854543a344ec5ce3eed9fc38",
+"ct": "7d92d014ccb9a1d07b05efdcd371ae5b51f0587db5d0ae881909f9712e8c817a63b6b04ae99b3f71e31863fdb0e3fe6a0dcdad",
+"tag": "59e82ed490e719de0ab2b162",
+"pt": "d8e5b9d65b9aadff16efdf9cf75317911575b8b617906db1ff421edc3c7c9b926307eec15f02e7a343b31b8383fee9b14cf1b3"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD384 Tag64",
+"key": "f752d1bdb95154752c366a1f4525ed25",
+"iv": "4e230addf7ed336b94703cf1",
+"aad": "eae5df571a62e89c64b51303bcc07d854a3955eac9ee545d3f97040338905c2352e273d198b19a111f9478bb28c03348",
+"ct": "f0f4b9b8b05572fe7a27845bccaaadff3bb300467882991e48c89ed407ba1bd07b4d5f4f73a67d5034e80437b66c7fb022df78",
+"tag": "10e4ac3eb6344ae8",
+"pt": "dd217405caab42f41ef94cc20a4fbf028a935e5f18ef8c503e3cdec38b6e083f16d0b91a3afd6cb43274d212a713f355f5b7b5"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD384 Tag32",
+"key": "0e075ccd0d77ee7c23560aab460c8e54",
+"iv": "5401e390ea5cc8df1a155fbd",
+"aad": "306092a0c1f3919cd572aabc660964005a9351ed3f57b558fd6770e74c0acf5d6c3ee4396e7d578af391020760249059",
+"ct": "f39c8f9a44c576863efbe6e76663cc2ffbad17cfe7ee342f3ee97f72c4f449dd8db4f38cfbc433a6cf53dcc56b72bc5b0057e6",
+"tag": "b0e40d1a",
+"pt": "805556fbe21f927d0cb2ddd19f535b057f6d0bb94fbd912537c82b1276991a9e41fdae0df96efe7356e45e8b74325792f81675"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD720 Tag128",
+"key": "2c1f21cf0f6fb3661943155c3e3d8492",
+"iv": "23cb5ff362e22426984d1907",
+"aad": "5d3624879d35e46849953e45a32a624d6a6c536ed9857c613b572b0333e701557a713e3f010ecdf9a6bd6c9e3e44b065208645aff4aabee611b391528514170084ccf587177f4488f33cfb5e979e42b6e1cfc0a60238982a7aec",
+"ct": "81824f0e0d523db30d3da369fdc0d60894c7a0a20646dd015073ad2732bd989b14a222b6ad57af43e1895df9dca2a5344a62cc",
+"tag": "57a3ee28136e94c74838997ae9823f3a",
+"pt": "42f758836986954db44bf37c6ef5e4ac0adaf38f27252a1b82d02ea949c8a1a2dbc0d68b5615ba7c1220ff6510e259f06655d8"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD720 Tag120",
+"key": "c342dda0ac2c411dd0dfa4cd65d89ea5",
+"iv": "4e95096d01f0164573d6dddf",
+"aad": "755644ab24c3a1a42fd109cd401016312b7f17382aa85ac2d6d70f46efd6a1ffa30705afff11145c179d01e0237953fb61a60e5da28f465747d88b56e283c8df1ec5a0845eeac51ad0ffc6a2ba4badf6142ad5c8df54f0fb909b",
+"ct": "3c2827d95cb961f0bb69f5d31cc183d6ce58b834917edc5515594a5d83a1da3e2d82b52406a030f3d14e4b5dc3c2d4a39b8e4d",
+"tag": "c964306b449d08dd836205ec9fce62",
+"pt": "f4afe07c8fbf9667f244e535a8b76fcf20f72eb37523368791f134a9a77a9e6251d0c3e597d74ba0b4991e7304545b8b8f0cda"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD720 Tag112",
+"key": "a15ae1307fcab019e4e9a61ca136822c",
+"iv": "ac8eb642f7333ec21a3c5437",
+"aad": "101b3076cb04789cb544bd2a8e1f3f175da6d5d5dde40d18620e1f4c147549e60505ef29ea356159c045c3d1fb3c462e7ce15a72ac550731f0cfd7377c8a9123fd06fda0f14c85a19df970538fd53eb4094427deb9e959748c00",
+"ct": "5ff7683f7d7fc0bf127e286010e8673ff00bd12cf12b8e38fed548eed8fa0f359e06c1dd7e8612542a01353f63aa8b6f38706b",
+"tag": "893e2ba8cf43684f2db506b5021b",
+"pt": "9d705c52918a7d4d2343b509c8083cea976584c1bf8818e86c8a2443b75bdae9eeb6b51b77bf5c636300afc10f8cd8c819d470"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD720 Tag104",
+"key": "fc7035da45b885e570f2b5d1386b1bd7",
+"iv": "d4351b09fc5fbeb169ed25f2",
+"aad": "534cdf4f215f1653167a3da2e3fb8053cb636da1a9085c1fc662a489e0f023d102309b725a35b82437e9d420426f9be620656d6685919cebfe45b4849eff872dd3a67beeec95d2ffc3cfeee9adde882e2f83633ee5bd1c0deea5",
+"ct": "6c0522a774c9888c1cf51b241864eb5929403918de9d795a9e4461ef9609831aa156d358943235733f75eb50527e4dc55107f1",
+"tag": "978cc715d885abf08db8d787b7",
+"pt": "cc747415646493b5102b83bced2c595407b1cc61acd677e412e0ba97570d5494003bc0988d0fd22e65739f9979befbca7a8365"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD720 Tag96",
+"key": "ba607083a97b28d010e125bf11fd8222",
+"iv": "a0613a75204fb40e36857f06",
+"aad": "978420ddb8a95a2327e8af9243663f76e1f71badcd0b08a4bc6d05d2cb8c3c5aac500cc058dc134d58d2e2c979d769c43c092fadbb0a04291bf73f5507cfd7c981d821c57fdd208e9eacdacf85a63a04cf32446f899d18257df4",
+"ct": "b31b1dee3aaf30d835ed50c10a64226f3cf97cdb4e4be4424fdb4455dd0684842558bc05cdfe8b9ba1ea2862014741605f0f1f",
+"tag": "a71bb977f4ff23034dbf7a62",
+"pt": "27d87b349fa6c97c2658bb9f6ede0c6a5daa04f792546a27b25db925dae3cbb063fd937bad99c4d3ac36f44b5719019b9001b7"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD720 Tag64",
+"key": "c10890e2e18b4cc10f816461f6069da5",
+"iv": "175ea348f505887d37042535",
+"aad": "cde6fd0a1ab3e3c0078a0b913e69ca4aeac759b333e963555369df4e710023f9cdfa5e0afdec6651632baaf30886800bcc368e2d22410c7a00f72341b97bbb63f5444a670d65447ba729a42c900b017257b64972cb32b0e66420",
+"ct": "109c285a4fb0794494808939e346725681628e482a9b1b6f0ed7e0c39f8ee4d3d5cab10fea2a59a50dc7a7b089be3976f6695f",
+"tag": "24c297ac6013a07b",
+"pt": "8e0fb3e32941e92d59a21a3f42430afefb569a09184045b033d0a6e6cfcde670e3c974a0c4ce40105948a5c13188297b72d7ee"
+},
+{
+"src": "NIST gcmEncryptExtIV128 PT408 AAD720 Tag32",
+"key": "9c0a76be7069251f9f960af2c4df42d4",
+"iv": "d8d9897641ecd9e6ef250ac7",
+"aad": "8cef51d28c793eea1773b5d8f826ae62a5763ab1a40368d4abac76cf4aeffb3fce7d488a589ca741f7d415001050b00bf783bc8f3d46d5d3ab6fdbd7247980896fd24019b3e1973cc49a5282c1e733f9edec9951951444ccf935",
+"ct": "07fd9fce64e0650b77c261f2a9ab35c59c05f1c162bc3ab86bd4ee7e2203e0f0229cd1392c98ae78286b1218789428707c3733",
+"tag": "414d0d29",
+"pt": "be65081bb605840e88c5612670338b253240f88bb9e10077b188a924bf056c268ca6586934486a53876e449664f8fb5b66bdba"
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD0 Tag128",
+"key": "cf063a34d4a9a76c2c86787d3f96db71",
+"iv": "113b9785971864c83b01c787",
+"aad": "",
+"ct": "",
+"tag": "72ac8493e3a5228b5d130a69d2510e42",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD0 Tag120",
+"key": "eac258e99c55e6ae8ef1da26640613d7",
+"iv": "4e8df20faaf2c8eebe922902",
+"aad": "",
+"ct": "",
+"tag": "e39aeaebe86aa309a4d062d6274339",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD0 Tag112",
+"key": "dc1b3fdce56baf77ddb22246ebb224db",
+"iv": "1394643db950ac42366cda3c",
+"aad": "",
+"ct": "",
+"tag": "25bfdb151d21994e90b095230247",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD0 Tag104",
+"key": "a830c905dad3a8e5aae739d7ab60a5dc",
+"iv": "54633aa565952e80fb0b9869",
+"aad": "",
+"ct": "",
+"tag": "482d9381230cd015b2a16976b6",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD0 Tag96",
+"key": "4c5a02440befba5820539ccf74b40355",
+"iv": "3852fd7da7a375a2a2227e9c",
+"aad": "",
+"ct": "",
+"tag": "9f45b723d14708dad1edd831",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD0 Tag64",
+"key": "a958dea10183955fb62b5cf0d6560efd",
+"iv": "9c6fd7fcb79ab149a2ef8416",
+"aad": "",
+"ct": "",
+"tag": "0fa19df0ef498402",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD0 Tag32",
+"key": "d1cb603b886e9deb62cbf5182caaeb35",
+"iv": "cd23f90cfd17727ea0975ff2",
+"aad": "",
+"ct": "",
+"tag": "e319af65",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD128 Tag128",
+"key": "d1f6af919cde85661208bdce0c27cb22",
+"iv": "898c6929b435017bf031c3c5",
+"aad": "7c5faa40e636bbc91107e68010c92b9f",
+"ct": "",
+"tag": "ae45f11777540a2caeb128be8092468a",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD128 Tag120",
+"key": "a663a6aeac790c61e07e5f8ab843439d",
+"iv": "e287d287051c82e2253e33f7",
+"aad": "d211a58e7d4884a26669b335c0af8d5c",
+"ct": "",
+"tag": "cdf52e39cced5c04ddaec8227826da",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD128 Tag112",
+"key": "2d4fe4c17b1e86f0316846e642ff3a4d",
+"iv": "a8b283438ad968e17fb5a755",
+"aad": "d0fdf6e1543d2b0f62c96c6e9c09c977",
+"ct": "",
+"tag": "80149613bc962e4735acf317a3a4",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD128 Tag104",
+"key": "1dfee02fd2e411d8a95218059717e65e",
+"iv": "534f2db1833e2b95d17f4749",
+"aad": "969f2d219986f9e3305b8be533ca164a",
+"ct": "",
+"tag": "750e26041514a140374e857b19",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD128 Tag96",
+"key": "d36cd8e8dd709b68433b4cef15efa4b8",
+"iv": "dc859fa01cf3992fd5e74ba3",
+"aad": "5983b73431118f294a4de08a4fbfbcc3",
+"ct": "",
+"tag": "109412f2cd3dee2e75d9d90d",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD128 Tag64",
+"key": "886309d421b1f511486a20355eb79395",
+"iv": "a6fefc79a85f8992d16e5ae3",
+"aad": "8149ff156826b87c8c8b3c2934dd9f39",
+"ct": "",
+"tag": "024a7681283e161a",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD128 Tag32",
+"key": "4fcd27d00a4ffb43ba26be21becf77ef",
+"iv": "b9af4de423f0508b20bf4783",
+"aad": "38180150f1157bf4809c6d34429470cf",
+"ct": "",
+"tag": "76e1d247",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD160 Tag128",
+"key": "b1089cecac8e1a56441353857246773c",
+"iv": "1af1e6f40b1b21fcb38f65a5",
+"aad": "ed825cbf40e8f8f198ce1afd1141a3cf391cee73",
+"ct": "",
+"tag": "0edb6756481560956d506a8cdb082db0",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD160 Tag120",
+"key": "3d6bf81f7da68760662bef37d5eba284",
+"iv": "5253da22c0263e2927541785",
+"aad": "f5e60c2b9ebe6b0b2d9fb92d75f0016ee4ba55f5",
+"ct": "",
+"tag": "edee93cb640c3b54004864937a6042",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD160 Tag112",
+"key": "622f7b0825942026bc4d30122ea3e144",
+"iv": "6637abf51fe581bbb93c403c",
+"aad": "5ca9274a74fbcbb085454932b6a9fe92b0cd27ae",
+"ct": "",
+"tag": "6a72ffcaa7f405042b43db08facb",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD160 Tag104",
+"key": "81a94d59bab704057915a945edcbbc27",
+"iv": "e84a8a3734397797ba02ed37",
+"aad": "739b58baf87a3c5c18cbbd9e30bb5ab6df039d33",
+"ct": "",
+"tag": "212cbcba98c8edd33ff121f5ac",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD160 Tag96",
+"key": "876c4860970f1271e1558919ade5273e",
+"iv": "fcb12c16758ed9e44a94796c",
+"aad": "25ed44133b3f85c2062613897aaa0ab060f333e5",
+"ct": "",
+"tag": "e5b41b3c161b99ceaa7098be",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD160 Tag64",
+"key": "2ce3e218ed5d0c546e1034d5012440c1",
+"iv": "c4d9610dd8c41e57373c2ada",
+"aad": "ddb45a71bee823790e35ab2898e0ab9c8b92ba64",
+"ct": "",
+"tag": "7a330df8b76c71ca",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD160 Tag32",
+"key": "23b0ce97a0567356b02ab30801d81db0",
+"iv": "97148d4a7ed3b2f9362d809a",
+"aad": "9f3c7a45a990afcf354e2bb9499bb355d7540102",
+"ct": "",
+"tag": "e704f7ac",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD384 Tag128",
+"key": "748146a0b1d5e9b6facdd95e8a3295be",
+"iv": "99e8394910c21207541ca90c",
+"aad": "5ce0d8dbac8a82fa8dd7aec334b81301b31ab49f3b40a1857cc540a1d992f27f80945dfcb4730dc81ddfd32dee1825d6",
+"ct": "",
+"tag": "847292904038c42168adf62011dc790e",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD384 Tag120",
+"key": "bf716943c766c46f723649b579076d13",
+"iv": "50fd3dd4a9b3496ad4a259bd",
+"aad": "02314c1801d7bc5e4c19516b942b9c984f972d06546a00d67c9358df0801221b02391e9414d791155255aff3ab3a877d",
+"ct": "",
+"tag": "36667a79529bc3e1cce8c22d92d7b9",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD384 Tag112",
+"key": "775fa559a168813ba1c0f9aa78d92116",
+"iv": "b7b89eb7d05e12857c771708",
+"aad": "3ede063f92daaab663a49670272816a5980b6a1ae2ed2a36b094ee9fb7ad2e53a0f3856fa4d23226c6d2a146d56dd8ad",
+"ct": "",
+"tag": "1a154db54c66cf0ccf3935f4fb05",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD384 Tag104",
+"key": "9b66fa671d0506e82a3aed07a7c980c1",
+"iv": "6b864529f85d69e74477a944",
+"aad": "a4f44cb5da9e6469f146ba133ad54618afe772b8d22a6adea4d74ffff0fcea094fb200b7564ba64db68bec77671bb29c",
+"ct": "",
+"tag": "d101305ca9b47a349b9e1d4a0a",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD384 Tag96",
+"key": "f3d4269e73498f9750f1b9ecb0c81dd0",
+"iv": "ba09ce9d7c1610be5bd3d138",
+"aad": "1c1b39dfb7d1e472f9f8772b74720fdd7f7c60e57372f7ede6efd31a345ce5c69379dd7dc7182e975e947c769b6a45c2",
+"ct": "",
+"tag": "c79ac4f3f4963b15619c97f8",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD384 Tag64",
+"key": "64d7800a96a3d9119074bd67ed66ae96",
+"iv": "2b971c02515b045e08e0e97c",
+"aad": "cd1386abb181a062947fb5ff4c63068e4e9a9727719b397d350043545e33c990059aaf256ed81b7dec3345de27de97d9",
+"ct": "",
+"tag": "8222269a3c701a84",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD384 Tag32",
+"key": "78e615f24cc46e7f14681df0c83d8432",
+"iv": "2c281c4138279e250f644b7c",
+"aad": "ca5b617a3bbff07ae3d57e04c61d1e8e92916ca7312ee6d4494618350aed2307ebfe27e582840e28aef21cd2002239d3",
+"ct": "",
+"tag": "77195155",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD720 Tag128",
+"key": "c1e007d318d0e5c87d28fd890dfb04ba",
+"iv": "d7bc58d494491ff57639b60b",
+"aad": "10c68681c6d700ffc72ea9a790cdc9ddc1904c7e886e23ca166dbfa364a4c5f95205bdd1f22eeebefbbb9375f1a416ec7faed6cfdf706085f8fd2632c7a261a78875811f17fba19baf905f0aa623e67175f2158cda313a5047e3",
+"ct": "",
+"tag": "2f1ede16f025bc8c5421854b5f0109d1",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD720 Tag120",
+"key": "dd4ac1ea9726bb128134e17acbe03c09",
+"iv": "f3f277d476d0e0a1b007c891",
+"aad": "da672dc02533a8bcdae5c6d57d82f7e6ccd93584df982a50304ac1d39ab08d01033786ba9491e731b3a83bbd40a5125e5c751555f9db441d260ffd6744f7986cdbfa33be2f1cce75338d52eba62848cfabd26a4a7ba92251ca1f",
+"ct": "",
+"tag": "1250177c8d5f24741c2e8509f98868",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD720 Tag112",
+"key": "aea1ed682b70b251a47b5821b0f04867",
+"iv": "b64ce93ecafa25ebc9fbbb25",
+"aad": "64c5b1c45ee4f9d88657f60af1a87c10bd2bb041a73862150e0dd6bcbe1e149a291de9eee8a43618bc50fbf26b01ef56aa94607dda19a0c6ba2e26a351595cef8c3d33249ca9f178756055b1faee84e7b3407f0a0344ae7d7ccd",
+"ct": "",
+"tag": "994c5004aba90be2f2c5091a9624",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD720 Tag104",
+"key": "84831da1d2c45d416f1ce2fc47affd33",
+"iv": "53dd61ce8130a5e0de761aa7",
+"aad": "1090232e5956deb267e2c65c2a05023be4c738326568a46156493933d96b3e94bb8dac52946be561e8aad494fd8fe4f068b294b5049bf8f0a4226c2488e50d4679ddb13aaeda99a835489735a054140c332cf0de403e143918c9",
+"ct": "",
+"tag": "7d5d4f0e90e8067357163acc96",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD720 Tag96",
+"key": "e6121ca9c088109b2e06459b42f5a495",
+"iv": "dee4fad3a3f9c9bfe6fef753",
+"aad": "2a47d75ac2059be2b810e87240b09ca712aa819ec9c31ffb6dee5c2a828a8e735c3552d25e6edba53278a8d744cc97600967c75f9c8c96df22a724231661f085dac3cdfd15a9bda24f721805683699b3b369e1035e224604dcd2",
+"ct": "",
+"tag": "3f577c08bb955e40dfd59b1b",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD720 Tag64",
+"key": "e46015651f3fb77b79cb51f49ca6f0f0",
+"iv": "8b799e14ebc108416ae5f3b2",
+"aad": "625144e885b374bc888bc73e88dcc85a14170e4a531c343dcc975ff4fb02af9fd097caee9cd5487f56b4058304771140ceb27c0702bf3e41f92c706ec63020ed33be8e0218806108a98dc6d396c38823dd7e3432c63c91917d7a",
+"ct": "",
+"tag": "b73e4a83a3c2e179",
+"dec": true,
+"pt": ""
+},
+{
+"src": "NIST gcmDecrypt128 PT0 AAD720 Tag32",
+"key": "59795da170075a3cf20748cb3cf3f035",
+"iv": "86ca4a74c5f059f431f62e22",
+"aad": "2049a94a44a450c70258842c844fc4960c5b93a9a6c8c39149602e0c78f49b3ccd058f8789beae50618411716e419214c1114d31073c92c732c9106cfafc2ae50ada27bf4df9de2424af0716b09d52b701caaa24e492e92d9c64",
+"ct": "",
+"tag": "f0c9d4b7",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD0 Tag128",
+"key": "e98b72a9881a84ca6b76e0f43e68647a",
+"iv": "8b23299fde174053f3d652ba",
+"aad": "",
+"ct": "5a3c1cf1985dbb8bed818036fdd5ab42",
+"tag": "23c7ab0f952b7091cd324835043b5eb5",
+"dec": true,
+"pt": "28286a321293253c3e0aa2704a278032"
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD0 Tag120",
+"key": "5ef8d9bcdcd3bd3429e0539316b8d673",
+"iv": "090a7ccad700e2ae99234387",
+"aad": "",
+"ct": "833060d2d27d2550c7b00144903b264e",
+"tag": "2fa5a49b32b804674b8d278cbe1b3a",
+"dec": true,
+"pt": "5461b5213eef9e79b27920ea7545e706"
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD0 Tag112",
+"key": "9f47cfafed7ae4d8fd86d3b7d83c38bf",
+"iv": "97a4b7cfaeefe747e57cb12c",
+"aad": "",
+"ct": "dc3cedc7909f073b4a8be35ef3faac59",
+"tag": "4e5a6bb0d01f6de09b9a98f9ba43",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD0 Tag104",
+"key": "3c9da938461bce0fffb386fc262bd3d4",
+"iv": "e28430dedfc21c88f5664c60",
+"aad": "",
+"ct": "20aceca27c8ce431f54a6dda738fd96b",
+"tag": "7b8e290d9416c7a70d1fdd282c",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD0 Tag96",
+"key": "9a229fb8f6686ea811cc650ea5682692",
+"iv": "8046ba013b8344332fb528db",
+"aad": "",
+"ct": "73d1315150e6004a80979e887010ae04",
+"tag": "4069327954b976040b7b875f",
+"dec": true,
+"pt": "4268392f39cb8dac5defc275b3d906c0"
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD0 Tag64",
+"key": "0400907dd5f5f88a6ca81b8694d8bde6",
+"iv": "021e97dc3f7924af85bac22d",
+"aad": "",
+"ct": "f4a37b2c464ebbdd5c87f64a0ba3e573",
+"tag": "416d1db4b4e66e9f",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD0 Tag32",
+"key": "f93c67ff5093b1049b2c12cafe4d187f",
+"iv": "390cd24c26a54a5d76cd5527",
+"aad": "",
+"ct": "20548b8f8bb7a56035387921e45b91e4",
+"tag": "558a87dc",
+"dec": true,
+"pt": "1f9c1ba25c56283ee46a7845252985a2"
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD128 Tag128",
+"key": "816e39070410cf2184904da03ea5075a",
+"iv": "32c367a3362613b27fc3e67e",
+"aad": "f2a30728ed874ee02983c294435d3c16",
+"ct": "552ebe012e7bcf90fcef712f8344e8f1",
+"tag": "ecaae9fc68276a45ab0ca3cb9dd9539f",
+"dec": true,
+"pt": "ecafe96c67a1646744f1c891f5e69427"
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD128 Tag120",
+"key": "522c33bbd01d3e53b1029f4e2a8b8758",
+"iv": "87aaf1c51b59b32f6eebe918",
+"aad": "8fe183fa1f74ea3f2914c8dddac1868a",
+"ct": "5b71426cafafd7829d24bc5e24e45e76",
+"tag": "d0a9c022184f1ec0b38a3d736e2d87",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD128 Tag112",
+"key": "a5055fb0915b2cde5c09e31913bad53d",
+"iv": "0ea1441aac9593dc75d14af6",
+"aad": "10edebf0f43dad18c54fe47c53ded615",
+"ct": "35ee7d5edda0a7ecacafd686483948bc",
+"tag": "5bb66a2d7cc065b3b386a24c87b3",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD128 Tag104",
+"key": "46adbfc9f7c0293eb6e84eef2bf31be2",
+"iv": "ce536e3eee7e2d6557113920",
+"aad": "bea026c17ce7bcb1eaeb0ac131cc1987",
+"ct": "15e9e4c6c921f66b29dd104d5b1ec58c",
+"tag": "774524e30b2d891f1005d257f2",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD128 Tag96",
+"key": "5ac0b25cccaaa4bb2375aef5034db959",
+"iv": "65765ef5c5ff39c256af5838",
+"aad": "77d997b514608c0d0b0668cecae21f4a",
+"ct": "506959e2cc4929a7047a5bc986854e0e",
+"tag": "c69d14f2e795336f6eb22171",
+"dec": true,
+"pt": "53b4f37fcb17ecbf88f47f5aa53bfe96"
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD128 Tag64",
+"key": "babb3730fc7f19e98ff35778e8150432",
+"iv": "ae8ec2fb5ee2e4f670e960ba",
+"aad": "5af0a06882152e1096848c060d68ee40",
+"ct": "dc85d14791c8c3ec4aa77f40df326eab",
+"tag": "6da785c8a940ed33",
+"dec": true,
+"pt": "2c8e28a249816a8b6ea79f7dd7d5980d"
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD128 Tag32",
+"key": "5bdaeb73c495545d5258db2492245e1c",
+"iv": "59e70895a9305e9141ee09f3",
+"aad": "6761b73419d120d5751e6391fb25d7bd",
+"ct": "cc1d3a444c645b9b04c71d670d7f9322",
+"tag": "566a7856",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD160 Tag128",
+"key": "4cf56dd7eb109452d7445e79bcad4f86",
+"iv": "5f3724b27c345ed5d1757e9e",
+"aad": "20fe2aa2641db7318aa5e339b1e303f952b05dc8",
+"ct": "2d0581c040f4e2bb74423682113b818c",
+"tag": "f090c0cba2151af2e78ef407720233db",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD160 Tag120",
+"key": "a44b92f21d8ef251ecdbfac2697e4a85",
+"iv": "d7225e6deffa8e774b4e896d",
+"aad": "f2d74422c51060fb4d526f27b101c93fcbf9b16f",
+"ct": "503f20b293624b544a6773373a9ca295",
+"tag": "c13edbdb4fdca6c5548664585e8d95",
+"dec": true,
+"pt": "d5d097077ed0e181a6e3ac2cf46b6c75"
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD160 Tag112",
+"key": "e38f9cc9eec93d98d93a9a6bec2f4943",
+"iv": "e8c6a5df3dede3edd897f8d6",
+"aad": "32ab704de4e01b8c9c724522b624ef7f0cbba1da",
+"ct": "638320c7a28a71cdb2c52e88e4671a3c",
+"tag": "083a0ab2253bfb775fc3e7df7548",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD160 Tag104",
+"key": "7c73a4164f5e1d4a08d9fbdc3b1995eb",
+"iv": "b92bac3289295dfc93215b70",
+"aad": "5cdb7a60e1830c0cf8175c12e279f9c867d7c82d",
+"ct": "18451efba2f5a0daaae48637984ab5f7",
+"tag": "a9e9b0a20257f2be56e881cf02",
+"dec": true,
+"pt": "2ec786bdd99d5b28d8c15375bea6f438"
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD160 Tag96",
+"key": "a3020781d65fdc52ec13e8b38b5a9b37",
+"iv": "0c2879b8eaf5eef2a7700b96",
+"aad": "5dd3790c90b2632a6dd17b38082e5af15a4f8dc1",
+"ct": "7f09589798ef2d198bc2f1fb7ab7609b",
+"tag": "255a58f831e20812216e6ed2",
+"dec": true,
+"pt": "122da596d16a1a712ce69b7daf2db61a"
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD160 Tag64",
+"key": "e28137926583b6847b79a4dd5029524b",
+"iv": "9600ed57267dc285bbf63df2",
+"aad": "f5e1e4f63c633eabba15a6e0f3321d5813344344",
+"ct": "48e33d79674c36e7bb51122ad78bdb31",
+"tag": "a2e1c36382dfdd96",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD160 Tag32",
+"key": "f52364f65c61d47955ea9cb74334ff72",
+"iv": "4b20e5c00857091c0cac4f6e",
+"aad": "94abc48331061869b16f1b562a3351c36c5b7af2",
+"ct": "c14f48b52696c977dee3ded8c0cf5ab0",
+"tag": "7df24318",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD384 Tag128",
+"key": "527da7a4f81d6d4f6f395b623aedac3d",
+"iv": "2acf3f0c64f5ab9282a6f4a9",
+"aad": "e5492270c1df154e594c689fc505575c6bf5d7dbde0d1ded5ed32ec65e3e8289072bb10c35e385f499c0600a58f721b2",
+"ct": "ef47b52ebc6d4cc0dfaf09d22a587c73",
+"tag": "0530cfe49d93d78bfa9d54ffa6d148ae",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD384 Tag120",
+"key": "2f3f60fdbe1d2845fb35ede97bb3debf",
+"iv": "c9bb8bfd243750f1927bdeb6",
+"aad": "f115708a811796e4c1b9e9fe3b0028efcdd6cdbd0c5481288fadbc191db8b7839815476e3da91926beee83d5dd280165",
+"ct": "31aa118d98f3e1b8443fc195196c0fa5",
+"tag": "b1f5d2438503688336933a9f34aefb",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD384 Tag112",
+"key": "cd742fab4181107e16844a94bc390c92",
+"iv": "b43ede7c22cd4efbe09c08d5",
+"aad": "9b0acf18b5f249fdabc96bfe6dd2ba52eadb3c5b0bd1efadb05b6795578240e54e8dee3d6643e883ebb6828b5535b33b",
+"ct": "05faff0be69564ac93a8f82e2bcf2aaa",
+"tag": "5c04efa9e1c49ec90f323bb49dbd",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD384 Tag104",
+"key": "e029db25c48151c44a089c31dbb7e8d7",
+"iv": "45bc625220177ec34cd40520",
+"aad": "c8b22d9dc3d69ace3ad244fa28c45356db4f9365fe9fa78ebf745f7ba35b7d80d7e84bd8a852ecc909fc18e786168ab6",
+"ct": "2465cba64812c3510d66e3c33e3630e7",
+"tag": "b94ed63b00aa5eeeea9558e135",
+"dec": true,
+"pt": "32e71839645c61b9b4e87982fc7969b9"
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD384 Tag96",
+"key": "f2f4672a232d480d5394b3bda4ba547b",
+"iv": "418bc2374bc4f106e16574a1",
+"aad": "7e324fd0b7f080a143e36688c7de2d261aa87613a447bc9d8a4e5c104699522fa95a4a04485eb8b46ab10558e38e750c",
+"ct": "64b3b42977ae6719cd085c8a90408ffc",
+"tag": "0e32e69103c46476346359bf",
+"dec": true,
+"pt": "91f3323f9f0cc3b5bb4a1c2ddf11cb7e"
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD384 Tag64",
+"key": "32f2d301d35b0a001373753a10a600b2",
+"iv": "fed2988780c056873d891d5d",
+"aad": "c58370faad023812aad33f47a85ae20c7ced152088199674f45bc6b9b4bd2dc38b2165c90234362d54d8123afaaf7568",
+"ct": "19cafde5e1501fbf864bae303f31d910",
+"tag": "c4a3e342135d0134",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD384 Tag32",
+"key": "2253508b24993ec9069329ed00124183",
+"iv": "f106ef0b2d47aeb7ab96dbe9",
+"aad": "133b4b6865af397792bf2d634e48472a9fea0a33d137d8c92ba7a79866bfd7e930e5257ab911cd199524ad325950512a",
+"ct": "8b7e6be6bc21443b93f601dbe6716791",
+"tag": "255170f4",
+"dec": true,
+"pt": "7dd673fc0fd5bb930b5de58ed3ac4341"
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD720 Tag128",
+"key": "99a9bddbb68be243759bc01c882c4ce7",
+"iv": "6d78e303d165a42082abf5a2",
+"aad": "80a8d9fdefb4b114f12208b0a79299ab5e2c8524d2991617f29b23b31cedef24226fadc72b3475c0f201ea0648aa4936ffff9c80f08a329e042cc23728e0b1569357bfd08e9af1b77369bce491b995f7393903c3eceb3fe0c0e4",
+"ct": "1e3a3fdb540717afe12651d3a51b4340",
+"tag": "66dbb3bd4b766df31d37a0282876276c",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD720 Tag120",
+"key": "def54f107c34413745b85c84c1a78d73",
+"iv": "9f7137962ae207eebdf185d8",
+"aad": "918885c2385a558cc91d3a4bb8803c5f5386a47a6a1490532593f8de7238099102b35750e8d1279b028349cc889dfafaf7dd205ada1aec45f6d40a631979194e00300655f8a114e8c3e51c087af9687a1d1f5cbbea97ac1f9bee",
+"ct": "88c9968480cdf4b532198f85f944e330",
+"tag": "97c5ee47a96f586d14496e62a8384d",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD720 Tag112",
+"key": "ff54e0a7f382f91f3a9536aa4690e960",
+"iv": "641650409a50ca81a7d29160",
+"aad": "ea292b26b85f9a21830b3df54416e3d159642b1305e81ef1331cddc562bdccb5f6376e5e5751371a148b5380e8136a8f18096862f20ca1eabd1aaf4be86fcc859f840c766be99b72c8d5c9c8c9abea8cd19dd479a6fe81e0681a",
+"ct": "0a43b07071f1e9a9e5c0a1bd8303fcf6",
+"tag": "595428edbf318029ae5a4859aa93",
+"dec": true,
+"pt": "45b2461ff28eff6d1134395c92a33edd"
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD720 Tag104",
+"key": "8a077ba9d62df744f63a388b8dca1267",
+"iv": "0352de14e120e85e15f1f774",
+"aad": "3a0ef37b5062c00437a7b8f5f82279618120778a5c2f55875eb3251e6d48cca781dd95ad783c81b370b759ed6fa37d90624e6b39632c96cf07ba0ff8d0fac26ed9d2552a2e0533ebbb6fbb6eb3dafdeb73b476744e79456a60f1",
+"ct": "09116025a8dac83fc0f23ab8c6fe43af",
+"tag": "c95c89807c3354656e03ffb389",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD720 Tag96",
+"key": "574f52c16f9cd6401ef080cd886fde11",
+"iv": "36e15ddb00dc95c0d4c4430e",
+"aad": "4d1ff1764453ef17e81e2371e840a6ef02666a525141786259627b8ddff40a40c274c087009aa4de5a86620a467a84191645bad03105fe7ecf49b0ec04a98adfdab4ff4ceebba963f80b60b169479eb7d7244152e4017ad63ad6",
+"ct": "e6418874e59b3d48856d786ea083af70",
+"tag": "989d914c8140d9b1dd9aba13",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD720 Tag64",
+"key": "550e69d90df04f2bdb962f4bd55c5980",
+"iv": "ab8b7f33a585db1b65d24aae",
+"aad": "111a06123c258f34e187c0d2a38d7b9c2dac58489a47c7e118f716e4c1eb908a30a9a49103cf0b7ceab6cb22d69733651205a029876b0f5fada2d145a9853b3450e3a302b6e7e1ce506aa77692f93d44532641c7661f6790b8c7",
+"ct": "6b8408a612e02236d561ab4c44634bb3",
+"tag": "ebec6294a914f63c",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT128 AAD720 Tag32",
+"key": "2d621a02805749092ade51f49e0043ee",
+"iv": "670607aa8d09416289139bae",
+"aad": "143f7d9aec26fc958730c7a09f527d16e26a251d409348ee8a904c88a74a87476d73135fc36747bba2127f9764f399e7c056bc162bd6db1983f6ed5b993d228e2ddb07d9dd1a55076107c19e56ee67d140557d41eecdef9bec01",
+"ct": "2ff9ebeef16d727d7c947440cf2ba421",
+"tag": "4975e10d",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD0 Tag128",
+"key": "387218b246c1a8257748b56980e50c94",
+"iv": "dd7e014198672be39f95b69d",
+"aad": "",
+"ct": "cdba9e73eaf3d38eceb2b04a8d",
+"tag": "ecf90f4a47c9c626d6fb2c765d201556",
+"dec": true,
+"pt": "48f5b426baca03064554cc2b30"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD0 Tag120",
+"key": "1f8021c437fd87b4410e0bac50875bdc",
+"iv": "c2fa9427e6ea9deefb575bea",
+"aad": "",
+"ct": "cba3e3b9fd7315305edfa4af14",
+"tag": "798bac1c8c9b807a4c1e588be2c542",
+"dec": true,
+"pt": "32d08d270435f1929154e320be"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD0 Tag112",
+"key": "8c669668ec652edae85537cdc671a1c8",
+"iv": "adc7c28e1007e128c8a19adb",
+"aad": "",
+"ct": "8df27024f6423a8592524965a4",
+"tag": "04681d1b1fd1c3aa11c30d3f30b6",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD0 Tag104",
+"key": "0bb87593d0cba65b00218fb264f8a743",
+"iv": "b574bd4d330f722a81d56947",
+"aad": "",
+"ct": "50766f2efa2d4d4a8c6db22215",
+"tag": "7765bdba54a0f786d6bbf5ee2c",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD0 Tag96",
+"key": "033ba96828eebb768454d2d225b7fac1",
+"iv": "8383c62761a3e886e5fcaa66",
+"aad": "",
+"ct": "6945831a7b5d69fc15b426ee47",
+"tag": "79d53fc98ab158957ee4b8f1",
+"dec": true,
+"pt": "d44a350ff32bd4107541dba3bb"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD0 Tag64",
+"key": "2d38b01ec3a2138cd36fe533f09ad110",
+"iv": "327e54ecb18b980f852874bc",
+"aad": "",
+"ct": "d1ce9fc47e78cbe203744b3a17",
+"tag": "948e95ddd384c08a",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD0 Tag32",
+"key": "038840e96c281d7f8f45e394d809fab8",
+"iv": "b60d06d35685b81edaf4c80e",
+"aad": "",
+"ct": "d74ab0580104661c615396e831",
+"tag": "6aaacb08",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD128 Tag128",
+"key": "660eb76f3d8b6ec54e01b8a36263124b",
+"iv": "3d8cf16e262880ddfe0c86eb",
+"aad": "8560b10c011a1d4190eb46a3692daa17",
+"ct": "b1ee05f1415a61d7637e97c5f3",
+"tag": "761cb84a963e1db1a4ab2c5f904c09db",
+"dec": true,
+"pt": "2efbaedfec3cfe4ac32f201fa5"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD128 Tag120",
+"key": "b1f9e7677e1f3178dc4839528576fbae",
+"iv": "0335f2cc4925a1e6fb22b618",
+"aad": "ea7fdec4a5cc97b396a5bd7ba7714828",
+"ct": "dfe72ad8d6f01b83fa95309508",
+"tag": "3830903f9a7f9ca52522a41e89dd56",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD128 Tag112",
+"key": "0f221dc605ae6580a58086ec1ccb4875",
+"iv": "60840bf55c222c6d30ed1a9d",
+"aad": "2c64aef34ead0dddfce013ee2b23a65c",
+"ct": "d86f2afe1c64ad93b1fd344216",
+"tag": "8e538ff768aec6ce0ae226e22b17",
+"dec": true,
+"pt": "ae726730562dc67f4f64093f2f"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD128 Tag104",
+"key": "2cbb3419ab1869fe77eacb2641d06f93",
+"iv": "60af6639793f24300d3e1a20",
+"aad": "e488fceb4710a88973c508c305bd5ca3",
+"ct": "0179ac31628063feeae31d2bdf",
+"tag": "1ace3e7e4f52f0458622531f16",
+"dec": true,
+"pt": "7016ac746ef24738b1ae88cc7b"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD128 Tag96",
+"key": "5de854554a9dd09594b9607d1a2765cf",
+"iv": "e04d5e5bc1e4929b6763c657",
+"aad": "76cc5d9d940611aa0d6597fde8bbb05b",
+"ct": "727c5c319d13fd5a99515ccfe6",
+"tag": "530a8e2e6654e9da3e1448f9",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD128 Tag64",
+"key": "5ac6b749cc73ebea439dbb640de57e74",
+"iv": "30d56c334754c1afbddd6f4d",
+"aad": "16ca0b6492fc060b2f8896c697b76031",
+"ct": "1fd6f6fd70d43e518ed69dce7b",
+"tag": "cc83bf954286840d",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD128 Tag32",
+"key": "da0cc1dd2ab40abb10552efc3339e034",
+"iv": "d14a8aa5188966fb525b9085",
+"aad": "91482d2c78046cc1a45fd31526e7c17d",
+"ct": "709bb2f7521b677e3d65b80b70",
+"tag": "c0b6552a",
+"dec": true,
+"pt": "485dc01def6a14aff32ab87838"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD160 Tag128",
+"key": "c62dc36b9230e739179f3c58e7270ff9",
+"iv": "196a0572d8ff2fbd3522b6a5",
+"aad": "4d10536cbdbd6f1d38b2bd10ab8c1c29ae68138e",
+"ct": "958062b331f05b3acaa1836fc2",
+"tag": "dc65a20d9a9aec2e7699eaead47afb42",
+"dec": true,
+"pt": "6d8abcee45667e7a9443896cbf"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD160 Tag120",
+"key": "474ff8b4d3a62fb348c745d666a622fe",
+"iv": "4aa6582a15136ca82a612c5c",
+"aad": "b161e7744642a5dc0afbfd7f186a6349bd605850",
+"ct": "6ee0f58cc1159b15ae1088b1d8",
+"tag": "c874eea8f4ed3e8b91d8f4c65cb11a",
+"dec": true,
+"pt": "8eb3cceb8051143cf031b9eacc"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD160 Tag112",
+"key": "68ff83d70427ba1d24d5cce85688b68a",
+"iv": "30b5128110fc181e690802c1",
+"aad": "f324d1150bd3f853eca42ee54df4b901f35816c0",
+"ct": "f4475a28b182582f7431664a1c",
+"tag": "18edcc7ac44fcc984e66f7fe545b",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD160 Tag104",
+"key": "403f8d73af227159ba1cfd3595a572bb",
+"iv": "d6b9e52c8f359e93010eed81",
+"aad": "008e16685dfa4db7f55477ec35345e4ca88e4739",
+"ct": "0051846c68d28739239e9023be",
+"tag": "f73098097263f6696ac11d4d90",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD160 Tag96",
+"key": "24f2c5e30206fc18440f4c763015861b",
+"iv": "2de32b164668a1a254fe3a35",
+"aad": "af7e030ccce4c58592b4ad503aab5ade4a9f0b38",
+"ct": "1c67af1c93edf78036d6b2f190",
+"tag": "6f6dbbe457e30d2542e565ae",
+"dec": true,
+"pt": "5b2da6a6b20e180bf8a220b4f3"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD160 Tag64",
+"key": "a6d75a8831dd86ea7dffdef10cd27c69",
+"iv": "3ba8841d69f1e45ec46f04bb",
+"aad": "d6629f055cec27fc9f0dee7388374aa343cdf156",
+"ct": "bac41eb27cf13be5083ecd65fe",
+"tag": "2c160e1712e056ce",
+"dec": true,
+"pt": "0da0963fb5539f8676e41c63f4"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD160 Tag32",
+"key": "a98f171ab5891cc85a2d3c2ff88ee4d0",
+"iv": "6d91a2c8615fa8455e9730ca",
+"aad": "c65fc1b865d1ae70e3c93f675039f9a74fdef4af",
+"ct": "df578d20f02fe2cf5552057175",
+"tag": "64d7874c",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD384 Tag128",
+"key": "ef1da9dd794219ebf8f717d5a98ab0af",
+"iv": "3f3983dc63986e33d1b6bffc",
+"aad": "5abd0c1c52b687e9a1673b69137895e5025c2bd18cbeacdb9472e918fe1587da558c492cc708d270fd10572eea83d2de",
+"ct": "95ea05701481e915c72446c876",
+"tag": "5c866992662005ca8886810e278c8ab4",
+"dec": true,
+"pt": "5511872905436c7de38e9501e7"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD384 Tag120",
+"key": "817575a20565b9af451c17c9d88a5637",
+"iv": "c39784091ab31a5017e26335",
+"aad": "dd47a883992b546d527d718cc72a04fb88b3023189008922c79e46cb704bc69158bc3ef507ea08e06c1df4c2b9a0ac31",
+"ct": "f7bac5e202a7e5e354242b2df2",
+"tag": "88b7ed93f7d64e6a45d1739e9d9961",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD384 Tag112",
+"key": "939a456c6696bf476a9e88a1ef8f229a",
+"iv": "eadf1fdf216633589f702e4e",
+"aad": "56a17ae2f2b5c81213fc2b74482f2ca886eedaeac8643fe1bc8b710ca28e463bac9ab92eb1cf3f1c86312120ff288d91",
+"ct": "ed687dc29b447c6f517731f310",
+"tag": "6bfbd5ee24dcc2361416b7830d38",
+"dec": true,
+"pt": "079bc3bbf251080912df6065cd"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD384 Tag104",
+"key": "cba6317d7ac7357629d86799fcc4b07a",
+"iv": "ffe3a238cf129e9f0287768a",
+"aad": "1fe7426a29ef6c835c85a9cdd63290a8294be4bbffce8b20aff576664f63fa16513c0610e5ba9284d4b6642ba77531b8",
+"ct": "0f6d51f0afbe435ea45589d857",
+"tag": "554c068292428bf9c8a259c8b1",
+"dec": true,
+"pt": "1a0337f9f860ac0b10e0009ff8"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD384 Tag96",
+"key": "c8f65f4de34430e09636c69f8e89eb52",
+"iv": "7634c2e130275f68391cce39",
+"aad": "01d38c2da4a8e05f9ffd619e043a1b7951fd4bd55e9aa0cc7afb3b748017a20a701f24add4a3008be2b07371f5ac6f12",
+"ct": "2fe774ad2e1958462a63df0218",
+"tag": "36aa3f53c221a6460090d7b9",
+"dec": true,
+"pt": "c72c7ed757a5d88c72360a5910"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD384 Tag64",
+"key": "b0b8db029fb3da51b09349be12bc628b",
+"iv": "cd78b9be6a65bb5562df721c",
+"aad": "48355ced1901918be28d659f1de1f6a498ab5094e4eb2843d232a9b880d8bd5539f9549b0279f2f8e6589f4bb398ee69",
+"ct": "7399f9d65da0bddb70432d654f",
+"tag": "f90b930fc63484c7",
+"dec": true,
+"pt": "0114ddd430ea968b3eca3fe778"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD384 Tag32",
+"key": "004c3b220e0cb29e7c40fad9d6b13a44",
+"iv": "3b6bec0027fef1b6239f3a3f",
+"aad": "92f07870d6fba47144d403ad7047acdc3c6b3fb26900943cad01f5fb333880e349d9a55ed5dcadafc4250ce8fd88fc28",
+"ct": "646ec3f3caa98ab4f959074c79",
+"tag": "e508db1a",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD720 Tag128",
+"key": "3eeaa3b5aa99f6902d1d58421b53ddb1",
+"iv": "71240c996af69d590ccc8e8d",
+"aad": "b1176b9e28794cb627c5cb3743846e6d11339ce6d0ce69789833b9f344e92e5360a0eb61b173687f74eae3184ef641f1c42c5b180014ca7e6b0edb00fbc35f2efa7aac7111dd8ec70e851a3ef2e2436ee07e4fba213425b1a8e4",
+"ct": "9a50a33a9438f485e7c89caba7",
+"tag": "e2865b861f8d5e0af25757905dd0653d",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD720 Tag120",
+"key": "f72fb6646ba04b734eeaee6fed4feda3",
+"iv": "c7fa1cdeb13a978ebe82867d",
+"aad": "975ec236f04b305de3e7b5b0cf06694f4a144082fe6f4add2fcde15f53ad9291442c4a4feaf161943f519d597347f0c2fe692b91e89aae7c9c995d16b78cba8bbe34510a304c1a35ff1139b58c52ba0991b650fed262c4dadaa6",
+"ct": "04ae75f3dfeda65362463b1bc0",
+"tag": "fb97d1b95306e023cab553ac534f11",
+"dec": true,
+"pt": "7b492bd460e2b4bd1a7ee3bf56"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD720 Tag112",
+"key": "ad2eec70fada444ebd6fac184a112ed3",
+"iv": "d4ad30c45b345d24646d7c07",
+"aad": "c30280e47549ae0c2cf83b71c1fdb527b07f4c52e92e64b409a5bcfdb6258ab69db473a198b5311ed2109a9f5e08fb59dbe4bfbe768d08ab9e0f4b517c6b8116a50b19c758184fa27dc5a3625662f3704f8596dbe16bd7c710a7",
+"ct": "da20a258ad38262be69d4a0b8f",
+"tag": "bbf384db6d2bce966ea8d35b8fce",
+"dec": true,
+"pt": "b0c1f7946440f108e716c27dd5"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD720 Tag104",
+"key": "d6322c200b0c8710e8283208a5c5275b",
+"iv": "0f79d20af8aeb1722ffcdba9",
+"aad": "54e2db120cb21f3308fa8c40373eddeaa299f0d2932f3363a17b14f964682b21f8ea9e5be37c460b8564acad713738a502d9452762778346c4a494205c3fc050f9f280d43ab7dc2484c9e9454f6ce224aa83b8c8055af7dc3019",
+"ct": "e00ac57e6e106054d220a057ce",
+"tag": "4d5f3a8e204bbe7fcb8591b024",
+"dec": true,
+"pt": "5eb1d0ce213531017ba45461da"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD720 Tag96",
+"key": "4f64f175ff74efbdf887a53d8d125896",
+"iv": "d7e20930f58d330c305b345f",
+"aad": "2f3da0238114f702872505d8e124190ebd0fba662ac3336bfac5611828426ed4f3fcaedf71a2707822cb197d4fbcd07f5dee436e9bc7a4e39a3975b782fe828b0df4ecb8c2971747cc666f00a277600d6b54d4194f17d2183afe",
+"ct": "945b94e983082adf44eaa43d15",
+"tag": "50eaeb33e26053695397380f",
+"dec": true,
+"pt": "9dd4c24c799e62db4481f1d2d3"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD720 Tag64",
+"key": "1dd91e15373d982d3ebe129e50b5f11e",
+"iv": "6dddbf6e52c4f14fb37206c1",
+"aad": "232df41dc64dea0b1963c73f24655b6cbf9a024162427690aea7a2311e40c62301c45024356dad3c1f40e15ffff231fdcb8942121fa0225718157251f9958dd149d9b6978bfedd121e189f1811bdadfbb5b62977ed1dc81a2cda",
+"ct": "962454ad332be10d93fc5a1729",
+"tag": "04e47f3cbbdfd8d0",
+"dec": true,
+"pt": "d94802b19063ef6c1595ab6c68"
+},
+{
+"src": "NIST gcmDecrypt128 PT104 AAD720 Tag32",
+"key": "525c17c8027da0f59a9d68ab6e8569b7",
+"iv": "7802c85495f9bc1db0f126b6",
+"aad": "e090fcd885df22394922eb142499a828de88c6e29020a0e25ce8733e7d8ee66d5d0d1d24932da722512268821ec6ecef666a21e504a7713dc486803c40b3d3116a452d38617a93f784cb329eda8c81f5672fa0f66b20e5ae502a",
+"ct": "7e4e10be42e95d972c2217b80b",
+"tag": "ad4f7f05",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD0 Tag128",
+"key": "bfd414a6212958a607a0f5d3ab48471d",
+"iv": "86d8ea0ab8e40dcc481cd0e2",
+"aad": "",
+"ct": "62171db33193292d930bf6647347652c1ef33316d7feca99d54f1db4fcf513f8",
+"tag": "c28280aa5c6c7a8bd366f28c1cfd1f6e",
+"dec": true,
+"pt": "a6b76a066e63392c9443e60272ceaeb9d25c991b0f2e55e2804e168c05ea591a"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD0 Tag120",
+"key": "844c6b21ed3b8d7f1e3094142858008b",
+"iv": "58e5f0f4e12e48fc4f444dff",
+"aad": "",
+"ct": "f4d0d89d8ec4773d00d92ccc01075f93cbdd1e4412444ef815dd324083456634",
+"tag": "e2331cb0d4bd706f41b7257ad3cabd",
+"dec": true,
+"pt": "e1c9f97ec2eec9b1dfd647c0ba47fa8fa8ce5db0400ac5156e9610582db78438"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD0 Tag112",
+"key": "73ab51d6de85c485b7fbeefbcd925ee7",
+"iv": "1d8aedf5ffce9c0a7075111c",
+"aad": "",
+"ct": "02b6fd0e3e3ea5b73c8836b2af21a4369580fbdd4727fec9dcddfc22eb410cf5",
+"tag": "ac5c539517462d903a46eb0071c4",
+"dec": true,
+"pt": "2aa036c198fd1c47d6e3d49247e6c377c5167e89ca087e912653d226ad8ddcec"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD0 Tag104",
+"key": "7c709d405e3bae2df714036e21675bd0",
+"iv": "1be8ea0ee946cf4ba9d92566",
+"aad": "",
+"ct": "a53b8bdc087e973b63a51f5e326a2d629de97c412ced9057d6245014d77a35b4",
+"tag": "7a8b2915545d9489368da5e7cf",
+"dec": true,
+"pt": "f747f0b92403a9e20d4a015c2df42e313d19f976326777e444d15bec968877ba"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD0 Tag96",
+"key": "e642934899f17d73fd170bc74c690cd0",
+"iv": "95cdaee9b4a5b72faf7b7488",
+"aad": "",
+"ct": "5adf230409b0b6f7f545708c24f1600cc0823ce7ba84a8d729e8df8d9f9dfd88",
+"tag": "a85454519b2cf5e7380de7f7",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD0 Tag64",
+"key": "a3860ce5dc0a1ee87257f8d2c435a3e9",
+"iv": "68bd96dd51d71460a0b87734",
+"aad": "",
+"ct": "65a1ad220bb6ddae1ba02a5f36ad5fc0340647ba36aec4b5f66aaa1a5349d7ff",
+"tag": "1d1e0b6949cf9add",
+"dec": true,
+"pt": "5294c2bcca8b0dfe2a6818d90a5a53983de576bea5b4bccf06aa4ebf91c02459"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD0 Tag32",
+"key": "de2ec266541384742542e00d1b88d4d6",
+"iv": "8694119e625d4ef44a22e588",
+"aad": "",
+"ct": "81778754d3383f4fdc14e02af3ee77005a2789ae62de6452b2354e8c921629a6",
+"tag": "443944fd",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD128 Tag128",
+"key": "3308bf978dca6bd7f5fe4ccd6d0e7c24",
+"iv": "85996c785a83493cc7165c11",
+"aad": "b0ebb26b9e27c44c26543e257b7c7eb4",
+"ct": "4c8f0c7ad73fc469b4b385f80741f3014ec236e29ca9068b8e55ed6fb2fc9b9b",
+"tag": "8b5528d6ef87eb0be9b6708fab7d654c",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD128 Tag120",
+"key": "834c578a0167dbddcc0ea30c119746a1",
+"iv": "b22db46f493dd942fc088b83",
+"aad": "d38e7c770d0bd6a8650687b3b26ebd61",
+"ct": "d2fbe5d203b77630a2c18541f5d9d8cd4890964bc1aae71c69bb529a02248fd6",
+"tag": "ef66c1dfa7d121bd3097979128af0b",
+"dec": true,
+"pt": "d366f42a62e441f0119e59adefa2710641ee52e20b60d339d55f1461924afe64"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD128 Tag112",
+"key": "006c458100fc5f4d62949d2c833b82d1",
+"iv": "a4e9c4bc5725a21ff42c82b2",
+"aad": "2efb14fb3657cdd6b9a8ff1a5f5a39b9",
+"ct": "f39b4db3542d8542fb73fd2d66be568f26d7f814b3f87d1eceac3dd09a8d697e",
+"tag": "39f045cb23b698c925db134d56c5",
+"dec": true,
+"pt": "f381d3bfbee0a879f7a4e17b623278cedd6978053dd313530a18f1a836100950"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD128 Tag104",
+"key": "04fa19ec8a3f2ff6d4ae85963298356b",
+"iv": "5dfe9380b2a8f471c614fd9d",
+"aad": "8d5c87e60d909c9952ca9b14508559aa",
+"ct": "8f3e0b3ed18cfb8b0a4873c10dd40221684b352b48e20db4bb7b836aca2be4a1",
+"tag": "16b873c7a1907f0668fd9c358c",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD128 Tag96",
+"key": "8fe7ba810c6f00b14c81d992464e1d0c",
+"iv": "b182ebff442c566d6556c6aa",
+"aad": "f70e8818199ccaaffe412bd805c54edc",
+"ct": "22e7f70b271af95b4cb1183c6c467b8be1d306538c0aa8b0973a8e3f65466652",
+"tag": "7a554f17cddbc71136bc3a60",
+"dec": true,
+"pt": "7c07037905035c86c29c0e7fa0168172f7a2b099b55439e7af687ff7856d8ec7"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD128 Tag64",
+"key": "e565c4e8a2167ac2bc7945fcc2394f56",
+"iv": "910a889bc852f4d37746ed5e",
+"aad": "6f85c9b1fc5ccaabb073b49ce18d09b3",
+"ct": "2000809b8ee0b49ae498c72ef08efbc9ae872db6b9c4a3f04b96f344071128ca",
+"tag": "b33f0297cf904524",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD128 Tag32",
+"key": "61028676524d30ad8ab9ed1f33144bbe",
+"iv": "530ae3aeda51b04f6d6e05cb",
+"aad": "114f91017bf7e2cb6a76403a685658dd",
+"ct": "98c7a0ee59d050cc745dc3a598f46037d617aa3106bdaa539224012ce15427e2",
+"tag": "61ffcbea",
+"dec": true,
+"pt": "04de0b64dc15ce2dc7c404497b7172165cec3212b162b471abce8204ca4ede2a"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD160 Tag128",
+"key": "f3e60720c7eff3af96a0e7b2a359c322",
+"iv": "8c9cb6af794f8c0fc4c8c06e",
+"aad": "5d15b60acc008f9308731ea0a3098644866fa862",
+"ct": "73e308d968ead96cefc9337dea6952ac3afbe39d7d14d063b9f59ab89c3f6acc",
+"tag": "658e311f9c9816dbf2567f811e905ab8",
+"dec": true,
+"pt": "7e299a25404311ee29eee9349f1e7f876dca42ba81f44295bb9b3a152a27a2af"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD160 Tag120",
+"key": "dbfc8af7aefdf18956fb1a4ae0d36746",
+"iv": "e370551840ca6824d0833f0b",
+"aad": "869275b94bc6ad751d34d8002b9a90bd152325ce",
+"ct": "eac84103651c86b7c30e993260ecf308feaa7b83411d875659481803a95ba8cc",
+"tag": "ff1225c22ef2f4efd800f2d4bea63d",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD160 Tag112",
+"key": "a61eaab81bea4f06f53de0f5a678162e",
+"iv": "ac9d3ee53ed2c87cc8afd96d",
+"aad": "64940e60e37256a70d55c8ba07e7fee74cf9cab3",
+"ct": "611aaa70dbbd5fd82c2bf457a2eb940faba5f3b5bb66523057af9636636a3038",
+"tag": "c384ddffe4ae2780295352ab1298",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD160 Tag104",
+"key": "4238eaaddfb94d6588dfda87ccbeddda",
+"iv": "10fed1ad520961046c406f3c",
+"aad": "45672af2f16cbd7801036fc0bbe398978e7fd6eb",
+"ct": "d645c222b00e9075089325b5f64f97861e0b3f47e69663ee715a13148529e195",
+"tag": "dc383b5480d97096193ae7e311",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD160 Tag96",
+"key": "2f180d97a4c471b4bdf0ea37651b6363",
+"iv": "e76d1c1a2f0cac6dda3209c6",
+"aad": "b1298aec2531450b6389e7d33d1c63e7e71097a9",
+"ct": "7309f33afaffd896b44ee011434bc4fcaa732e3e0b54d11117ef8c008fab4491",
+"tag": "148b6b1c62bd95144a9d589e",
+"dec": true,
+"pt": "8870797cad1aad60dc637b5dd1767ee50bfecc6aa6d2a495d8213f24e9b40970"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD160 Tag64",
+"key": "683562c950b40a468a8bba2d2a05a16d",
+"iv": "871e0213e94d5bf3285273a6",
+"aad": "59b4e87f639193e45a8c47da116e133bad6c1e6e",
+"ct": "68a2dcc25e4b996f7ee028679eae771017eff273817ffcaf153fe03cb9360b94",
+"tag": "1c66b4ce2c27ed73",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD160 Tag32",
+"key": "afd1af07eaadd2e08dfcf03dacfce49e",
+"iv": "4c318f46d1fc54c286d9b9c6",
+"aad": "c2ff5bb828ee8be8d7eca8c75eba6513c97da4af",
+"ct": "089519a7f99141609e574285272a946031d9a7753f6b969d6d102c53f06ddc7e",
+"tag": "1e8ab2e2",
+"dec": true,
+"pt": "e4df9f3a348f38c508751c57839cfe721964fe0feb654f36c2e353547828379e"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD384 Tag128",
+"key": "8453cf505f22445634b18680c1f6b0f3",
+"iv": "fab8e5ce90102286182ef690",
+"aad": "ff76d2210f2caec37490a19352c3945be1c5facb89cb3e9947754cade47ec932d95c88d7d2299a8b6db76b5144ab9516",
+"ct": "5475442af3ba2bd865ae082bc5e92ad7f42cd84b8c64daadcf18f0d4863b6172",
+"tag": "972a7e85787ba26c626db1a1e7c13acb",
+"dec": true,
+"pt": "e4abb4773f5cc51c9df6322612d75f70696c17733ce41e22427250ae61fd90d3"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD384 Tag120",
+"key": "ab8a7788ec16b2300b6910cbbd7fb743",
+"iv": "ab45b13e66b6a41fdd2ff007",
+"aad": "cd2c9c9d36d0d546d366a857d0e7ae4d6530199bd582beec6179fe5d1fc1176182bdc02502810c07cef637d746be3877",
+"ct": "da69bf739ebc9835f03ce3c8f1bd030cb8331d259074d0fb27e46ba9f0658bc1",
+"tag": "c61eb35b2824ff268246cd0e02a444",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD384 Tag112",
+"key": "bcd51ccaaed2e10c173a45da5901241e",
+"iv": "05e825a9f6753d3b02f1518c",
+"aad": "16c6bec1362b2b1b126aca6ddae70b4f54e4d06a63d9106718704143caff061737476c0a4de54f872ebd04ca794f8e86",
+"ct": "483c44d529c7ecb7ee7372b0f116018f414af60716b6f89f2ec7b2d3215bce60",
+"tag": "9b845e273dc65084b0f14672976c",
+"dec": true,
+"pt": "44ce4e5fdce0df254f1e674028fbc48c2d3e18d2dbd93d938ed093a85972904d"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD384 Tag104",
+"key": "b809cd56076f6d271e418f9a84fdcbd7",
+"iv": "a463e59c4ecf5943ed4c6b2a",
+"aad": "d8fa188608faf563b258f4aaf4801547563ab96ebc1f7be8792f5cde40c4be18cc88e0fe3b3b6e6de5a351dc983bf17c",
+"ct": "afdec3e9beff4b3bed0df27ed416a7c5baa88a58a900b07b548d3f59fa9b77fe",
+"tag": "77331e01284c88ff2396e0d6f3",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD384 Tag96",
+"key": "bf8c950acbb2fee5f0d34db97435b42d",
+"iv": "967a2661cab9dbe781084b17",
+"aad": "ac50fd9cca1802d909aae4208c644d29e57c508b459778f33e1fa50cd8a04e25b3194db794a974d1d80cdde9c48e3fc7",
+"ct": "ccc2e0b6d71fd4c87f5352a789d2bb7dfc59d5f4cc6b4b852a40e8b4bfad9a8d",
+"tag": "1f029b5082c224a846a469a5",
+"dec": true,
+"pt": "e5a524d6a6de206e65caff05477a9a60fcf5bc0e9569fd06e8a8758baebe40ca"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD384 Tag64",
+"key": "93cba1cfb2d1306f5efd90f67f33d294",
+"iv": "e9e3d3fd3fe82d6fa1ef59ae",
+"aad": "93612609c85432d5abc5e18d90c8341289625354f1420a28c25fc755ddba7bfb0ea2174d5145c53c22fad421d6a2f4d2",
+"ct": "4e9b1f82904a0c57b843f523f9431c3aae218dbe854dec36101e873452461fc8",
+"tag": "78a3de088f88d402",
+"dec": true,
+"pt": "7f944c20679ad419a097e708cde22f522284122e8e7f0b911c16e52846c0cbf3"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD384 Tag32",
+"key": "326e9dce26faa59c5c7ef2db1e868332",
+"iv": "8535c60fc3ee34c6a1789b70",
+"aad": "5533182e28a5a5660f4e4fd7bb47aae4b0c9df6b40716948feae0615d44bde344c33041efd2d1b17da1fef774ebe42b6",
+"ct": "669ba7ecbfd417ec67afab11cbb1f5e91c7a9f64be63ce985da39c39e1257bcb",
+"tag": "38e4528d",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD720 Tag128",
+"key": "07a6be880a58f572dbc2ad74a56db8b6",
+"iv": "95fc6654e6dc3a8adf5e7a69",
+"aad": "de4269feea1a439d6e8990fd6f9f9d5bc67935294425255ea89b6f6772d680fd656b06581a5d8bc5c017ab532b4a9b83a55fde58cdfb3d2a8fef3aa426bc59d3e32f09d3cc20b1ceb9a9e349d1068a0aa3d39617fae0582ccef0",
+"ct": "095635c7e0eac0fc1059e67e1a936b6f72671121f96699fed520e5f8aff777f0",
+"tag": "b2235f6d4bdd7b9c0901711048859d47",
+"dec": true,
+"pt": "7680b48b5d28f38cdeab2d5851769394a3e141b990ec4bdf79a33e5315ac0338"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD720 Tag120",
+"key": "79c46a4515097f4f9a040590b1525d84",
+"iv": "15a5c3e80c68ce8a5a2e90f4",
+"aad": "827dec940cbf518854494e0bbcfb71c329933690c1b2b40df4f90212c2b3ae48f778560456eb87b637428c626897cd6b6c87297b7eab5a82fb876ba9bb8e60ed63dba2a650d5cdc33ea2b9f32eaaf9f9fb0e35b71c50dc56bb11",
+"ct": "6e4a740ab7bf9892e3130993adb05678f668d8f36e61685905838ff632fc51a3",
+"tag": "6f8a82a53a4796d2529c710264bde6",
+"dec": true,
+"pt": "1f8143ae5d8804265747aa1179c7d6189558bfac7663ace773786115a5585a63"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD720 Tag112",
+"key": "ca4c32279bdc0fad1fdaebbf2d518bb6",
+"iv": "8a2aaea34dd611a444422e7f",
+"aad": "7c7c5b50b9f75e77b2e1b9614ee64d0a619361da538995552992870eebe6138754b889473226c96b0db0ee536fdf6e0a2f68c96660b3023c74e556489532bbeff11624e663824b4b84819089687e644024b35c396a6e4e0ae6b6",
+"ct": "a354fff1f064526897a8fe5a21afedd706926de4b91b9811877dc362a29af275",
+"tag": "8e2d515717f67bd599e576e3d4e7",
+"dec": true,
+"pt": "357e5088059fa32a37957623eb55167c6240751a000c9645bffaad94e12bf8c9"
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD720 Tag104",
+"key": "dc75a0c9174669239291bd3c83c42636",
+"iv": "724ad8c3cdc886a64a9df198",
+"aad": "364645f37ea53b10ae914bc1b195b72246103d650ac67c0c8fd071488a1ece659eb851e5140bdb3e69310951316e6d449df9bc32ba6a6b95b1aa22d920137d05df3e8ddc400a563e65096a20caa6883b107f22aee1ead3c3dd9c",
+"ct": "38be83f8efa85bea16c08be05efbece67711b88bdace8bb1d15805b8196758a7",
+"tag": "93ab98462ded57bed4ac837f66",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD720 Tag96",
+"key": "b1bc4db122a37ffc850bc25b523d19e2",
+"iv": "8f64ab01ed82b62d826d7ac1",
+"aad": "b3b0148ac00d9c880550148b4d45b55cdd30067dab1c4af2df0494839a2c05f2ea8395ad85fce7925d19ddbde50587d82d75565f24cc09c3f8737f2a92baf38668ba26ffa7257e263bb600a37c13b9d2a1275fc8c8d0cbf96768",
+"ct": "e44d08ff9eb267ef0033acde536e78f38f058c6f4369028272e10bedf7a51783",
+"tag": "c465423d698f0c2d1ca84bee",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD720 Tag64",
+"key": "b68e0eeebcfaa6356d89a1be21992df7",
+"iv": "6f82984ec2ce1d66fc373a60",
+"aad": "802d521f802780dbc5f0ac2e169abfde751bacddf779b629fe24028684e1d77f731c41b3fce21e000d2d2576b8ec12f89af0c0189b8bbb64cd15062f8eb697dfce299bc580a1977adf49078c62b163d9b4e14a019a349144a40e",
+"ct": "7118a4d46c9bb036fe4e31890d2ddb57843354d55d4f23bfbb16893bfea1fcdd",
+"tag": "0cb3697ba5915d7c",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT256 AAD720 Tag32",
+"key": "d9d3467e11838982d7fe2b679f38f033",
+"iv": "4c359a22a393ea7b67372bd4",
+"aad": "85dc0517d024b61e22aa35000175e714b32b901fc5c84b9ed7f2d5893f9ef1d285c6e75072ceb88087afa0d6bb71973a27379ba1c0a6198b6d20dcfc65abe16bce4012d150ef48025856203dd93c7256c09ed4b269280c6631fc",
+"ct": "90789a91f4b63ebf2fcd105532aae9c4e9ca477e979520d4c59785ed7f590f7c",
+"tag": "efa4611a",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD0 Tag128",
+"key": "f3c4c058c7f0965a0328f0f011a128e0",
+"iv": "e96098c39d9aa83522119355",
+"aad": "",
+"ct": "b42c25155820564b41c525c6aa8ff4363c7c511917772b9bcd574b0be1f6b4ca2153869ddf0c4f76dfad3aef0a76ce056582f9",
+"tag": "44331e39b8a66a81591ed155d7d32372",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD0 Tag120",
+"key": "0fd4b43a356d4f3bd5130de08ee68cb5",
+"iv": "1ad17e69925213bbe6c5c718",
+"aad": "",
+"ct": "1430e29b3bae0d1af231fb26fa67abbe69ff0d490a968a73ee84977100a7b9e6cae00ff4a992804e1a5f7ac10383f54e395f88",
+"tag": "f9dec8d937e144928c668e84e96ca6",
+"dec": true,
+"pt": "0945ec186f1c25bb0174cfd5a2ae6fd8a90ae79010247de8ce2724a9a479d6c17e679d1c163c6836655b7dd596a33bee93062e"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD0 Tag112",
+"key": "d894761c669cbcf8c1e01fa848c968a1",
+"iv": "01103b8c9d79443242b60ef5",
+"aad": "",
+"ct": "5dd65e9bdcf840b893b7d8f364fc91b5a598da3e40883d8227ddacc3e203838fe65673ed5479de691d5782f4f198961a889f72",
+"tag": "0d7e3e669075e0e984f9eb11a68f",
+"dec": true,
+"pt": "e47c2b1248dbc632229bfed1f50b7d4b7ebbeabd21be36ab0252738eb0cb6820c9c8e33b09d03798d61d90f13ab96ead54fcee"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD0 Tag104",
+"key": "55e3ed46542addecb971c94709724395",
+"iv": "0fc7cc6110dd26f043e573d5",
+"aad": "",
+"ct": "9c61de01d7fc3468661d8a5d2b31bb03bdeff6f456d9f41bf395fcbf85c6c87cab0cd249e2e683b5fc4c33cfdc0726cb7bc64f",
+"tag": "be9a520ef103927a53098361b2",
+"dec": true,
+"pt": "33fc07733d7e4e5240862a2008b571122ec2e6859130983e49764c43f804280fbdf5b511f4cdc1249ae287fa41e4f6f6ab4176"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD0 Tag96",
+"key": "6e32be23764748c31d22c03ef4e83636",
+"iv": "db0182c451ce6aa166a58cdb",
+"aad": "",
+"ct": "ed0aba935e577300cfa7c3ba0b63542a1b3da7360cd1dee2cb3ded6524a1d879485d828a88eaf79db824489e796c8c4f9c12d2",
+"tag": "103aad7626a2cb3ac74a80b0",
+"dec": true,
+"pt": "39851eab7ad6d708459bf0a1934f647b1fc3e1ee087316c51c3a8b808a95d7520104b2e842b85e197023109542ebdb8209e0ef"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD0 Tag64",
+"key": "d69a80f5336c6a4dd6c8394a627ebdc2",
+"iv": "f8d78a6909e19dc6d7b12e2e",
+"aad": "",
+"ct": "def13fb18825c1679a7d9a84ddb86f82a6eb11fa30abe9a403b9e4fa2892d2642f0e4819ab61f25bd31d94a1eaa08dc7971fa0",
+"tag": "9cfa408fb88436e9",
+"dec": true,
+"pt": "2ec464c97566a5324cafb7ac4d3bbe0e91f9191ae797713c868c56a36f464e091a68658ac168d1841137b1cb688c4c630d59dc"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD0 Tag32",
+"key": "156da5070bbe8a5277b8bee3ec9116a2",
+"iv": "1da3771fc79b6062f2696854",
+"aad": "",
+"ct": "448364b4b881fedb6260a1a9e1914011e0616f816e8ecff0c5e1e4acbe32ef1a7d2475038b02ec52f14158109fad4c3b5dbfd8",
+"tag": "f73b0672",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD128 Tag128",
+"key": "bc22f3f05cc40db9311e4192966fee92",
+"iv": "134988e662343c06d3ab83db",
+"aad": "10087e6ed81049b509c31d12fee88c64",
+"ct": "4c0168ab95d3a10ef25e5924108389365c67d97778995892d9fd46897384af61fc559212b3267e90fe4df7bfd1fbed46f4b9ee",
+"tag": "771357958a316f166bd0dacc98ea801a",
+"dec": true,
+"pt": "337c1bc992386cf0f957617fe4d5ec1218ae1cc40369305518eb177e9b15c1646b142ff71237efaa58790080cd82e8848b295c"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD128 Tag120",
+"key": "d30b45660d1472909db67a927ebd02cc",
+"iv": "b9c12a22008701c49d652b9c",
+"aad": "f810f06f5ef25d1f21a1536b3948b2af",
+"ct": "e3a5dff016ba5457cdb2989fd2c3ae3c1e0391a4e8a8865d55b9a32dc208f957b0898e7e0ad31779c96e3a49a95b7112c81e40",
+"tag": "ec9825af933fce7e891a20fcaba817",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD128 Tag112",
+"key": "4a19e0f61f86cacd9033bf2090935a8f",
+"iv": "233faaa40bfce6d38d774e73",
+"aad": "9af9494bf22dda403a0bb6ebc4491440",
+"ct": "f8ebce53f7335b842faf4beb1423f4f16ca3bf1b838d70bf7605b690ac2d8240a48922391cbb16bd15769f80e826d06241ed9c",
+"tag": "176520b12f314b8c37c5b2b56212",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD128 Tag104",
+"key": "b9c26d7a448c57e2f483a3658e18a42a",
+"iv": "65a80c8503cd9a60110012a9",
+"aad": "e641a1beef88d62e8d57dfbefdab8c9f",
+"ct": "f7aeaaeed491fa86a6f0f43f3cd14f8ccc48d7a24b2998078a8e7d9682e6eeb6ee14353ccf056de895ec0694f296d3c989a8e1",
+"tag": "84068ef78e4547fcd4dbb7d494",
+"dec": true,
+"pt": "053ed10030587180231710d6502e7f2c1c9e79120392f787ff339744b17d14ada6ce99a6580862c3e307433e225df4bfe2dfc0"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD128 Tag96",
+"key": "f5a0b1639c67c7760109056a3a329804",
+"iv": "e1b75506d66509a52f0960f7",
+"aad": "8421f67419d3d37cc9e97b712b8b0924",
+"ct": "4d8738341660f7e49ca1ddf7db1255c1eca46b947fa80134340d364e611255194f3261413a82e763720ef81dedc8b10bed3b30",
+"tag": "d7c586892b2e6ad60c2106a8",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD128 Tag64",
+"key": "7d4234be0e2d62669bbc2c0a6df17df2",
+"iv": "7c82065f9246bdca6ff4f8e8",
+"aad": "fe4a008d2fe4e70c8551abb3f5ad9f20",
+"ct": "ea99346970ea70658e7a96bae8cf4042cae2bff5f81c2da44e477ef017fd030f3179aa5f61d5d46e4dbb1c64d5c18d16c10f5c",
+"tag": "c9ae27057ab1dcc5",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD128 Tag32",
+"key": "45c94d22faa4b3fca6ec3d2ac301cc8d",
+"iv": "a0986fd7e886716cf37fd651",
+"aad": "c88c29f7d5d1464e2338817272bd7eff",
+"ct": "506edc4a5eaf03752db1ce3843efc7e8f2610fceb42b17d85ba0af1c5b1ca46361b79323a61fb374333daff5e2574ef5b4ee6e",
+"tag": "189747d2",
+"dec": true,
+"pt": "11ca614ff3e08c419df30e2ccc2458b474bfb9fb6fc5680fd7b32a64daddf71d7c86c5209b1896b125ada21ae6989dfe05625b"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD160 Tag128",
+"key": "af57f42c60c0fc5a09adb81ab86ca1c3",
+"iv": "a2dc01871f37025dc0fc9a79",
+"aad": "41dc38988945fcb44faf2ef72d0061289ef8efd8",
+"ct": "b9a535864f48ea7b6b1367914978f9bfa087d854bb0e269bed8d279d2eea1210e48947338b22f9bad09093276a331e9c79c7f4",
+"tag": "4f71e72bde0018f555c5adcce062e005",
+"dec": true,
+"pt": "3803a0727eeb0ade441e0ec107161ded2d425ec0d102f21f51bf2cf9947c7ec4aa72795b2f69b041596e8817d0a3c16f8fadeb"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD160 Tag120",
+"key": "81cdbfa9455f9180e3cb580b27fa222c",
+"iv": "8221b7116537095310ec71ad",
+"aad": "f9ea2853d7b5755d5077943ca28a05d8ab9317b1",
+"ct": "98c3dd374cf49ff1a245ac62ec4d06b1538b057675aef264c261651afe3684790b8688275b72d562d76692d161499bf315bbb8",
+"tag": "46561f78454c38a1dd66887eb8f0a1",
+"dec": true,
+"pt": "f28a1ce3d10b7c292819c69039d7bc7f614ae005be2526d01de3bb4073c9ab0a0455daedcc55ba388614af336cadbf48cd6483"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD160 Tag112",
+"key": "4b737a708aa9e4bc034ec957aa601397",
+"iv": "d482e35fa99854df0b2d7608",
+"aad": "e5e426003d9ca024e4452750a98753c91a4be608",
+"ct": "08165720fd10d8596bd929e07668a15802e0b0666d5720b0101b5a89af56635b59c08888680ef5dbabcf958b4699d2fb2f7874",
+"tag": "d880dd9a5babf08af831d51949fd",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD160 Tag104",
+"key": "8a164077faed49e88ea696acc68f8d1a",
+"iv": "852e57d15f4a2254a93f8aac",
+"aad": "0a0ed4a9e8f30f307a24810b431df5f663f22626",
+"ct": "1b2328503d5e6b522d59eb4969a54f053117cd190e094f121e833a628f8a7763d3fb531af4760e8d1a8ae2e2a79d8f84776e17",
+"tag": "90a19b97dff7bca8d591e2b304",
+"dec": true,
+"pt": "c986fc430b98bf92e9e2076b3a332324fe65f50c21fabf34a2e6b3a3a12921a3e6628a8e70f9374b522183dd9cde4b9beeccf4"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD160 Tag96",
+"key": "906cf25ede14af7149b033b3229d38ea",
+"iv": "abf02e568e1711ccfa861fe3",
+"aad": "ec18509c166abe5fc76e69351fc95245c293c5f8",
+"ct": "721ba5fc430fb49677436bc9ef594000fbe9f8c4dc2eca304ebc07b4ad81f80cb82bf280f02843f717b4ba3988b4a2e56f8fcd",
+"tag": "6ca38febc2aa38bddebca668",
+"dec": true,
+"pt": "ae2b39d948f5437a820cff104dc5ea31d09cd2c0d426a9201ba36a3852bc5b52fb148b9d67a7e344cd4272d4b994c8188ac02d"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD160 Tag64",
+"key": "8c35ef2ba942f4ea30a255386ceed008",
+"iv": "3af2350d0df541f6ed519c02",
+"aad": "b32bdcf4054b363fc15798eb0461b246876c20e7",
+"ct": "4303429f5270205130fac30f81f596cd598b2cdc6ed4e2122d7b4cf924cda2f93c3d8fcab142fe98c961724756aa3897fb2e54",
+"tag": "2854853c5070294f",
+"dec": true,
+"pt": "fa0eec190e2d7db7db137b705a8b74bbbfa716e26950228391613b28506bc2ea5fc088fac300cae53ece5cab176e9fc4790da1"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD160 Tag32",
+"key": "93ca81f254dce5210627780d35a19a0a",
+"iv": "051822cf1cdfa1bd2caef50d",
+"aad": "adf6d2e54748ec3f790af9fa8335a93b374c8bec",
+"ct": "4436b295380033e252b14458a7811e6d8d2b6ffdc3a365b8ea1cfc5b2f513b6450790bf50a3fd2a1ef6512de5ed9b1d8135bef",
+"tag": "718553d5",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD384 Tag128",
+"key": "e7c650a8f64a900857eaf8d95c49a807",
+"iv": "961a0b83a36b79acc1494da5",
+"aad": "da9ff7c1529f9cb75c88cd890c9a1af493db5fe8148c4687984c070442c5d501434bbaab1dae06cec6de0606d59da3d0",
+"ct": "70954661360ee1dcc5ea22918fa89bbcf56aa6ded04b22fccff799d773833617c9aa7ddb0ab9c170d6a44769bce9f7fe287c68",
+"tag": "a0962c9259e7d4a9a21e9328e93c754c",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD384 Tag120",
+"key": "d4911218525a59c8ac016a26809ead09",
+"iv": "230dd93e0c8e026f87b9a9b6",
+"aad": "6fa34aa0b664cb0a34013a0dbd4e3e3b6d14cb541a3ebcf1e142d290493af8bb4184e1afeec4fe31dec88df065ba0436",
+"ct": "da82af10bf696c50aff3b6b96297d172956033303569655bc625934ea62076cafada3d02e0e49ef3b804e3dc859eda4ddf2a1d",
+"tag": "47a8bfbee71b81fb8f6bfe97bc8ba7",
+"dec": true,
+"pt": "28fe85c7d8d388ba2f8960d18a3ebc4a378ad230c66dd76ca9ebd0661c29138de26ab3abee2f0bbbab0afc5d74edf68b27096c"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD384 Tag112",
+"key": "f150f6428da4f511bf57f4a461fd916f",
+"iv": "e55df3723557dbe31044fb0e",
+"aad": "17387fb39bbafdfddbbce94f771390bafcc0fdce8ce1318031a5e85ce2855abce1a5df5477f4730b7ba4da545240288d",
+"ct": "d1d5705e37a83a4d0d5441bbc51666ad7f2261fca329a76d0353c7cdda1c55d16db31898004c93e508f36abacb4d992cdc7c42",
+"tag": "0b67d49db203940d03a7104952cc",
+"dec": true,
+"pt": "69fba2f884bd8e9b35a96a6a9fb64526055a943eeadb8a8f3d52e39478fe20a4708f06f151da5085bda2490f1d425e292cea37"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD384 Tag104",
+"key": "f6c5adf7cb16e02224ceaab331d90bce",
+"iv": "baf382a162dfe51f8a595656",
+"aad": "7cba46b8da74000a4af4e628220d09ff0b42f84eec14845358290a28dceccf9e8838e4a37c226c54e10be9517fd66ffb",
+"ct": "bf1dc3bfaeeff98717add9f33fadc6c1c71dbba81558ba57b6d83a657c8b55e5c7576dfbad40557452d7a572fbf64b26c4eef7",
+"tag": "32696b68505d6138bb9bea9b3b",
+"dec": true,
+"pt": "a885ea6507d7b15d4a17b8d48364b358b94fe1ed0eeffc998ae66ca5ae70e95d14f6d4834662bb86237921f691ae2b634d9e51"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD384 Tag96",
+"key": "66e42b22372e8721c9f0f770649c1eb6",
+"iv": "eed6412fc38d6cc9c71231e8",
+"aad": "6ceeb1979af01cf5a8f0adfa98c5b069c97ba733404ab2bff7a961d83ced91bac99fd9a7743809dc177c64dcd50b1c3e",
+"ct": "8eb724dc3916b97f45c97a31e7abf163c020d2905150d29852a9db7c211e2081bc5bbacb9817713f2ce6d250c752f466d8e5df",
+"tag": "9b080c079420410ce99b1e7c",
+"dec": true,
+"pt": "6b881f745bade2d879081b9044925174cd66d5b8a853b4984a9d9b5a2cfd9b72bd9136a1c028772ffee215f9dbe30a5b8caf6b"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD384 Tag64",
+"key": "041966cbbac448082acf017e6c5c6393",
+"iv": "179aa516f58640ba6898db81",
+"aad": "6e39fa4cd8a5e81b45d51658803fe16ebd692fcaf04bed835e9a86637adb503727bc196bfffbcd01ed9817add21bfded",
+"ct": "f1cd3774f954f13648cc0c3f185e3cceb6149cc91fd4f4edfe973ddb4494e545216d8ec9a2756c377caa27ed2cf7c1ac139a81",
+"tag": "12d37afb7a786a22",
+"dec": true,
+"pt": "e682b89796b09b13e4b096ffaee47f288504048f58571730273be090a8dfdf36bce9cbc822c8bc2ca9cd9ebb8618fbf40c7234"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD384 Tag32",
+"key": "bed6fac819577b2a77a0b1d04ccc15b4",
+"iv": "05205b161fc19efae6214f99",
+"aad": "d4e3be38534701167c5940c0ce8ff15f4c9b7c38ae3e3f966874d00457f2205d4fe593e378b6ee617792ba8bdf39a2a4",
+"ct": "80a7bbeb093e341ac908a66b29f5afc3f314810adf9c8215909db4ea31ed992ac18e7bf5e193ef3fdbe026ba3e1449b086639f",
+"tag": "e1ade6ae",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD720 Tag128",
+"key": "da2bb7d581493d692380c77105590201",
+"iv": "44aa3e7856ca279d2eb020c6",
+"aad": "4cd171b23bddb3a53cdf959d5c1710b481eb3785a90eb20a2345ee00d0bb7868c367ab12e6f4dd1dee72af4eee1d197777d1d6499cc541f34edbf45cda6ef90b3c024f9272d72ec1909fb8fba7db88a4d6f7d3d925980f9f9f72",
+"ct": "9290d430c9e89c37f0446dbd620c9a6b34b1274aeb6f911f75867efcf95b6feda69f1af4ee16c761b3c9aeac3da03aa9889c88",
+"tag": "9e3ac938d3eb0cadd6f5c9e35d22ba38",
+"dec": true,
+"pt": "9bbf4c1a2742f6ac80cb4e8a052e4a8f4f07c43602361355b717381edf9fabd4cb7e3ad65dbd1378b196ac270588dd0621f642"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD720 Tag120",
+"key": "3bc598ef98039930cda850389248e0d0",
+"iv": "aaaa088a5a3e4288a77044d1",
+"aad": "29dfe034fc164e81a8bfffaf8b53ff128c9cb3fc04153fe7b8fd326977fc7da94fb86276cbb4cf1346695e7fac338499ef5134195596170166546ed294fea69f48604f2879a524c3dfb253e3a74315c6f516c26da4e1f8098bf1",
+"ct": "45e38f74a50eaf2a1d9d3e9c222ed225db273c5891c2e0ee4bf4187222ac5c20bdaa4813d11ed020397b7d4836e007017969f7",
+"tag": "1dceebc5aeb884ad652fefc1ac8fe4",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD720 Tag112",
+"key": "df284d8b69753968f63bf835049b86fd",
+"iv": "019e16c28e8977a838ad0124",
+"aad": "061676c818a79be016ec6ffe6ea87919da7e8a8dffb664d31489fdf5a5d3c2e53b256601e3de1b488e94c8a2ac7d32e09f81c2ed9d3523bb3fe452c967d5927195dc8bc2f7e2c6d878b05c428a23f3de38bceea4bb3f41742cc7",
+"ct": "bf24f6ffc0ed75fbfe2dcaa2e7246c95a398b77d1b82cbd00d2a7ea618e596be0d91a8f092f6e4f3de944da54bd3b66f5b4ed2",
+"tag": "a940d724ecaa85a89d73b5affa95",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD720 Tag104",
+"key": "15991e166788b68cfa4e0d0628c3bf13",
+"iv": "14ea80fa36bba4496f6e622a",
+"aad": "3740b28773dac0cfd52d6d61b9c4a3f662370b3201c22c5ab4a631189edf4736cca27f7deda420bd6286cc723946e518e7eac0fbd2468558809e2e688797895b225c2e8013d957cca83b704051dad24f50190e749e3a474e8358",
+"ct": "e373f3ca1dee0eee2ab66ae14101e48ad1708c1a6f529e1e75079e20986db3fa66a17a0bb1d11ff10f478db3a60fc08df9df21",
+"tag": "d4eec4db99e654b6cc3d51d821",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD720 Tag96",
+"key": "f92632dd22b3300fbb498b5a6d62f86f",
+"iv": "b51ce06f5ea5fc4b6f048899",
+"aad": "f3eb475f763b4e2de876fe8ef5c59387c28a6660533e575e8e32bdc363e8b9af8fc6c2daf067088031292d360f96755eb7b10cc6f37f0f97b03c4c05f20998592c6dde06e2b8d10996194fc882b235fd0c0d9840d060eb8af3f4",
+"ct": "983713a7252e8bd37b06d489d33ddf1c323bac20f09a1e6459346a70a335d4d0e4833d62830ac0fb75e3ef459cea4f875855d6",
+"tag": "272eeb52b7e04803d954f493",
+"dec": true,
+"pt": null
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD720 Tag64",
+"key": "5abb7e16ccd1fa96978d72e8e5b988b6",
+"iv": "6fb6d28cbb0bd2868d39f31c",
+"aad": "b69b1f1b465970a057409d00b27529b4b9a5eb93a3f4333ec5ca641d12cb8a3f756dcbcaf97e6b4256380799ca08c04aef7763c5fd6b8dd2c22a4c4e2013a1e1a8a95a174cacf65bd74a61cb378a9b54a7f790d8eb86e282e072",
+"ct": "5c183b8eaf77e0a3992d972d9863e832bd3e0dc102a0fee36ea6f43af1da289356bad7678d6d4bdd220de2f545ee9f3c61fe0d",
+"tag": "1cf93392e81a4da5",
+"dec": true,
+"pt": "597b701f94399a6632cfc102c23d6a0a29bab4507a04f869d813f7d3f35725a146bb6be262b27dc191ec8b86774bf360d5055c"
+},
+{
+"src": "NIST gcmDecrypt128 PT408 AAD720 Tag32",
+"key": "ecb96613fd1843a3f4288879244871dd",
+"iv": "2bc35694f5cca428aceae378",
+"aad": "606fe07a21f5037306e1b539f1d3b17d8f21eb26c492d7f0b62779003495ceca61390596c437c13a557407ebd887a708d7179ea1e7c9128f0305ec4e48196b4cff1dfaa6180b5f102ac9d94cd8e9a1cd0f5d7cd58c9dacacfbe9",
+"ct": "e1eaabc3ed4a26f348721a80766e4508b6d4f5a739d96989744899d62e2c5941f542fa22df5821867e278ec4d3f2ad257514b7",
+"tag": "a0a1d2cc",
+"dec": true,
+"pt": null
+},
+{
+"src": "Wycheproof tcId 1",
+"dec": true,
+"key": "5b9604fe14eadba931b0ccf34843dab9",
+"iv": "028318abc1824029138141a2",
+"aad": "",
+"ct": "26073cc1d851beff176384dc9896d5ff",
+"tag": "0a3ea7a5487cb5f7d70fb6c58d038554",
+"pt": "001d0c231287c1182784554ca3a21908"
+},
+{
+"src": "Wycheproof tcId 2",
+"dec": true,
+"key": "5b9604fe14eadba931b0ccf34843dab9",
+"iv": "921d2507fa8007b7bd067d34",
+"aad": "00112233445566778899aabbccddeeff",
+"ct": "49d8b9783e911913d87094d1f63cc765",
+"tag": "1e348ba07cca2cf04c618cb4d43a5b92",
+"pt": "001d0c231287c1182784554ca3a21908"
+},
+{
+"src": "Wycheproof tcId 3",
+"dec": true,
+"key": "aa023d0478dcb2b2312498293d9a9129",
+"iv": "0432bc49ac34412081288127",
+"aad": "aac39231129872a2",
+"ct": "eea945f3d0f98cc0fbab472a0cf24e87",
+"tag": "4bb9b4812519dadf9e1232016d068133",
+"pt": "2035af313d1346ab00154fea78322105"
+},
+{
+"src": "Wycheproof tcId 4",
+"dec": true,
+"key": "bedcfb5a011ebc84600fcb296c15af0d",
+"iv": "438a547a94ea88dce46c6c85",
+"aad": "",
+"ct": "",
+"tag": "960247ba5cde02e41a313c4c0136edc3",
+"pt": ""
+},
+{
+"src": "Wycheproof tcId 5",
+"dec": true,
+"key": "384ea416ac3c2f51a76e7d8226346d4e",
+"iv": "b30c084727ad1c592ac21d12",
+"aad": "",
+"ct": "54",
+"tag": "7c1e4ae88bb27e5638343cb9fd3f6337",
+"pt": "35"
+},
+{
+"src": "Wycheproof tcId 6",
+"dec": true,
+"key": "cae31cd9f55526eb038241fc44cac1e5",
+"iv": "b5e006ded553110e6dc56529",
+"aad": "",
+"ct": "a036ead03193903f",
+"tag": "3b626940e0e9f0cbea8e18c437fd6011",
+"pt": "d10989f2c52e94ad"
+},
+{
+"src": "Wycheproof tcId 7",
+"dec": true,
+"key": "dd6197cd63c963919cf0c273ef6b28bf",
+"iv": "ecb0c42f7000ef0e6f95f24d",
+"aad": "",
+"ct": "8a9992388e735f80ee18f4a63c10ad",
+"tag": "1486a91cccf92c9a5b00f7b0e034891c",
+"pt": "4dcc1485365866e25ac3f2ca6aba97"
+},
+{
+"src": "Wycheproof tcId 8",
+"dec": true,
+"key": "ffdf4228361ea1f8165852136b3480f7",
+"iv": "0e1666f2dc652f7708fb8f0d",
+"aad": "",
+"ct": "f7bd379d130477176b8bb3cb23dbbbaa",
+"tag": "1ee6513ce30c7873f59dd4350a588f42",
+"pt": "25b12e28ac0ef6ead0226a3b2288c800"
+},
+{
+"src": "Wycheproof tcId 9",
+"dec": true,
+"key": "c15ed227dd2e237ecd087eaaaad19ea4",
+"iv": "965ff6643116ac1443a2dec7",
+"aad": "",
+"ct": "0de51fe4f7f2d1f0f917569f5c6d1b009c",
+"tag": "6cd8521422c0177e83ef1b7a845d97db",
+"pt": "fee62fde973fe025ad6b322dcdf3c63fc7"
+},
+{
+"src": "Wycheproof tcId 10",
+"dec": true,
+"key": "a8ee11b26d7ceb7f17eaa1e4b83a2cf6",
+"iv": "fbbc04fd6e025b7193eb57f6",
+"aad": "",
+"ct": "7cd9f4e4f365704fff3b9900aa93ba54b672bac554275650",
+"tag": "f4eb193241226db017b32ec38ca47217",
+"pt": "c08f085e6a9e0ef3636280c11ecfadf0c1e72919ffc17eaf"
+},
+{
+"src": "Wycheproof tcId 11",
+"dec": true,
+"key": "28ff3def08179311e2734c6d1c4e2871",
+"iv": "32bcb9b569e3b852d37c766a",
+"aad": "c3",
+"ct": "f58d453212c2c8a436e9283672f579f119122978",
+"tag": "5901131d0760c8715901d881fdfd3bc0",
+"pt": "dfc61a20df8505b53e3cd59f25770d5018add3d6"
+},
+{
+"src": "Wycheproof tcId 12",
+"dec": true,
+"key": "e63a43216c08867210e248859eb5e99c",
+"iv": "9c3a4263d983456658aad4b1",
+"aad": "834afdc5c737186b",
+"ct": "bf864616c2347509ca9b10446379b9bdbb3b8f64",
+"tag": "a97d25b490390b53c5db91f6ee2a15b8",
+"pt": "b14da56b0462dc05b871fc815273ff4810f92f4b"
+},
+{
+"src": "Wycheproof tcId 13",
+"dec": true,
+"key": "38449890234eb8afab0bbf82e2385454",
+"iv": "33e90658416e7c1a7c005f11",
+"aad": "4020855c66ac4595058395f367201c4c",
+"ct": "a6f2ef3c7ef74a126dd2d5f6673964e27d5b34b6",
+"tag": "b8bbdc4f5014bc752c8b4e9b87f650a3",
+"pt": "f762776bf83163b323ca63a6b3adeac1e1357262"
+},
+{
+"src": "Wycheproof tcId 14",
+"dec": true,
+"key": "6a68671dfe323d419894381f85eb63fd",
+"iv": "9f0d85b605711f34cd2a35ba",
+"aad": "76eb5f147250fa3c12bff0a6e3934a0b16860cf11646773b",
+"ct": "bd64802cfebaeb487d3a8f76ce943a37b3472dd5",
+"tag": "fce9a5b530c7d7af718be1ec0ae9ed4d",
+"pt": "0fc67899c3f1bbe196d90f1eca3797389230aa37"
+},
+{
+"src": "Wycheproof tcId 15",
+"dec": true,
+"key": "bb571c160132b0c8d5d190d0bc356ddc",
+"iv": "2596c440cf0232950ec66bc4",
+"aad": "",
+"ct": "b1cfad142a462f3656e0921627fd41d4f1fa8e2f8bd94bb51fdcf06f606296f7d2885337bed7a4ca6ddb4a9fc7fdb2476b5f7fa5220e1d6752a5e7c31c916c",
+"tag": "a231b617352ffdb63d32d69d99e7d629",
+"pt": "053be1b6190a717fc74c879e6fd62dc44628495507e50d662271dee795a4ad26e0c4f86cb6b20ac6bd9d682d2d8a05c9dad875a6911b49ea0af4f17c97a5f2"
+},
+{
+"src": "Wycheproof tcId 16",
+"dec": true,
+"key": "e12260fcd355a51a0d01bb1f6fa538c2",
+"iv": "5dfc37366f5688275147d3f9",
+"aad": "",
+"ct": "d33bf6722fc29384fad75f990248b9528e0959aa67ec66869dc3996c67a2d559e7d77ce5955f8cad2a4df5fdc3acccafa7bc0def53d848111256903e5add0420",
+"tag": "8bc833de510863b4b432c3cbf45aa7cc",
+"pt": "d902deeab175c008329a33bfaccd5c0eb3a6a152a1510e7db04fa0aff7ce4288530db6a80fa7fea582aa7d46d7d56e708d2bb0c5edd3d26648d336c3620ea55e"
+},
+{
+"src": "Wycheproof tcId 17",
+"dec": true,
+"key": "97ec85a69a05131cd4ff643972f6d8f9",
+"iv": "9189e0eedcc413a0ba1e63d2",
+"aad": "",
+"ct": "eefdf89997244e065ff19ac2374dc92ee76899ddcbe7c834dcc657242fc0f6dd38272373ba9b549316a36f1522e1cab246157875898c966eec563d57eca5c7d32d",
+"tag": "23aaa2c6b680fcaaeb2c7a55726d4bc0",
+"pt": "10acefa6f3959faecb5cfdaee8aaf09d4381b2b147e0b13450c26ee07f29edaa9a1f1af4e2d111dea7ff681a19fc3a4fd66df6a17985b06543a3b6c0e4e51a54b7"
+},
+{
+"src": "Wycheproof tcId 18",
+"dec": true,
+"key": "65d38f0b268f180d6ba548d509111dde",
+"iv": "e14dfc27394ac846c2373ea7",
+"aad": "",
+"ct": "40dc9b139e888f1811391134b15e914826414a99db512a0632dc4c56d70f7b7991e9945a2025890e951699cf6b2ccee093c9a6a752b98ff696240126759f480299c1dd82aa2c4f462a4a8ad1ad0c7a755f07908c9c0d336d57dbdebc940bbae28ba0336dccaf6bfdc93623686f9487ef0884d100b6b98949afbd4217dc4640",
+"tag": "4218d6ac98c0444bc64ecbe1d763136a",
+"pt": "1fa76d7995dc996a5f5dabaa4be401be14f4d4706a213a4dd725df386ec147a6be074947c733094f47a7222552376740aa8348a0ae1c7f2d972a0ad664f8b8ec81dfc9af078b61daea5dde874fd73775b4cd65acf069ada0b2b9bfbb4a9817ba41d4dcaff7653df5c8cd9ce7f59eec92ae9e61314e03ef48839810ea825520"
+},
+{
+"src": "Wycheproof tcId 19",
+"dec": true,
+"key": "3c55f88e9faa0d68ab50d02b47161276",
+"iv": "d767c48d2037b4bd2c231bbd",
+"aad": "",
+"ct": "17d72d90bd23e076d8364a87ecb9ac58acc5de4629bfd590409b8bf1fcd3a2f602731b4614cec15e773ea65a65e7210994256bf5450a25acb527269c065f2e2f2279d1fe8b3eda98dcf87b348f1528377bbdd258355d46e035330483d8097e80c7de9bbb606ddf723f2909217ffdd18e8bdbd7b08062f1dcba960e5c0d290f5f",
+"tag": "090b8c2ec98e4116186d0e5fbefeb9c2",
+"pt": "5d6add48e7a5704e54f9c2829a9b4283dce0d3a65b133eba3793c4fbfa1d8e3a2539d0d4f3de381598ce5b2360173fbd149476c31692c5d6e872fce40219378949c2e70b5f1b9f0a1d5f38352ad814b2a035bb3f3f26425d831a2f7a5e65c5dfcd91a315c2b24f53a662605ea40857dd980e9be5cdad000c569f2d204d4bd3b0"
+},
+{
+"src": "Wycheproof tcId 20",
+"dec": true,
+"key": "62b3881832d428b6f900cacfa0fc5cd8",
+"iv": "f4cb98cc99e7bc424a98384e",
+"aad": "",
+"ct": "00574615883e222657bdf34e9327888f5d532d086581834c62adf54c7fee46927ca27cba193d86c6140b3610a2cd16ba295814b5b7d6a1c8d3f039e0e8f8d7942b0616a9b9f0012884311b0c370f9dd6b9a3d8b6ff36177683c0dd858850dd29993b3eec89a2ab8068038e2c86a2e71b5cacdb38ad69ac0580e29a6f7813c17258",
+"tag": "88b99f768364ff9e95a94ccbbc1b166e",
+"pt": "0b91dd36a6fa967a257b267d12cbc20b56ed615b205d044a04b4ae8aaa365bd29a3b8f47a0828ef63324d1ff924c68090abaaad78df602edee0621b823f94c35ada7b62d81f21dd9945d1abb4ef882cfab12c2e4cec705df3d669183fe681753503a99a871637953537ef479b1f62de7819dbb5c950de7722090942d38129aefa7"
+},
+{
+"src": "Wycheproof tcId 21",
+"dec": true,
+"key": "8aeaa2591a452e626b9a6468b623bdfc",
+"iv": "b90f446f68aea588d843d01a",
+"aad": "",
+"ct": "7bb36313569ff8b5c58e41b17a78fa5d780073bee20b55f004532288e7f0a9475076364d8922d389ecd189f597a8a677cb2484513ed7afe2d0691717cd0ac0e27bf7e2257dd7e4ffc0bbf59e92d258e1116fac9bfc84a2df728bdd7ab221754dd341f7229e030dce06474d00f99a5e457943bd9e8f345bcbb5407690d072dfb0113b64bc0e658eeb7226409a5898dd27d995a0be021f351091f9b907ae3a9625f240dee2bf4bb15eb4f30f4abf1ff25ca5536def969d2588188fecacfc7dc75f5c676ca7851f9e805f498372c6b98f5c7d12403723619f80ce5badfe5844643d5631d4998ee0426a2b29159cae2590dc81646c78be5c9e8ffe056aa0d3552e",
+"tag": "fc62295c70d140dbc354fdbc8003eb41",
+"pt": "f0721c3b68d905092cada6d568df3a2da39573c7bb0e9a4ed159a2634237f9e788488c06fe8a7e1e01d1a1c985543ecf90f3d32e57d33c3df6c165b7edc6fbcf8bf2d043d1b7c0060309a29565a004ea3214d4e4f7dedeac2d74576c019b5fa000d025917af6f86310942102a34d92781972d4f1f57bbdd6f9b08cc979a358aacf6cb62334bfc916c249f18bcee644a8907ef576b41437098bdf0069767fb5ed1c0f1385e5895e4a5d70f5941a93014333436a7af465ec1038fdfa006410a0871225d64848e6c59ac23f176df663ee2171c9eaec0477f9ebd280880d9f2967a2e791cc998f6b23518ca97bbc6405d6ced3373ebf3d208c2a909274460a614a"
+},
+{
+"src": "Wycheproof tcId 22",
+"dec": true,
+"key": "e88d95eabe88fcf158fae858af951221",
+"iv": "a65834a9d231b34709383e9a",
+"aad": "",
+"ct": "9b3833c356f83d19f59ac4770c9586aad457810f9dc55112cc6b87e94d8dc71184b227a14500c0a8619d544435db4c001467ef2acba95007299d717fadc0c0717c4c8e748d03ffe2cf2fd06f0009b0e6590f956c212a2c926d5679bdbb79d87636ae9faefa5c8330c570e84b94626f87d6a53b121574f74c9e3211d9451811e9940db5e74d128364328fb8f40f850a25c3e7ba4fdeb0ef6a639060a11d1c32ae0531d2518f905952c9814236b00b9393fd31f8c0522f8e3072b864a3a5cebe1ceb15585c9042f3f5b95390c62d8c1b513550defd21b481fcfbd9fdd6c262ff6ed4e0a6051be309788a763e567107f039e988757f96ad95436792a3bd26f38590",
+"tag": "4f4c265edd3158c641ce9555b58650db",
+"pt": "2decaccc8b424fa4963890ece15b3fc281b6215780ff6baee57edcd25afe260ff80ed4f25cc04d2802a1e90a2e6e96d1ee73a4a53dcf60025d484054d146f275ab34c33b102001a07d804cc94a40fd78c16780d1b648487fac035386e5d25c2b9edbf7a52d102d1943958c009eb6d88e00a3227c4c788e445003fabb4dbefccd3fe1716d916446fee2111615d560ecc59d7bd288268ab321e7002545887183fe023fdec2a6d3b73b94d1548cee19638d31d2c5a32b15d2aae3f42950a787115e200b00022d4929105da0b4d10ccb0b3886b3169b32ac5df7a637c23362e2d4ed9c137f35bbd578c2cda0377e0f1e64f7d31e9ef4d7603ea1363523758385c761"
+},
+{
+"src": "Wycheproof tcId 23",
+"dec": true,
+"key": "a294e70fa2ac10a1fb00c588b888b673",
+"iv": "dfe20d1c4350e6235d987af1",
+"aad": "",
+"ct": "5bc6dbafc401101c7a08c81d6c2791aa147ce093aad172be18379c747384a54a41a747ba955cade8fdfb8967aa808b43fee3d757cc80f11163b800e5e59df932757f76c40b3d9cba449aaf11e4f80e003b1f384eafa4f76e81b13c09ec1ad88e7650c750d442fe46d225a373e8a1b564b4915a5c6c513cfdfa22d929d5741ca5ebefaedcba636c7c3bbef18863fdc126b4b451611049c35d814fc2eb7e4b8f1a8995ecb4a3c86652a068c0b2a3e1c5941d59c210b458d5d5d3b06420ec2053465ccceca7c20f67404985460379e2ee806a46e8409dfab2e0dd67ea3cf46d5ad4eb78756827358c3ef1fdbd07c33834f3d9eca3ff13b744a01059a6c17a315a8fd4",
+"tag": "c7587e7da41bed682c37377ea4324029",
+"pt": "6ed1d7d618d158741f52078006f28494ba72a2454f27160ae8722793fcebc538ebc2f67c3ace3e0fe7c47b9e74e081182b47c930144e3fc80d0ad50611c3afcfe2dbc5279edbbba087c0e390355f3daffcd25ad4dea007c284ad92e7fcbecb438fb60623ff89a599dca2aac141b26651386ca55b739b94901ef6db609c344d8acf4544568e31bb09361112754b1c0c6a3c875bd9453b0ee0081412151398a294ecad75add521611db5288b60ac3c0128f6e94366b69e659e6aa66f058a3a3571064edbb0f05c11e5dde938fb46c3935dd5193a4e5664688f0ae67c29b7cc49a7963140f82e311a20c98cd34fbcab7b4b515ae86557e62099e3fc37b9595c85a75c"
+},
+{
+"src": "Wycheproof tcId 24",
+"dec": true,
+"key": "4a30eac07b788b7354a90e6448f56676",
+"iv": "c359d567616b6384ac20a43f",
+"aad": "",
+"ct": "3e13588d5a014dcc1cbf46bd6c3f06dfbef1464649e79a9bcbd99484686d72653827882dba803a5683f82a9bdfec6b44b29b7c13f3f2b5dbc675780540f6a8a08e45f59fa88021095f8b3db5f10bc21721a56d65a589216cbc5b1915cbe7e2f8612a9d24b30ecde2a296a96f48ad1160720537312208e9b6824e6413f2084f229dc6e953c4b8a054e3c368ef1f70dd9cf276caa4cc251e475f507a2bd072b7f4a1311302f617e2cc594eb6a0c49ac173db07831945f5129a38e45135beb97b39393f73d0977e324820533f3dd752051996543a0620ebba50288923f1d0181badb2204c7469e8b4b5d14a984c3f0f3d34bb383416149e0a0ca14f4f6dfe58902a48ecd3bdbc02a8c84bb303e83491824b2ca976991b229d715af2bf4ba3385d7d93e3ada52f12317b73e2939628d7589810d6a278d4c24e907b4ffce0d177b040e9dce97b63c9b8c1743ad6febd0c9a273f648b91ba5b5719159785db770c664290e93d69ba14757d8bba68f0f93a136031a97c72f2be6bf9e15237e998395930b4d1f87b57a5fa65494dc8feb761bdaffed4b3bf0073e9244abb4a3a7e15e2d52a3bb8446766f0e7563702a943dd16d5db9dbecb0044e462bed17eab81b312aa4f32415db8f09bc0cc2db7406f4f67862af986b965237913d119ca85b8d64b4e610034891f78433f370fbe6c9996a69d0de308ed685f4339f9b67fa5ec100e",
+"tag": "58743a6d49272df201d81dcccdaf76fa",
+"pt": "9a17b9d1dbe666f7431cbdd3b3173948c7ac13f268e12807256d2e5831ae67a14116144910b38368934571daff9d4004ba959b3cae2669e6eed49e750ca228415c6f7d1c1f2d3dbb02f4dfa49483a7f80fbcc1cb01d22c67817cc7a2bd2714eb62cdf8fb884a66ed245167cdb22e0dbc7b153e648714dfe83414696cffa892daf5af8820d562bdf55f76be5584a34b7e349d10d76c6e68305835b551a41ebf48e068320d875334a6a2d3108b1e93f7aa8da485d7a5470d805e0dd38c09feaa0f494d0572de314a287439f48aee5a2fa8e9850c6127ee88d50c5e8a2ac3eaa7b2fdd1589813fb3affa6589831df132bd576fbed21717e2b6766e593ed74dab35da125c433763ea90234dc6f01d37be14c78b8861be1fb4c8296b3faee65b6ef8a9daa6884e936359346f2da9f6981f9d64f676767641ada628aa8c7129326bd4ee57e515a2f78ba18c595b9bc1d0f49068734a67e635554eee688816061e904a4e05125d0e7797305451a7c3a1a3c507daedb990c12ca290a0f554aa8e834653aa21a0469d3b0c08ee512b323cb193779c9fe2f2b3f03794cd42f0220031d0c8eeb9c73a3283a599bc78da3b5b41b243edf082b23801a15d9956fca60f35acfb65c4d06d28aff81a1ca98c6faf8645be920bd87c03c054a0469b292ae34d05860e8d9b061300370463dcd5fcd6fb1d6b1acc9b4eb25cabd9de4e61d44922fcc"
+},
+{
+"src": "Wycheproof tcId 25",
+"dec": true,
+"key": "fc8e6d2c7f42cab59375327285cc3398",
+"iv": "49e1e00c48eaf1b5b9d2cb45",
+"aad": "",
+"ct": "51eb448f839802e6d73c5b628eff69b1a449c5b1e709f2fd869c8ebac9725ecc3c9f426f875853cada118f846de1a52f3b36e2446680cdb44241c475b0414590f1ee4bb978db5e88c696d13cadb31ebaa897c24e8204ddaa0e9c6d7865cab9934d6f811288da285eb3a54235e232a6dbb2a7ba36ea72818218a1ed4c96e859d0ead7cc7e3d8993c1005fa55b53d752b4ca2194736d76b9253197281e0c6333048572046b20cce32940eefacdc625adc8419c6a222c61c9a8f248463c37a3c4e688a9d74e9006fd7910769e3b21c7dc0d7ed58f0eeea58e3257c40e17ea42884157e3afc9913757506bd90527dd285bda33ab5a447f90e6f8c9ecff2289fdac6cd28074c3e10bb374337f6c587dacb8cbf7bfab272fcd462c2a06b465a791eab911cab96ae6ccdf382aeb2e9d5ab07e3dc133d7f5b7402bb1b6ccf8ce4815392130073f6c03d3919d8640cd7ba9b7fbbfcb07405093ac408c4acd50d52d7cae06b9f3648b539044e49eb0d526c6323b5932d3cdf118ccb556498f24390d6d2103588c6cc4d118f52e4d66b1bde83a8b7c863e6a373c4cd65d1d1a98535810fbefa8ca38a20830e19ef8fdf8fba1d333655054e6c8a3fdc8403b13b27de07f9dbeef390ee06c058957c1f6e6dae7755090ef1d0afee347671fe69e5a280869040f4f35a6f687c37ee9e6b676a6d58ac198dc86a831ae20fa2e64f416552dfbdc4a",
+"tag": "1fba8fdad545d2443d6e79592974f355",
+"pt": "2121b06990dcde2885739032622fd70294174074bffdf40b01f3554d5d87242da61673fe9b1687771ff1cc330d7b8a5138f6598d8160ec90a4816a6dbab310f2c99ab19c49d8a5d04eed4b93cd76159766548e136517ecfb6aa7ad51e5ff6d083c0e53533692388e651ea9cba94693118e4699926476fea785d2cac0213aa68ae0a366923532d333ef133b490a4667606f7294db8c6a4530407409b51e803493d46638fba151b2031f8208d595b4e4ae55db66cd7c328753cfa0f644438b0bff4f87d9b7c5648e5d2e8057e0b20d550cf1d0aa13900647c332909b50f8ecb1ee148342aac705b28215900030bfd90ca1446e3a03ceb2ab71a9ceb3d8f0b4626febf1dcff3c1f5ae0fef4c0f74623ba47eb5fdc42d42a2039f45e5987624d97d0fcfb95f74c478d613b9067f03cb86d6055d5124e6ff3174d136d60fd7a54e7c8fdfff20fb5807c4e356cbfc70df4bf83997855608558dff64b3ea8854481cb24933000489f4b8e9415b22237e916653874549d7687ae71b063ace3ef7e41c705d197c3157dacd3263d61132a4f07b91cb0cd79bc7cfd85f6f8c1f507c33bb910e2e879e0e4d8fedf804134d14d5998b38376d9ac0831d1577510ef3704e3f68acfcb433aa2a751f94fa8b6b312afbeea7f3d1f38784d79db414c7799e011ca4d35779ed17aed7d96df5e1a60ace74692686ede778dfb4beeb42585c8ccdf03cf"
+},
+{
+"src": "Wycheproof tcId 26",
+"dec": true,
+"key": "f01a3c3559c58e80bc832544e069ef29",
+"iv": "cd5bc2aed48c3be836d7d786",
+"aad": "",
+"ct": "c9139d5d6a14936dd5f286d33dee4f20f59a821152aa717274c1af90983a5f83b9016248e715a5d0998d329955f41a0396660d9f22df5f613098bfd3aa30df1922f08dc12c8fdca6d2638a51bfe594b24523b93181712d5205f9c2e5d48741e000ac2128619f6c9745448da294ac281428d6c607f4eedaeea0db12ba1627e56ae152ef2b2310cce829cc276217e31dac22ec8582d7a72b5d64d5583c75f42fc35551607ec57d9d40672d1641b64491fe23ff3eaeb33e2564319c58d69b19c65d1c56165ea2543631b95bd8629a91876c284d0245be6a4f34ad8628f7a4a4dbd3dc13c97a1b3a9108ca6721f38a4b5b00ea09abc2a90c39aed775f3a784f0aa1a0a18b99aebaf60fcc3385c2c9a03aa50e029ab81e5b9e37a0e1cf70d9c1adca56e98289b91d8c250858e30e2c21afe39b90635fbe15540b718c030696d1a4ffbefa8d8ec1acb5633c8f19eb5cf9186e9ec0594fdf1312e62d488fad9a894e19a8e99de578cc295d581645c4fa29a8f12d44859ebb3e2bff351de917189987266bd47ac7223a8d857f7730cef8a312a5164d7b00e0eeda4e21952062d8acefe44e0b89a37d0f5c31c4345bc360c936269f93aa4e00d05278681b39717b9f3445cdf7f98edad185d15fdd027399485428670b430b02702f373e9f86e4a6b33ebe73095427403795022527818b0d3316aef9a276ee8062684b5c16c683a748bdb0dac",
+"tag": "d070381db3e8d485e9416c92064180f1",
+"pt": "0de5aac3f151b526751de8f36010e4394498eba3c8bc790fd4ba96eb2da33e40ddca3cb36fec102ef37a6a5132cd389bbcabbd15e1c9d2700af35f19a01ba3b26843ab50833f252befbbb5529173d51ca364d7d09468b3b68f740a6014b5b824206a6a7118bf144a223f87d76624c138bd24a5fa996f36e316087f3b59c1c71cd74a9184a518c8d9aa8c7243102dd39a93599e7bbe7dcd354d0780253767e9602f2f0cbbab7eae8d8c12cbad163f8fc20d32559f798d2b7285dba6f66dc28d9b3f0a301aa89f5cd1b5a1734fe72c68f98c861d26e7dddaa08a227999f7c98d7315e7c2e3c3f198cdd4cfd62f62389998c7b760106d0a437f5050f74f9ce63948f5494bed71c88be443654ef9eb0c867eede225c1bda181baabd8155360ccae65e54d399a3f7d670d11b53d7bbecda15d53e129ef2be29154e3c21411e6207977e2620007cf4b987dd2c304efe55bc2ef564074cd6e176a97184bff4cad0cd0cb85195c4e8398f27ca0d4d8c4851359eebdb606a213223903513f0db8c0fcc1f3a834738f6c9dd6adb43bdcbd921e7c3cd3b252e319f9e711edf55e8d7f1a320705a3ba77bfa33463a922a9f36b483590c4939fd977ace51c506d2e269b488a7169b696d828458ecb092ae3a9adf63a3a12809da51fc7340fc57db50fa1903f1c7de9ce606f1de3f95538823c04e3bfb6549385643710a2919f2fbd54887bdfb239"
+},
+{
+"src": "Wycheproof tcId 27",
+"dec": true,
+"key": "5a475f9976ed117ab37a4fffab0592eb",
+"iv": "6bce45bea6ad59bd2a08f7b3",
+"aad": "e8bb51b694b6b0763e097bad1152f5c762a878a3e7f7a9d78e809838de78567900281b7e4f0f185493fd85e28db79b595541aba7e158b3936490b632355d74",
+"ct": "35d3ab0534102884ed0db4694a221df1bf94dcdb",
+"tag": "d78d2c197deb70ed52933f4fa0b09856",
+"pt": "dc6ab0e261412cc709422289ea202021d9298060"
+},
+{
+"src": "Wycheproof tcId 28",
+"dec": true,
+"key": "c4b03435b91fc52e09eff27e4dc3fb42",
+"iv": "5046e7e08f0747e1efccb09e",
+"aad": "75fc9078b488e9503dcb568c882c9eec24d80b04f0958c82aac8484f025c90434148db8e9bfe29c7e071b797457cb1695a5e5a6317b83690ba0538fb11e325ca",
+"ct": "b6786812574a254eb43b1cb1d1753564c6b520e9",
+"tag": "ad8c09610d508f3d0f03cc523c0d5fcc",
+"pt": "8e887b224e8b89c82e9a641cf579e6879e1111c7"
+},
+{
+"src": "Wycheproof tcId 29",
+"dec": true,
+"key": "f64d1bc47b081afb21181bdc16ffbcca",
+"iv": "2c03293704f79612181609d3",
+"aad": "a883d23e25a62b492f1271d3d79b8689dde7250a0575b8175a6b69d48d1b4bc2df1b4dc4a2b1eb506bc0e8c11e7dc2f3d08b475214551df7c53e581ec55c0d0a2d",
+"ct": "b00975863c673f0f19326294ebc4c77f7287c279",
+"tag": "ae57622c1d175ebbca77bd4ee812ed89",
+"pt": "85b24904bf12ced33d78df7437b36fff83d1e817"
+},
+{
+"src": "Wycheproof tcId 30",
+"dec": true,
+"key": "7e0e0cf8c9ac58867ef3e3315d0a4338",
+"iv": "a03461bd9ffedb16a65c0389",
+"aad": "c70f009be65ade8465cc05b5227963c12c60b68247ae2e431b2445bb6aa69c0a7820177861e5f6e3585269fd15efaf38c3713e6af0e93362d2d9a6e3296712f581563ae3980298f8bb7276859afecc7052fef63b060bc8f219ffe200e14dbde1f0a36233b5994a0b68c4690b437d495ddff991993e75039bcba4c19d7a6f01",
+"ct": "8b9dcbd9c9573509d978db0d910e269612c907bf",
+"tag": "61ae3afdb06a01d8ee6f7e739ec30a4e",
+"pt": "de4451316ad820471a43906965af9fa221c0360f"
+},
+{
+"src": "Wycheproof tcId 31",
+"dec": true,
+"key": "7e37d56e6b1d0172d40d64d6111dd424",
+"iv": "517c55c2ec9bfea90addc2bd",
+"aad": "8ed8a9be4c3d32a5098434ee5c0c4fc20f78ef5e25ed8b72a840a463e36b67b881e048b5e49f515b2541ad5ce4ebb3a917c16bcdc0dc3cb52bb4ed5a1dffcf1e1866544e8db103b2ad99c6fa6e7de1d8b45bff57ec872f1cfc78b0e4870f6f200ff1291cae033defc3327ba82792ba438e35c4bfbb684fec5ce5e3ae167d01d7",
+"ct": "cfb631790767d0645d8ec6f23bf7fa8b19ce79ee",
+"tag": "c5767ddaa747158446231766bd20490c",
+"pt": "6a7dea03c1bba70be8c73da47d5ee06d72a27430"
+},
+{
+"src": "Wycheproof tcId 32",
+"dec": true,
+"key": "d9218931dc592aef3bffb924c9e0b02c",
+"iv": "17d824f4f2f191e9c9dc0a52",
+"aad": "76dcb9948575b503fea75cb3d4949bb96ae3d2c1780f185e0fb3cd5b83eb7090be7a966f6146a4db7ef82f8adb9b10158b69d4bb19dffe4c639fe278d0334e68aaf1b68451a8e6778ddbb29aac4b25bcb2ea059601ee2eba439134aecd0ceacd98e388c40114c11969dfd4a16beeaf3d1c7410e99e674894445821e8fcda7b7ba7",
+"ct": "d0d22cc0893261b105c021f534737599cac3b10d",
+"tag": "f55f4ac6d836fc288036a63f53b0ddd4",
+"pt": "29f29bfc5b09ff158d74fbf7532c06aa3afa936c"
+},
+{
+"src": "Wycheproof tcId 33",
+"dec": true,
+"key": "bf2056baaf45c5a00a733b49f10b7dd0",
+"iv": "fef1b243b44ba92b47c6626b",
+"aad": "1bb3a17907279ebff63593de97a64e5ceaf9e1d407e5a5eec1ce0f62586f0dfddb7a3a83fd164e800bcbc6fb089d6a247dfa444633f4663ae1e0bdf37b50a7a01f506e2220bbdd4b08c59fe60e455bdaeda7e5a0cdb2e6dfca66381a72962fa8a6f9847a87135ccf02a40da5b3b8e91e6e1f31542f85f90bce1de05188fe57355329031c66b3fde18bbdcbd2cbec42ea1d0fc803abed2f15c41d2f122674ea91b7280e818acb7549fe63135d2109b4014ec6002745301bd0ac59ca8e4f8d2fb699347b74e17818e3a57fa69c759312dcfde155b2a558a2385c8adab8a6d57f0f497eaf0833e3d930e83fed88c91e18a74c4f5ff45925a2bbdda22f9a4f1196",
+"ct": "1fcc05bf4960fd02475c072f9eee8150994edcb9",
+"tag": "f3e092f2415f7f0ce88f37a2495dce48",
+"pt": "7e8c2d8a65f539210c047422ae57549195a08393"
+},
+{
+"src": "Wycheproof tcId 34",
+"dec": true,
+"key": "6f8307bb3d83d67866c2fa5b26f9cade",
+"iv": "dfe93ed879e4b391ebbbfd37",
+"aad": "1d72720dbbc40333e819a4def81f7bae137d8e52dc010ed901a390bf8c0ab6b435b08ef0184888bc83b14b98b59f6c56afd46131c5627b9e2a44f0a12a9a5356d9090c8b19c94f3f8651d49c74276bd9ae1071cad5f5040fbe1e99124ef44f3f813b13dff958e7331b949193bdf558fd14032c54f0e0ae7ac4d2e6a99d82a5da41135f0543ad377d217152497cf86435d24ee0c75997e3863133d322017aec98050b2fbc1dd8542293ae706889e754daf6ff8c91fb6533c5db7375dd3e365e6a18c546fa9463dfdb21d51c9cf23c9284a63cbfad197f376601101cb2f8a67b6e866569218043cd1745d25ecddf609ce2f9a8f76fb883780a393ea18b7624376b",
+"ct": "4d8ff72d859bae1114201c419c098476e74eece9",
+"tag": "3b2e9e1b378d707bd2a961bd7811f0c7",
+"pt": "81ebf69754857be5ad7ddf0062f866421089d136"
+},
+{
+"src": "Wycheproof tcId 35",
+"dec": true,
+"key": "3076741408f734ce25d48f982e8b844b",
+"iv": "a2712eac5e06d3cc2864aa8b",
+"aad": "18526e4efd995a0bf6405d9f906725c290278958d49554974d8fe025e7860daa225c1285b0573916a4b6741f7cc2e29ce4e525e12f436cb7ce0ad47df3d0f5bd80fb27e47635a4985fdaedf0e821f1c8959985cac49c97a4a02438d92b4afd4c855dcc7ef41ecfc36866334fcc05b2bb93ef13f00c5ea9b921e8a519d77f648e0efe9b5a62305a2ecf7d4999663a6ddfca517f1f36f0899b0bdef9f433c4bb2663c0cc1bb616e7d1949e522bec85485d371d1134c90eede75e865dc7be405b54c33f0acbace6cf780c78035b8035b6ea3f562a8d30a156c199fdafd25be06ee895581195ef125cb4e629e4f18e0bee979d31513896db8466e448e6b4600a316757",
+"ct": "e4d3f4898cb3d9732641d1f8d9d889b2c98af930",
+"tag": "76d4fbb69d529b64175b328be00b1068",
+"pt": "414ec6b149e54735302dada888b98b7fdb4c127c"
+},
+{
+"src": "Wycheproof tcId 36",
+"dec": true,
+"key": "01842c51b9943da4ec4effc057f8c3e3",
+"iv": "0d5bf8ade38ed384861839b8",
+"aad": "e2b0c047ee9a7ebde0bc5c2a773f02703f2526226d7fd721a6bdae1d9701da986db6c9bf224f032947bbcc40b269e40c7a4fc1a3d667cf6379843ecc3b9d0664dcde0dfe8d803aa8e14a59cfea1cc58bd93e8a54d5936229a21c497bd75c4534e19480b2a50ae8de0b906f75c1dcf737b5179daf751c3d6f51a1111c4865139393ee95963393a8f98005546759565baf95be2334e57f7c23272c9eca778d9956ee16b187fe309d9e1e699c1a8acdf370fbcab37b1e107934bb156987a282bdef9f9a92758474d808a3e3b191a6476f3e6ed49dc08451e3404e65918fdba33ba8ea3ba09b5669b4be9a64b93bae5de662b8f35d4abbb68118de9d025ebeb599a9cd2b0e35fd82aa0df2d43b60a61512d5af934489302572f928b790e6aadff6b7304b1a4080cc4faf8c698daa3045c945d828d915da6dda0662545f7d85297a36438ea7315a48d9a097140776f3c43d28f522f8afa03000c5a0192b5fb776b3bd06d3d9c52c873fccb0ecd1a8e14187ae2621d2e2848ae30af7ed0758fdbbc497aa69d58441f4d4b8ea13aaac97c4bffc4d07dbc62ae27f00a8db0c5d1bb24042481369f6ccd4df85d9c58a90069897e17ae0334248e13306a936697d2b5dadde5ac6c10b554b6bbd27752101b5df1f1cbb8c0ec1977c4581ab8dcd26a31dff01433785206b6595e3b824b5834295407f5027159eee46189f390537ddce6db5",
+"ct": "e4035356a34bb01ea65c7e6d972cb4cec0252a79",
+"tag": "1054ef6bc0a5156445cf760a2a65d847",
+"pt": "dfc40cf38738675120f03b12505589b2f02bba68"
+},
+{
+"src": "Wycheproof tcId 37",
+"dec": true,
+"key": "67bd1fe83e4500ddaea721035d4cf7e4",
+"iv": "5449b293c849be9941b1fb3e",
+"aad": "18b8e9b141288ca891606a88987057fa078efc47c0e270b36985c924506e4f8e4a3d1541d0535f515a370a3400e2408fc92d217f9f37fb0b972a3a7602cac98f8f0231a4d76cf584d9239ee816765cecd28f325b907e0b02b260609c70226a16ecd9bd67a64ea12c4b249c05a90112940200df3e70519a4b9ec136b6f535d4b8b2ae16c5a54cb8c57d87451697e5101e1d09a94d2117b30ce90c3685117e2194a379e7a5754da20179582f97767e633d141185fe3784a44d94210b214768aa51117ed5c880613623e4aabbb647721764a513425b8d90d4189651f1529e688466d8abed49e2a5f0f4493b878d4169848547f591277631f1fed6c97d167f8baa68920a2b0220d2ad5ae65cd09dcbbfab42bc666867378e40fd3ced9719a76659ba22213a5a23e30aeeef995164883299e7dd6fff1617b4287c3197cb3b1abd54b2f0ca573b1a4677a054f1232cd19803633fe57b041c768df7c3506313e7eaa365624833becd768fcc4a31ade932e71ade8ccbf400b3aa2d32891a4a173fb7498c9564c89b70548fd495ac2ea85c4bedb4c9136d1a0a6c1618c4f1aa8e619fef765e1c7410f86cd8ae7d0b7ed28947433cd0ff64f5f9029816d61080237f099aad2f8520f25d7685cc1893b3e8da3aafdb38846b6758ee02b5c5ac899b2c0738453be2a83b879f97cbad8e214786fb2a836c74e06ef190022f4b5557694c254bc7",
+"ct": "2ccc824b0c0b593faeeff2424f3a64b1dcd08c07",
+"tag": "e52d78836666333b2fe59ddc5d6f264d",
+"pt": "c259151909cc0480abbae3f7fb6beac92258d37d"
+},
+{
+"src": "Wycheproof tcId 38",
+"dec": true,
+"key": "e7e0827a582b946828cb6df0d1c4617e",
+"iv": "3a403192064a51df71a3554f",
+"aad": "053d3468b4d0a5a6a12dff017c40218c2f990158c50a95503130bb92a5d7615973ec8827043b29222e15713fb9a58db90a397d31b16e21b3befd3d66d8990312b3f7ada3f39abbe92e17a1a66d6a290534b3110287915b08f47431a1bfb9c823e54a16b287a57d4c3463c838c462dc7898a3d7f5f653a945744dbb126bd21802e4684ad7dc90391b8b8000343db337145bf17fe31fdc434163ee6ae44ada02de6192bda57018dde5ba1f59721b4583968efe8613816c3502ac1b1ef162d0085f8df37b3436d14cc54684e898fcb695f15a59d7df60eaa028388d7fdca2bbd90e07a1a02281dc85e00d83750bef47fe0256b23ccd83c864e8619b7b7e75c9b24814e6533c4f7855e4fa21de0747c64795aac015ab532d033e205898a7511da32f898daed383a48314db35f75e7bf12c7a99e50eb8dc93f8700624438211cda86423cfde8d183ae5d6ad70133753e40f73652dfd03074fee034ce6d16ccfc0b3341a9ec18e630872f625e04129173313ee22b1cbcbd90ee74c5019173eed3ab2a47f16c8672e449e06e3bec4d05971fe8eba752d5d962e6e7d27408464441b3db18804fc1e5c428e970688d8c55f2980f30a6b86034ad2f79a76ef44c8d816345a6270c15c79deebf3dcbc1a1a968d318b6cccc09ab755cbe0f6ff4c23710935a4ea5bcab51c307454fba56cef1308b7cf0738626964ae7d2b65ad54d52872699b96",
+"ct": "336c3b0080eb95480e671366be5508b1fe6ab14e",
+"tag": "63278e1781fad93131ecfd619275890c",
+"pt": "65e0007f93225599dfc59107720c503c0158f3f4"
+},
+{
+"src": "Wycheproof tcId 39",
+"dec": true,
+"key": "00112233445566778899aabbccddeeff",
+"iv": "000000000000000000000000",
+"aad": "",
+"ct": "f62d84d649e56bc8cfedc5d74a51e2f7",
+"tag": "ffffffffffffffffffffffffffffffff",
+"pt": "ebd4a3e10cf6d41c50aeae007563b072"
+},
+{
+"src": "Wycheproof tcId 40",
+"dec": true,
+"key": "00112233445566778899aabbccddeeff",
+"iv": "ffffffffffffffffffffffff",
+"aad": "",
+"ct": "431f31e6840931fd95f94bf88296ff69",
+"tag": "00000000000000000000000000000000",
+"pt": "d593c4d8224f1b100c35e4f6c4006543"
+},
+{
+"src": "Wycheproof tcId 41",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d9847dbc326a06e988c77ad3863e6083",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 42",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "da847dbc326a06e988c77ad3863e6083",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 43",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "58847dbc326a06e988c77ad3863e6083",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 44",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d8857dbc326a06e988c77ad3863e6083",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 45",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d8847d3c326a06e988c77ad3863e6083",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 46",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d8847dbc336a06e988c77ad3863e6083",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 47",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d8847dbc306a06e988c77ad3863e6083",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 48",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d8847dbc326a066988c77ad3863e6083",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 49",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d8847dbc326a06e989c77ad3863e6083",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 50",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d8847dbc326a06e908c77ad3863e6083",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 51",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d8847dbc326a06e988e77ad3863e6083",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 52",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d8847dbc326a06e988c77bd3863e6083",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 53",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d8847dbc326a06e988c77ad3873e6083",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 54",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d8847dbc326a06e988c77ad3843e6083",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 55",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d8847dbc326a06e988c77ad3063e6083",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 56",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d8847dbc326a06e988c77ad3863e6082",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 57",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d8847dbc326a06e988c77ad3863e6081",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 58",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d8847dbc326a06e988c77ad3863e60c3",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 59",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d8847dbc326a06e988c77ad3863e6003",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 60",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d9847dbc326a06e989c77ad3863e6083",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 61",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d8847d3c326a066988c77ad3863e6083",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 62",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d8847dbc326a066988c77ad3863e6003",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 63",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "277b8243cd95f9167738852c79c19f7c",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 64",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "00000000000000000000000000000000",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 65",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "ffffffffffffffffffffffffffffffff",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 66",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "5804fd3cb2ea86690847fa5306bee003",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 67",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "eb156d081ed6b6b55f4612f021d87b39",
+"tag": "d9857cbd336b07e889c67bd2873f6182",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 91",
+"dec": true,
+"key": "92ace3e348cd821092cd921aa3546374299ab46209691bc28b8752d17f123c20",
+"iv": "00112233445566778899aabb",
+"aad": "00000000ffffffff",
+"ct": "e27abdd2d2a53d2f136b",
+"tag": "9a4a2579529301bcfb71c78d4060f52c",
+"pt": "00010203040506070809"
+},
+{
+"src": "Wycheproof tcId 92",
+"dec": true,
+"key": "29d3a44f8723dc640239100c365423a312934ac80239212ac3df3421a2098123",
+"iv": "00112233445566778899aabb",
+"aad": "aabbccddeeff",
+"ct": "",
+"tag": "2a7d77fa526b8250cb296078926b5020",
+"pt": ""
+},
+{
+"src": "Wycheproof tcId 93",
+"dec": true,
+"key": "80ba3192c803ce965ea371d5ff073cf0f43b6a2ab576b208426e11409c09b9b0",
+"iv": "4da5bf8dfd5852c1ea12379d",
+"aad": "",
+"ct": "",
+"tag": "4771a7c404a472966cea8f73c8bfe17a",
+"pt": ""
+},
+{
+"src": "Wycheproof tcId 94",
+"dec": true,
+"key": "cc56b680552eb75008f5484b4cb803fa5063ebd6eab91f6ab6aef4916a766273",
+"iv": "99e23ec48985bccdeeab60f1",
+"aad": "",
+"ct": "06",
+"tag": "633c1e9703ef744ffffb40edf9d14355",
+"pt": "2a"
+},
+{
+"src": "Wycheproof tcId 95",
+"dec": true,
+"key": "51e4bf2bad92b7aff1a4bc05550ba81df4b96fabf41c12c7b00e60e48db7e152",
+"iv": "4f07afedfdc3b6c2361823d3",
+"aad": "",
+"ct": "cf332a12fdee800b",
+"tag": "602e8d7c4799d62c140c9bb834876b09",
+"pt": "be3308f72a2c6aed"
+},
+{
+"src": "Wycheproof tcId 96",
+"dec": true,
+"key": "67119627bd988eda906219e08c0d0d779a07d208ce8a4fe0709af755eeec6dcb",
+"iv": "68ab7fdbf61901dad461d23c",
+"aad": "",
+"ct": "43fc101bff4b32bfadd3daf57a590e",
+"tag": "ec04aacb7148a8b8be44cb7eaf4efa69",
+"pt": "51f8c1f731ea14acdb210a6d973e07"
+},
+{
+"src": "Wycheproof tcId 97",
+"dec": true,
+"key": "59d4eafb4de0cfc7d3db99a8f54b15d7b39f0acc8da69763b019c1699f87674a",
+"iv": "2fcb1b38a99e71b84740ad9b",
+"aad": "",
+"ct": "f58c16690122d75356907fd96b570fca",
+"tag": "28752c20153092818faba2a334640d6e",
+"pt": "549b365af913f3b081131ccb6b825588"
+},
+{
+"src": "Wycheproof tcId 98",
+"dec": true,
+"key": "3b2458d8176e1621c0cc24c0c0e24c1e80d72f7ee9149a4b166176629616d011",
+"iv": "45aaa3e5d16d2d42dc03445d",
+"aad": "",
+"ct": "73a6b6f45f6ccc5131e07f2caa1f2e2f56",
+"tag": "2d7379ec1db5952d4e95d30c340b1b1d",
+"pt": "3ff1514b1c503915918f0c0c31094a6e1f"
+},
+{
+"src": "Wycheproof tcId 99",
+"dec": true,
+"key": "0212a8de5007ed87b33f1a7090b6114f9e08cefd9607f2c276bdcfdbc5ce9cd7",
+"iv": "e6b1adf2fd58a8762c65f31b",
+"aad": "",
+"ct": "0843fff52d934fc7a071ea62c0bd351ce85678cde3ea2c9e",
+"tag": "7355fde599006715053813ce696237a8",
+"pt": "10f1ecf9c60584665d9ae5efe279e7f7377eea6916d2b111"
+},
+{
+"src": "Wycheproof tcId 100",
+"dec": true,
+"key": "b279f57e19c8f53f2f963f5f2519fdb7c1779be2ca2b3ae8e1128b7d6c627fc4",
+"iv": "98bc2c7438d5cd7665d76f6e",
+"aad": "c0",
+"ct": "eb5500e3825952866d911253f8de860c00831c81",
+"tag": "ecb660e1fb0541ec41e8d68a64141b3a",
+"pt": "fcc515b294408c8645c9183e3f4ecee5127846d1"
+},
+{
+"src": "Wycheproof tcId 101",
+"dec": true,
+"key": "cdccfe3f46d782ef47df4e72f0c02d9c7f774def970d23486f11a57f54247f17",
+"iv": "376187894605a8d45e30de51",
+"aad": "956846a209e087ed",
+"ct": "feca44952447015b5df1f456df8ca4bb4eee2ce2",
+"tag": "082e91924deeb77880e1b1c84f9b8d30",
+"pt": "e28e0e9f9d22463ac0e42639b530f42102fded75"
+},
+{
+"src": "Wycheproof tcId 102",
+"dec": true,
+"key": "f32364b1d339d82e4f132d8f4a0ec1ff7e746517fa07ef1a7f422f4e25a48194",
+"iv": "5a86a50a0e8a179c734b996d",
+"aad": "ab2ac7c44c60bdf8228c7884adb20184",
+"ct": "43dda832e942e286da314daa99bef5071d9d2c78",
+"tag": "c3922583476ced575404ddb85dd8cd44",
+"pt": "43891bccb522b1e72a6b53cf31c074e9d6c2df8e"
+},
+{
+"src": "Wycheproof tcId 103",
+"dec": true,
+"key": "ff0089ee870a4a39f645b0a5da774f7a5911e9696fc9cad646452c2aa8595a12",
+"iv": "bc2a7757d0ce2d8b1f14ccd9",
+"aad": "972ab4e06390caae8f99dd6e2187be6c7ff2c08a24be16ef",
+"ct": "a929ee7e67c7a2f91bbcec6389a3caf43ab49305",
+"tag": "ebec6774b955e789591c822dab739e12",
+"pt": "748b28031621d95ee61812b4b4f47d04c6fc2ff3"
+},
+{
+"src": "Wycheproof tcId 104",
+"dec": true,
+"key": "6efca98126918ab564d88c6bec02e8998b2be50e3f906ff9adfdd185f373e756",
+"iv": "4abd6cfc83bd06b11efaa2a7",
+"aad": "",
+"ct": "97b4c73a4d8b5b21bc4b50dbb70dfa77b1a7bf0bbe7cf16ecf5bb60ba8070acc5740780435ed145a62a613dd9881b721168fbb3f5af385ee5d4f856cf93cba",
+"tag": "27ac8c4010d8e81b7051ceb06b30fe2d",
+"pt": "bbec79c086d41e602d090f7e40494d6bf3faa1dc6df0ab8a88ea5d35d426b248c2ad880351e223f6170d37cc9655e10459e59cbd6d1c092ed31d72ccc7af20"
+},
+{
+"src": "Wycheproof tcId 105",
+"dec": true,
+"key": "5b1d1035c0b17ee0b0444767f80a25b8c1b741f4b50a4d3052226baa1c6fb701",
+"iv": "d61040a313ed492823cc065b",
+"aad": "",
+"ct": "c7d191b601f86c28b6a1bdef6a57b4f6ee3ae417bc125c381cdf1c4dac184ed1d84f1196206d62cad112b038845720e02c061179a8836f02b93fa7008379a6bf",
+"tag": "f15612f6c40f2e0db6dc76fc4822fcfe",
+"pt": "d096803181beef9e008ff85d5ddc38ddacf0f09ee5f7e07f1e4079cb64d0dc8f5e6711cd4921a7887de76e2678fdc67618f1185586bfea9d4c685d50e4bb9a82"
+},
+{
+"src": "Wycheproof tcId 106",
+"dec": true,
+"key": "81b6b27e5ed90ab99fe6756d4cb41e3f07269687f5afabdb426e29096b5e4466",
+"iv": "13e727486031cca21f733375",
+"aad": "",
+"ct": "7ede7368bca3c93d9f1d7f7750d6e44b1cb92c30e3c9834b0b69efd2470911644ae6f6d75715e13aea8781f8da611a13ac6364c406c1a715b7e97acb22b6e6156e",
+"tag": "74e20a93802f43407c8989a37f013802",
+"pt": "9a95a23cfb1e35d89a7597570df0fb0efcbb7429f53bebcbbfa49fa247b251a8508ad497066855d08688576188e4ffb12d1d084dcabec3d57806daf215dcc97edd"
+},
+{
+"src": "Wycheproof tcId 107",
+"dec": true,
+"key": "ea1d436f6359caec010789fa94fe08b167c3e497d8917282f47ad2a8f95fd0f1",
+"iv": "73fe022202767af834e32126",
+"aad": "",
+"ct": "2e6b19520d9c91e41f523bfd80cb3d577df762879b04a586b865280bac651102fa60164b8586f91c02b2151cc2fd29f4c6e92839cdd873be12c1443141f8bcb8754965aec7c0829fb391e56563ba76e896ec81932b5efbad23bb965ebbf8d8fda98f9cbd48f37b2c46db609e40768266c2b36a7810d2b79133f377d0377b41",
+"tag": "f9a0eba513904c4a7168d762000f34be",
+"pt": "adf9b6df5c5cc9473e0bb579f9a6aad396f93d28bf83e98136f978cfb9d501d09ef778c122b43c876c22e40d74a48d908978465a06be9e80891710c8c2690a762bc9eb8bcb2aa2707db149abafb9c17c1f0b68c7adcea98aebf4c6a39e5a8f693133eaaa5bb0b3708720d7b86424101bad56aa190c67d25fe35a4a34e1f4fd"
+},
+{
+"src": "Wycheproof tcId 108",
+"dec": true,
+"key": "d7addd3889fadf8c893eee14ba2b7ea5bf56b449904869615bd05d5f114cf377",
+"iv": "8a3ad26b28cd13ba6504e260",
+"aad": "",
+"ct": "53cc8c920a85d1accb88636d08bbe4869bfdd96f437b2ec944512173a9c0fe7a47f8434133989ba77dda561b7e3701b9a83c3ba7660c666ba59fef96598eb621544c63806d509ac47697412f9564eb0a2e1f72f6599f5666af34cffca06573ffb4f47b02f59f21c64363daecb977b4415f19fdda3c9aae5066a57b669ffaa257",
+"tag": "5e63374b519e6c3608321943d790cf9a",
+"pt": "c877a76bf595560772167c6e3bcc705305db9c6fcbeb90f4fea85116038bc53c3fa5b4b4ea0de5cc534fbe1cf9ae44824c6c2c0a5c885bd8c3cdc906f12675737e434b983e1e231a52a275db5fb1a0cac6a07b3b7dcb19482a5d3b06a9317a54826cea6b36fce452fa9b5475e2aaf25499499d8a8932a19eb987c903bd8502fe"
+},
+{
+"src": "Wycheproof tcId 109",
+"dec": true,
+"key": "7f7c5804a680f61924966725dba2a80d85267c2e03c7c234b045b24ec8e23528",
+"iv": "2d9bf8b636f337d265b0904c",
+"aad": "",
+"ct": "d7380d10b22c3ae584531e9e4ee73d387f69dbbb3d3d9fdb4971ed2750b31913f79e4c00cf1b76933bbb75d39d8a6429a2528e9bd60e65fa6ffff9e01a8758e7b58409fa3f370cc32a63aa60a54c36d733e8f6dfccd5c3120d05c6e33140c00562865532b2c689de98769d3386e7a3ae679e404e062536ca046261211a426fb586",
+"tag": "753f6c57c0cc2a075e68d082f6e83590",
+"pt": "e2f85fb176840c38345da0f0f8db6cdbc45a123165f244ff5389fe65bf341fa131130751b5c739a9931d5a57b141dc7b5b0c5a2ca07331c2dc04b2657b0289878dea0ef7d5601465b78a65795f0f3181304e58a261feb1d394f3c33cabae189941755d7654bb7bef08c31bd2c5ce1203eebc015ae040da2a851c2ba3c62e699356"
+},
+{
+"src": "Wycheproof tcId 110",
+"dec": true,
+"key": "01e75ae803d3045e6b28b7f67937eee2d8d98f77b4892d48ab1f15f57fa88bbe",
+"iv": "6902e8f0ef1e9ec60a3e46f0",
+"aad": "",
+"ct": "6323ddbf9eb0463714d5857d1841a9f65529516c2f412956bc835f4f252d22a2ce743f21767fcb28859882b570ca053970b72e86f451ff0c77e87f3a03c0536b3859394fce324442ac197874f81a2ce649b99feb442e23123f7ab361d2ce6768a1badb30c509e79bee9277d378fadaa64e77e26f726df86110526530cd439429b017ae2bcec8cc24f994f5885a8a76fab6339c7054df76aa6f450193a635d21d22f71f1ae6856036e6caaeed8840bbfbc8236c25a31e775cba5f6e189fcbc3e96970ca5378fd5c29a712f5dc17641ad88ab566d8c78fff1bb57f9b2f7c9db838b4307c63e04a73d3ef8121f48932ec318dffaead58a83a7f79bc44a1587990",
+"tag": "0c92bb5291e981bf562293877f4ddb5f",
+"pt": "32dde3b9bc671fad1265b26cad3d8dd0f099134f6755f98613024e1bd10da9a62bad01a997f973101e855ee1c7e60e6b6aa1df9d80fa567d0ccca0f956680be76ed37c71fdedef560e2523e8c5fdb9516250017304f8ff416b9b8e5d17c1f062ded4616ea9d462ed6ca0dfddb9f5295b7a127c0825ffab56ea4983c01eec867f93e24a18be48ceb540986c530104fd466318eb812eb42fd04355615f92503e53799742cdc71830eaa44aeec914b6ff1cbb4f6f81ab595078331d645c8d083b469731174a706b1666e5e450cb62671067032a566f597b9866b71514a409e38fcabe844964581b3ab5152696b76e49ace66581d21f512e28e077c44948a65260"
+},
+{
+"src": "Wycheproof tcId 111",
+"dec": true,
+"key": "dc4dbf811f9509e33a45a8a0743e9391de333f69c56ee4f0fe90ce21c238ee59",
+"iv": "1859d3ba4710cdd300baa029",
+"aad": "",
+"ct": "9c511d08f244cb6971a39b70639c4a53ae48254fcb3d2eea4796ecc996f1fe26a8e30932258a48fe4237e5bfb0e1320dc591256dc83cd56dbf5d9b377b7805b7fac0497b2f99e3310e9e2cc8009141a82f26f8a02299d64138bb1fe8a1243df3e9fb37b52bd3c2cc19f543b3f4928e5a73730a7a6e6d75919d117d3dfe10e863a9846b2ca260de5dddba7ceac37019e615b89a2ab94df8d1a790749998cb8531fef1ef5f8a28a8ad60e813f7e78412ca4d95b9604a24a16e4a3ca8ee33bfbb7809048014943e5fd7966a7db214e052d1cc546a6da72ec89d1c3398aefdcb881dfc3d800b7323abcd7583e9c8a31f03b6995d4aeac17c5a56d8af492a2b108fe3",
+"tag": "17090ce50e35244a59bafc80eba5dae5",
+"pt": "df91c48591f4cae8c4d659d024dfd0a3535981487764bf19b012713e6ac6d578aa0b3a51d7ac97cd503fdc8682cabdb6a5256e9890458356f39b9749f6ab158112fbe4f91acd333477998b9f0d7cc0be2d40acfa5103adc1b0d0a5cc94733d703e0d8c26e09e9d079fa6a65cf35240a16280826ab7c0d8ac5882c89e58444233c2f60aaae0cbd1a7ed850065242a9378c340232fd86f1fd52a92c960a9a86f529f431acf3aa94133785803f4ac1a22378332daa22dea3d34d2fdb7c308fa44ab93b3fb02f428be22fad6c0b10c138af97b92a199296dd947c93fbc40674c34c5623d26d9c90dc6b3357018b9f9250fb4dd5c11518191a236745a2bd42f863766"
+},
+{
+"src": "Wycheproof tcId 112",
+"dec": true,
+"key": "317ba331307f3a3d3d82ee1fdab70f62a155af14daf631307a61b187d413e533",
+"iv": "a6687cf508356b174625deaa",
+"aad": "",
+"ct": "d7eebc9587aa21136fa38b41cf0e2db03a7ea2ba9eaddf83d33f781093617bf50f49b2bfe2f7173b113912e2e1775f40edfed8b3b0099b9e1c220dd103be6166210b01029feb24ed9e20614eddc3cebe41b0079a9a8c117b596c90288effd3796fbd0c7e8eab00609a64be3ad9597cdbf3a818c260cd938bdf232e4059ae35a2571a838887fc196912179486e046a62227a4caddce38cbbc37587bb9439ec637602b6818c5cbe3c71a7c4143960533dc74174bd315c8db227b69b55bb7fc30ba1d5213a752ec33925043cefbc1a62943ee5f34d5da01799e69094d732aef52f8e036980d0070e22e173c67c4bbcca61cc1eedbd6016516c592144819df13204dee",
+"tag": "bf0540d34b20f761101bc608b02458f2",
+"pt": "32c1d09107c599d3cce4e782179c966c6ef963689d45351dbe0f6f881db273e54db76fc48fdc5d30f089da838301a5f924bba3c044e19b3ed5aa6be87118554004ca30e0324337d987839412bf8f8bbdd537205d4b0e2120e965373235d6cbd2fb3776ba0a384ec1d9b7c631a0379ff997c3f974a6f7bbf4fd23016211f5fc10acadb5e400d2ff0fdfd193f5c6fc6d4f7271dfd1349ed80fbedaebb155b9b02fb3074495d55f9a2455f59bf6f113191a029c6b0ba75d97cdc0c84f131836337f29f9d96ca448eec0cc46d1ca8b3735661979d83302fec08fffcf5e58f12b1e7050657b1b97c64a4e07e317f554f8310b6ccb49f36d48c57816d24952aada711d4f"
+},
+{
+"src": "Wycheproof tcId 113",
+"dec": true,
+"key": "4f62e56f7b15035f427849714beb97e6acf88371e1f69b388129bb447273d6b8",
+"iv": "137d5c98a92f6dcee4f29d7c",
+"aad": "",
+"ct": "b194e6c8f83e09515d4ea95c00578fdaee8f9d35ad09a560ba81a51accc49416598516c747e16dbc5c44bfd5c790ba59b47a6f573a43b26cdbb240230b1dca00447770c4cf647df2a79eca3f4a8b2de08f9fbc4489c30f6bcfcd096f1aa4177fa281248e8e19e2ea7d1f049b7053947a3a67e946ebbed67466e009b63debceba54cc881e55e2d68f3f584380d6fb7b0e9a3fdbd709adac3a47d6f9a5fcaf03218e18cca5a7a0e340a774cd5c39d7031b63b5b5b896e1e705b4ded099c3c11150738b2107f61f1423fb72ed0a16070cd6f8a18ae90b167b707c23ddc85a1b6ff5a3ec5e654b1446c6eae787c31a94bc9ab5376dfea31bf8dfbdabce45c750111946e64c22d23c46d7ef644ca02c69205d59b1815a6a6e8b14fe7e2d8ad17fc75e656706b67f257523d517d9f8b83150a88359e56d6432859f8f90eaba70cf90f86995afc85c33992591536ba353ae14a6932dc96ad72687ac34c2d4d5c92e51da246f557785df1944d2c3c83536739b7d8475ba39c639df4ce69859c6ffb9e994545699a3a19d53979bfa34fdec856a9f12ac70bdeacf172721496d76d8073a76e8160d99f4b7466e05a8f006cb448d2af7ee308ca19440aaca08f34422da830e476269c829a2b5b64acea4f1143d1857cc2699ea3bf2e076b16e50a9071cf15352189edf278984102ebcc751d46510b816afafdb3fea37a7d49662ff090392",
+"tag": "79e64c4c0e8bb3a214955584d2bc8b16",
+"pt": "a147b716b86ac8dac7447d5ba60ee8a4191d2c64a3aa04276aee7bf7dc824962c09ace20a7e614cc9e177b5b11819b8f17008a9408e8cd8bb34b401be35368f492c17629b6467299bfd2ec4d9a7f17dea6f9ca084e871fb7fc78c2bf299b810522062726c5cae14b839722ecff499a2b3f082b6d1bfedb752f84a4e77459c9268d63199315363e9aaa39bea7fbbcc60a5eedc8a1a982ad6fa67c295b932eb3999047e0a99b3823032b6b3b7c4c553970afca50cb4e5ce859c25c598eb682005f17aec5526e26493208483679a23ccef6f7403a3f3055affd531a1cb7d183892dd577d526e8da8aa8b8b980a36e176b8d9293e785ac01bdd4dac8cf8dbdd82926f1e31408284fb3aa01f4414ac7aa7832d2ec02dd2db9b6b4b61d8c1cbb31dac7b6afa8d08b6877e439600c4a6fc07511877df2e9ce3a9538a726002a46c083d98124b185730f3b2aea2a01cb626be809f87b2ac100511c5b8fa0e9d40c9c999ea0aa87aad08cfb62c1ba869178be986156f7622d8c48ad80a552e9d08c36671ae232efefc8619c562e715f04ae52db2ad8e4a09e8c671b12289558117f9562d51beb59e29b10dd9eb232e8fcdb1cfdd14899acd693de14a7c076a4656386e23b06415b2c7a93b166cad1048bc605a49a79df3c03a3380de68a4f013e05e5283745d4078ebe308dc8881ced62ed571a93c69e8aae6e51f5e61e4ff75699aa32"
+},
+{
+"src": "Wycheproof tcId 114",
+"dec": true,
+"key": "6aada828b2273ffb81dc794a8629e305cb646f9d266002bd313427d384838767",
+"iv": "00dea4505cd5396f6ba408a5",
+"aad": "",
+"ct": "75750a143887ad763c130a637e5d75fc7b53999e8a085a74a5c7e4e2658d03586f36dd67bdd0622992fc440822e63534391a435c934fa7fa19f5196695513ac812e778928a677af37a8bc36a19b7e3ab05e185429aa5e5e17cacdd8971e3c551db83c585324277843c1783771379280d1393eeb26e9e7ff7006d437b7cb0fe373b2dc3238d87badf9edd767ad7b4726a777b99cd1d11f1bc16098b1230a194bd9435caa0730276ebc0c44a923e3a14751e125aa7100cbd682202f9a71bf08e28ae36f55c6fce998a4c474dd5a5d55d25aef332c3b4640e20b222b7305dfc21f60e9f5dd97c1987120ba0b7b7e85ce810f378d401987b824679ffe45ccade89e5ed45176bab9d4a14c5a753d32e113a2aba5dfe65ac75918afed6cb2122cf24971fab932b64e104a8a01c755b4fb86afd49d0ce1a1909192551f579c3587d1a61ba5b0415cf90d572320af3b0c5d5d672d4207228e75322fffb621200fcb53d970f6a74e06bd90d8f9a1cf23c87c07deb14456dc21d84b8f6ca45b8c3af6d6d5c110488c919617c116c25baef4a7a0d47a4b247c94440176dd54a014d639a6139d83498a585b5687cea859dbb32b852690c4dcd23ae4058498ee751aec8aff3b0f1f0efd4bb50636d1182e111a6a98f95f2d55f8f4e75c1ae8a55e851c5095bcd9d1ad86fc79b0bf9ad2f58293a624c2504b30469f7ed1c645549d37177dfcd95",
+"tag": "8fba48dab18a4beaddff24252e62083a",
+"pt": "1d99ee022f9576ed69af8a7f3945362ab0c4691a4d333a3f5f85cf8d7db7fb8a069b48998cf286ffa4615e87398c3c3c1295d5bee272bdeb5166470a8923f7b79dc92b2a97de34ba87db2907ac84fb23d38f2e1af835f737488fc04fac70432d3a0b02a472f851025803aac692273273e27be1dd9679a4d626997c363ba706a7db1f4cdc07fe3c67fbec0aa8619038e05607d95a5ddc4b403cd6dabc41790adb6cd76eaeac3491c3cd6a8787e0f29c042b4e2afe987674b9495ef55768c696bc6c3df1c1e9a7c0456f478a1a1cc4c3a9b0f2cd3b42db8d0b6aa36dfec3d2c08d1398eeb75db61ae902d2da5a1efac7904b8ae32af1ff942c99769504bb5c56f5819e4f899e8bbacfd4682d82f41e179a9ddf9a0820cc4316f252d1d35597aeda43ab870887e67aabe79f046b03a9a83588994058a07baedbbbf9c01d833732efac89ae8173f902e831d579d31e4a409cef5e494a27bb6367e84fc57642048e44d687ce73dd9e71384182b262d63a715698132f218fc2c3611ed0dbf814799866c8c43b4aa7c13b5a53f9a337627d76bb960f60fa891f0076a538c396500cefd2dd1e4e024f9d83275f9b2c0ce6df41bb6488398fc657dba0efdae0019dd31b03227edc5229aff60cd083c0f0b66675baaf91c3206819a0c985bc3283600e9e6d62c6fab2c6aefd69829c75063c54ad11269ac5ec563ecd870c2af4cde6cec43e"
+},
+{
+"src": "Wycheproof tcId 115",
+"dec": true,
+"key": "afd579aa1accc682aca54e142aa69df09802f020b24a42c41db58f6997edc678",
+"iv": "9f79d1da957491069d774496",
+"aad": "",
+"ct": "cd48a6952868f7f7c8941652f6418b374db9afd4be179a948d336ba0d80438af895a21f268364fb1c5c6472f67bd4cb7e464068fe44377fb7cf4985b8428a068f5a1809498228fa8d8053650687afb9ebf3b19b43c38e56845e9350198ae0511efba7ea8bf8159a08f72e4227ec50da5b29dbb18fbf13cd22e13978efb04b02ba1a4b2b1ae171b612929d6772d958af38d3dfb2c11684a907d90b786b46ae494ed1c9da486cc7b54bd9cf2d34be34dd13013bd72e06fdad17ef143d5b857804de4a56409a35a4128fd752440fec02b9304cecce1bc6760d6fb0397bd1609ff303c9a0ea3bc5cc11482f083b6471f2e01d3d99ee23c35c37a62135d9cec9c69e053528448d813afda07fbd406ec74e0df2d1822bbf625392a2d91cc39d85c6de8ba43e5b7cf0ec2e4a0e18837f04b284d6ce6277bb91da9c0c3385bf0570181deeed3ce234e868b2c407a2a7d8d516b83cd86b844c23aaf3bece94a1f843007ccd8bc2859e0d64ba1614c2721bbb66a3a40e3f555a2b37e07fb15b116f69156a4260f1eb19d8140bc2ad3f9fd666ae35814e2fd1cfe178951f5e10cb85495e465773b4248bef9e7781e4a3fb6caf2f44180de42f4bff3772f3e87d8129db770c5e8a953e5a342c885ea1cd45a978792128ce420e63245ff0a1bb0730a7a506771e2a93874e3f1ee9ba9fc0af96a0d34d222d29aebd791416f399052adb295c3c43c",
+"tag": "32b276fd0c1da7a823a5af074aecacb5",
+"pt": "bafc6e865c48bd34b7f9329e35cfb286cd4dc31f8316171218bf0471dffd35a330a181697ca5178688dd87efe527924f90d1c78ba40de70952ff44c26efe2159e59358f3931573df9373a73b91ba9592e12140cc009feedd2595e5b6f066b5ef6de99d4c31552cecb0614f1dce990e46e7694382f3cf3ccfcd1ea62e563e5f0dc36cb5a84e0c0b3f1f8f3fa9100f487195ff2e3169ad08136aa8ad566548c9836aa00dbac74716c26e838c1486a0084d3dfd692585e2e5ae7c75caf0e7af60219f96116ae963b4a5899cb30a120daaca7833776692c25ad7c185e6a2d70ce03ff156cd25d76153539d6855773e21142f9ba0313562875f105a2b770a15b533fbf5110dafb69329982ab44ed1b9f321d7b79ae15a19d9f3bd4c504c24b23b812d514c19ae2a347cc18c12ce915a0bad7cc89a8720d4ba5ee0964fe05e4cc59a13f92c670b8655071e216f19ad05f4bbcca6dc7feeb188d6269c58065c98fcbbac183a9abb3811d80cb476544bd74b26991f3df987f0ed0ea6238659ac09a2250fecc0723ffc51647b74bdf454f26e11112c8bbd797f09a3be8251c6b5b319ed9537278cc1abedb32aa10840984b96e8636b289335846ae4fbd4a00f6600d98ebe25885c68d7043ce0dc5229d7e9bd51bea9b8fe0552f40688429c482629ced623f6074858147e73da3ff4ad2ae45c1a1c8a6c5b3b2c3d568a756608179f63b580fd"
+},
+{
+"src": "Wycheproof tcId 116",
+"dec": true,
+"key": "0f112e59cdccd851c3b8e76c9f05a3b7c2e4feca5846afeb351c1cbcace82f04",
+"iv": "7147973339d86789a2c9a958",
+"aad": "37128be45f0a7f329546e1492c3c9c2d2534d5b1f5147e49ab91221e7c3edea21bbe47bfe3619437ce3c61e6e946c504f348296918219e51bf2c5598589cff",
+"ct": "618ac626ae0e8d06c2fd2fb66be253dc26ed6e38",
+"tag": "d8d93ff975cb988f09174dcd439cb6a4",
+"pt": "102e5804dda1fb5d656077edb15cadb5d0bdee8c"
+},
+{
+"src": "Wycheproof tcId 117",
+"dec": true,
+"key": "2ce6b4c15f85fb2da5cc6c269491eef281980309181249ebf2832bd6d0732d0b",
+"iv": "c064fae9173b173fd6f11f34",
+"aad": "498d3075b09fed998280583d61bb36b6ce41f130063b80824d1586e143d349b126b16aa10fe57343ed223d6364ee602257fe313a7fc9bf9088f027795b8dc1d3",
+"ct": "aed58d8a252f740dba4bf6d36773bd5b41234bba",
+"tag": "01f93d7456aa184ebb49bea472b6d65d",
+"pt": "f8a27a4baf00dc0555d222f2fa4fb42dc666ea3c"
+},
+{
+"src": "Wycheproof tcId 118",
+"dec": true,
+"key": "52350da5a572911ee0e0fcedb115af6f4570fbf9c74a11bc184444d6a621d60f",
+"iv": "d68ad045c1b9c2923cf5404c",
+"aad": "03a94b3841292d9bbf72f413c09167c54ee10537c049afe2bbcec43b18f3890b2fcdd3bb31e6d709274e199c0c4648eb3d8b38e0c1bf7f309443bef6937cde4123",
+"ct": "c7764411be13cfeaaece761bd3bb13552f088048",
+"tag": "bcc2544e79f34ea1076a12b76441d6fa",
+"pt": "4e6e6dad2c16cfc6e7cac03636a4a6d88bd6a13e"
+},
+{
+"src": "Wycheproof tcId 119",
+"dec": true,
+"key": "d058304c0ba039b2e2d08661fd8f6db88779bd5ce580eb766c1d6ab34b94ee94",
+"iv": "3c553397fafda0eb06a59f23",
+"aad": "cfb1fe1c47e2450109eaed4e1aac9431aa5db1e3b7eeacad3ebc9e8e1f3e0a823f757f619761e61ad05af8cef83104890940cd592137eb7ba5879b95759c8be1525f9a01fc01582d93a2a841336a104d169968c274b5a8c30883b4bd621725f69079bb94a174a3c94db62f2ae746d03200f01c19aaa8a3b89e78b99a62f76f",
+"ct": "a7d84ff71dc713161359b757af42c74dddbf53ce",
+"tag": "736e48a2b7792acc599baa651629a203",
+"pt": "0a064cd5e49845c4efb60fb343dc03faffa36c49"
+},
+{
+"src": "Wycheproof tcId 120",
+"dec": true,
+"key": "44c8d0cdb8f7e736cfd997c872a5d9c5ef30afbe44b6566606b90aa5e3e8b797",
+"iv": "6f39afba021e4c36eb92962e",
+"aad": "98d1ca1788cbeb300ea5c6b1eec95eb2347177201400913d45225622b6273eec8a74c3f12c8d5248dabee586229786ff192c4df0c79547f7ad6a92d78d9f8952758635783add2a5977d386e0aef76482211d2c3ae98de4baadb3f8b35b510464755dc75ceb2bf25b233317523f399a6c507db214f085fa2818f0d3702b10952b",
+"ct": "b42428f8094ef7e65c9e8c45ef3e95c28ce07d72",
+"tag": "32b25dfbb896d0f9d79c823bdd8e5d06",
+"pt": "2e6f40f9d3725836ac0c858177938fd67be19432"
+},
+{
+"src": "Wycheproof tcId 121",
+"dec": true,
+"key": "e27e718e4b66c91e221f2a3df9da0013f7e14340006eca50dc30c4cc2ddeb679",
+"iv": "b46fed185e8b33215dd474dd",
+"aad": "2d2b6247f9c342f8d0432ce0715749d0bac0e2e3f28b785be8dc84b3a0e57a161afde34227277512204ffa4bceb6e0a4d021031b765540f7f613045f74e7e6e4977c04b78b5d3f8d4e420a9748c12d1f9aa5e03a27749be2785dd555a8cf0182c0826f2d60eed3c4059adf8872f3c4d81a963592472965cc0c66102167e4cb1ca2",
+"ct": "750232115a5edea7b249a22c0cdae17f725d6f99",
+"tag": "4a72d8c30fc7e0f1806d9a817adae14a",
+"pt": "e39aeaf1d214f78915601fee9a3527d777674651"
+},
+{
+"src": "Wycheproof tcId 122",
+"dec": true,
+"key": "fc1bfd0b58515c4e7906e2052596bb92de8c879806af47a4c726ff08c9ba47cc",
+"iv": "f3da3be574337b8f8c052866",
+"aad": "d26f7ff887725228f3109924ed9eaeaa8c103cfcaac1d6e3874d11afd8424fd030fea80547212fe7c8ac9f4ecbe304b62e5bb206ac3a8318a819b9701f494aefd22e84d227922102f5130f0685e88e25115c3ab9e8bb290c0df0715c4adb00a2ecc9bab5bbcc49cec60305a5b04f646b1d0f951673cf1eb4742c1a52beb2cd2f43a2e413e4a9f5679123b4d59f2ae14c27ee84e970cafcbb5a0736ad2636833cb644c9f2fb61a4a09fad511f4c1781c5685f94814d242c5e3eb4abe165732ab0258a2461c56d452ef1cf48b4ff0f331b91c2c71ce1c03877552837a12dfe75f78bf1cd615b3b2b864fd9503a5f5bea652870bce4cad5c726f1c512dae7f5f8",
+"ct": "1875d3d76930b58361103d64220591feaad5c9a2",
+"tag": "223099bb16c30cba134e639ed95615b7",
+"pt": "9adfced8e23f7897b66efcc3468d63b87da79a24"
+},
+{
+"src": "Wycheproof tcId 123",
+"dec": true,
+"key": "7ec20e38aa1b1f018d79903fc1cf6e260cec3733a19ad9e30f60b54e2ea6ebcc",
+"iv": "5ccd9cdcf97ac61364687bbb",
+"aad": "d9d2ee145b5c31a17dce932538c7e45da1c82abb80b0553251e442dbc5af9c126d3a76a24767c39b229bec8976a0df89fa70ea9ad872aa36d6b8b09aaa54698e7f29c2c2d12efb0b301cfb97076473dfa7ec030350e26839fbb7e1612dad93ff08e1119168c5fca56816c62b042f06d89e5a95da6a615e13ba4cad9f942534c539520d00509d0d4ac6d80c59e769d7e1aa7e12987ee05fb6a19b383c3348df6cbdcff604ef218338910a8e275d9a62b802cb07ec9249c9635e2437f8339dff3e21f79e9eb2acc2bbbadd520a84c58f0ddaaf8c32496d173b6b8c0c274352d40d47bfbd93069abdcc3d21c2cd330a8c16847f0e5299beb6a2d33be746de5c71f2",
+"ct": "ce4c58d3c7354d2d27e3bb41a62e5941fb1e39f3",
+"tag": "e177391d5e2cefa2f7d35e33a76566aa",
+"pt": "bab28e0987509b1d6f9cf3aa90030795f125ee44"
+},
+{
+"src": "Wycheproof tcId 124",
+"dec": true,
+"key": "e40003d6e08ab80b4bfc8400ef112945a901ec64a1b6536ca92665090d608bc4",
+"iv": "9f095dafe6f6e0fbafbbe02e",
+"aad": "422d5efcffe364905984533f0a579d80b18bda7b29e6e46498effba53c350112c0bbb8dc4ce03bb0c69e1d0baa19f0637108aa4a16b09a281f232839d87b6d0e42be1baa7c67f1be970ea169d3960b9fe0a61f11cd2eb7398c19e641feb43f778e257a397063db5b3a6707e9db62387054f9f9d44f143583e63edad45a00251e5173d7505f22a8bce232e56c2c276a58033ae30d5dbf4e35a862e42af573be38c6406d9b4c7acbf275fe36c0ecf2c4642898a30e6146fac992a16405f98312126b7a3722f5dfb7dd4e4911c1426b2e01d04e9be6db3771100f7d7d4282e4ea585f3646241e807ca64f06a7fa9b7003d710b801d66f517d2d5ebd740872deba13d0",
+"ct": "d4a79f729487935950ec032e690ab8fe25c4158e",
+"tag": "876d2f334f47968b10c103859d436db8",
+"pt": "38c3f44bc5765de1f3d1c3684cd09cddefaf298d"
+},
+{
+"src": "Wycheproof tcId 125",
+"dec": true,
+"key": "820bb5eb3707e713d5fcfe3c98bb1ba733540ddf44b172746bb950957254adb5",
+"iv": "f2b947eae4311254417c5928",
+"aad": "f76c06fe9dfa7fffddae7d545977f1944bdb8e48bb8740ff1a9a90c260e1264fdbfa328ed8f183e672892a6d3464c176adab5da8ab3af7c08b71ad135d7b42c3ebd893938f82cb9d200bb50c26e823af951149407bcc05f17fbe8ec275db96a9c7aa230f1347bcf10202d5cb7fb16076f6a78cd620fdd67a9be58f6992e619a8314cb40446b654d1c01c9cc6a92e44a77b015f2cefb9e5284082951bd98ee7e834adf39306bdd4288296c276e63b0dba7b7269c63e0e77f3df0debe8fe36454ed7ab332db77d2d9d7e1832f36e13ac6c88e383dc8533bc624a27ae378758742a63e39d54fec827b19c63c692cdbc6a498ce80c5c112d461cbed6c93a458573c765c759776e7b8e3430ca389991996f895ee16fe538f2de3a902f8423138f05e87e01c1adf2232ce9eff100b39452565c10125b3a852183f8026b1cb8281e9e2e6a0fbdde64d0f4c2984a72f1ae2bfbb409c9de9ad2244860996e1053cc8cdd70511bb265f20561a0337de4891fbf293f705fe040f187ba43bf13fb5e02031f8edce5db10ef5d411a448ce0903dde943d2e199f0e4af2ad3ab2a534f0d6418acbc5ea9340356e11036bf6dec306419177630d36b41a0e646388f6010227a323f9570f43f2f14a8b9fa346ad0459c0c28ce6ca2eed98983bd08db82bfd0945bd4c94bd82a4046876d7a3844a4fb9365284b1511b6fb36a2703abc9b03a6244bf",
+"ct": "8d529d8a4f0d7ec4e41d8d361663df53c479ac34",
+"tag": "d509e3e1eccfe38f7c63f9a55f42946a",
+"pt": "81c37b34c4369ecc1a9cdd6f1557133e59249165"
+},
+{
+"src": "Wycheproof tcId 126",
+"dec": true,
+"key": "65e18f70f168abaf388104c9b37a9686aebc7743f0e66b84b7c7cc0e3600f655",
+"iv": "8d564420fcb9a98e7e07475c",
+"aad": "016dde724536eee27187907263e4a62f3b637eaa8ab6f86d0343f66f7f73c6f8c3416cf253532454c045557ed7a371c2d6b8e19e0101e1109cd7227dc5390545ff24484031957749514379a77a33df0fd129f80e9869747b6589fd29a6935aa37b00e2abbbae2b67904726e9fe22143080af18821ff10c5217e845cd6e0ef2513c1d82c14f9d3933f3fd5c6364075aebef6c0f5c97fa343aa192ba8c526b7ad4c71c4c19ad2d5ae05b07176a5e66d486889a2e8f9ef80b9c0680cf887f60137f6266ec335a5f1d74dc41dec1653a96d61b75f4b569b9328f6b2fb40391704f66e058e92dfc15d77599018d74907a9bb8870c5c446e81fa7a764a549f6a417326b52fbbe4f5885e6455be2890c3a8b97a9fd0c92c085edfaf6a4f28dfec0243aa79a71d123282d4e9a0b3497ad569db869e56638e271f1205a52fc38cb74767e4bb2f37bd437083e994395e98454c04092d292c681ade9e398589df6cbf9b3196d12c8153740647af018cab5f9bf3e3db7deea221c73f377b96d368ff8d9ffecb8f44d50b59fafc90f655ec9271c9c1d032cfb0f23720d01981c26296536e66cdb8c390ad1bca90e6b2711170665ad52aaa188f87ca96888d3d932e6c3bf32891cd746308b0d6345ed8cf7c1ad88442326a3892e60afd5c86a2d062a461d8896446154e9148aad5b122437e26a52ba1b620d085af628af5ada9fff664d4a9a230",
+"ct": "2844b68b9356049934b031b0d6de55b50fab0f46",
+"tag": "387bc3a46530bdf24b1cfa67899369ea",
+"pt": "12d3cc4473970296d2918818fdcf1a570d2d4821"
+},
+{
+"src": "Wycheproof tcId 127",
+"dec": true,
+"key": "b15ab816ba505ec42b528066d9119b4b2ee38159ce54a26bc5d661127e05222c",
+"iv": "75e3c608a39367dc4aa748d0",
+"aad": "005931a2d5c5bcedc716c3f246e21b3a46d2a6b1ce73644653e0cf277efa492f12fb2b83f70bae8737d53cd76254dabca8422d4ff9396c265d57e4fd3d0cd1c38198e229637c7fbfff468fcdb04ca12101865c08bbf55689e1299c5e7a430296c47a874d9956557b2cb32fd3f8073f85fefb6d2005c5d3329e40dcb957f5b01d7f1582ea359b947d5669da8003c009f8ecbfbf094fb8155cf89251ee4a91a43a96e3f6d302e15753dd48dd5e3b87e093021059ec323d38d3ee72290521eefd54cf708aa9e81869b756c3fc3c9a60e12226ac643bf7a91951e5509159b1e298bbfe88fd8ee659cac98c904f68c928403894fc89df100d6f30fd1ce20666815929b6eee39ece510eb53567e35cbe49dcec0f1b80fee861ed0af1cc759d477f306a5e1273e64c7e33554d11d79632006b420e7c71d36fece18d75a8b5773171ed071c26664fc0113277e3356ab30db05ac62ea5b975e36413572dd39e5c22d5c42bc82ab0ab85b54fbfaa527d1344dc3dfb18b941b05bcc5b47d25e18ef936f3918ed87cbf5dfa67989a038e2f747345c4b8d27b101c944f0f1d6fe21cd1a653c17530f9a893d7fd48afafcf12bf005fe044a000e8deaf09bed39ba62784bd5b88ace564806a9b5e0bf40f9f655fdd5bdc4bf568c5abb4b84ec61a85f0038b4f4cc3e75c3b3f99e62b99292d510f690c07c18af41b765fe5a1ee9484cf04c69f3f49c",
+"ct": "371fa70af8a198cb43ddd545e74b806246f7e932",
+"tag": "014a0179b81691d09011dcea5739551d",
+"pt": "8b2a6a9604b25d1670b7d869c649a05399b8ada5"
+},
+{
+"src": "Wycheproof tcId 128",
+"dec": true,
+"key": "00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f",
+"iv": "000000000000000000000000",
+"aad": "",
+"ct": "23293e9b07ca7d1b0cae7cc489a973b3",
+"tag": "ffffffffffffffffffffffffffffffff",
+"pt": "561008fa07a68f5c61285cd013464eaf"
+},
+{
+"src": "Wycheproof tcId 129",
+"dec": true,
+"key": "00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f",
+"iv": "ffffffffffffffffffffffff",
+"aad": "",
+"ct": "7cb6fc7c6abc009efe9551a99f36a421",
+"tag": "00000000000000000000000000000000",
+"pt": "c6152244cea1978d3e0bc274cf8c0b3b"
+},
+{
+"src": "Wycheproof tcId 130",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9de8fef6d8ab1bf1bf887232eab590dd",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 131",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ee8fef6d8ab1bf1bf887232eab590dd",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 132",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "1ce8fef6d8ab1bf1bf887232eab590dd",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 133",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ce9fef6d8ab1bf1bf887232eab590dd",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 134",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ce8fe76d8ab1bf1bf887232eab590dd",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 135",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ce8fef6d9ab1bf1bf887232eab590dd",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 136",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ce8fef6daab1bf1bf887232eab590dd",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 137",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ce8fef6d8ab1b71bf887232eab590dd",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 138",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ce8fef6d8ab1bf1be887232eab590dd",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 139",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ce8fef6d8ab1bf13f887232eab590dd",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 140",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ce8fef6d8ab1bf1bfa87232eab590dd",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 141",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ce8fef6d8ab1bf1bf887332eab590dd",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 142",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ce8fef6d8ab1bf1bf887232ebb590dd",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 143",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ce8fef6d8ab1bf1bf887232e8b590dd",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 144",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ce8fef6d8ab1bf1bf8872326ab590dd",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 145",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ce8fef6d8ab1bf1bf887232eab590dc",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 146",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ce8fef6d8ab1bf1bf887232eab590df",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 147",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ce8fef6d8ab1bf1bf887232eab5909d",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 148",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ce8fef6d8ab1bf1bf887232eab5905d",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 149",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9de8fef6d8ab1bf1be887232eab590dd",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 150",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ce8fe76d8ab1b71bf887232eab590dd",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 151",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9ce8fef6d8ab1b71bf887232eab5905d",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 152",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "631701092754e40e40778dcd154a6f22",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 153",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "00000000000000000000000000000000",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 154",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "ffffffffffffffffffffffffffffffff",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 155",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "1c687e76582b9b713f08f2b26a35105d",
+"pt": null
+},
+{
+"src": "Wycheproof tcId 156",
+"dec": true,
+"key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+"iv": "505152535455565758595a5b",
+"aad": "",
+"ct": "b2061457c0759fc1749f174ee1ccadfa",
+"tag": "9de9fff7d9aa1af0be897333ebb491dc",
+"pt": null
+}
+]
+}

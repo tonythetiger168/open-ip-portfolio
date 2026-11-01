@@ -14,56 +14,33 @@ module CXL_apb_sva (
   input logic [31:0] PRDATA,
   input logic PREADY, PSLVERR, irq,
   input logic [15:0] c_hdm_base,
-  input logic [15:0] c_req_addr,
-  input logic [15:0] c_req_tag,
-  input logic [3:0] c_req_opcode,
-  input logic [1:0] c_req_meta_field,
-  input logic [1:0] c_req_meta_value,
-  input logic [2:0] c_req_snp_type,
-  input logic [15:0] c_rwd_addr,
-  input logic [15:0] c_rwd_tag,
-  input logic [63:0] c_rwd_data,
-  input logic [7:0] c_rwd_be,
-  input logic [3:0] c_rwd_opcode,
-  input logic [1:0] c_rwd_meta_field,
-  input logic [1:0] c_rwd_meta_value,
-  input logic [2:0] c_rwd_snp_type,
-  input logic  c_rwd_poison,
-  input logic [15:0] c_ndr_tag,
-  input logic [1:0] c_ndr_opcode,
-  input logic [1:0] c_ndr_meta_value,
-  input logic [1:0] c_ndr_devload,
-  input logic [63:0] c_drs_data,
-  input logic [15:0] c_drs_tag,
-  input logic [1:0] c_drs_meta_value,
-  input logic [1:0] c_drs_devload,
-  input logic  c_drs_poison,
-  input logic  c_drs_last,
-  input logic  c_req_valid,
-  input logic  c_req_ready,
-  input logic  c_rwd_valid,
-  input logic  c_rwd_ready,
-  input logic  c_ndr_valid,
-  input logic  c_ndr_ready,
-  input logic  c_drs_valid,
-  input logic  c_drs_ready,
+  input logic  c_bi_en,
+  input logic [3:0] c_bi_line,
+  input logic [1:0] c_bi_op,
+  input logic [1:0] c_bi_state,
+  input logic [4:0] c_sf_cnt,
+  input logic  c_bi_valid,
+  input logic  c_bi_ready,
+  input logic  c_bi_done,
   input logic  c_ev_range,
   input logic  c_ev_opcode,
   input logic  c_ev_proto,
-  input logic  c_ev_poison
+  input logic  c_ev_poison,
+  input logic  c_ev_crc,
+  input logic  c_ev_seq,
+  input logic  c_ev_fmt,
+  input logic  c_ev_ovf
 );
   `COV_CLOCKING(PCLK, !PRESETN)
   wire        m_wr  = PSEL && PENABLE && PWRITE;
   wire        m_rd  = PSEL && PENABLE && !PWRITE;
-  wire        m_map = PADDR[1:0] == 2'b00 && (PADDR >> 2) < 16;
+  wire        m_map = PADDR[1:0] == 2'b00 && (PADDR >> 2) < 9;
   wire [9:0] m_idx = PADDR[11:2];
   wire [31:0] m_be  = {{8{PSTRB[3]}}, {8{PSTRB[2]}}, {8{PSTRB[1]}}, {8{PSTRB[0]}}};
-  logic [31:0] m_w [0:15];          // model of every stored word
-  logic [9:0] m_set;                // interrupt bits set this clock
-  logic m_state_REQ;          // full / valid pulse / available
-  logic m_state_RWD;          // full / valid pulse / available
-  logic m_state_NDR;          // full / valid pulse / available
-  logic m_state_DRS;          // full / valid pulse / available
+  logic [31:0] m_w [0:8];          // model of every stored word
+  logic [11:0] m_set;                // interrupt bits set this clock
+  logic m_state_BI;          // full / valid pulse / available
+  logic m_state_BIDONE;          // full / valid pulse / available
 
   always_comb begin
     m_set = '0;
@@ -71,14 +48,15 @@ module CXL_apb_sva (
     if (c_ev_opcode) m_set[1] = 1'b1;
     if (c_ev_proto) m_set[2] = 1'b1;
     if (c_ev_poison) m_set[3] = 1'b1;
-    if (m_state_REQ && c_req_ready) m_set[4] = 1'b1;
-    if (m_wr && m_map && (m_idx == 6 || m_idx == 7) && m_state_REQ) m_set[5] = 1'b1;
-    if (m_state_RWD && c_rwd_ready) m_set[6] = 1'b1;
-    if (m_wr && m_map && (m_idx == 8 || m_idx == 9 || m_idx == 10 || m_idx == 11) && m_state_RWD) m_set[7] = 1'b1;
-    if (c_ndr_valid && !m_state_NDR) m_set[8] = 1'b1;
-    if (c_ndr_valid && m_state_NDR && (m_rd && m_map && m_idx == 12)) m_set[8] = 1'b1;
-    if (c_drs_valid && !m_state_DRS) m_set[9] = 1'b1;
-    if (c_drs_valid && m_state_DRS && (m_rd && m_map && m_idx == 15)) m_set[9] = 1'b1;
+    if (c_ev_crc) m_set[4] = 1'b1;
+    if (c_ev_seq) m_set[5] = 1'b1;
+    if (c_ev_fmt) m_set[6] = 1'b1;
+    if (c_ev_ovf) m_set[7] = 1'b1;
+    if (m_state_BI && c_bi_ready) m_set[8] = 1'b1;
+    if (m_wr && m_map && (m_idx == 6) && m_state_BI) m_set[9] = 1'b1;
+    if (c_bi_done && !m_state_BIDONE) m_set[10] = 1'b1;
+    if (c_bi_done && m_state_BIDONE && (m_rd && m_map && m_idx == 7)) m_set[10] = 1'b1;
+    if (c_bi_done && m_state_BIDONE && !(m_rd && m_map && m_idx == 7)) m_set[11] = 1'b1;
   end
 
   always_ff @(posedge PCLK or negedge PRESETN) begin
@@ -92,63 +70,34 @@ module CXL_apb_sva (
       m_w[6] <= 32'h0;
       m_w[7] <= 32'h0;
       m_w[8] <= 32'h0;
-      m_w[9] <= 32'h0;
-      m_w[10] <= 32'h0;
-      m_w[11] <= 32'h0;
-      m_w[12] <= 32'h0;
-      m_w[13] <= 32'h0;
-      m_w[14] <= 32'h0;
-      m_w[15] <= 32'h0;
-      m_state_REQ <= 0;
-      m_state_RWD <= 0;
-      m_state_NDR <= 0;
-      m_state_DRS <= 0;
+      m_state_BI <= 0;
+      m_state_BIDONE <= 0;
     end else begin
       m_w[1] <= (m_w[1] & ~((m_wr && m_map && m_idx == 1) ? PWDATA & m_be : 0)) | 32'(m_set);
-      if (m_wr && m_map && m_idx == 2) m_w[2] <= ((m_w[2] & ~m_be) | (PWDATA & m_be)) & 32'h3FF;
+      if (m_wr && m_map && m_idx == 2) m_w[2] <= ((m_w[2] & ~m_be) | (PWDATA & m_be)) & 32'hFFF;
       if (m_wr && m_map && m_idx == 4) m_w[4] <= ((m_w[4] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
-      if (m_wr && m_map && m_idx == 5) m_w[5] <= ((m_w[5] & ~m_be) | (PWDATA & m_be)) & 32'hFFFF;
-      if (m_wr && m_map && m_idx == 6 && !m_state_REQ) m_w[6] <= ((m_w[6] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
-      if (m_wr && m_map && m_idx == 7 && !m_state_REQ) m_w[7] <= ((m_w[7] & ~m_be) | (PWDATA & m_be)) & 32'h7FF;
-      if (m_wr && m_map && m_idx == 7 && !m_state_REQ) m_state_REQ <= 1;
-      if (m_state_REQ && c_req_ready) m_state_REQ <= 0;
-      if (m_wr && m_map && m_idx == 8 && !m_state_RWD) m_w[8] <= ((m_w[8] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
-      if (m_wr && m_map && m_idx == 9 && !m_state_RWD) m_w[9] <= ((m_w[9] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
-      if (m_wr && m_map && m_idx == 10 && !m_state_RWD) m_w[10] <= ((m_w[10] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFFFFF;
-      if (m_wr && m_map && m_idx == 11 && !m_state_RWD) m_w[11] <= ((m_w[11] & ~m_be) | (PWDATA & m_be)) & 32'hFFFFF;
-      if (m_wr && m_map && m_idx == 11 && !m_state_RWD) m_state_RWD <= 1;
-      if (m_state_RWD && c_rwd_ready) m_state_RWD <= 0;
-      if (c_ndr_valid && (!m_state_NDR || (m_rd && m_map && m_idx == 12))) begin
-        m_w[12] <= (32'(c_ndr_tag[15:0]) << 0) | (32'(c_ndr_opcode[1:0]) << 16) | (32'(c_ndr_meta_value[1:0]) << 18) | (32'(c_ndr_devload[1:0]) << 20);
-        m_state_NDR <= 1;
-      end else if ((m_rd && m_map && m_idx == 12)) m_state_NDR <= 0;
-      if (c_drs_valid && (!m_state_DRS || (m_rd && m_map && m_idx == 15))) begin
-        m_w[13] <= (32'(c_drs_data[31:0]) << 0);
-        m_w[14] <= (32'(c_drs_data[63:32]) << 0);
-        m_w[15] <= (32'(c_drs_tag[15:0]) << 0) | (32'(c_drs_meta_value[1:0]) << 16) | (32'(c_drs_devload[1:0]) << 18) | (32'(c_drs_poison) << 20) | (32'(c_drs_last) << 21);
-        m_state_DRS <= 1;
-      end else if ((m_rd && m_map && m_idx == 15)) m_state_DRS <= 0;
+      if (m_wr && m_map && m_idx == 5) m_w[5] <= ((m_w[5] & ~m_be) | (PWDATA & m_be)) & 32'h1FFFF;
+      if (m_wr && m_map && m_idx == 6 && !m_state_BI) m_w[6] <= ((m_w[6] & ~m_be) | (PWDATA & m_be)) & 32'h3F;
+      if (m_wr && m_map && m_idx == 6 && !m_state_BI) m_state_BI <= 1;
+      if (m_state_BI && c_bi_ready) m_state_BI <= 0;
+      if (c_bi_done && (!m_state_BIDONE || (m_rd && m_map && m_idx == 7))) begin
+        m_w[7] <= (32'(c_bi_state[1:0]) << 0);
+        m_state_BIDONE <= 1;
+      end else if ((m_rd && m_map && m_idx == 7)) m_state_BIDONE <= 0;
     end
   end
 
   function automatic logic [31:0] m_read(input logic [9:0] i);
     case (i)
-      0: return 32'h43580200;
+      0: return 32'h43580300;
       1: return m_w[1];
       2: return m_w[2];
-      3: return 32'({m_state_DRS, m_state_NDR, m_state_RWD, m_state_REQ});
+      3: return 32'({m_state_BIDONE, m_state_BI});
       4: return m_w[4];
       5: return m_w[5];
       6: return m_w[6];
       7: return m_w[7];
-      8: return m_w[8];
-      9: return m_w[9];
-      10: return m_w[10];
-      11: return m_w[11];
-      12: return m_w[12];
-      13: return m_w[13];
-      14: return m_w[14];
-      15: return m_w[15];
+      8: return (32'(c_sf_cnt) << 0);
       default: return 0;
     endcase
   endfunction
@@ -159,29 +108,13 @@ module CXL_apb_sva (
   `SVA_IMP(a_read_data, m_rd && m_map, PRDATA == m_read(m_idx))
   `SVA_IMP(a_unmapped_read_zero, m_rd && !m_map, PRDATA == 0)
   `SVA_IMP(a_prdata_zero_outside_read, !m_rd, PRDATA == 0)
-  `SVA_INV(a_irq_pin, irq == |(m_w[1][9:0] & m_w[2][9:0]))
+  `SVA_INV(a_irq_pin, irq == |(m_w[1][11:0] & m_w[2][11:0]))
   `SVA_INV(a_core_hdm_base, c_hdm_base == m_w[5][15:0])
-  `SVA_INV(a_core_req_addr, c_req_addr == m_w[6][15:0])
-  `SVA_INV(a_core_req_tag, c_req_tag == m_w[6][31:16])
-  `SVA_INV(a_core_req_opcode, c_req_opcode == m_w[7][3:0])
-  `SVA_INV(a_core_req_meta_field, c_req_meta_field == m_w[7][5:4])
-  `SVA_INV(a_core_req_meta_value, c_req_meta_value == m_w[7][7:6])
-  `SVA_INV(a_core_req_snp_type, c_req_snp_type == m_w[7][10:8])
-  `SVA_INV(a_core_rwd_addr, c_rwd_addr == m_w[8][15:0])
-  `SVA_INV(a_core_rwd_tag, c_rwd_tag == m_w[8][31:16])
-  `SVA_INV(a_core_rwd_data_31_0, c_rwd_data[31:0] == m_w[9][31:0])
-  `SVA_INV(a_core_rwd_data_63_32, c_rwd_data[63:32] == m_w[10][31:0])
-  `SVA_INV(a_core_rwd_be, c_rwd_be == m_w[11][7:0])
-  `SVA_INV(a_core_rwd_opcode, c_rwd_opcode == m_w[11][11:8])
-  `SVA_INV(a_core_rwd_meta_field, c_rwd_meta_field == m_w[11][13:12])
-  `SVA_INV(a_core_rwd_meta_value, c_rwd_meta_value == m_w[11][15:14])
-  `SVA_INV(a_core_rwd_snp_type, c_rwd_snp_type == m_w[11][18:16])
-  `SVA_INV(a_core_rwd_poison, c_rwd_poison == m_w[11][19:19])
-  `SVA_INV(a_core_req_valid, c_req_valid == m_state_REQ)
-  `SVA_INV(a_core_rwd_valid, c_rwd_valid == m_state_RWD)
-  `SVA_INV(a_core_ndr_ready, c_ndr_ready == (!m_state_NDR || (m_rd && m_map && m_idx == 12)))
-  `SVA_INV(a_core_drs_ready, c_drs_ready == (!m_state_DRS || (m_rd && m_map && m_idx == 15)))
-  `SVA_RST(a_reset_values, !PRESETN, PRDATA == 0 && !irq && c_hdm_base == 16'h0 && c_req_addr == 16'h0 && c_req_tag == 16'h0 && c_req_opcode == 4'h0 && c_req_meta_field == 2'h0 && c_req_meta_value == 2'h0 && c_req_snp_type == 3'h0 && c_rwd_addr == 16'h0 && c_rwd_tag == 16'h0 && c_rwd_data[31:0] == 32'h0 && c_rwd_data[63:32] == 32'h0 && c_rwd_be == 8'h0 && c_rwd_opcode == 4'h0 && c_rwd_meta_field == 2'h0 && c_rwd_meta_value == 2'h0 && c_rwd_snp_type == 3'h0 && c_rwd_poison == 1'h0 && !c_req_valid && !c_rwd_valid && c_ndr_ready && c_drs_ready)
+  `SVA_INV(a_core_bi_en, c_bi_en == m_w[5][16:16])
+  `SVA_INV(a_core_bi_line, c_bi_line == m_w[6][3:0])
+  `SVA_INV(a_core_bi_op, c_bi_op == m_w[6][5:4])
+  `SVA_INV(a_core_bi_valid, c_bi_valid == m_state_BI)
+  `SVA_RST(a_reset_values, !PRESETN, PRDATA == 0 && !irq && c_hdm_base == 16'h0 && c_bi_en == 1'h0 && c_bi_line == 4'h0 && c_bi_op == 2'h0 && !c_bi_valid)
 
   // ---------------- functional coverage ----------------
   `FC(rd_ID, m_rd && m_map && m_idx == 0)
@@ -196,26 +129,12 @@ module CXL_apb_sva (
   `FC(wr_SCRATCH, m_wr && m_map && m_idx == 4)
   `FC(rd_CTRL, m_rd && m_map && m_idx == 5)
   `FC(wr_CTRL, m_wr && m_map && m_idx == 5)
-  `FC(rd_REQ0, m_rd && m_map && m_idx == 6)
-  `FC(wr_REQ0, m_wr && m_map && m_idx == 6)
-  `FC(rd_REQ1, m_rd && m_map && m_idx == 7)
-  `FC(wr_REQ1, m_wr && m_map && m_idx == 7)
-  `FC(rd_RWD0, m_rd && m_map && m_idx == 8)
-  `FC(wr_RWD0, m_wr && m_map && m_idx == 8)
-  `FC(rd_RWD1, m_rd && m_map && m_idx == 9)
-  `FC(wr_RWD1, m_wr && m_map && m_idx == 9)
-  `FC(rd_RWD2, m_rd && m_map && m_idx == 10)
-  `FC(wr_RWD2, m_wr && m_map && m_idx == 10)
-  `FC(rd_RWD3, m_rd && m_map && m_idx == 11)
-  `FC(wr_RWD3, m_wr && m_map && m_idx == 11)
-  `FC(rd_NDR, m_rd && m_map && m_idx == 12)
-  `FC(wr_NDR, m_wr && m_map && m_idx == 12)
-  `FC(rd_DRS0, m_rd && m_map && m_idx == 13)
-  `FC(wr_DRS0, m_wr && m_map && m_idx == 13)
-  `FC(rd_DRS1, m_rd && m_map && m_idx == 14)
-  `FC(wr_DRS1, m_wr && m_map && m_idx == 14)
-  `FC(rd_DRS2, m_rd && m_map && m_idx == 15)
-  `FC(wr_DRS2, m_wr && m_map && m_idx == 15)
+  `FC(rd_BI, m_rd && m_map && m_idx == 6)
+  `FC(wr_BI, m_wr && m_map && m_idx == 6)
+  `FC(rd_BIDONE, m_rd && m_map && m_idx == 7)
+  `FC(wr_BIDONE, m_wr && m_map && m_idx == 7)
+  `FC(rd_STATUS, m_rd && m_map && m_idx == 8)
+  `FC(wr_STATUS, m_wr && m_map && m_idx == 8)
   `FC(unmapped_read, m_rd && !m_map && PADDR[1:0] == 0)
   `FC(unmapped_write, m_wr && !m_map && PADDR[1:0] == 0)
   `FC(misaligned_read, m_rd && PADDR[1:0] != 0)
@@ -240,46 +159,46 @@ module CXL_apb_sva (
   `FC(irq_POISON_RD_cleared, m_w[1][3] && m_wr && m_map && m_idx == 1 && PWDATA[3] && PSTRB[0])
   `FC(irq_POISON_RD_masked, m_w[1][3] && !m_w[2][3])
   `FC(irq_POISON_RD_drives_pin, m_w[1][3] && m_w[2][3] && irq)
-  `FC(irq_REQ_DONE_set, m_set[4])
-  `FC(irq_REQ_DONE_cleared, m_w[1][4] && m_wr && m_map && m_idx == 1 && PWDATA[4] && PSTRB[0])
-  `FC(irq_REQ_DONE_masked, m_w[1][4] && !m_w[2][4])
-  `FC(irq_REQ_DONE_drives_pin, m_w[1][4] && m_w[2][4] && irq)
-  `FC(irq_REQ_OVF_set, m_set[5])
-  `FC(irq_REQ_OVF_cleared, m_w[1][5] && m_wr && m_map && m_idx == 1 && PWDATA[5] && PSTRB[0])
-  `FC(irq_REQ_OVF_masked, m_w[1][5] && !m_w[2][5])
-  `FC(irq_REQ_OVF_drives_pin, m_w[1][5] && m_w[2][5] && irq)
-  `FC(irq_RWD_DONE_set, m_set[6])
-  `FC(irq_RWD_DONE_cleared, m_w[1][6] && m_wr && m_map && m_idx == 1 && PWDATA[6] && PSTRB[0])
-  `FC(irq_RWD_DONE_masked, m_w[1][6] && !m_w[2][6])
-  `FC(irq_RWD_DONE_drives_pin, m_w[1][6] && m_w[2][6] && irq)
-  `FC(irq_RWD_OVF_set, m_set[7])
-  `FC(irq_RWD_OVF_cleared, m_w[1][7] && m_wr && m_map && m_idx == 1 && PWDATA[7] && PSTRB[0])
-  `FC(irq_RWD_OVF_masked, m_w[1][7] && !m_w[2][7])
-  `FC(irq_RWD_OVF_drives_pin, m_w[1][7] && m_w[2][7] && irq)
-  `FC(irq_NDR_AVAIL_set, m_set[8])
-  `FC(irq_NDR_AVAIL_cleared, m_w[1][8] && m_wr && m_map && m_idx == 1 && PWDATA[8] && PSTRB[1])
-  `FC(irq_NDR_AVAIL_masked, m_w[1][8] && !m_w[2][8])
-  `FC(irq_NDR_AVAIL_drives_pin, m_w[1][8] && m_w[2][8] && irq)
-  `FC(irq_DRS_AVAIL_set, m_set[9])
-  `FC(irq_DRS_AVAIL_cleared, m_w[1][9] && m_wr && m_map && m_idx == 1 && PWDATA[9] && PSTRB[1])
-  `FC(irq_DRS_AVAIL_masked, m_w[1][9] && !m_w[2][9])
-  `FC(irq_DRS_AVAIL_drives_pin, m_w[1][9] && m_w[2][9] && irq)
-  `FC(REQ_handshake, m_state_REQ && c_req_ready)
-  `FC(REQ_backpressure, m_state_REQ && !c_req_ready)
-  `FC(REQ_write_while_full, m_wr && m_map && m_idx == 7 && m_state_REQ)
-  `FC(RWD_handshake, m_state_RWD && c_rwd_ready)
-  `FC(RWD_backpressure, m_state_RWD && !c_rwd_ready)
-  `FC(RWD_write_while_full, m_wr && m_map && m_idx == 11 && m_state_RWD)
-  `FC(NDR_capture, c_ndr_valid && !m_state_NDR)
-  `FC(NDR_backpressure, c_ndr_valid && m_state_NDR && !(m_rd && m_map && m_idx == 12))
-  `FC(NDR_pop, m_rd && m_map && m_idx == 12 && m_state_NDR)
-  `FC(NDR_read_empty, m_rd && m_map && m_idx == 12 && !m_state_NDR)
-  `FC(NDR_pop_and_capture, c_ndr_valid && m_state_NDR && m_rd && m_map && m_idx == 12)
-  `FC(DRS_capture, c_drs_valid && !m_state_DRS)
-  `FC(DRS_backpressure, c_drs_valid && m_state_DRS && !(m_rd && m_map && m_idx == 15))
-  `FC(DRS_pop, m_rd && m_map && m_idx == 15 && m_state_DRS)
-  `FC(DRS_read_empty, m_rd && m_map && m_idx == 15 && !m_state_DRS)
-  `FC(DRS_pop_and_capture, c_drs_valid && m_state_DRS && m_rd && m_map && m_idx == 15)
+  `FC(irq_ERR_CRC_set, m_set[4])
+  `FC(irq_ERR_CRC_cleared, m_w[1][4] && m_wr && m_map && m_idx == 1 && PWDATA[4] && PSTRB[0])
+  `FC(irq_ERR_CRC_masked, m_w[1][4] && !m_w[2][4])
+  `FC(irq_ERR_CRC_drives_pin, m_w[1][4] && m_w[2][4] && irq)
+  `FC(irq_ERR_SEQ_set, m_set[5])
+  `FC(irq_ERR_SEQ_cleared, m_w[1][5] && m_wr && m_map && m_idx == 1 && PWDATA[5] && PSTRB[0])
+  `FC(irq_ERR_SEQ_masked, m_w[1][5] && !m_w[2][5])
+  `FC(irq_ERR_SEQ_drives_pin, m_w[1][5] && m_w[2][5] && irq)
+  `FC(irq_ERR_FMT_set, m_set[6])
+  `FC(irq_ERR_FMT_cleared, m_w[1][6] && m_wr && m_map && m_idx == 1 && PWDATA[6] && PSTRB[0])
+  `FC(irq_ERR_FMT_masked, m_w[1][6] && !m_w[2][6])
+  `FC(irq_ERR_FMT_drives_pin, m_w[1][6] && m_w[2][6] && irq)
+  `FC(irq_OVERFLOW_set, m_set[7])
+  `FC(irq_OVERFLOW_cleared, m_w[1][7] && m_wr && m_map && m_idx == 1 && PWDATA[7] && PSTRB[0])
+  `FC(irq_OVERFLOW_masked, m_w[1][7] && !m_w[2][7])
+  `FC(irq_OVERFLOW_drives_pin, m_w[1][7] && m_w[2][7] && irq)
+  `FC(irq_BI_DONE_set, m_set[8])
+  `FC(irq_BI_DONE_cleared, m_w[1][8] && m_wr && m_map && m_idx == 1 && PWDATA[8] && PSTRB[1])
+  `FC(irq_BI_DONE_masked, m_w[1][8] && !m_w[2][8])
+  `FC(irq_BI_DONE_drives_pin, m_w[1][8] && m_w[2][8] && irq)
+  `FC(irq_BI_OVF_set, m_set[9])
+  `FC(irq_BI_OVF_cleared, m_w[1][9] && m_wr && m_map && m_idx == 1 && PWDATA[9] && PSTRB[1])
+  `FC(irq_BI_OVF_masked, m_w[1][9] && !m_w[2][9])
+  `FC(irq_BI_OVF_drives_pin, m_w[1][9] && m_w[2][9] && irq)
+  `FC(irq_BIDONE_AVAIL_set, m_set[10])
+  `FC(irq_BIDONE_AVAIL_cleared, m_w[1][10] && m_wr && m_map && m_idx == 1 && PWDATA[10] && PSTRB[1])
+  `FC(irq_BIDONE_AVAIL_masked, m_w[1][10] && !m_w[2][10])
+  `FC(irq_BIDONE_AVAIL_drives_pin, m_w[1][10] && m_w[2][10] && irq)
+  `FC(irq_BIDONE_OVF_set, m_set[11])
+  `FC(irq_BIDONE_OVF_cleared, m_w[1][11] && m_wr && m_map && m_idx == 1 && PWDATA[11] && PSTRB[1])
+  `FC(irq_BIDONE_OVF_masked, m_w[1][11] && !m_w[2][11])
+  `FC(irq_BIDONE_OVF_drives_pin, m_w[1][11] && m_w[2][11] && irq)
+  `FC(BI_handshake, m_state_BI && c_bi_ready)
+  `FC(BI_backpressure, m_state_BI && !c_bi_ready)
+  `FC(BI_write_while_full, m_wr && m_map && m_idx == 6 && m_state_BI)
+  `FC(BIDONE_capture, c_bi_done && !m_state_BIDONE)
+  `FC(BIDONE_overflow, c_bi_done && m_state_BIDONE && !(m_rd && m_map && m_idx == 7))
+  `FC(BIDONE_pop, m_rd && m_map && m_idx == 7 && m_state_BIDONE)
+  `FC(BIDONE_read_empty, m_rd && m_map && m_idx == 7 && !m_state_BIDONE)
+  `FC(BIDONE_pop_and_capture, c_bi_done && m_state_BIDONE && m_rd && m_map && m_idx == 7)
   `FC_RST(reset_with_pending_irq, PRESETN && m_w[1] != 0 ##1 !PRESETN)
 endmodule
 

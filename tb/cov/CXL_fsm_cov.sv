@@ -3,4 +3,18 @@
 // FSM state and transition (arc) coverage for CXL: one cover property per
 // state and per explicit RTL arc, bound into the DUT module(s).
 
-// no clocked enum-typed state register found: FSM coverage N/A
+module CXL_top__fsm_cov (
+  input logic c_clk,
+  input logic r_rst_n,
+  input logic [1:0] s_bi_st
+);
+  // ---- FSM CXL_top.bi_st: 3 states, 3 arcs ----
+  fsm_st__bi_st__BI_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_bi_st == 2'd0);
+  fsm_st__bi_st__BI_SEND: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_bi_st == 2'd1);
+  fsm_st__bi_st__BI_WAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_bi_st == 2'd2);
+  fsm_arc__bi_st__ANY__BI_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_bi_st != 2'd0 ##1 s_bi_st == 2'd0);
+  fsm_arc__bi_st__ANY__BI_SEND: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_bi_st != 2'd1 ##1 s_bi_st == 2'd1);
+  fsm_arc__bi_st__ANY__BI_WAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_bi_st != 2'd2 ##1 s_bi_st == 2'd2);
+endmodule
+
+bind CXL_top CXL_top__fsm_cov u_fsm_cov (.c_clk(clk), .r_rst_n(rst_n), .s_bi_st(bi_st));
