@@ -79,3 +79,6 @@ AES_GCM | out_valid <= 1'b0; out_data <= '0; out_bytes <= '0; out_last <= 1'b0;#
 AES_GCM | wire [LEN_W:0] alen_n = {1'b0, alen} + (LEN_W + 1)'(in_bytes); | + 1 -> + 2 | a wider cast of in_bytes: the sum is truncated to the same LEN_W + 1 bits
 AES_GCM | m <= M_IDLE; k256 <= 1'b0; dec <= 1'b0; tlen <= '0; kreg <= '0; ivr <= '0; | 1'b0 -> 1'b1@1 | k256 reset value: it is only read while a message runs, and every start writes it first
 AES_GCM | m <= M_IDLE; k256 <= 1'b0; dec <= 1'b0; tlen <= '0; kreg <= '0; ivr <= '0; | 1'b0 -> 1'b1@2 | dec reset value: it is only read while a message runs, and every start writes it first
+PCIe_CXL_IDE | r_hs <= 1'b0; r_hp <= 1'b0; r_dp <= 1'b0; r_pl <= 1'b0; r_end <= 1'b0; r_term <= 1'b0; r_ok <= 1'b0; | 1'b0 -> 1'b1@5 | reset value of r_end; every message start and every error at R_IDLE load it before R_DROP reads it
+PCIe_CXL_IDE | rxo_valid <= 1'b0; rxo_data <= '0; rxo_bytes <= '0; rxo_kind <= '0; rxo_last <= 1'b0; | 1'b0 -> 1'b1@2 | reset value of rxo_last, which is only read with rxo_valid; every output block loads it
+PCIe_CXL_IDE | t_ep <= 1'b0; t_epn <= '0; t_mac <= '0; t_pl <= 1'b0; | 1'b0 -> 1'b1@2 | t_pl after the MAC block: every payload push loads it before the engine outputs that block
