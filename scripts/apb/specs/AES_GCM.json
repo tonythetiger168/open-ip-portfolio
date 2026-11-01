@@ -1,0 +1,122 @@
+{
+  "title": "AES-GCM authenticated encryption (NIST SP 800-38D), AES-128 / AES-256, 96-bit IV: one AES round per clock, GHASH overlapped with the AES, streaming AAD and text, constant-time tag check, sideload key port",
+  "code": "0x4147",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "200ms",
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Message configuration, taken by CMD.start",
+      "fields": [
+        {"port": "key256", "reset": "0", "desc": "0 AES-128 (key in KEY7..KEY4), 1 AES-256"},
+        {"port": "decrypt", "reset": "0", "desc": "0 encrypt, 1 decrypt"},
+        {"port": "key_sel", "reset": "0", "desc": "0 the KEY registers, 1 the sideload key port"},
+        {"port": "tag_len", "reset": "0", "desc": "decrypt: bytes of TAG_IN compared (the first ones), 0 = 16"}
+      ]
+    },
+    {
+      "name": "KEY",
+      "kind": "rw",
+      "secret": true,
+      "desc": "Key, 256 bits over eight write-only words (KEY7 holds bits 255:224, the first key bytes; AES-128 uses KEY7..KEY4); reads return 0",
+      "fields": [
+        {"port": "key", "reset": "0", "desc": "AES key, big-endian"}
+      ]
+    },
+    {
+      "name": "IV",
+      "kind": "rw",
+      "desc": "96-bit IV over three words (IV2 holds bits 95:64, the first IV bytes)",
+      "fields": [
+        {"port": "iv", "reset": "0", "desc": "initialization vector, big-endian"}
+      ]
+    },
+    {
+      "name": "TAG_IN",
+      "kind": "rw",
+      "desc": "Decrypt: the expected tag over four words (TAG_IN3 holds bits 127:96, the first tag bytes); compared when the message ends",
+      "fields": [
+        {"port": "tag_in", "reset": "0", "desc": "expected tag, big-endian, left-aligned when truncated"}
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {"port": "start", "desc": "start a message with CTRL, KEY (or the sideload key) and IV; ignored while busy"},
+        {"port": "clr", "desc": "abort the message and clear the key, state and pending output"}
+      ]
+    },
+    {
+      "name": "IN",
+      "kind": "stream_in",
+      "data": ["in_data", "in_bytes", "in_aad", "in_last"],
+      "valid": "in_valid",
+      "ready": "in_ready",
+      "desc": "Input block: IN0..IN3 the 128-bit block (IN3 holds bytes 0-3), then IN4 with the byte count, AAD flag and last flag, which commits it",
+      "fdesc": {"in_data": "block, big-endian", "in_bytes": "valid bytes 0..16 (0 only with in_last: end of message)",
+                "in_aad": "1 AAD block, 0 text block", "in_last": "last block of the message"}
+    },
+    {
+      "name": "OUT",
+      "kind": "stream_out",
+      "data": ["out_data", "out_bytes", "out_last"],
+      "valid": "out_valid",
+      "ready": "out_ready",
+      "desc": "Output text block (ciphertext when encrypting, plaintext when decrypting): read OUT0..OUT3, then OUT4, which pops it",
+      "fdesc": {"out_data": "block, big-endian, bytes past out_bytes zero", "out_bytes": "valid bytes 1..16",
+                "out_last": "the input block was marked last"}
+    },
+    {
+      "name": "TAG",
+      "kind": "ro",
+      "desc": "Encrypt: the 128-bit tag (TAG3 holds bits 127:96, the first tag bytes); 0 after a decryption",
+      "fields": [
+        {"port": "tag", "desc": "authentication tag of the last encryption"}
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Engine state and result",
+      "fields": [
+        {"port": "busy", "desc": "a message is running"},
+        {"port": "tag_ok", "desc": "the last decryption's tag matched"},
+        {"port": "err_code", "desc": "cause of the last error: 1 format, 2 block order, 3 too long, 4 sideload key not valid"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "DONE", "port": "done", "desc": "a message finished: TAG (encrypt) or STATUS.tag_ok (decrypt) is valid"},
+    {"name": "ERR", "port": "err", "desc": "a message was dropped (STATUS.err_code gives the cause)"}
+  ],
+  "features": [
+    "AES-GCM (NIST SP 800-38D) encryption and decryption with AES-128 or AES-256 (FIPS 197) and a 96-bit IV; checked against the NIST CAVP GCM vectors and Project Wycheproof.",
+    "AES: one round per clock, round keys expanded on the fly (no round-key storage); 11 clocks per block for AES-128, 15 for AES-256. The AES encrypts the next counter block while the current one is used, so text streams at one block per 11 / 15 clocks.",
+    "GHASH: 32 bits of the operand per clock with a balanced partial-product tree (4 clocks per block), in parallel with the AES; AAD streams at one block per 4 clocks.",
+    "Streaming: any AAD length (up to 2^36 - 1 bytes) and text length (up to 2^36 - 32 bytes, the SP 800-38D limit), partial last blocks, an optional empty end block; output back-pressure.",
+    "Decrypt: the tag is checked in constant time against the first 1-16 bytes of TAG_IN and only the result (STATUS.tag_ok) is given; the computed tag is never readable after a decryption, so the engine cannot be used to forge tags.",
+    "Key: the write-only KEY registers or a sideload port (sl_key / sl_valid, passing through the wrapper) for a key manager such as Root_of_Trust's key_out; the key, H, E(K, J0) and all AES and GHASH state are cleared at the end of every message, on an error and on CMD.clr.",
+    "Errors drop the message: block size over 16 or an empty block without last (1), AAD after text or a block after a partial block of its kind (2), length over the limit (3), sideload key not valid at start (4)."
+  ],
+  "notes": [
+    "Data is big-endian: byte 0 of a block is bits 127:120, which is IN3 / OUT3 bits 31:24.",
+    "The plaintext of a decryption comes out before the tag is checked: software must not use it before IRQ DONE with STATUS.tag_ok = 1.",
+    "Only 96-bit IVs, the length SP 800-38D recommends; other IV lengths would first need a GHASH over the IV.",
+    "Each block takes five register writes (IN0..IN4) and an output block five reads: for line-rate use, drive the core's stream ports from a DMA.",
+    "Not implemented (public functional baseline): side-channel (power / EM) countermeasures such as masking, and fault-injection detection; a key manager and a TRNG for IVs are outside the IP."
+  ],
+  "sequence": [
+    "Write CTRL, KEY0..KEY7 (or set CTRL.key_sel and drive the sideload port), IV0..IV2 and, to decrypt, TAG_IN0..TAG_IN3; write CMD.start.",
+    "For each AAD block, then each text block: wait for FLAGS.IN_FULL = 0, write IN0..IN3 and then IN4 = bytes | aad << 5 | last << 6. Only the last block of each kind may be partial; mark the last block of the message (or send IN4 = 1 << 6 with no data).",
+    "Read each output block when FLAGS.OUT_AVAIL is set: OUT0..OUT3, then OUT4 (pops it).",
+    "Wait for IRQ_STATUS.DONE (or ERR); read TAG0..TAG3 (encrypt) or STATUS.tag_ok (decrypt). Clear the KEY registers if the key is not reused."
+  ],
+  "verification": [
+    "Core: tb/AES_GCM_tb.sv runs 758 cases from tb/AES_GCM_vec.svh: 483 known-answer tests (NIST CAVP gcmEncryptExtIV128 / gcmDecrypt128, one per section with a 96-bit IV, and every Wycheproof case with a 96-bit IV and a 128- or 256-bit key, valid and invalid), the NIST encryptions decrypted again with their truncated tags, and seeded random cases (AES-128 / AES-256, lengths 0-300 bytes, tags of 1-16 bytes, wrong tags); with random gaps, output back-pressure and the key from either port. Then messages at the length limits (core built with LEN_W = 14) and one byte over, every error, clr in every phase, start while busy, reset in a message and the throughput (11 / 15 clocks per text block, 4 per AAD block).",
+    "All expected values come from scripts/aes_gcm/gcm_ref.py, written from FIPS 197 and SP 800-38D and checked against the FIPS 197 and GCM specification examples and Python's cryptography package. The core checker has its own AES (S-box computed from the field inverse) and bit-serial GHASH and recomputes every output block, error, tag and tag_ok, and checks that no secret is left in the core when it is idle."
+  ]
+}

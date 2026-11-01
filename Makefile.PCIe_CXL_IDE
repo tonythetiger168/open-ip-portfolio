@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+# PCIe_CXL_IDE Open IP -- sim & synthesis entry points
+S      := PCIe_CXL_IDE
+DEPS   := rtl/AES_GCM_top.sv
+# the AES-GCM engine is an IP of its own, closed by its own coverage run
+COVLIB := rtl/AES_GCM_top.sv
+SIM    ?= iverilog
+VFLAGS := -g2012 -Wall
+SYN    ?= yosys
+
+all: sim syn
+
+sim:
+	$(SIM) $(VFLAGS) -I tb -o simv rtl/$(S)_top.sv $(DEPS) tb/$(S)_tb.sv
+	./simv
+
+syn:
+	mkdir -p work && cd work && $(SYN) ../syn/$(S)_yosys.ys
+
+# known-answer cases (tb/PCIe_CXL_IDE_vec.svh) from scripts/ide/ide_ref.py
+vec:
+	python3 scripts/ide/gen_vec.py > tb/$(S)_vec.svh
+
+apb:
+	$(SIM) $(VFLAGS) -I tb -o simv_apb rtl/$(S)_top.sv $(DEPS) rtl/$(S)_apb.sv tb/$(S)_apb_tb.sv
+	./simv_apb
+	mkdir -p work && cd work && $(SYN) ../syn/$(S)_apb_yosys.ys
+
+clean:
+	rm -f simv simv_apb *.vcd work/*.json work/*_netlist.v
+.PHONY: all sim syn apb vec clean
