@@ -121,6 +121,8 @@ module SPDM_top #(
   localparam int SW     = $clog2(NM + 1);   // measurement slot index, NM = none
   localparam int NMW    = NM * 12;      // measurement store words
   localparam int CCW    = 1 << (CC_AW - 2);
+  localparam int MAW    = $clog2(NMW);   // measurement store word address
+  localparam int MIW    = NM > 1 ? $clog2(NM) : 1;   // measurement index
   // the largest response: MEASUREMENTS of all indices or CHALLENGE_AUTH, ML-DSA-87
   localparam int DTS_M  = 8 + 55 * NM + 34 + 4627;
   localparam int DTS    = DTS_M > 4761 ? DTS_M : 4761;
@@ -139,7 +141,9 @@ module SPDM_top #(
   localparam logic [11:0] N_WIPE = 12'd2408;   // words 0x288 .. 0xBEF: SK, SIG, XI, KC, RND
   localparam logic [14:0] MP_LEN = 15'd150;    // M' = 0, 0, prefix (100), hash (48)
   // response segments, in response order
+  /* verilator lint_off UNUSEDPARAM */  // G_OPQ: the default segment (and the formal properties)
   localparam int G_HB = 0, G_D0 = 1, G_CC = 2, G_MB = 3, G_NON = 4, G_D1 = 5, G_OPQ = 6;
+  /* verilator lint_on UNUSEDPARAM */
   // transcript targets
   localparam int T_M = 0, T_L = 1, T_V = 2;
 
@@ -159,22 +163,26 @@ module SPDM_top #(
     for (int j = NM - 1; j >= 0; j--) if (m[j] && SW'(j) >= i) next_set = SW'(j);
   endfunction
   // the signed message M' = 0, 0 (pure ML-DSA, empty context) || prefix || hash
-  function automatic logic [7:0] prefix_byte(input logic [6:0] j);   // j < 64
+  function automatic logic [7:0] prefix_byte(input logic [3:0] j);   // byte j of the 16-byte string
     logic [127:0] s;
     s = "dmtf-spdm-v1.2.*";
-    prefix_byte = s[127 - 8 * j[3:0] -: 8];
+    prefix_byte = s[127 - 8 * j -: 8];
   endfunction
   function automatic logic [7:0] ctx_byte(input logic cm, input logic [5:0] j);  // j < 36
     logic [255:0] sc;
     logic [239:0] sm;
+    logic [4:0]   jo;
+    logic [7:0]   bi;
     sc = "responder-challenge_auth signing";   // 32 bytes behind 4 zero bytes
     sm = "responder-measurements signing";     // 30 bytes behind 6 zero bytes
-    if (!cm) ctx_byte = j < 6'd4 ? 8'h00 : sc[255 - 8 * (j - 6'd4) -: 8];
-    else     ctx_byte = j < 6'd6 ? 8'h00 : sm[239 - 8 * (j - 6'd6) -: 8];
+    jo = 5'(j - (cm ? 6'd6 : 6'd4));
+    bi = (cm ? 8'd239 : 8'd255) - {jo, 3'b000};
+    if (!cm) ctx_byte = j < 6'd4 ? 8'h00 : sc[bi -: 8];
+    else     ctx_byte = j < 6'd6 ? 8'h00 : sm[bi -: 8];
   endfunction
   function automatic logic [7:0] mp_byte(input logic cm, input logic [383:0] h, input logic [7:0] k);
     if (k < 8'd2)        mp_byte = 8'h00;
-    else if (k < 8'd66)  mp_byte = prefix_byte(7'(k - 8'd2));
+    else if (k < 8'd66)  mp_byte = prefix_byte(4'(k - 8'd2));
     else if (k < 8'd102) mp_byte = ctx_byte(cm, 6'(k - 8'd66));
     else if (k < 8'd150) mp_byte = h[8 * (k - 8'd102) +: 8];
     else                 mp_byte = 8'h00;
@@ -190,7 +198,7 @@ module SPDM_top #(
   wire st_mv = (st_addr >> 4) < (CC_AW - 2)'(NM) && st_word < 4'd12;
   always_ff @(posedge clk) begin
     if (st_we && !st_sel) ccm[st_addr] <= st_data;
-    if (st_we && st_sel && st_mv) mvm[8'(st_slot) * 8'd12 + 8'(st_word)] <= st_data;
+    if (st_we && st_sel && st_mv) mvm[MAW'(8'(st_slot) * 8'd12 + 8'(st_word))] <= st_data;
   end
 
   // ---------------- engines ----------------
@@ -216,7 +224,10 @@ module SPDM_top #(
   end
 `endif
 
-  logic        ml_start, ml_busy, ml_done;
+  logic        ml_start, ml_done;
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic        ml_busy;                 // read by the coverage checker only
+  /* verilator lint_on UNUSEDSIGNAL */
   logic        ml_kg;                   // the operation started is KeyGen
   logic        hp_load, hw_valid, hw_ready, hr_en, hr_valid, hr_ready;
   logic [12:0] hp_addr;
@@ -232,11 +243,13 @@ module SPDM_top #(
   assign hr_valid = f_hr_valid;
   assign hr_data = f_hr_data;
 `else
+  /* verilator lint_off PINCONNECTEMPTY */
   ML_DSA_top u_mldsa (.clk(clk), .rst_n(rst_n), .start(ml_start), .op({1'b0, !ml_kg}), .pset(key_pset),
                       .ext_mu(1'b0), .mlen(MP_LEN), .busy(ml_busy), .done(ml_done), .err(),
                       .fail(), .tries(), .hp_load(hp_load), .hp_addr(hp_addr),
                       .hw_valid(hw_valid), .hw_data(hw_data), .hw_ready(hw_ready), .hr_en(hr_en),
                       .hr_valid(hr_valid), .hr_data(hr_data), .hr_ready(hr_ready));
+  /* verilator lint_on PINCONNECTEMPTY */
 `endif
 
   // ---------------- state ----------------
@@ -260,7 +273,7 @@ module SPDM_top #(
   logic [5:0]   mb_j;
   logic [2:0]   tgt;                   // transcripts fed: M, L, VCA
   logic         sgn, sg_cm;            // signed response; 0 CHALLENGE_AUTH, 1 MEASUREMENTS context
-  logic         need_cc, need_ms, need_rn, ax_ms;
+  logic         need_ms, need_rn, ax_ms;
   logic         is_err, e_v10;
   logic [7:0]   e_code;
   logic [255:0] nonce;
@@ -305,7 +318,7 @@ module SPDM_top #(
   // GET_MEASUREMENTS
   wire        q_sig = q_p1[0];
   wire [NM-1:0] q_mask = q_p2 == 8'hFF ? m_en : q_p2 == 8'h00 ? '0 : NM'(1) << (q_p2 - 8'd1);
-  wire        q_idx_ok = q_p2 == 8'hFF || q_p2 == 8'h00 || (q_p2 <= 8'(NM) && m_en[3'(q_p2 - 8'd1)]);
+  wire        q_idx_ok = q_p2 == 8'hFF || q_p2 == 8'h00 || (q_p2 <= 8'(NM) && m_en[MIW'(q_p2 - 8'd1)]);
   wire [SW-1:0] q_nb = popc(q_mask);
 
   // the decision for a request: error code (0: none) and what to do
@@ -343,7 +356,7 @@ module SPDM_top #(
   wire [CC_AW-1:0] cc_a = cc_off + CC_AW'(k);
   wire [31:0] cc_w = ccm[cc_a[CC_AW-1:2]];
   wire [5:0]  mj7 = mb_j - 6'd7;
-  wire [31:0] mv_w = mvm[8'(mb_slot) * 8'd12 + 8'(mj7[5:2])];
+  wire [31:0] mv_w = mvm[MAW'(8'(mb_slot) * 8'd12 + 8'(mj7[5:2]))];
   logic [7:0] mb_byte;
   always_comb
     case (mb_j)
@@ -374,7 +387,7 @@ module SPDM_top #(
       6'd2: hb = rt == R_ERR ? e_code : rt == R_MEAS && q_p2 == 8'h00 ? 8'(popc(m_en)) : 8'h00;
       6'd3: hb = rt == R_ERR ? (e_code == E_UNSUP ? q_code : 8'h00) : rt == R_DIG ? {7'd0, slot_ok} :
                  rt == R_CHAL ? 8'h01 : 8'h00;
-      6'd4: hb = rt == R_ALG ? (asym_ok ? 8'd40 : 8'd36) : rt == R_CRT ? cc_cnt[7:0] :
+      6'd4: hb = rt == R_ALG ? (asym_ok ? 8'd40 : 8'd36) : rt == R_CRT ? 8'(cc_cnt) :
                  rt == R_MEAS ? 8'(popc(mb_mask)) : 8'h00;
       6'd5: hb = rt == R_VER ? 8'd1 : rt == R_CAP ? ct_exp : rt == R_CRT ? 8'(cc_cnt >> 8) :
                  rt == R_MEAS ? 8'(13'd55 * 13'(popc(mb_mask))) : 8'h00;
@@ -425,7 +438,7 @@ module SPDM_top #(
   wire        rs_go = rs_valid && rs_ready;
   wire        ax_go = st == S_AX && ph && k < 16'hFFFE && th_br[2];
   wire        frq_go = st == S_FRQ && tg_rdy;
-  wire        rpl_go = st == S_RPL && ph && k[7:0] != vca_n && th_br[sg_cm];
+  wire        rpl_go = st == S_RPL && ph && k[7:0] != vca_n && th_br[{1'b0, sg_cm}];
   assign th_bd = st == S_FRQ ? rqb[k[6:0]] : st == S_RPL ? vca[k[7:0]] : g_byte;
   assign th_bv[0] = (st == S_OUT && rs_go || frq_go) && tgt[T_M] || rpl_go && !sg_cm;
   assign th_bv[1] = (st == S_OUT && rs_go || frq_go) && tgt[T_L] || rpl_go && sg_cm;
@@ -444,7 +457,7 @@ module SPDM_top #(
       S_RN:   begin hp_load = k[3] && !ph; hp_addr = W_RND;
                     hw_valid = k[3] && ph && rn_valid; hw_data = rn_data; end
       S_MW:   begin hp_load = !ph; hp_addr = W_MSG; hw_valid = ph;
-                    for (int i = 0; i < 4; i++) hw_data[8 * i +: 8] = mp_byte(sg_cm, th_dig[sg_cm], 8'({k[5:0], 2'(i)})); end
+                    for (int i = 0; i < 4; i++) hw_data[8 * i +: 8] = mp_byte(sg_cm, th_dig[{1'b0, sg_cm}], 8'({k[5:0], 2'(i)})); end
       S_SG:   ml_start = !ph;
       S_SIGO: begin hp_load = !ph; hp_addr = W_SIG; hr_en = ph;
                     hr_ready = ph && rs_ready && (k[1:0] == 2'd3 || k[12:0] == slen - 13'd1); end
@@ -463,8 +476,8 @@ module SPDM_top #(
     if (st == S_DEC && d_err == 8'h00 && q_code == C_GVER) th_start[1:0] = 2'b11;
     if (st == S_AX && !ph) th_start[2] = 1'b1;
     if (st == S_AX && ph && k == 16'hFFFE) th_fin[2] = 1'b1;
-    if (st == S_FIN && !ph) th_fin[sg_cm] = 1'b1;
-    if (st == S_RPL && !ph) th_start[sg_cm] = 1'b1;
+    if (st == S_FIN && !ph) th_fin[{1'b0, sg_cm}] = 1'b1;
+    if (st == S_RPL && !ph) th_start[{1'b0, sg_cm}] = 1'b1;
     if (st == S_CLR && !ph) th_wipe = 3'b111;
   end
 
@@ -476,7 +489,7 @@ module SPDM_top #(
       st <= S_IDLE; ph <= 1'b0; rq_n <= '0; rq_ovf <= 1'b0; drain <= 1'b0; vca_n <= '0;
       rt <= R_ERR; e_v10 <= 1'b0; seg_en <= '0; seg <= '0; k <= '0; cc_off <= '0; cc_cnt <= '0;
       mb_mask <= '0; ms_mask <= '0; mb_slot <= '0; mb_j <= '0; tgt <= '0; sgn <= 1'b0; sg_cm <= 1'b0;
-      need_cc <= 1'b0; need_ms <= 1'b0; need_rn <= 1'b0; ax_ms <= 1'b0; is_err <= 1'b0;
+      need_ms <= 1'b0; need_rn <= 1'b0; ax_ms <= 1'b0; is_err <= 1'b0;
       e_code <= '0; nonce <= '0; cc_dig <= '0; hash_ok <= 1'b0; asym_ok <= 1'b0; meas_ok <= 1'b0;
       dts <= '0; clr_p <= 1'b0; kseed <= '0;
       conn <= '0; key_ok <= 1'b0; key_pset <= '0; rsp_done <= 1'b0; rsp_err <= 1'b0; err_code <= '0;
@@ -517,7 +530,7 @@ module SPDM_top #(
             // defaults: an ERROR response
             is_err <= d_err != 8'h00; e_code <= d_err; rt <= R_ERR;
             e_v10 <= conn == 2'd0 || q_code == C_GVER || rq_n < 8'd2;
-            seg_en <= 7'b0000001; tgt <= '0; sgn <= 1'b0; need_cc <= 1'b0; need_ms <= 1'b0;
+            seg_en <= 7'b0000001; tgt <= '0; sgn <= 1'b0; need_ms <= 1'b0;
             need_rn <= 1'b0; cc_off <= '0; cc_cnt <= '0;
             mb_mask <= '0; ms_mask <= '0; seg <= '0; k <= '0;
             st <= S_FRQ;
@@ -536,7 +549,7 @@ module SPDM_top #(
                 hash_ok <= rqb[12][4]; asym_ok <= q_asym; meas_ok <= rqb[6][0];
               end
               C_GDIG: begin
-                rt <= R_DIG; seg_en <= {5'd0, slot_ok, 1'b1}; need_cc <= slot_ok; tgt <= 3'b001;
+                rt <= R_DIG; seg_en <= {5'd0, slot_ok, 1'b1}; tgt <= 3'b001;
               end
               C_GCRT: begin
                 rt <= R_CRT; cc_off <= CC_AW'(q_off); cc_cnt <= (CC_AW + 1)'(c_pn);
@@ -544,7 +557,7 @@ module SPDM_top #(
               end
               C_CHAL: begin
                 rt <= R_CHAL; seg_en <= {1'b1, q_p2 != 8'h00, 1'b1, 2'b00, 2'b11};
-                need_cc <= 1'b1; need_ms <= q_p2 != 8'h00; ms_mask <= q_p2 == 8'h01 ? m_en & m_tcb : m_en;
+                need_ms <= q_p2 != 8'h00; ms_mask <= q_p2 == 8'h01 ? m_en & m_tcb : m_en;
                 need_rn <= 1'b1; sgn <= 1'b1; sg_cm <= 1'b0; tgt <= 3'b001;
               end
               default: begin           // GET_MEASUREMENTS
@@ -624,7 +637,7 @@ module SPDM_top #(
           end
           S_FIN: begin
             ph <= 1'b1;
-            if (ph && th_done[sg_cm]) begin st <= S_MW; ph <= 1'b0; k <= '0; end
+            if (ph && th_done[{1'b0, sg_cm}]) begin st <= S_MW; ph <= 1'b0; k <= '0; end
           end
           S_MW: begin
             if (!ph) ph <= 1'b1;
@@ -702,6 +715,7 @@ endmodule
 // message and the 48-byte digest is held in dig (byte i in [8i +: 8]) with a
 // done pulse. wipe clears the SHA3 state (a start with a reserved mode).
 // ----------------------------------------------------------------------------
+/* verilator lint_off DECLFILENAME */
 module SPDM_th (
   input  logic          clk,
   input  logic          rst_n,
@@ -718,14 +732,16 @@ module SPDM_th (
   logic [3:0]  nb;
   logic        finp, rd;
   logic [2:0]  wi;
-  logic        in_ready, out_valid, out_last, h_busy, h_done, h_err;
+  logic        in_ready, out_valid, out_last;
   logic [63:0] out_data;
   wire         full = nb == 4'd8;
   wire         in_valid = full || finp;
+  /* verilator lint_off PINCONNECTEMPTY */
   SHA3_top u_sha3 (.clk(clk), .rst_n(rst_n), .start(start || wipe), .mode(wipe ? 3'd7 : 3'd2),
                    .in_valid(in_valid), .in_data(lane), .in_bytes(nb), .in_last(finp && !full),
                    .in_ready(in_ready), .out_valid(out_valid), .out_data(out_data), .out_last(out_last),
-                   .out_ready(rd), .busy(h_busy), .done(h_done), .err(h_err));
+                   .out_ready(rd), .busy(), .done(), .err());
+  /* verilator lint_on PINCONNECTEMPTY */
   assign b_ready = !full && !finp && !rd && !start && !wipe;
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin

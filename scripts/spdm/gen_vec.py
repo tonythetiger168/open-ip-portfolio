@@ -170,6 +170,7 @@ def main_apb(out, check):
     g.vca(dts=42)
     g.req(sr.get_digests())                            # ResponseTooLarge
     g.slv(1)
+    g.keygen(0, sel=1, seed=bytes([0xFF] * 32))       # every sideload seed bit
     g.cfg(ct_exp=0xA5, pset=2, asym=0)
     g.keygen(2, sel=1)
     g.cfg(ct_exp=0xA5, pset=1)
