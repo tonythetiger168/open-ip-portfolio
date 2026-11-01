@@ -37,7 +37,7 @@ not a timing sign-off.
 | SHA-3 1.0 | clean | 100% / 100% | 32/32 killed (every site; none equivalent) | bounded proof, 7 properties, depth 30, and k-induction (any depth) | 51.4 kGE (1620 flip-flops) | 20 gate levels |
 | AES-GCM 1.0 | clean | 100% / 100% | 40/40 killed (6 equivalent listed) | bounded proof, 12 properties, depth 24 (reduced AES, see below) | 49.9 kGE (1619 flip-flops) | 56 gate levels |
 | TRNG 1.0 | clean | 100% / 100% | 40/40 killed, Icarus flow (13 equivalent listed) | bounded proof, 7 properties, depth 20 | 21.4 kGE (1431 flip-flops) | 74 gate levels |
-| SPDM 1.0 | clean | 100% / 100% | 12 sampled: 8 killed; the 4 survivors led to 2 new checker assertions (reset values, idle ML-DSA port) or are listed as equivalent (4 listed); all 7 on those lines now killed | bounded proof, 15 properties, depth 24 (engines cut, see below) | 72.4 kGE logic (5493 flip-flops) + 133 kbit RAM, plus 3 SHA-3 and 1 ML-DSA cores | 75 gate levels (59 in the ML-DSA) |
+| SPDM 1.0 | clean | 100% / 100% | 40 sampled: 37 killed, 3 equivalent (14 equivalent listed, mostly reset values that are set again before use; a first sample led to 2 new checker assertions) | bounded proof, 15 properties, depth 24 (engines cut, see below) | 72.4 kGE logic (5493 flip-flops) + 133 kbit RAM, plus 3 SHA-3 and 1 ML-DSA cores | 75 gate levels (59 in the ML-DSA) |
 
 Formal properties:
 
