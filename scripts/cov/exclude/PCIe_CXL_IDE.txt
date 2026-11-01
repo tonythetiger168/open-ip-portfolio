@@ -1,0 +1,4 @@
+LINE \| default: t <= T_IDLE; # defensive default: t only holds the eleven encoded t_t states
+LINE \| default: r <= R_IDLE; # defensive default: r only holds the eleven encoded r_t states
+TOGGLE \.t_epn\[[56]\]: # testbench LEN_W=9 limits a cachemem epoch to 30 flits (480 bytes); cm_agg up to 127 needs LEN_W >= 11
+TOGGLE \.r_epn\[[567]\]: # testbench LEN_W=9 limits a cachemem epoch to 30 flits (480 bytes); cm_agg up to 127 needs LEN_W >= 11

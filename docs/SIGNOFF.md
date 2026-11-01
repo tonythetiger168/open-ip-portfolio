@@ -37,6 +37,7 @@ not a timing sign-off.
 | SHA-3 1.0 | clean | 100% / 100% | 32/32 killed (every site; none equivalent) | bounded proof, 7 properties, depth 30, and k-induction (any depth) | 51.4 kGE (1620 flip-flops) | 20 gate levels |
 | AES-GCM 1.0 | clean | 100% / 100% | 40/40 killed (6 equivalent listed) | bounded proof, 12 properties, depth 24 (reduced AES, see below) | 49.9 kGE (1619 flip-flops) | 56 gate levels |
 | TRNG 1.0 | clean | 100% / 100% | 40/40 killed, Icarus flow (13 equivalent listed) | bounded proof, 7 properties, depth 20 | 21.4 kGE (1431 flip-flops) | 74 gate levels |
+| PCIe / CXL IDE 1.0 | clean | 100% / 100% | 40 sampled: 37 killed, 3 equivalent (7 equivalent listed) | bounded proof, 9 properties (with the engines' 24), depth 10 | 124.9 kGE (8464 flip-flops) + 2 AES-GCM engines | 91 gate levels |
 | SPDM 1.0 | clean | 100% / 100% | 40 sampled: 37 killed, 3 equivalent (14 equivalent listed, mostly reset values that are set again before use; a first sample led to 2 new checker assertions) | bounded proof, 15 properties, depth 24 (engines cut, see below) | 72.4 kGE logic (5493 flip-flops) + 133 kbit RAM, plus 3 SHA-3 and 1 ML-DSA cores | 75 gate levels (59 in the ML-DSA) |
 
 Formal properties:
@@ -148,6 +149,24 @@ Formal properties:
   clocks. The AES and GHASH values themselves are checked by simulation
   against NIST CAVP and Wycheproof vectors, and by a gate-level simulation
   of the synthesized netlist (below).
+
+- **PCIe / CXL IDE** (`formal/PCIe_CXL_IDE_props.svh`, 9 properties, one
+  stream, 3-bit invocation counters): a key slot that is not loaded holds
+  no key and no counter; a loaded slot's counter is never 0 (it starts at 1
+  and stops at all-ones, never wrapping); a Secure stream's active key set
+  has a loaded key, in both directions; both state registers hold encoded
+  states; an IDE prefix is 4 bytes, never last; a MAC block is last and 12
+  bytes, or 0 bytes when nullified, and only a MAC is nullified; a receive
+  END block is last and empty, and only an END is bad. Stream
+  configuration, key commands, keys, blocks and back-pressure are free in
+  every clock. The two AES_GCM_top engines run their reduced FORMAL AES and
+  their own 12 properties each are proven in the same run (33 assertions).
+  The run found a real hole: a stream made Secure as cachemem (only
+  sub-stream 0 keyed) and then switched to TLPs sent a TLP with an
+  unloaded sub-stream key (zero key, counter of an empty slot). Transmit
+  now refuses a slot without a key (error 3), and the core test does
+  exactly that switch. Two streams at depth 16 did not finish in 50
+  minutes.
 
 - **ML-KEM**: no SAT proof: the 8 KiB buffer and the 2560 x 12-bit
   polynomial store are too large for the open solver flow. Instead
@@ -274,6 +293,22 @@ Changes made for this bar:
   let the word counter wrap would have passed it (the OTP now holds the
   digest a wrapped counter gives, `IMG_WRAP_DIG`); and the rejected-digest
   cases now flip a bit in the first, the last and a middle digest word.
+- PCIe / CXL IDE 1.0 is new: IDE for PCIe TLPs, CXL.io and CXL.cachemem
+  on two AES-GCM engines (one per direction, AES-256, 96-bit MACs), with
+  two key sets of three sub-stream keys per stream and direction, IV
+  invocation counters, IDE_KM-style key commands, TLP prefixes and
+  cachemem MAC epochs (truncated when another message needs the engine).
+  The field layouts are our own (the specifications are member-only).
+  Formal found the unkeyed sub-stream hole above. Synthesis of the first
+  version did not finish in 15 minutes: the slot writes were variable
+  part-selects of the 6144-bit key stores; they are now one constant-index
+  write per slot, and the slot reads are muxes (about 4 minutes). The bound
+  checker had to learn that an engine clr on a terminating error drops the
+  blocks still inside the engine (found at 10% output ready). `run_formal.sh`
+  takes `FILES` in `formal/<P>.cfg` for cores that instantiate other IPs. Mutation
+  testing (three samples of 40 as equivalents were listed) killed every
+  mutant that changes behaviour; the 7 survivors were reset or clear values
+  of flags that are always reloaded before they are read.
 - ML-DSA: mutation testing found three test gaps, now closed: no Sign case
   had ||c t0|| exactly gamma2 (a crafted private key now gives one), no
   Verify case repeated a hint index while decoding to the same hints (only
@@ -321,7 +356,8 @@ These need tools, data or documents this repository does not have:
 - **CXL.** The flit and message layouts are our own simplified encoding of
   the CXL 3.x 256-byte flit (no 68-byte or latency-optimised flit); there
   is no link-layer retry (a bad flit is dropped and reported), no FEC
-  correction, no IDE (planned once AES-GCM is in), no CXL.cache, no PBR or
+  correction, no IDE inside the core (PCIe_CXL_IDE is a separate IP that
+  sits between the link layer and the transaction layer), no CXL.cache, no PBR or
   multi-headed devices; CXL.io carries the payload to an external
   transaction layer. Device memory is 16 lines of flip-flops.
 - **Ethernet PCS.** The PCS works on the aggregate 640-bit stream (two
@@ -347,6 +383,13 @@ These need tools, data or documents this repository does not have:
   carries the functional baseline); only 96-bit IVs; 11 / 15 clocks per
   block, so a multi-Gbit/s link needs a pipelined (unrolled) AES and an
   aggregated GHASH with powers of H; no CAVP validation.
+- **PCIe / CXL IDE.** The prefix, MAC placement and epoch framing are our
+  own layouts, not checked against PCIe 6.x / CXL 3.x (member-only), and
+  there are no compliance vectors; no IDE_KM transport (DOE / SPDM), no
+  CXL.cachemem containment or skid mode, no key refresh by the link
+  partner's K-bit timing rules beyond the switch on a received K; the
+  engines run 15 clocks per block, far from link rate; no side-channel or
+  fault countermeasures. Formal covers one stream at depth 10.
 - **Root of Trust.** The OTP is a model, with no ECC; there is no
   entropy source, attestation signature (the key is for a crypto engine
   on the sideload port), glitch or clock monitor, or masking of the
