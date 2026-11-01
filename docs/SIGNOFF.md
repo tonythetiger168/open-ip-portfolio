@@ -37,6 +37,7 @@ not a timing sign-off.
 | SHA-3 1.0 | clean | 100% / 100% | 32/32 killed (every site; none equivalent) | bounded proof, 7 properties, depth 30, and k-induction (any depth) | 51.4 kGE (1620 flip-flops) | 20 gate levels |
 | AES-GCM 1.0 | clean | 100% / 100% | 40/40 killed (6 equivalent listed) | bounded proof, 12 properties, depth 24 (reduced AES, see below) | 49.9 kGE (1619 flip-flops) | 56 gate levels |
 | TRNG 1.0 | clean | 100% / 100% | 40/40 killed, Icarus flow (13 equivalent listed) | bounded proof, 7 properties, depth 20 | 21.4 kGE (1431 flip-flops) | 74 gate levels |
+| SPDM 1.0 | clean | 100% / 100% | 12 sampled: 8 killed; the 4 survivors led to 2 new checker assertions (reset values, idle ML-DSA port) or are listed as equivalent (4 listed); all 7 on those lines now killed | bounded proof, 15 properties, depth 24 (engines cut, see below) | 72.4 kGE logic (5493 flip-flops) + 133 kbit RAM, plus 3 SHA-3 and 1 ML-DSA cores | 75 gate levels (59 in the ML-DSA) |
 
 Formal properties:
 
@@ -90,6 +91,31 @@ Formal properties:
   (changing at any clock), en and ready are all free. A seed (512 samples)
   lies beyond the bound, so the output side is checked by the simulation
   checker, which recomputes every seed with its own SHA-256.
+- **SPDM** (`formal/SPDM_props.svh`, 15 properties, 2 measurement indices,
+  64-byte chain store). The three SHA-3 transcript engines and the ML-DSA
+  engine are cut: their outputs are free at every clock, so the result
+  holds whatever they answer, and the engines themselves are checked in
+  their own rows. The properties are:
+  - the control state and the response segment are legal;
+  - a request byte is taken only when idle or receiving, and never while
+    a response byte, a public-key word or a random word is offered;
+  - the public key goes out only with a key;
+  - random words are taken only for a nonce or signing randomness;
+  - ML-DSA starts only to sign with a key, or for KeyGen;
+  - a signing sequence belongs to CHALLENGE_AUTH or a signed MEASUREMENTS,
+    with a key;
+  - there is no key while KeyGen runs;
+  - negotiated algorithms exist only once ALGORITHMS was sent;
+  - only the five ERROR codes (0x01, 0x04, 0x07, 0x0D, 0x41) are ever chosen;
+  - an ERROR pulse comes with a response;
+  - a request cut by clr is drained only while idle.
+
+  Requests of any length and content, commands, clr, random words and
+  back-pressure are all free. Depth 24 takes a short request through
+  decode into its response. k-induction does not close within 4 steps, so
+  the result is the bounded one. The message contents (transcripts and
+  signatures) are checked in simulation instead, against the reference
+  model and the checker's own SHA3-384.
 
 - **SHA-3** (`formal/SHA3_props.svh`, 7 properties): the control, return
   and mode registers are legal; the lane index stays inside the rate block
@@ -221,6 +247,17 @@ Changes made for this bar:
   RS-FEC) are compiled in but not scored in the coverage of the IP that
   uses them, are skipped by the FSM extraction, and are read as black
   boxes by the area report (their area is in their own row).
+- SPDM 1.0 is new: an SPDM 1.2 (DMTF DSP0274) responder for device
+  attestation, built on the SHA-3 and ML-DSA cores. It answers
+  GET_VERSION, GET_CAPABILITIES, NEGOTIATE_ALGORITHMS, GET_DIGESTS,
+  GET_CERTIFICATE, CHALLENGE and GET_MEASUREMENTS, keeps the M1 and L1
+  transcripts in SHA3-384, and signs with ML-DSA-44, -65 or -87. The key
+  is generated inside, from a seed register or a sideload port, and the
+  private key never leaves the ML-DSA buffer. The vectors come from
+  `scripts/spdm/spdm_ref.py`, and every signature is verified with ML-DSA
+  Verify (`make -f Makefile.SPDM vec`). Icarus mis-evaluated a conditional
+  expression in the ML-DSA op port connection (the engine finished at
+  once with unknown outputs); the op is now a plain signal.
 - TRNG 1.0 is new: an SP 800-90B noise source with repetition count and
   adaptive proportion tests, a start-up test and SHA-256 conditioning, to
   seed the Root of Trust and a DRBG later. Mutation testing (Icarus flow:
@@ -292,6 +329,19 @@ These need tools, data or documents this repository does not have:
   lanes, per-lane alignment-marker lock and deskew are not built yet. The
   marker period is a parameter (4096 pairs, the 400G value; tests use 3).
   200GBASE-R (8 lanes) needs its own marker table.
+- **SPDM.** SPDM 1.2 has no ML-DSA algorithm code. The key is offered
+  as an ExtAsym entry whose ID is a configuration register, so it is not
+  claimed to interoperate with other requesters until a later SPDM
+  version (or a vendor registry) defines one. Not built:
+  - slots 1 to 7, KEY_EXCHANGE / FINISH sessions and secured messages
+    (DSP0277), so IDE_KM runs on a session the host provides;
+  - chunking, RESPOND_IF_READY, SPDM 1.0, 1.1 and 1.3;
+  - opaque data and raw bit-stream measurements.
+
+  The certificate chain is stored as given: no X.509 parsing, and the
+  chain must carry the ML-DSA public key the host reads out. Requests are
+  at most 128 bytes. The ML-DSA timing caveats below apply to the signing
+  time.
 - **AES-GCM.** No masking or other power / EM side-channel
   countermeasure and no fault-injection detection (the public repository
   carries the functional baseline); only 96-bit IVs; 11 / 15 clocks per
@@ -313,7 +363,7 @@ These need tools, data or documents this repository does not have:
 - **Timing closure.** No foundry standard-cell library, no STA with
   constraints and corners. The deepest paths (Ethernet RS-FEC 82 levels in
   the Berlekamp-Massey step; CXL 82; PCIe 64 in the transmit scheduler; ML-KEM 53 in
-  the compress stage; ML-DSA 59; Root of Trust 74 in the SHA-256 round; AES-GCM 56; UCIe 44) would need pipelining for a GHz-class clock in a
+  the compress stage; ML-DSA 59; Root of Trust 74 in the SHA-256 round; AES-GCM 56; SPDM 75 in the request decoder; UCIe 44) would need pipelining for a GHz-class clock in a
   modern node.
 - **Memories.** The replay and receive buffers are flip-flop arrays (most of
   the flip-flops counted above); a product would use SRAM macros, with BIST.
