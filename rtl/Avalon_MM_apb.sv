@@ -9,6 +9,8 @@
 //  - The core runs on PCLK/PRESETN; protocol pins pass through unchanged.
 //  - Register map: docs/ip/Avalon_MM.md
 // ============================================================================
+`timescale 1ns/1ps
+//
 module Avalon_MM_apb #(
   parameter int DW = 32,
   parameter int AW = 32,

@@ -9,6 +9,9 @@
 //  - The core runs on PCLK/PRESETN; protocol pins pass through unchanged.
 //  - Register map: docs/ip/IO_LINK.md
 // ============================================================================
+`timescale 1ns/1ps
+
+//
 module IO_LINK_apb (
   input  logic        PCLK,
   input  logic        PRESETN,

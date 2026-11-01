@@ -318,6 +318,12 @@ def gen_rtl(P, spec, core):
     a("//  - The core runs on PCLK/PRESETN; protocol pins pass through unchanged.")
     a("//  - Register map: docs/ip/" + P + ".md")
     a("// " + "=" * 76)
+    # a core that sets a timescale needs the same one here: IEEE 1800 (and
+    # slang, scripts/lint/strict_elab.py) reject a design where only some
+    # modules have one
+    ts = re.search(r"^\s*`timescale\s+\S+\s*/\s*\S+", open(f"rtl/{P}_top.sv").read(), re.M)
+    if ts:
+        a(ts.group(0).strip())
     if params:
         a(f"module {P}_apb #(")
         a(",\n".join("  " + p for p in params))
