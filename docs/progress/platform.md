@@ -1,4 +1,28 @@
-# 平台工作進度 — bus／DMA／host
+# 平台工作進度 — bus／DMA／host／shared UVM
+
+## 2026-11-01 15:17 Asia/Taipei：SoC 整合用 fixture 與 coverage 計畫
+
+主變更 commit：`22ab912f703a48c93b454b1548bd7d93839e5911`。分支 `codex/platform-bus-host-20261101`；沿用 [open-ip #22](https://github.com/tonythetiger168/open-ip-portfolio/pull/22)／[open-vip #15](https://github.com/tonythetiger168/open-vip-portfolio/pull/15)，draft、未合併。遠端7份RTL／bench／runner／policy source blob已核對與實測pins一致。
+
+本輪未寫中央verification/，未取代integration的產品top/filelist責任。open-ip的integration/platform/baseline.json、slice.f與docs/design/platform_slice_baseline.md提供有界hierarchy/source pins、clock/reset/address/IRQ/adapter契約及缺dependency。paired VIP的docs/design/platform_shared_uvm_plan.md提供bus/memory/RAL/virtual seq、獨立scoreboard、reset/drain/QoS/ownership與adapter的共同UVM計畫。
+
+|項目|design|RTL／實作|verified|physical|
+|---|---|---|---|---|
+|APB bounded fixture|content-pinned v0.1，非產品SoC|router＋full-word adapter＋兩個既有APB_top，無stub|Icarus elaboration、9 seed-runs、replay／negative mutation及lint通過，僅此scope|新增slice未合成／STA／板測|
+|完整TV/STB/IPCAM SoC|待integration提供real top/fingerprint|CPU/AXI bridge/fabric/DMA/stream/frame/QoS未在此整合|BLOCKED，不能用fixture labels代替SoC gate|未做|
+|shared UVM env/RAL/vseq|需求追溯與campaign/oracle合約可審查|本輪未落地可驗收UVM env，只有procedural seeded harness|UVM elaboration/regression BLOCKED|不適用|
+|六類100% closure|逐產品/config/scope的目標，raw/核准排除/effective分列|新增export政策檢查器，未提供tool DB exporter/parser|12個synthetic policy tests通過；六類rawDB均未產出，OPEN/BLOCKED|不適用|
+
+實跑：`python3 ipcheck/platform/run_slice.py --ip-dir ../open-ip-portfolio --evidence-dir reports/platform_slice`。Icarus12.0，TV/STB/IPCAM只是相同fixture的三個labels；seeds1/7/42每run209 transactions、739/741/739 checks，9 runs共1881 transactions。TV seed7 replay完全相同；移除partial-write拒絕的mutant被response及memory golden抓到。原APB_top blob 5b55a2c...與上游一致，沒有修改；3個RTL及bench/runner/policy、filelist有hash gate。Verilator5.032 fixture lint exit0。初次runner的800 check門檻誤設已修成每transaction至少3個必要檢查後重跑，只有最終結果列PASS。
+
+`python -m unittest discover -s ipcheck/platform/coverage -p test_check_export.py -v`：Windows Python3.14.8，12 tests通過。synthetic all-hit只驗政策，不能列產品coverage。raw sim logs、seeds/replay/mutation、source/tool/command與coverage_status.json在paired VIP reports/platform_slice/；本repo保留核心結果副本。
+
+六類規則：line、FSM states+arcs、toggle雙向、branch、SVA、functional逐產品/config/scope閉合；只同source/config/tool/instrumentation與point inventory可合併。SVA attempts/antecedent/nonvacuous pass/cover witness分列，assertion零失敗；功能bins合法且追溯需求。unsupported、缺RTL、未寫sequence不能waive成100%，沒有rawDB不報百分比。核准排除保留raw與effective分母，approval身份及DB來源仍需中央review/exporter核驗。
+
+阻塞／下一步：integration提供真實產品top/filelist及缺IP解決狀態後，實作UVM agents/RAL predictor/vseq，再選可提供FSM arc/branch/SVA非vacuous等六類資料的工具，做directed/mutation→CRV→holes closure。目前沒有已配置可用UVM library、完整SoC/DMA/DDR服務界限或六類exporter；ETA未知。沒有UVM PASS、SoC PASS、coverage100%或PPA宣稱。未另建排程、未自行傳訊其他聊天、未付費／自動合併；中央可每小時讀本檔與PR head。
+
+## 先前紀錄（15:04）
+
 
 更新：2026-11-01 15:04 Asia/Taipei。分支：`codex/platform-bus-host-20261101`。本輪主變更 commit：`5244020dd4fb5c5ae74d46206a431d261f662c80`。
 
