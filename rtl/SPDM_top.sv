@@ -204,12 +204,13 @@ module SPDM_top #(
   end
 
   logic        ml_start, ml_busy, ml_done;
+  logic        ml_kg;                   // the operation started is KeyGen
   logic        hp_load, hw_valid, hw_ready, hr_en, hr_valid, hr_ready;
   logic [12:0] hp_addr;
   logic [31:0] hw_data, hr_data;
   // KeyGen in S_KGW, Sign otherwise; err (reserved op / pset / mlen), fail
   // (Verify) and tries are never used
-  ML_DSA_top u_mldsa (.clk(clk), .rst_n(rst_n), .start(ml_start), .op(st == S_KGW ? 2'd0 : 2'd1), .pset(key_pset),
+  ML_DSA_top u_mldsa (.clk(clk), .rst_n(rst_n), .start(ml_start), .op({1'b0, !ml_kg}), .pset(key_pset),
                       .ext_mu(1'b0), .mlen(MP_LEN), .busy(ml_busy), .done(ml_done), .err(),
                       .fail(), .tries(), .hp_load(hp_load), .hp_addr(hp_addr),
                       .hw_valid(hw_valid), .hw_data(hw_data), .hw_ready(hw_ready), .hr_en(hr_en),
@@ -415,7 +416,7 @@ module SPDM_top #(
   // ML-DSA host port
   always_comb begin
     hp_load = 1'b0; hp_addr = '0; hw_valid = 1'b0; hw_data = '0; hr_en = 1'b0; hr_ready = 1'b0;
-    ml_start = 1'b0;
+    ml_start = 1'b0; ml_kg = 1'b0;
     case (st)
       S_RN:   begin hp_load = k[3] && !ph; hp_addr = W_RND;
                     hw_valid = k[3] && ph && rn_valid; hw_data = rn_data; end
@@ -425,7 +426,7 @@ module SPDM_top #(
       S_SIGO: begin hp_load = !ph; hp_addr = W_SIG; hr_en = ph;
                     hr_ready = ph && rs_ready && (k[1:0] == 2'd3 || k[12:0] == slen - 13'd1); end
       S_KG:   begin hp_load = !ph; hp_addr = W_XI; hw_valid = ph; hw_data = kseed[32 * k[2:0] +: 32]; end
-      S_KGW:  ml_start = !ph;
+      S_KGW:  begin ml_start = !ph; ml_kg = 1'b1; end
       S_KGZ:  begin hp_load = !ph; hp_addr = W_XI; hw_valid = ph; end
       S_PK:   begin hp_load = !ph; hp_addr = W_PK; hr_en = ph; hr_ready = ph && pk_ready; end
       S_CLR:  begin hp_load = !ph; hp_addr = W_SK; hw_valid = ph; end
