@@ -1,8 +1,8 @@
 # 平台工作進度 — bus／DMA／host
 
-更新：2026-11-01 15:00–15:10 Asia/Taipei。分支：`codex/platform-bus-host-20261101`。本輪主變更 commit：`5244020dd4fb5c5ae74d46206a431d261f662c80`。
+更新：2026-11-01 15:04 Asia/Taipei。分支：`codex/platform-bus-host-20261101`。本輪主變更 commit：`5244020dd4fb5c5ae74d46206a431d261f662c80`。
 
-Draft PR：[open-ip-portfolio #22](https://github.com/tonythetiger168/open-ip-portfolio/pull/22)。配對交付：[open-vip-portfolio #15](https://github.com/tonythetiger168/open-vip-portfolio/pull/15)。未合併，不直接修改 main；GitHub寫入成功，無未推送的功能變更。
+Draft PR：[open-ip-portfolio #22](https://github.com/tonythetiger168/open-ip-portfolio/pull/22)。配對交付：[open-vip-portfolio #15](https://github.com/tonythetiger168/open-vip-portfolio/pull/15)。遠端 compare 確認相對 main behind=0，diff 只有本工作新增路徑及 README 修正。未合併，不直接修改 main；GitHub寫入成功，無未推送的功能變更。
 
 ## 基線與來源
 
