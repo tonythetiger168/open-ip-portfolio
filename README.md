@@ -1,6 +1,6 @@
 # open-ip-portfolio
 
-Open-source SystemVerilog protocol IP portfolio (Apache-2.0) — **141 protocol
+Open-source SystemVerilog protocol IP portfolio (Apache-2.0) — **142 protocol
 IPs**, each with a synthesizable RTL core, an APB4 register wrapper, self-checking
 testbenches for both, a coverage checker (reference model, SVA and functional
 coverage), and open-toolchain build flows (Icarus Verilog simulation, Yosys
@@ -38,7 +38,7 @@ gen_framework.py         original v1 generator (frozen: out of sync with rtl/ an
 setup_tools.sh           installs iverilog / yosys if missing
 ```
 
-## Protocol catalog (141)
+## Protocol catalog (142)
 
 ### AMBA & ARM interconnect (16)
 
@@ -222,7 +222,7 @@ setup_tools.sh           installs iverilog / yosys if missing
 |---|---|---|
 | Bluetooth 5 | `make -f Makefile.Bluetooth5 sim` | [open_ip_Bluetooth5.zip](releases/open_ip_Bluetooth5.zip) |
 
-### Security & crypto (9)
+### Security & crypto (10)
 
 | Protocol | Build | Standalone package |
 |---|---|---|
@@ -234,6 +234,7 @@ setup_tools.sh           installs iverilog / yosys if missing
 | PCIe / CXL IDE (AES-256-GCM link encryption, TLPs and CXL.cachemem) | `make -f Makefile.PCIe_CXL_IDE sim` | [open_ip_PCIe_CXL_IDE.zip](releases/open_ip_PCIe_CXL_IDE.zip) |
 | Root of Trust (lifecycle, secure boot, DICE key) | `make -f Makefile.Root_of_Trust sim` | [open_ip_Root_of_Trust.zip](releases/open_ip_Root_of_Trust.zip) |
 | SHA-3 / SHAKE (FIPS 202 hash engine) | `make -f Makefile.SHA3 sim` | [open_ip_SHA3.zip](releases/open_ip_SHA3.zip) |
+| SPDM 1.2 responder (DSP0274 attestation, ML-DSA signatures) | `make -f Makefile.SPDM sim` | [open_ip_SPDM.zip](releases/open_ip_SPDM.zip) |
 | TRNG (SP 800-90B health tests, SHA-256 conditioner) | `make -f Makefile.TRNG sim` | [open_ip_TRNG.zip](releases/open_ip_TRNG.zip) |
 
 ### Low-speed & board-level (10)
@@ -257,7 +258,7 @@ setup_tools.sh           installs iverilog / yosys if missing
 
 ## Design organization: cores vs. variants
 
-The catalog has **141 entries, each with its own RTL core** in
+The catalog has **142 entries, each with its own RTL core** in
 `rtl/<P>_top.sv`. Up to v2.5.1, 29 entries were byte-level renamed copies of
 5 shared templates (CHI, UART, CAN, the 2-wire serial shifter and the frame
 echo template). All of them have since been rewritten as implementations of
@@ -324,17 +325,17 @@ make -f Makefile.I2C apb        # -> TEST PASSED: I2C_apb
 # pin-level functional test, where tb/func has one (the TB plays the device)
 make -f Makefile.DDR4 func      # -> TEST PASSED: DDR4_func
 
-# full regression (what CI runs): sim + syn + apb (+ func) for all 141 IPs, in parallel (~50 min on 4 cores)
+# full regression (what CI runs): sim + syn + apb (+ func) for all 142 IPs, in parallel (~50 min on 4 cores)
 bash scripts/ci_regression.sh   # logs in work/ci_*.log
 
 # strict IEEE 1800 elaboration of every IP's RTL with slang (CI gate; iverilog accepts
 # some illegal code, e.g. a net used above its declaration)
-python3 scripts/lint/strict_elab.py   # -> strict elaboration: 141/141 IPs clean
+python3 scripts/lint/strict_elab.py   # -> strict elaboration: 142/142 IPs clean
 
 # five-metric coverage (Verilator)
 bash scripts/cov/run_cov.sh I2C        # one core  -> RESULT: CLOSED
 bash scripts/cov/run_cov.sh I2C_apb    # its wrapper
-bash scripts/cov/run_all.sh 4          # all 282 runs, 4 in parallel
+bash scripts/cov/run_all.sh 4          # all 284 runs, 4 in parallel
 
 # standalone package workflow (core + wrapper, sim / syn / apb)
 unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
@@ -345,11 +346,11 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
 - **Five-metric closure (Verilator 5.052):** every IP's testbench reaches
   100% line, toggle, FSM, SVA and functional coverage, and so does every
   IP's APB4 register wrapper (`rtl/<P>_apb.sv`, register map in
-  `docs/ip/<P>.md`): 141 cores and 141 wrappers, 282/282 closed. Results,
+  `docs/ip/<P>.md`): 142 cores and 142 wrappers, 284/284 closed. Results,
   exclusions and how to run: [docs/COVERAGE_CLOSURE.md](docs/COVERAGE_CLOSURE.md).
   CI runs both: `.github/workflows/regression.yml` (iverilog / yosys
   sim + syn + apb, plus a check that generated files are up to date) and
-  `.github/workflows/coverage.yml` (this five-metric flow over all 282
+  `.github/workflows/coverage.yml` (this five-metric flow over all 284
   runs, in 8 shards; any IP that is not CLOSED fails the build).
   `.github/workflows/mutation.yml` runs `scripts/mut/run_mut.py --flow cov`
   weekly: 8 operator mutants per core (relational, logical, constant bit,
@@ -357,7 +358,7 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
   surviving mutant listed in the job summary.
   The v2.5.1 numbers below are the earlier four-metric flow.
 - **Sign-off checks beyond coverage** (UCIe, PCIe, CXL, ML-KEM, ML-DSA, Ethernet RS-FEC,
-  Ethernet PCS, Root of Trust, SHA-3, AES-GCM, TRNG, PCIe / CXL IDE so far): lint, mutation, formal (bounded proofs; exhaustive checks of the
+  Ethernet PCS, Root of Trust, SHA-3, AES-GCM, TRNG, PCIe / CXL IDE, SPDM so far): lint, mutation, formal (bounded proofs; exhaustive checks of the
   ML-KEM, ML-DSA and RS-FEC arithmetic and the PCS functions and gearboxes), area and logic depth, and the list of what a production
   sign-off would still need: [docs/SIGNOFF.md](docs/SIGNOFF.md).
 
