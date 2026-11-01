@@ -1,0 +1,2 @@
+# the 384-bit digests and the 256-bit nonce / seed: score their toggles too
+--coverage-max-width 512

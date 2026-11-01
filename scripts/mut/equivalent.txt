@@ -107,3 +107,17 @@ PCIe_CXL_IDE | r_hs <= 1'b0; r_hp <= 1'b0; r_dp <= 1'b0; r_pl <= 1'b0; r_end <= 
 PCIe_CXL_IDE | r_ep <= 1'b0; r_epn <= '0; r_mac <= '0; r_pl <= 1'b0; r_ok <= 1'b0; | 1'b0 -> 1'b1@2 | r_pl after the END block: every payload push loads it before the engine outputs that block
 PCIe_CXL_IDE | r_hs <= 1'b0; r_hp <= 1'b0; r_dp <= 1'b0; r_pl <= 1'b0; r_end <= 1'b0; r_term <= 1'b0; r_ok <= 1'b0; | 1'b0 -> 1'b1@2 | reset value of r_hp; every TLP message start clears it before R_HDR reads it
 PCIe_CXL_IDE | t <= T_IDLE; t_ep <= 1'b0; t_epn <= '0; t_c <= '0; t_cl <= '0; t_mac <= '0; t_pl <= 1'b0; | 1'b0 -> 1'b1@2 | t_pl on clr: every payload push loads it before the engine outputs that block
+SPDM | wire [CC_AW:0] c_av = cc_len - (CC_AW + 1)'(q_off); | + 1 -> + 2 | a 16-bit instead of a 15-bit cast of the 16-bit offset: c_av keeps the same low CC_AW + 1 bits
+SPDM | e_code <= '0; nonce <= '0; cc_dig <= '0; hash_ok <= 1'b0; asym_ok <= 1'b0; meas_ok <= 1'b0; | 1'b0 -> 1'b1@1 | reset value of hash_ok: read only with conn 3, and GET_VERSION (the only way out of conn 0) clears it
+SPDM | e_code <= '0; nonce <= '0; cc_dig <= '0; hash_ok <= 1'b0; asym_ok <= 1'b0; meas_ok <= 1'b0; | 1'b0 -> 1'b1@2 | reset value of asym_ok: read only with conn 3 or in an ALGORITHMS response, and GET_VERSION clears it first
+SPDM | e_code <= '0; nonce <= '0; cc_dig <= '0; hash_ok <= 1'b0; asym_ok <= 1'b0; meas_ok <= 1'b0; | 1'b0 -> 1'b1@3 | reset value of meas_ok: read only with conn 3 or in an ALGORITHMS response, and GET_VERSION clears it first
+SPDM | hash_ok <= 1'b0; asym_ok <= 1'b0; meas_ok <= 1'b0; | 1'b0 -> 1'b1@1 | GET_VERSION's clear of hash_ok: it is read only with conn 3 (or in the ALGORITHMS response), and NEGOTIATE_ALGORITHMS sets it on the way to conn 3
+SPDM | hash_ok <= 1'b0; asym_ok <= 1'b0; meas_ok <= 1'b0; | 1'b0 -> 1'b1@2 | GET_VERSION's clear of asym_ok: it is read only with conn 3 (or in the ALGORITHMS response), and NEGOTIATE_ALGORITHMS sets it on the way to conn 3
+SPDM | hash_ok <= 1'b0; asym_ok <= 1'b0; meas_ok <= 1'b0; | 1'b0 -> 1'b1@3 | GET_VERSION's clear of meas_ok: it is read only with conn 3 (or in the ALGORITHMS response), and NEGOTIATE_ALGORITHMS sets it on the way to conn 3
+SPDM | need_ms <= 1'b0; need_rn <= 1'b0; ax_ms <= 1'b0; is_err <= 1'b0; | 1'b0 -> 1'b1@1 | reset value of need_ms: S_DEC sets it for every request before any state reads it
+SPDM | need_ms <= 1'b0; need_rn <= 1'b0; ax_ms <= 1'b0; is_err <= 1'b0; | 1'b0 -> 1'b1@2 | reset value of need_rn: S_DEC sets it for every request before any state reads it
+SPDM | need_ms <= 1'b0; need_rn <= 1'b0; ax_ms <= 1'b0; is_err <= 1'b0; | 1'b0 -> 1'b1@3 | reset value of ax_ms: S_DEC sets it for every request before any state reads it
+SPDM | need_ms <= 1'b0; need_rn <= 1'b0; ax_ms <= 1'b0; is_err <= 1'b0; | 1'b0 -> 1'b1@4 | reset value of is_err: S_DEC sets it for every request before any state reads it
+SPDM | lane <= '0; nb <= '0; finp <= 1'b0; rd <= 1'b0; wi <= '0; dig <= '0; done <= 1'b0; | 1'b0 -> 1'b1@1 | SPDM_th reset value of finp: the idle SHA3 engine takes no input, and every hash begins with start, which clears it
+SPDM | lane <= '0; nb <= '0; finp <= 1'b0; rd <= 1'b0; wi <= '0; dig <= '0; done <= 1'b0; | 1'b0 -> 1'b1@2 | SPDM_th reset value of rd: the idle SHA3 engine offers no output, and every hash begins with start, which clears it
+SPDM | lane <= '0; nb <= '0; finp <= 1'b0; rd <= 1'b0; wi <= '0; dig <= '0; done <= 1'b0; | 1'b0 -> 1'b1@3 | SPDM_th reset value of done: a pulse in the first clock, when no state waits on an engine
