@@ -29,6 +29,9 @@ jobs:
           git status --short
           git diff --exit-code --stat
 
+      - name: Strict IEEE 1800 elaboration of all RTL (slang; catches what iverilog accepts)
+        run: python3 scripts/lint/strict_elab.py
+
       - name: Full regression (every protocol, sim + syn + apb, in parallel)
         run: bash scripts/ci_regression.sh
 

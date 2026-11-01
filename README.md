@@ -327,6 +327,10 @@ make -f Makefile.DDR4 func      # -> TEST PASSED: DDR4_func
 # full regression (what CI runs): sim + syn + apb (+ func) for all 141 IPs, in parallel (~50 min on 4 cores)
 bash scripts/ci_regression.sh   # logs in work/ci_*.log
 
+# strict IEEE 1800 elaboration of every IP's RTL with slang (CI gate; iverilog accepts
+# some illegal code, e.g. a net used above its declaration)
+python3 scripts/lint/strict_elab.py   # -> strict elaboration: 141/141 IPs clean
+
 # five-metric coverage (Verilator)
 bash scripts/cov/run_cov.sh I2C        # one core  -> RESULT: CLOSED
 bash scripts/cov/run_cov.sh I2C_apb    # its wrapper
