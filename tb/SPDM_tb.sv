@@ -73,7 +73,7 @@ module SPDM_tb;
     end else rn_valid = 1'b0;
   end
 
-  localparam int NV = 20000;
+  localparam int NV = 32768;
   logic [31:0] vec [0:NV-1];
   int vp = 0;
   function automatic logic [7:0] vbyte(input int base, input int i);
@@ -320,6 +320,7 @@ module SPDM_tb;
     // reset in the middle of a request
     @(negedge clk); rq_valid = 1'b1; rq_data = 8'h12; rq_last = 1'b0;
     @(negedge clk); rq_valid = 1'b0;
+    cyc(2);
     rst_n = 1'b0; cyc(2); rst_n = 1'b1; cyc(2);
     if (busy || conn != 2'd0) fail("reset");
   endtask
