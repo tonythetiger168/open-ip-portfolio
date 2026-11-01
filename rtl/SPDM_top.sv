@@ -197,11 +197,24 @@ module SPDM_top #(
   logic [2:0]   th_start, th_wipe, th_fin, th_bv, th_br, th_done;
   logic [7:0]   th_bd;
   logic [383:0] th_dig [0:2];          // 0 M, 1 L, 2 aux
+`ifdef FORMAL
+  // the formal run cuts the engines: their outputs are free values each clock
+  // (the control properties do not depend on them; the engines are checked
+  // bit-exact in simulation)
+  (* anyseq *) logic [2:0]   f_th_br, f_th_done;
+  (* anyseq *) logic [383:0] f_th_dig0, f_th_dig1, f_th_dig2;
+  assign th_br = f_th_br;
+  assign th_done = f_th_done;
+  assign th_dig[0] = f_th_dig0;
+  assign th_dig[1] = f_th_dig1;
+  assign th_dig[2] = f_th_dig2;
+`else
   for (genvar e = 0; e < 3; e++) begin : g_th
     SPDM_th u_th (.clk(clk), .rst_n(rst_n), .start(th_start[e]), .wipe(th_wipe[e]),
                   .b_valid(th_bv[e]), .b_data(th_bd), .b_ready(th_br[e]),
                   .fin(th_fin[e]), .dig(th_dig[e]), .done(th_done[e]));
   end
+`endif
 
   logic        ml_start, ml_busy, ml_done;
   logic        ml_kg;                   // the operation started is KeyGen
@@ -210,11 +223,21 @@ module SPDM_top #(
   logic [31:0] hw_data, hr_data;
   // KeyGen in S_KGW, Sign otherwise; err (reserved op / pset / mlen), fail
   // (Verify) and tries are never used
+`ifdef FORMAL
+  (* anyseq *) logic        f_ml_busy, f_ml_done, f_hw_ready, f_hr_valid;
+  (* anyseq *) logic [31:0] f_hr_data;
+  assign ml_busy = f_ml_busy;
+  assign ml_done = f_ml_done;
+  assign hw_ready = f_hw_ready;
+  assign hr_valid = f_hr_valid;
+  assign hr_data = f_hr_data;
+`else
   ML_DSA_top u_mldsa (.clk(clk), .rst_n(rst_n), .start(ml_start), .op({1'b0, !ml_kg}), .pset(key_pset),
                       .ext_mu(1'b0), .mlen(MP_LEN), .busy(ml_busy), .done(ml_done), .err(),
                       .fail(), .tries(), .hp_load(hp_load), .hp_addr(hp_addr),
                       .hw_valid(hw_valid), .hw_data(hw_data), .hw_ready(hw_ready), .hr_en(hr_en),
                       .hr_valid(hr_valid), .hr_data(hr_data), .hr_ready(hr_ready));
+`endif
 
   // ---------------- state ----------------
   typedef enum logic [4:0] {S_IDLE, S_RX, S_DEC, S_AX, S_RN, S_FRQ, S_OUT, S_FIN, S_MW, S_SG,
@@ -667,6 +690,10 @@ module SPDM_top #(
       end
     end
   end
+
+`ifdef FORMAL
+  `include "SPDM_props.svh"
+`endif
 endmodule
 
 // ----------------------------------------------------------------------------
