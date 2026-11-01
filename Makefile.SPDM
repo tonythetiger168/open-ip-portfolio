@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDM Open IP -- sim & synthesis entry points
+S      := SPDM
+DEPS   := rtl/SHA3_top.sv rtl/ML_DSA_top.sv
+# the SHA-3 and ML-DSA engines are IPs of their own, closed by their own coverage runs
+COVLIB := rtl/SHA3_top.sv rtl/ML_DSA_top.sv
+SIM    ?= iverilog
+VFLAGS := -g2012 -Wall
+SYN    ?= yosys
+
+all: sim syn
+
+sim:
+	$(SIM) $(VFLAGS) -I tb -o simv rtl/$(S)_top.sv $(DEPS) tb/$(S)_tb.sv
+	./simv
+
+syn:
+	mkdir -p work && cd work && $(SYN) ../syn/$(S)_yosys.ys
+
+# request / response vectors (tb/SPDM_vec.hex) from the SPDM 1.2 reference model
+# scripts/spdm/spdm_ref.py; --check verifies every signature with ML-DSA Verify
+vec:
+	python3 scripts/spdm/gen_vec.py tb/$(S)_vec.hex --check
+
+apb:
+	$(SIM) $(VFLAGS) -I tb -o simv_apb rtl/$(S)_top.sv $(DEPS) rtl/$(S)_apb.sv tb/$(S)_apb_tb.sv
+	./simv_apb
+	mkdir -p work && cd work && $(SYN) ../syn/$(S)_apb_yosys.ys
+
+clean:
+	rm -f simv simv_apb *.vcd work/*.json work/*_netlist.v
+.PHONY: all sim syn apb vec clean
