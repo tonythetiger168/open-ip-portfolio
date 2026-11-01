@@ -246,7 +246,7 @@ module ETHERCAT_top (
               di <= '0; g_r <= 1'b0; g_w <= 1'b0; pos <= '0;
               // physical commands count here, logical ones per octet
               winc <= (c_rmw || (addr_hit && (c_rd || c_wr))) ? 2'd1 : (addr_hit && c_rw) ? 2'd3 : 2'd0;
-              ps <= dlen == 11'd0 ? P_WKC : P_DATA;
+              if (dlen == 11'd0) ps <= P_WKC; else ps <= P_DATA;
             end
             default: ;
           endcase

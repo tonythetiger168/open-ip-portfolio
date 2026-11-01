@@ -11,6 +11,9 @@ concurrency:
   group: regression-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  IVERILOG_VERSION: v13_0
+
 jobs:
   sim-syn:
     runs-on: ubuntu-latest
@@ -18,8 +21,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install open toolchain
-        run: sudo apt-get update && sudo apt-get install -y iverilog yosys
+      # Ubuntu ships iverilog 12, which accepts a net used above its
+      # declaration (issue #25); build the pinned 13.0 release once and cache it.
+      - id: iverilog-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/iverilog
+          key: iverilog-${{ env.IVERILOG_VERSION }}-${{ runner.os }}
+
+      - name: Install open toolchain (yosys from apt, iverilog 13.0 from source)
+        run: |
+          sudo apt-get update && sudo apt-get install -y yosys autoconf gperf flex bison g++ make
+          if [ ! -x "$HOME/iverilog/bin/iverilog" ]; then
+            git clone -b "$IVERILOG_VERSION" --depth 1 https://github.com/steveicarus/iverilog.git /tmp/iverilog
+            cd /tmp/iverilog
+            sh autoconf.sh && ./configure --prefix="$HOME/iverilog" && make -j"$(nproc)" && make install
+          fi
+          echo "$HOME/iverilog/bin" >> "$GITHUB_PATH"
+
+      - name: Toolchain versions
+        run: iverilog -V 2>&1 | head -1 && yosys -V
 
       - name: Generated files are up to date (APB wrappers, TBs, IP pages, filelists)
         run: |

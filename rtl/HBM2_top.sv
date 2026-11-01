@@ -137,7 +137,7 @@ module HBM2_top #(
                   open_row[a_bank] <= haddr[31:18]; bank_open[a_bank] <= 1'b1;
                   auto_rd <= (hcmd == 3'd2); auto_wr <= (hcmd == 3'd3);
                   dstate <= D_PRE;
-                end else dstate <= (hcmd == 3'd2) ? D_RD : D_WR;
+                end else if (hcmd == 3'd2) dstate <= D_RD; else dstate <= D_WR;
               end
               3'd4: begin
                 if (bank_open[a_bank]) begin bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0]; end
@@ -186,7 +186,7 @@ module HBM2_top #(
               if (rp_t[act_bank] == 0) dstate <= D_ACT;
             end
             else if (rp_ok) begin           // plain PRE: hold hready low through tRP
-              ref_req <= (ref_cnt == 0); dstate <= (ref_cnt == 0) ? D_PRE : D_IDLE;
+              ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE;
             end
           end
         end
@@ -206,7 +206,7 @@ module HBM2_top #(
             if (ref_walk)      begin ref_walk <= 1'b0; dstate <= D_IDLE; end
             else if (auto_rd)  begin auto_rd <= 1'b0; dstate <= D_RD; end
             else if (auto_wr)  begin auto_wr <= 1'b0; dstate <= D_WR; end
-            else begin ref_req <= (ref_cnt == 0); dstate <= (ref_cnt == 0) ? D_PRE : D_IDLE; end
+            else begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
           end
         end
         D_RD: begin
@@ -225,7 +225,7 @@ module HBM2_top #(
           if (timer == 0) begin
             if (rd_pending) hrdata <= mem[{c_ch, cur_addr[7:0]}];
             rd_pending <= 1'b0;
-            begin ref_req <= (ref_cnt == 0); dstate <= (ref_cnt == 0) ? D_PRE : D_IDLE; end
+            begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
           end
         end
         default: dstate <= D_IDLE;

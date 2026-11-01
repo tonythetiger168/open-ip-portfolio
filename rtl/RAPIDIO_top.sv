@@ -352,7 +352,7 @@ module RAPIDIO_top (
             if (es == E_IDLE) z82 <= 1'b0;
             lb1 <= lb0; lb0 <= rx_data;
             if (n != 9'd511) ri <= n + 9'd1;
-            es <= rx_last ? E_CHK : E_RX;
+            if (rx_last) es <= E_CHK; else es <= E_RX;
           end
         end
         E_CHK: begin
@@ -412,7 +412,7 @@ module RAPIDIO_top (
         end
         E_WR: begin
           w_i <= w_i + 9'd1;
-          if (w_i + 9'd1 == w_n) es <= w_resp ? E_TX : E_IDLE;
+          if (w_i + 9'd1 == w_n) if (w_resp) es <= E_TX; else es <= E_IDLE;
         end
         E_TX: begin
           tn <= tn + 9'd1;

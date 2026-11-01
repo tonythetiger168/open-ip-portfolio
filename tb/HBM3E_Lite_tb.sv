@@ -43,12 +43,6 @@ module HBM3E_Lite_tb;
     .pc_act(o_pc), .ck_t(o_ck_t), .ck_c(o_ck_c), .cke(o_cke), .cs_n(o_cs_n), .act_n(o_act_n),
     .ras_n(o_ras_n), .cas_n(o_cas_n), .we_n(o_we_n), .ba(o_ba), .addr(o_addr), .dq(o_dq),
     .dqs(o_dqs), .trace_valid(o_tv), .trace_cmd(o_tc), .trace_addr(o_ta));
-  initial begin
-    @(posedge rst_n);
-    if (o_irq !== 1'b0) begin errors++; $display("ERROR: overrun irq set in reset"); end
-    repeat (32 * 40) @(posedge clk);
-    if (o_irq !== 1'b1) begin errors++; $display("ERROR: no irq on a refresh overrun"); end
-  end
 `endif
 
   function automatic logic [31:0] mk(input int b, input int row, input int line);
@@ -85,6 +79,16 @@ module HBM3E_Lite_tb;
   endtask
 
   `include "lite_tb_common.svh"
+
+`ifndef VERILATOR
+  // checks on the overrun instance above; after the include, which declares errors
+  initial begin
+    @(posedge rst_n);
+    if (o_irq !== 1'b0) begin errors++; $display("ERROR: overrun irq set in reset"); end
+    repeat (32 * 40) @(posedge clk);
+    if (o_irq !== 1'b1) begin errors++; $display("ERROR: no irq on a refresh overrun"); end
+  end
+`endif
 
   initial begin
     repeat (8000) #10000;

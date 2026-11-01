@@ -187,7 +187,7 @@ module Bluetooth5_top #(
                   rxs     <= RXS_AA;
                 end else begin
                   plen_r <= byte_new[4:0];
-                  rxs    <= (byte_new == 8'd0) ? RXS_CRC : RXS_PAY;
+                  if (byte_new == 8'd0) rxs <= RXS_CRC; else rxs <= RXS_PAY;
                 end
               end
             end

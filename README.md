@@ -35,7 +35,7 @@ scripts/mut/run_mut.py       mutation testing of the testbenches (Icarus or the 
 docs/ip/                 one page per IP: ports, register map, coverage
 docs/                    coverage closure, portfolio review, methodology notes
 gen_framework.py         original v1 generator (frozen: out of sync with rtl/ and tb/)
-setup_tools.sh           installs iverilog / yosys if missing
+setup_tools.sh           installs yosys and iverilog 13.0 if missing
 ```
 
 ## Protocol catalog (142)
@@ -288,14 +288,16 @@ Tested on a clean Ubuntu 24.04 container. Versions used for the published result
 
 | Tool | Version | Needed for |
 |---|---|---|
-| Icarus Verilog | 12.0 | `make sim`, `make apb`, CI |
+| Icarus Verilog | 13.0 | `make sim`, `make apb`, CI |
 | Yosys | 0.33 | `make syn`, `make apb`, CI |
 | Verilator | 5.052 | coverage flow (`scripts/cov/`) only |
-| Python 3 + `pyslang` 12.0.0 | 3.10+ | coverage flow (FSM cover generation), APB generator |
+| Python 3 + `pyslang` 12.0.0 | 3.10+ | coverage flow (FSM cover generation), APB generator, strict elaboration gate |
 
 ```sh
-# Icarus Verilog + Yosys (what CI installs); needs root
-sudo sh setup_tools.sh         # or: sudo apt-get install -y iverilog yosys
+# Icarus Verilog 13.0 + Yosys (what CI installs); needs root. Distribution
+# packages ship iverilog 12, which accepts a net used above its declaration
+# (issue #25), so setup_tools.sh builds 13.0 from source (~3 min on 4 cores)
+sudo sh setup_tools.sh
 
 # Verilator 5.052: distribution packages are too old (Ubuntu 24.04 ships 5.020,
 # which silently drops covergroups), so build it from source (~25 min on 4 cores)

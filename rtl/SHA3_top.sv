@@ -191,7 +191,7 @@ module SHA3_top (
           end
           S_PERM: begin
             ks <= knext;
-            if (rnd == 5'd23) begin rnd <= '0; st <= (ret == R_ABS) ? S_ABS : (ret == R_PAD) ? S_PAD : S_SQZ; end
+            if (rnd == 5'd23) begin rnd <= '0; if (ret == R_ABS) st <= S_ABS; else if (ret == R_PAD) st <= S_PAD; else st <= S_SQZ; end
             else rnd <= rnd + 5'd1;
           end
           S_SQZ: if (out_ready) begin

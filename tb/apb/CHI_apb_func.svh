@@ -42,6 +42,7 @@ always @(negedge PCLK) begin
   txdatlcrdv = PRESETN && !stop_tc && h_tc < 15 && $urandom % 2 == 0;
 end
 
+logic [6:0] s_of [0:255];                       // SrcID of each TxnID
 task automatic c_req(input logic [5:0] op, input logic [7:0] txn, input logic ord,
                      input logic [2:0] size, input logic [15:0] addr, input bit crd);
   @(negedge PCLK);
@@ -70,7 +71,6 @@ task automatic c_dat(input logic [7:0] dbid, input logic [3:0] op, input logic [
   rxdatflit = {$urandom, $urandom, $urandom, $urandom, $urandom};
 endtask
 // the next response; checks its TxnID, opcode and RespErr, returns its DBID
-logic [6:0] s_of [0:255];                       // SrcID of each TxnID
 logic [7:0] h_dbid;
 logic [28:0] x_rsp;
 logic [146:0] x_dat;
