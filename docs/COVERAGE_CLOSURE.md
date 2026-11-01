@@ -240,7 +240,7 @@ again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
 | SD | 137/137 | 1850/1850 | 18/18 | 7/7 | 71/71 | pass |
 | SDIO | 92/93 (+1 excl.) | 1342/1342 | 30/30 | 5/5 | 67/67 | pass |
 | SHA3 | 66/66 | 6872/6882 (+10 excl.) | 19/19 | 11/11 | 87/87 | pass |
-| SPDM | 368/368 | 5642/5666 (+24 excl.) | 43/43 | 37/37 | 77/77 | pass |
+| SPDM | 368/368 | 5642/5666 (+24 excl.) | 43/43 | 39/39 | 77/77 | pass |
 | SPI | 15/15 | 108/108 | n/a | 5/5 | 46/46 | pass |
 | SPMI | 44/44 | 162/162 | 12/12 | 6/6 | 62/62 | pass |
 | TRNG | 73/74 (+1 excl.) | 3520/3526 (+6 excl.) | 15/15 | 13/13 | 38/38 | pass |
@@ -269,7 +269,7 @@ again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
 | eMMC | 120/120 | 1622/1622 | 17/17 | 6/6 | 64/64 | pass |
 | eUSB2 | 107/108 (+1 excl.) | 394/394 | 16/16 | 6/6 | 74/74 | pass |
 
-Totals: line 13917/14043 (+126 excluded), toggle 194608/199196 (+4588 excluded), fsm 2741/2741, sva 1640/1640, functional 12378/12378.
+Totals: line 13917/14043 (+126 excluded), toggle 194608/199196 (+4588 excluded), fsm 2741/2741, sva 1642/1642, functional 12378/12378.
 
 For the IPs rebuilt last (UniPro, DisplayPort2, SAS-4, SATA, the clone
 rewrites and the memory family), the checker was also tested with deliberate

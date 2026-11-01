@@ -48,7 +48,7 @@ module SPDM_sva #(parameter int NM = 4, parameter int CC_AW = 14) (
   input logic [1:0]        conn, key_pset,
   input logic [7:0]        err_code,
   // internal: the ML-DSA engine's host port and controls
-  input logic              hp_load, hw_valid, hw_ready, hr_valid, hr_ready,
+  input logic              hp_load, hw_valid, hw_ready, hr_en, hr_valid, hr_ready,
   input logic [12:0]       hp_addr,
   input logic [31:0]       hw_data, hr_data,
   input logic              ml_start, ml_done, ml_busy,
@@ -547,6 +547,11 @@ module SPDM_sva #(parameter int NM = 4, parameter int CC_AW = 14) (
   `SVA_IMP(a_done_err, rsp_done, rsp_err == m_iserr_q)
   `SVA_NXT(a_done_next, rs_valid && rs_ready && m_act_q && ridx_q == e_n_q - 1 && !m_sgn_q && !clr, rsp_done)
   `SVA_INV(a_done_bound, sdone_q < 600)
+  // reset: no key, no connection, nothing offered and no pulses
+  `SVA_RST(a_reset_quiet, !rst_n, !busy && !key_ok && conn == 2'd0 && key_pset == 2'd0 && err_code == 8'h00 &&
+           !rsp_done && !rsp_err && !kg_done && !cmd_err && !rs_valid && !pk_valid && !rn_ready)
+  // idle: the ML-DSA buffer is neither pointed at, written nor read, and no operation starts
+  `SVA_IMP(a_host_quiet, !busy, !hp_load && !hw_valid && !hr_en && !hr_ready && !ml_start)
   `SVA_IMP(a_err_code, rsp_done && m_iserr_q, err_code == m_ecode_q)
   `SVA_IMP(a_err_hold, !rsp_done, $stable(err_code))
   `SVA_IMP(a_rq_hold_off, m_act_q || m_sent_q && !rsp_done, !rq_ready)
