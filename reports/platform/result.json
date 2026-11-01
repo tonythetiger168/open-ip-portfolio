@@ -1,0 +1,70 @@
+{
+  "python": "3.14.4",
+  "tools": {
+    "iverilog": "Icarus Verilog version 12.0 (stable) ()",
+    "yosys": "Yosys 0.52 (git sha1 fee39a3284c90249e1d9684cf6944ffbbcbb8f90)"
+  },
+  "sha256": {
+    "source": "8bec3dfeccfb0ce3e0bd65f508adb9d238e85a0cf830f809820a6ae03f725554",
+    "bench": "2e654cb2d2a8b2c8bde1e833b034fb2f56930fdbfc3b7b6beadf59b8e6b0225d"
+  },
+  "scope": "APB two-window combinational router prototype only; not SoC/host qualification",
+  "directed_checks": 16,
+  "mutation": "default error response removed: detected",
+  "generic_synthesis": "completed; no technology library, STA or PPA",
+  "commands": [
+    {
+      "label": "compile",
+      "argv": [
+        "iverilog",
+        "-g2012",
+        "-s",
+        "apb_window_router_tb",
+        "-o",
+        "/tmp/platform-apb-59rf1tzk/apb.vvp",
+        "/mnt/c/Users/chien/Documents/Codex/2026-10-26/soc-design-platform/outputs/platform-update/open-ip-portfolio/rtl/platform/apb_window_router.sv",
+        "/mnt/c/Users/chien/Documents/Codex/2026-10-26/soc-design-platform/outputs/platform-update/open-vip-portfolio/ipcheck/platform/apb_window_router_tb.sv"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "simulation",
+      "argv": [
+        "vvp",
+        "/tmp/platform-apb-59rf1tzk/apb.vvp"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mutant_compile",
+      "argv": [
+        "iverilog",
+        "-g2012",
+        "-s",
+        "apb_window_router_tb",
+        "-o",
+        "/tmp/platform-apb-59rf1tzk/apb.vvp",
+        "/tmp/platform-apb-59rf1tzk/mutant.sv",
+        "/mnt/c/Users/chien/Documents/Codex/2026-10-26/soc-design-platform/outputs/platform-update/open-vip-portfolio/ipcheck/platform/apb_window_router_tb.sv"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mutant_simulation",
+      "argv": [
+        "vvp",
+        "/tmp/platform-apb-59rf1tzk/apb.vvp"
+      ],
+      "exit_code": 1
+    },
+    {
+      "label": "synthesis",
+      "argv": [
+        "yosys",
+        "-p",
+        "read_verilog -sv \"/mnt/c/Users/chien/Documents/Codex/2026-10-26/soc-design-platform/outputs/platform-update/open-ip-portfolio/rtl/platform/apb_window_router.sv\"; synth -top apb_window_router; check -assert; stat"
+      ],
+      "exit_code": 0
+    }
+  ]
+}
