@@ -323,6 +323,7 @@ module USB3_2_tb;
     wait_clk(n);
     dr[d] = 0;
   endtask
+  bit rec_a = 0;
   task automatic link_cycle(input int n = 5);
     @(negedge clk);
     link = 0;
@@ -330,7 +331,6 @@ module USB3_2_tb;
     rec_a = 0;
   endtask
   // A asked for recovery (since the last link cycle)
-  bit rec_a = 0;
   always @(posedge clk) if (recovery[0]) rec_a = 1;
   task automatic wait_rec(input int n = 20000);
     int k;

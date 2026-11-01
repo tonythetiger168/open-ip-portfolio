@@ -332,7 +332,7 @@ module DigRF_top (
             // of burst; anything else, or one inside a frame, is an error
             if (rs != R_IDLE || (rsym != K28_5 && rsym != K28_1 && rsym != K29_7)) err_frame <= 1'b1;
             if (rs == R_PAY && rlct == L_DATA) drx_abort <= 1'b1;
-            rs <= rsym == K28_1 ? R_HDR : R_IDLE;
+            if (rsym == K28_1) rs <= R_HDR; else rs <= R_IDLE;
             if (rsym == K29_7) rx_locked <= 1'b0;
           end else case (rs)
             R_IDLE: err_frame <= 1'b1;

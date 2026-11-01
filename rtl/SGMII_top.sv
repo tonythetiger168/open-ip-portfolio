@@ -286,9 +286,9 @@ module SGMII_top #(
       // synchronisation
       case (sy)
         S_LOSS: if (comma) begin sy <= S_CD1; reven <= 1'b0; end
-        S_CD1: sy <= (valid && !kx) ? S_AS1 : S_LOSS;
-        S_CD2: sy <= (valid && !kx) ? S_AS2 : S_LOSS;
-        S_CD3: sy <= (valid && !kx) ? S_SA1 : S_LOSS;
+        S_CD1: if (valid && !kx) sy <= S_AS1; else sy <= S_LOSS;
+        S_CD2: if (valid && !kx) sy <= S_AS2; else sy <= S_LOSS;
+        S_CD3: if (valid && !kx) sy <= S_SA1; else sy <= S_LOSS;
         S_AS1: if (cgbad) sy <= S_LOSS; else if (comma) sy <= S_CD2;
         S_AS2: if (cgbad) sy <= S_LOSS; else if (comma) sy <= S_CD3;
         S_SA1: if (cgbad) begin sy <= S_SA2; good <= '0; end
@@ -325,7 +325,7 @@ module SGMII_top #(
               if (valid && !kx && (db == D5_6 || db == D16_2)) ev_idle <= 1'b1;
             end
           end
-          R_CFG1: begin cfg_lo <= db; rs <= valid && !kx ? R_CFG2 : R_IDLE; end
+          R_CFG1: begin cfg_lo <= db; if (valid && !kx) rs <= R_CFG2; else rs <= R_IDLE; end
           R_CFG2: begin
             rs <= R_IDLE;
             if (valid && !kx) begin ev_cfg <= 1'b1; ev_val <= {db, cfg_lo}; end
@@ -333,7 +333,7 @@ module SGMII_top #(
           default:                                        // R_PKT
             if (valid && kx && db == K29_7) rs <= R_END;
             else if (comma) begin                         // early end
-              grx_dv <= 1'b1; grx_er <= 1'b1; irq_err <= 1'b1; rs <= reven ? R_OS1 : R_IDLE;
+              grx_dv <= 1'b1; grx_er <= 1'b1; irq_err <= 1'b1; if (reven) rs <= R_OS1; else rs <= R_IDLE;
             end else begin
               grx_dv <= 1'b1; grxd <= db;
               if (!valid || kx) begin grx_er <= 1'b1; irq_err <= 1'b1; end

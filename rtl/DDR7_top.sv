@@ -232,7 +232,7 @@ module DDR7_top #(
               if (rp_t[act_bank] == 0) dstate <= D_ACT;
             end
             else if (rp_ok) begin           // plain PRE: hold hready low through tRP
-              ref_req <= (ref_cnt == 0); dstate <= (ref_cnt == 0) ? D_PRE : D_IDLE;
+              ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE;
             end
           end
         end
@@ -249,10 +249,10 @@ module DDR7_top #(
         D_RCD: begin
           ras_n <= 1'b1;
           if (timer == 0) begin
-            if (ref_walk)      begin ref_walk <= 1'b0; dstate <= h_pend ? D_DRN : D_IDLE; end
+            if (ref_walk)      begin ref_walk <= 1'b0; if (h_pend) dstate <= D_DRN; else dstate <= D_IDLE; end
             else if (auto_rd)  begin auto_rd <= 1'b0; dstate <= D_RD; end
             else if (auto_wr)  begin auto_wr <= 1'b0; dstate <= D_WR; end
-            else begin ref_req <= (ref_cnt == 0); dstate <= (ref_cnt == 0) ? D_PRE : D_IDLE; end
+            else begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
           end
         end
         D_DRN: begin                        // dispatch a drain or the parked host command
@@ -264,7 +264,7 @@ module DDR7_top #(
             cur_addr <= x_addr; wr_data <= x_data; cur_bank <= x_bank; act_bank <= x_bank;
             draining <= x_wb; rd_pending <= !x_wb; pre_need <= bank_open[x_bank];
             auto_act <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0;
-            if (x_hit) dstate <= x_wb ? D_WR : D_RD;
+            if (x_hit) if (x_wb) dstate <= D_WR; else dstate <= D_RD;
             else begin
               if (bank_open[x_bank]) begin bank_open[x_bank] <= 1'b0; rp_t[x_bank] <= TRP[8:0]; end
               open_row[x_bank] <= x_addr[31:18]; bank_open[x_bank] <= 1'b1;
@@ -295,10 +295,10 @@ module DDR7_top #(
               end
               wb_v[WBN-1] <= 1'b0;
               wb_n <= wb_n - 1'b1; draining <= 1'b0; evicted <= 1'b1;
-              ref_req <= (ref_cnt == 0); dstate <= (ref_cnt == 0) ? D_PRE : D_DRN;
+              ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_DRN;
             end else begin
               h_pend <= 1'b0;
-              ref_req <= (ref_cnt == 0); dstate <= (ref_cnt == 0) ? D_PRE : D_IDLE;
+              ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE;
             end
           end
         end

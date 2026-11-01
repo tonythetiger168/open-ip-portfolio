@@ -240,7 +240,7 @@ module LIN_top (
             r_len <= rsp_len; r_idx <= '0;
             r_data <= rsp_pub ? rsp_data : 64'h0;
             r_sum <= (rsp_enh && !classic) ? pid : 8'h00;
-            fst <= rsp_pub ? F_TX : F_RX;
+            if (rsp_pub) fst <= F_TX; else fst <= F_RX;
             tx_pend <= rsp_pub;
           end else if (fall || t_bits == 7'd126) fst <= F_IDLE;   // undecided: ignore the frame
         end

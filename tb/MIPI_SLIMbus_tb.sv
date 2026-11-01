@@ -71,6 +71,7 @@ module MIPI_SLIMbus_tb;
   logic [15:0] lcnt;
   bit          lcnt_ok = 0, sync_chk = 1;
   int          sf_skip = 0;
+  logic [7:0] fi_exp;
   always @(negedge clk) begin
     if (!rst_n[0]) begin lpos = -1; lcnt_ok = 0; end
     else if (pc && !line_c) begin : b_cell
@@ -107,7 +108,6 @@ module MIPI_SLIMbus_tb;
   end
   always @(negedge clk) if (sf_set) sf_skip = 2;
   // cfg_fi is sent from the next superframe on
-  logic [7:0] fi_exp;
   always @(posedge clk) if (g_ep[0].u.rise && g_ep[0].u.cnext == 0 && g_ep[0].u.fno == 7) fi_exp <= cfg_fi;
 
   // ---------------- FI reports ----------------

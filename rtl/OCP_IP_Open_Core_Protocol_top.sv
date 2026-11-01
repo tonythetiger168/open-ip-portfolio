@@ -128,7 +128,7 @@ module OCP_IP_Open_Core_Protocol_top #(
           if (req_rw) begin
             wbuf[0] <= req_wdata;                  // first word with descriptor
             wcnt    <= 4'd1;
-            state   <= (req_len_c > 4'd1) ? O_WCOL : O_ISSUE;
+            if (req_len_c > 4'd1) state <= O_WCOL; else state <= O_ISSUE;
           end else begin
             state <= O_ISSUE;
           end

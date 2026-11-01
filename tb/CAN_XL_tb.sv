@@ -259,6 +259,7 @@ module CAN_XL_tb;
     seen = bus;
     ca(bt_c(dp) - spt_c(dp));
   endtask
+  int   mon_n = 0, mon_bad = 0, mon_pexc = 0, mon_last_n = 0, mon_n_at_bfm = 0, mon_xl = 0;
   task automatic bfm_send(input bit chk = 1);
     logic s;
     if (!bfm_sync) idle(3);
@@ -318,7 +319,6 @@ module CAN_XL_tb;
   endtask
 
   // ---------------- bus monitor ----------------
-  int   mon_n = 0, mon_bad = 0, mon_pexc = 0, mon_last_n = 0, mon_n_at_bfm = 0, mon_xl = 0;
   event mon_done;
   logic m_prev = 1;
   int   m_cyc = 0;

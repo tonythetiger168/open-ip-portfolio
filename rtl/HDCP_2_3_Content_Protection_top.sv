@@ -453,7 +453,7 @@ module HDCP_2_3_Content_Protection_top #(
             end else wait_cnt <= wait_cnt - 8'd1;
 
           ST_SKE_TX: if (txm_ready) begin
-            state    <= rpt_peer ? ST_RPT_WAIT : ST_AUTH;
+            if (rpt_peer) state <= ST_RPT_WAIT; else state <= ST_AUTH;
             wait_cnt <= 8'(MSG_TIMEOUT);
             ctr      <= 16'h0;           // CTR restarts with the session
           end
