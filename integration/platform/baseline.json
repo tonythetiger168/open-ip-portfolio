@@ -2,7 +2,7 @@
   "version": "platform-slice-0.1-proposed",
   "date": "2026-11-01",
   "build_kind": "rtl-fixture-not-SoC",
-  "source_set_sha256": "09f238b350cbf4c823e597d0561c63892375225a222499ae8b70c97646afb71b",
+  "source_set_sha256": "06f4a6738d3fae07df6ac194c98bcae0255e0329f785cbd3342dd691998f87e3",
   "sources": [
     {
       "repository": "tonythetiger168/open-ip-portfolio",
@@ -42,14 +42,14 @@
     {
       "repository": "tonythetiger168/open-vip-portfolio",
       "path": "ipcheck/platform/coverage/check_export.py",
-      "git_blob": "7485c39ba4f00e2bac04131b37e210765ff21ded",
-      "sha256": "9b28e50a23191236c0ea6080af512c3f834db51d6e9b2c2a6e1ec5ad95b61efa"
+      "git_blob": "61cb054dc34c96b660e6ad6ef84134b626281b69",
+      "sha256": "769bbb7263e2dfa66635bc938f3b4e0b4065cce87f8b1d560a5449863ecf4096"
     },
     {
       "repository": "tonythetiger168/open-vip-portfolio",
       "path": "ipcheck/platform/coverage/test_check_export.py",
-      "git_blob": "ffbb1fde589dc289fac53d5213eabc339c0ef6de",
-      "sha256": "c152ba630f79e505be0d16bc791188229c2daa3157954a9a4efd8819b8cbd5de"
+      "git_blob": "54defe0462dae9be22a111df890e346c804f056c",
+      "sha256": "0cce78ff0bac97746dcd08e7ff4aecaee522afd7258711293e4164bc56393a6f"
     }
   ],
   "filelist": "integration/platform/slice.f",

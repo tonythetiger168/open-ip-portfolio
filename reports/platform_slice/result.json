@@ -6,7 +6,7 @@
     "platform_apb_slice.sv": "cd4f0e3910bbba4ed7d7e67adbddb8de5fc3ddacf1af810ee07edca2eb201b9a",
     "platform_apb_crv_tb.sv": "0ae69ef1969d34660e5555db0bd17b38ef0796f8824ac940d783e3500be6468c"
   },
-  "baseline_source_set_sha256": "09f238b350cbf4c823e597d0561c63892375225a222499ae8b70c97646afb71b",
+  "baseline_source_set_sha256": "06f4a6738d3fae07df6ac194c98bcae0255e0329f785cbd3342dd691998f87e3",
   "config_sha256": {
     "TV": "368fbb56485d4f53317550aee116c85700175ad223f3727adce4150a82806418",
     "STB": "ef75c16e2618716a1e19c441dd67798da73ddaa768c313a5134b426fdf1553f8",

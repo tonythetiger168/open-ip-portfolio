@@ -52,3 +52,11 @@ Icarus 12.0 elaboration 成功；三個產品 label × seeds 1/7/42 各 209 tran
 2. product full top 的缺 IP／stub／TLM 每項列 BLOCKED；不可把此 fixture 名稱改成 SoC completed。
 3. shared UVM contract 由 paired VIP `docs/design/platform_shared_uvm_plan.md` 提供；平台 subordinate memory model 不等於 DDR controller。
 4. 最終六類 100% 必須逐 product/config/scope 關閉；未量測／工具不支援不列 waiver；ETA 未知。
+
+## 15:41 後續：UVM 靜態前端與模擬阻塞
+
+paired VIP新增實際APB UVM driver／passive monitor／analysis scoreboard／sequence/env/test。`integration/platform/uvm_sources.json`鎖定10份RTL與UVM資產；Windows原生pyslang12.1.0嚴格語法／語義前端error=0，原始diagnostics保留。這是static frontend PASS，不是UVM runtime／SoC elaboration完成。
+
+UVM simulator建置在Verilator5.032＋兩個官方UVM版本上遇type_id解析錯誤；隔離5.052建置尚未完成，後續opt-only啟動遇Wsl/Service/0x8007274c。沒有重啟共用WSL。模擬seed／replay／checker注入仍BLOCKED，完整SoC／RAL／六類raw coverage DB與physical驗證未完成，ETA未知。詳見paired VIP的docs/design/platform_uvm_execution.md與reports/platform_uvm*。
+
+coverage政策檢查器更新至19個synthetic tests，日誌分類器另7個tests通過；不計入產品coverage。native Icarus fixture已按新的verification source fingerprint重跑9 runs，仍只有原有1881筆有界交易證據，不能與不同fingerprint舊結果merge。
