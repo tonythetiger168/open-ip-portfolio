@@ -1,0 +1,113 @@
+{
+  "date": "2026-11-01",
+  "source_sha": "e6a39a36d131c916688735a9874dfafb30474203",
+  "source_hashes": {
+    "TV-IP-table.md": "507245f9887a89de320a8e0305e1d1d9af3069a2117630d69b0cf690de802a64",
+    "STB-IP-table.md": "bd7c72c16257a1064430dff58249a4152abb50402a9af0dd6e8d8986f633ab0c",
+    "IPCAM-IP-table.md": "c1ae61dbb72cae11ea1ffcb4bc0ef1833fd7e228787712c2f06ae7f25e88fa18",
+    "IP-inventory.json": "188e63e772c08f525c0604e23231afaedc3f826bf081af56b2ae128c9b856093"
+  },
+  "status": "proposed; not production qualification",
+  "rows": [
+    {
+      "ip": "AXI4",
+      "table_items": "TV #1; STB #1; IPCAM #1",
+      "current": "memory subordinate、256 words、ID0、每方向 single outstanding；預設32-bit",
+      "required": "多manager AXI memory fabric",
+      "gap": "不是 interconnect/DMA；無 ID routing、QoS、firewall；DW 參數不能推定128-bit",
+      "update": "隔離 fabric/manager 設計，既有 core 不改 ports",
+      "acceptance": "來源ID/response routing、4KB、並行read/write、stall、error、drain",
+      "evidence": "rtl/AXI4_top.sv @ e6a39a3；https://github.com/tonythetiger168/open-ip-portfolio/blob/df9d0ed755c80d40aa42c4de55d6fd163c105c90/docs/ip/AXI4.md"
+    },
+    {
+      "ip": "AXI4_Lite",
+      "table_items": "TV #2; STB #2; IPCAM #2",
+      "current": "register-memory subordinate；AW後才接W",
+      "required": "AXI-Lite CSR crossbar及APB bridge",
+      "gap": "沒有 bridge/decoder；無 AxPROT；參數不能推定泛用寬度",
+      "update": "定義 AW/W獨立snapshot及錯誤轉換，待RTL",
+      "acceptance": "AW-first/W-first、B/R stall stability、strobe、PSLVERR轉換",
+      "evidence": "rtl/AXI4_Lite_top.sv @ e6a39a3；https://github.com/tonythetiger168/open-ip-portfolio/blob/df9d0ed755c80d40aa42c4de55d6fd163c105c90/docs/ip/AXI4_Lite.md"
+    },
+    {
+      "ip": "AXI_Stream",
+      "table_items": "TV #3; STB #3; IPCAM #3",
+      "current": "只有16-entry capture sink，無TKEEP/TUSER；滿後到reset才清",
+      "required": "source/sink adapter、stream fabric及DMA",
+      "gap": "無SOF/packing/有效lane/回收及frame ownership",
+      "update": "沿用既有capture用途；新增media adapter/DMA合約，不把sink命名為DMA",
+      "acceptance": "SOF/EOL、tail mask、stall、overflow drop、pattern→DMA→buffer→sink",
+      "evidence": "rtl/AXI_Stream_top.sv @ e6a39a3；https://github.com/tonythetiger168/open-ip-portfolio/blob/df9d0ed755c80d40aa42c4de55d6fd163c105c90/docs/ip/AXI_Stream.md"
+    },
+    {
+      "ip": "APB",
+      "table_items": "TV #4; STB #4; IPCAM #4",
+      "current": "APB_top是APB3 memory completer；APB_apb則APB4 CSR wrapper",
+      "required": "peripheral decoder/router；AXI→APB另外設計",
+      "gap": "completer不是decoder；wrapper不是bridge",
+      "update": "新增同域雙4KB APB4 router RTL原型",
+      "acceptance": "16 directed checks、default-error mutation偵測、generic synthesis；coverage/STA待驗",
+      "evidence": "rtl/APB_top.sv @ e6a39a3；https://github.com/tonythetiger168/open-ip-portfolio/blob/df9d0ed755c80d40aa42c4de55d6fd163c105c90/docs/ip/APB.md"
+    },
+    {
+      "ip": "I2C",
+      "table_items": "TV #12; STB #12; IPCAM #12",
+      "current": "7-bit target，預設0x50；SCL為input",
+      "required": "sensor/tuner I2C host",
+      "gap": "無SCL生成及host command/recovery",
+      "update": "提出獨立host及CSR/START/STOP/stretch/arbitration合約",
+      "acceptance": "獨立target的NACK/stretch/repeated START/last NACK/stuck-bus/abort",
+      "evidence": "rtl/I2C_top.sv @ e6a39a3；https://github.com/tonythetiger168/open-ip-portfolio/blob/df9d0ed755c80d40aa42c4de55d6fd163c105c90/docs/ip/I2C.md"
+    },
+    {
+      "ip": "SPI",
+      "table_items": "TV #13; STB #13; IPCAM #13",
+      "current": "mode0 8-bit target；SCLK/CSn input",
+      "required": "peripheral SPI host",
+      "gap": "無SCLK/CS生成；main MISO未依CS釋放，PR13修復未合併",
+      "update": "獨立host合約，避免與PR13重複改同一core",
+      "acceptance": "四mode edge/CS timing/underflow/abort；mode0先實作則CAP限定",
+      "evidence": "rtl/SPI_top.sv @ e6a39a3；https://github.com/tonythetiger168/open-ip-portfolio/blob/df9d0ed755c80d40aa42c4de55d6fd163c105c90/docs/ip/SPI.md"
+    },
+    {
+      "ip": "QSPI",
+      "table_items": "TV #8; STB #8; IPCAM #8",
+      "current": "standard/quad target；SCLK/CSn input",
+      "required": "boot-flash host；XIP另議",
+      "gap": "無opcode/address/dummy引擎、bootROM/XIP；main OE未以CS gating",
+      "update": "提出phase descriptor、IO OE、flash profile及寫擦權限合約",
+      "acceptance": "獨立flash model read/dummy/turnaround/address/掉電；XIP另驗",
+      "evidence": "rtl/QSPI_top.sv @ e6a39a3；https://github.com/tonythetiger168/open-ip-portfolio/blob/df9d0ed755c80d40aa42c4de55d6fd163c105c90/docs/ip/QSPI.md"
+    },
+    {
+      "ip": "MDIO",
+      "table_items": "TV #11; STB #11; IPCAM #11",
+      "current": "Clause22 PHY target，預設地址0x0C；MDC input",
+      "required": "MAC-side station-management host",
+      "gap": "無MDC生成、host read/write及TA檢查",
+      "update": "提出Clause22 host合約；Clause45不支援",
+      "acceptance": "PHYAD/REGAD、TA Z0/no-device、read/write、divider/abort",
+      "evidence": "rtl/MDIO_top.sv @ e6a39a3；https://github.com/tonythetiger168/open-ip-portfolio/blob/df9d0ed755c80d40aa42c4de55d6fd163c105c90/docs/ip/MDIO.md"
+    },
+    {
+      "ip": "SDIO",
+      "table_items": "TV #25; STB #25; IPCAM #22",
+      "current": "function1 card、CMD52/53 byte mode、count1..32；sd_clk input",
+      "required": "Wi-Fi module SDIO host（選配）",
+      "gap": "無enumeration/function0/CCCR、SDCLK、host DMA；VIP fixed response不補足",
+      "update": "提出host初始化、CMD52/53、IRQ、CRC與timeout合約",
+      "acceptance": "獨立card enumerate/CCCR/R4/R5/data/CRC/busy/IRQ/abort；真實模組另驗",
+      "evidence": "rtl/SDIO_top.sv @ e6a39a3；https://github.com/tonythetiger168/open-ip-portfolio/blob/df9d0ed755c80d40aa42c4de55d6fd163c105c90/docs/ip/SDIO.md"
+    },
+    {
+      "ip": "DMA / shared fabric",
+      "table_items": "三表 #1–4 的系統缺口；inventory無獨立DMA列",
+      "current": "本repo未找到可用media 2D DMA或多manager AXI fabric",
+      "required": "AXI manager、2D stride、多plane、ring/cache/domain/ownership",
+      "gap": "sink/subordinate/VIP不能替代DMA；DDR service bound與吞吐待定",
+      "update": "參照ORCA draft PR3，共用contract保持proposed；本輪不覆寫該工作",
+      "acceptance": "pattern→DMA→buffer→sink；4KB/IDs/errors/abort drain/secure隔離；RTL待執行",
+      "evidence": "repo recursive tree；ORCA PR #3（提案、不是驗證證據）"
+    }
+  ]
+}
