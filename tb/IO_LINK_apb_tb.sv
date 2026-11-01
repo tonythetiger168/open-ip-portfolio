@@ -182,6 +182,14 @@ module IO_LINK_apb_tb;
     cycles(2);
     reg_tests();
     ip_func();
+    // Generate a real unread device report; reset must clear pending IRQ,
+    // not merely recheck reset values after software cleared every cause.
+    cfg(0, 2, 2, 3, 1);
+    p_go(8'h80);
+    poll(A_IRQ_STATUS, 32'd1 << IRQ_D_MSG_AVAIL, 32'd1 << IRQ_D_MSG_AVAIL, 100000);
+    wr(A_IRQ_ENABLE, 32'd1 << IRQ_D_MSG_AVAIL);
+    cycles(2);
+    if (irq !== 1) fail("reset scenario requires a pending enabled IRQ");
     PRESETN = 0;
     cycles(3);
     if (irq !== 0 || PRDATA !== 0) fail("outputs in reset");
