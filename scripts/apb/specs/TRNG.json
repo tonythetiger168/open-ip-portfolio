@@ -1,0 +1,104 @@
+{
+  "title": "True random number generator: ring-oscillator noise source, SP 800-90B repetition count and adaptive proportion health tests with start-up test, and SHA-256 conditioning into 256-bit full-entropy seeds",
+  "code": "0x5452",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "100ms",
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Enable and configuration (src_sel, cond_bypass and cond_blks are taken when en rises)",
+      "fields": [
+        {"port": "en", "reset": "0", "desc": "1 runs the start-up test, then collection; 0 stops and clears the buffers (and is how a failure is cleared)"},
+        {"port": "src_sel", "reset": "0", "desc": "noise source: 0 the ring oscillators, 1 the test LFSR (bring-up only: deterministic, no entropy)"},
+        {"port": "cond_bypass", "reset": "0", "desc": "1 outputs the raw bits unconditioned, 32 per word, for characterization"},
+        {"port": "cond_blks", "reset": "1", "desc": "512-bit blocks of raw bits hashed per seed, minus 1 (default 1: two blocks, 1024 raw bits per 256-bit seed)"},
+        {"port": "smp_div", "reset": "0", "desc": "one raw sample every smp_div + 1 clocks"}
+      ]
+    },
+    {
+      "name": "HEALTH",
+      "kind": "rw",
+      "desc": "Health test cutoffs (apply at once); the reset values are those of a claimed min-entropy of 0.5 bit per sample at alpha = 2^-20",
+      "fields": [
+        {"port": "rct_cutoff", "reset": "41", "desc": "repetition count test: a run of this many equal samples fails (1 + ceil(20 / H))"},
+        {"port": "apt_cutoff", "reset": "793", "desc": "adaptive proportion test: this many occurrences of the first value in a 1024-sample window fail (1 + CRITBINOM(1024, 2^-H, 1 - 2^-20))"}
+      ]
+    },
+    {
+      "name": "LFSR_SEED",
+      "kind": "rw",
+      "desc": "Test LFSR",
+      "fields": [
+        {"port": "lfsr_seed", "reset": "1", "desc": "loaded into the test LFSR when en rises (0 is a stuck source: the repetition count test fails)"}
+      ]
+    },
+    {
+      "name": "ENT",
+      "kind": "stream_out",
+      "data": ["ent_data"],
+      "valid": "ent_valid",
+      "ready": "ent_ready",
+      "desc": "Entropy output: a seed is eight words, digest word 0 first (one word per raw-bit word in bypass); reading ENT pops the word",
+      "fdesc": {"ent_data": "seed word"}
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "State and health",
+      "fields": [
+        {"port": "state", "desc": "0 IDLE, 1 START (start-up test), 2 RUN (collecting), 3 HASH, 4 OUT (seed waiting to be read), 5 FAIL"},
+        {"port": "es_ok", "desc": "the start-up test passed and no test has failed since"},
+        {"port": "es_fips", "desc": "es_ok in the FIPS configuration (ring oscillators, conditioned)"},
+        {"port": "alert_rct", "desc": "the repetition count test failed (cleared when en rises again)"},
+        {"port": "alert_apt", "desc": "the adaptive proportion test failed (cleared when en rises again)"}
+      ]
+    },
+    {
+      "name": "FAILS",
+      "kind": "ro",
+      "desc": "Health test failures since reset (saturating at 255)",
+      "fields": [
+        {"port": "rct_fails", "desc": "repetition count test failures"},
+        {"port": "apt_fails", "desc": "adaptive proportion test failures"}
+      ]
+    },
+    {
+      "name": "WATERMARK",
+      "kind": "ro",
+      "desc": "High-water marks since en rose, for tuning the cutoffs",
+      "fields": [
+        {"port": "rct_hw", "desc": "longest run of equal samples"},
+        {"port": "apt_hw", "desc": "highest count of a window's first value"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "SEED", "port": "seed_rdy", "desc": "a seed (or raw word) is ready in ENT"},
+    {"name": "ALERT", "port": "alert", "desc": "a health test failed: the core stopped (STATUS.alert_rct / alert_apt give the test)"}
+  ],
+  "pins": ["alert", "es_ok"],
+  "features": [
+    "Noise source: the XOR of NRO free-running ring oscillators (asynchronous inputs ro_in, placed outside the core) through a two-flop synchronizer, sampled every smp_div + 1 clocks. Every raw sample is also on raw_valid / raw_bit (pass-through pins) for the SP 800-90B entropy assessment and an external monitor.",
+    "SP 800-90B health tests on every raw sample: the repetition count test and the adaptive proportion test (1024-sample window), with programmable cutoffs. A start-up test runs one full window before anything is collected; a failure at any time stops the core, raises ALERT and clears the buffers until en is cleared and set again.",
+    "Conditioning with SHA-256, a vetted function: 512 x (cond_blks + 1) raw bits per 256-bit seed (1024 by default), each seed from fresh samples. Output as eight words through ENT, with the core held off (no loss) while ENT is full.",
+    "Test LFSR source and raw bypass for bring-up and characterization; output from either is never flagged FIPS (STATUS.es_fips, core port ent_fips).",
+    "Monitors: failure counters per test since reset and high-water marks (longest run, highest window count) since the last start."
+  ],
+  "notes": [
+    "The health test reset values assume 0.5 bit of min-entropy per raw sample. Measure the real source (raw_valid / raw_bit, or bypass words through ENT) with the SP 800-90B tools and set HEALTH, CTRL.smp_div and CTRL.cond_blks from the assessed entropy: 256 + 64 bits of entropy must go into each seed for full entropy.",
+    "The ring oscillators are not part of the core: a production design places NRO oscillators of different lengths in the analog / custom area, with their enables; ro_in is their output. In simulation the testbench drives them from a noise model.",
+    "Not implemented: an SP 800-90A DRBG on top (the seeds feed one, or the Root_of_Trust UDS / key generation); oscillator enables and frequency monitors; side-channel and fault-injection hardening beyond the state register check."
+  ],
+  "sequence": [
+    "Configure: HEALTH = rct_cutoff | apt_cutoff << 8 (or keep the reset values), CTRL = cond_blks << 3 | smp_div << 5 with en = 0.",
+    "Start: set CTRL.en; STATUS.state goes 1 (START) then 2 (RUN) once 1024 samples have passed.",
+    "Read a seed: wait for IRQ_STATUS.SEED (or FLAGS ENT available), then read ENT eight times (digest word 0 first).",
+    "On IRQ_STATUS.ALERT: read STATUS (alert_rct / alert_apt) and FAILS, clear CTRL.en, then set it again to rerun the start-up test."
+  ],
+  "verification": [
+    "Core: tb/TRNG_tb.sv drives the ring oscillator inputs from a noise model (random, stuck, runs of ones and zeros) and reads with random back-pressure. Its own model runs both health tests on every raw sample and predicts each failure, flag, counter and high-water mark; it hashes the samples each seed is made of with its own SHA-256 (first checked against hashlib vectors from scripts/trng/gen_vec.py) and compares every output word. Cases: every block count, both sources, bypass, sampling every clock to every 256 clocks, each test failing in START, RUN, HASH and OUT, cutoffs of 0 and 1, both tests at once, counter saturation, en dropped in every state, reset mid-output.",
+    "The core checker is a separate cycle model from the ports (synchronizer, LFSR, divider, health tests, control timing) with its own SHA-256 (constants from the primes); it checks every raw sample, state, flag, counter and output word, and that no sample data is left in the buffers when the core is not collecting."
+  ]
+}
