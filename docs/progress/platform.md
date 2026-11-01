@@ -1,5 +1,34 @@
 # 平台工作進度 — bus／DMA／host／shared UVM
 
+## 2026-11-01 15:46 Asia/Taipei：UVM 資產嚴格前端與證據 gate 修正
+
+主變更 commit：`d9dd6a64611936c911ff1f9e1d58f4dd35f35b32`；分支 `codex/platform-bus-host-20261101`。沿用 [open-ip #22](https://github.com/tonythetiger168/open-ip-portfolio/pull/22)／[open-vip #15](https://github.com/tonythetiger168/open-vip-portfolio/pull/15)，均draft、未合併、讀取時無審查留言。已核對遠端10份RTL／UVM程式blob與實測source lock一致。
+
+### 本輪結果（不得合併成 UVM simulation PASS）
+
+|範圍|design／RTL／verified／physical|
+|---|---|
+|APB UVM資產|實際interface、driver、passive monitor、analysis scoreboard、sequence/env/test已新增；RTL fixture未改。pyslang12.1.0嚴格靜態前端error=0；不是模擬、runtime topology或SoC完成。physical未做。|
+|UVM runtime|Verilator5.032＋官方UVM2020.3.1及2020-2.0均在type_id解析處BLOCKED_BUILD。208tx／3 seeds／wire replay／monitor corruption驗收程式已寫，但尚未執行，不填PASS。|
+|隔離工具建置|官方Verilator5.052 source與configure已準備；自己的default debug+opt build已停止。opt-only新程序遇Wsl/Service/0x8007274c，未完成；未重啟共用WSL，系統5.032未改。|
+|coverage evidence gate|19個synthetic政策tests通過；以新案例回跑前一版7fb318a exit1、修正版exit0。另7個synthetic UVM日誌分類器tests通過；不是產品coverage或UVM執行證據。|
+|完整三產品／六類100%|完整SoC/RAL/AXI/stream/DMA/ownership/QoS/reset-drain與raw coverage DB仍OPEN/BLOCKED。沒有百分比、STA或PPA宣稱，ETA未知。|
+
+新增來源鎖：open-ip `integration/platform/uvm_sources.json`。paired VIP的`docs/design/platform_uvm_execution.md`詳列重現命令、官方commit、frontend與模擬界線。靜態前端曾抓到scoreboard自定義check與UVM父類虛方法簽章衝突，已改名check_expected並重驗。原始diagnostics保留本輪本地交付包，PR保存結構化結果及error摘要；失敗建置logs未冒稱成功。
+
+coverage gate新增必填run_status=passed、timed_out=false、pending_transactions=0、完整零UVM error/fatal及illegal_bin_hits=0；baseline分母不准重複、toggle每bit需rise/fall兩向、所有raw functional bins都合法且可追溯。舊版會漏掉上述部分條件，新19 tests驗證修復。仍僅同source/config/tool/instrumentation/point inventory可merge；未支持或缺RTL不能waive成100%。
+
+真實命令／證據：
+- `python ipcheck/platform/uvm/elaborate_uvm.py --ip-dir <IP> --uvm-core <官方固定來源> --pyslang-root <固定12.1.0> --evidence-dir <dir>`：Windows原生嚴格前端exit0／error0，診斷保留。
+- `python -m unittest discover -s ipcheck/platform/coverage -p test_check_export.py -v`：19 tests通過；before/after logs在reports/platform_uvm/。
+- `python -m unittest discover -s ipcheck/platform/uvm -p test_run_uvm_slice.py -v`：7 tests通過。
+- native Icarus fixture依更新的19-test source fingerprint已重跑9 runs／1881 transactions；這仍是原有有界程序式campaign，非UVM simulation。
+
+下一步：WSL工具執行恢復後完成opt-only Verilator5.052，再跑固定UVM runtime與negative/replay；通過後才提高verified等級。後續RAL/virtual sequencer/AXI memory responder與產品full top需integration與platform接續落地。未另建排程、未自行傳訊其他聊天、未付費或合併；中央可每小時讀本檔與PR head。
+
+## 先前紀錄（15:17）
+
+
 ## 2026-11-01 15:17 Asia/Taipei：SoC 整合用 fixture 與 coverage 計畫
 
 主變更 commit：`22ab912f703a48c93b454b1548bd7d93839e5911`。分支 `codex/platform-bus-host-20261101`；沿用 [open-ip #22](https://github.com/tonythetiger168/open-ip-portfolio/pull/22)／[open-vip #15](https://github.com/tonythetiger168/open-vip-portfolio/pull/15)，draft、未合併。遠端7份RTL／bench／runner／policy source blob已核對與實測pins一致。
