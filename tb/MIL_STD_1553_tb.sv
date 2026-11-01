@@ -580,6 +580,24 @@ module MIL_STD_1553_tb;
     fill(0, 0); mark(); c = cw(5, 0, 1, 2); bc_run(0, 1, c);
     bc_expect("after reset", 4'b0000, stw(5));
 
+    // Idle-only input configuration sweep, sampled out of reset. These
+    // inputs are not reset by the DUT: explicitly exercise both directions
+    // instead of assuming the final DUT reset also clears external inputs.
+    @(negedge clk);
+    for (int i = 0; i < 3; i++) c_addr[i] = 5'd30; // valid RT address, not broadcast 31
+    T0.haddr = '1; T1.haddr = '1; T2.haddr = '1;
+    T0.hwd = '1; T1.hwd = '1; T2.hwd = '1;
+    cyc(2);
+    for (int i = 0; i < 3; i++) c_addr[i] = 5'd1;
+    cyc(2);
+    for (int i = 0; i < 3; i++) c_addr[i] = 0;
+    T0.haddr = 0; T1.haddr = 0; T2.haddr = 0;
+    T0.hwd = 0; T1.hwd = 0; T2.hwd = 0;
+    cyc(2);
+    c_addr[0] = 0; c_addr[1] = 5; c_addr[2] = 26;
+    cyc(2);
+    if (T0.bbusy || |{tap, tan, tbp, tbn}) fail("idle configuration sweep started a transfer");
+
     $display("[%0t] TEST PART DONE", $time);
     if (errors == 0) $display("TEST PASSED: MIL_STD_1553");
     else $display("TEST FAILED: MIL_STD_1553 (%0d errors)", errors);
