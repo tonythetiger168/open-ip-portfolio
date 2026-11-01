@@ -2,6 +2,8 @@
 
 > TV／STB／IPCAM：bus／host 角色與產品化缺口請見 [平台矩陣](docs/design/platform_bus_host_matrix.md)。APB wrapper 是控制面，不會把 target 變成 host；新增 router 僅為隔離原型。
 
+> 可建置的 [APB 平台子系統基準](docs/design/platform_slice_baseline.md) 與 [source/config pins](integration/platform/baseline.json) 已提供；它不是產品 SoC top，完整三產品 elaboration 與六類 coverage closure 仍 BLOCKED。
+
 Open-source SystemVerilog protocol IP portfolio (Apache-2.0) — **129 protocol
 IPs**, each with a synthesizable RTL core, an APB4 register wrapper, self-checking
 testbenches for both, a coverage checker (reference model, SVA and functional
