@@ -350,7 +350,7 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/SPDM_top.sv` | FAIL | 326/333 | 5587/6470 | 43/43 | 36/37 | 76/77 |
+| core `rtl/SPDM_top.sv` | pass | 368/368 | 5674/5674 (+24 excl.) | 43/43 | 37/37 | 77/77 |
 | wrapper `rtl/SPDM_apb.sv` | not run | | | | | |
 
 Core: tb/SPDM_tb.sv runs 122 requests from scripts/spdm/gen_vec.py, an SPDM 1.2 responder model (scripts/spdm/spdm_ref.py) with the FIPS 204 model scripts/mldsa/mldsa_ref.py; every response is compared byte for byte, signatures of all three parameter sets included (and the generator checks each signature with ML-DSA Verify against the transcript). The requests cover every request code with every error it can get, both DataTransferSize limits, the measurement summary types, interleaved M1 / L1 transcripts, VCA restarts, the key commands and clr while a request is received, signed, sent and while KeyGen runs.
