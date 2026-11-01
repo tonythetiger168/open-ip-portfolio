@@ -350,8 +350,8 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/SPDM_top.sv` | pass | 368/368 | 5674/5674 (+24 excl.) | 43/43 | 37/37 | 77/77 |
-| wrapper `rtl/SPDM_apb.sv` | not run | | | | | |
+| core `rtl/SPDM_top.sv` | pass | 368/368 | 5666/5666 (+24 excl.) | 43/43 | 37/37 | 77/77 |
+| wrapper `rtl/SPDM_apb.sv` | pass | 71/71 | 2948/2948 (+6 excl.) | n/a | 33/33 | 99/99 |
 
 Core: tb/SPDM_tb.sv runs 122 requests from scripts/spdm/gen_vec.py, an SPDM 1.2 responder model (scripts/spdm/spdm_ref.py) with the FIPS 204 model scripts/mldsa/mldsa_ref.py; every response is compared byte for byte, signatures of all three parameter sets included (and the generator checks each signature with ML-DSA Verify against the transcript). The requests cover every request code with every error it can get, both DataTransferSize limits, the measurement summary types, interleaved M1 / L1 transcripts, VCA restarts, the key commands and clr while a request is received, signed, sent and while KeyGen runs.
 The core checker has its own SHA3-384 and keeps the transcripts as byte queues: it decides each request, forms every response byte but the signature (digests included), and checks the seed, M' and rnd in the ML-DSA buffer when KeyGen / Sign start, the wipes, the handshakes and the status outputs.

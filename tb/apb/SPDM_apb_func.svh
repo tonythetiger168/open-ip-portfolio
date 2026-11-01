@@ -7,7 +7,8 @@
 // the rq_* / rs_* pins: every response byte is compared, signatures
 // included. Also checks STATUS (conn, key, err_code), the RSP_DONE /
 // RSP_ERR / KG_DONE / CMD_ERR interrupts, RN_FULL back-pressure and the irq
-// pin, enabled and masked.
+// pin, enabled and masked (every other record runs with the interrupts
+// masked).
 logic [31:0] spv [0:16383];
 int          spp;
 
@@ -72,6 +73,7 @@ task automatic sp_pk(input logic [23:0] arg);
   spp += n;
   cycles(4);
   rd_exp(A_FLAGS, 0);
+  rd(A_PK1);                            // a pop with no word waiting
 endtask
 
 task automatic sp_req(input logic [23:0] arg);
@@ -121,6 +123,7 @@ endtask
 
 task automatic ip_func;
   int op;
+  int nrec;
   logic [23:0] arg;
   bit fin;
   if ($fopen("tb/SPDM_apb_vec.hex", "r") != 0) $readmemh("tb/SPDM_apb_vec.hex", spv);
@@ -144,8 +147,12 @@ task automatic ip_func;
   wr(A_IRQ_ENABLE, IRQ_ALL);
   spp = 0;
   fin = 0;
+  nrec = 0;
   while (!fin) begin
     op = int'(spv[spp] >> 24); arg = spv[spp][23:0]; spp++;
+    // every other record runs with the interrupts masked (raised, not signalled)
+    wr(A_IRQ_ENABLE, nrec[0] ? 32'h0 : IRQ_ALL);
+    nrec++;
     case (op)
       1: sp_cfg();
       2: sp_store(arg);
