@@ -118,12 +118,16 @@ module SPDM_top #(
   output logic              cmd_err     // kg_start / pk_open refused
 );
   localparam int RQ_MAX = 128;
+  localparam int SW     = $clog2(NM + 1);   // measurement slot index, NM = none
   localparam int NMW    = NM * 12;      // measurement store words
   localparam int CCW    = 1 << (CC_AW - 2);
   // the largest response: MEASUREMENTS of all indices or CHALLENGE_AUTH, ML-DSA-87
   localparam int DTS_M  = 8 + 55 * NM + 34 + 4627;
   localparam int DTS    = DTS_M > 4761 ? DTS_M : 4761;
-  localparam logic [15:0] DTS16 = 16'(DTS);
+  localparam logic [12:0] DTS13 = 13'(DTS);
+  // response kinds
+  localparam logic [2:0] R_ERR = 3'd0, R_VER = 3'd1, R_CAP = 3'd2, R_ALG = 3'd3, R_DIG = 3'd4,
+                         R_CRT = 3'd5, R_CHAL = 3'd6, R_MEAS = 3'd7;
   // request / response codes
   localparam logic [7:0] C_GVER = 8'h84, C_GCAP = 8'hE1, C_NEG = 8'hE3, C_GDIG = 8'h81,
                          C_GCRT = 8'h82, C_CHAL = 8'h83, C_GMEAS = 8'hE0;
@@ -139,20 +143,20 @@ module SPDM_top #(
   // transcript targets
   localparam int T_M = 0, T_L = 1, T_V = 2;
 
-  function automatic logic [15:0] sig_len(input logic [1:0] p);
-    sig_len = p == 2'd0 ? 16'd2420 : p == 2'd1 ? 16'd3309 : 16'd4627;
+  function automatic logic [12:0] sig_len(input logic [1:0] p);
+    sig_len = p == 2'd0 ? 13'd2420 : p == 2'd1 ? 13'd3309 : 13'd4627;
   endfunction
   function automatic logic [11:0] pk_words(input logic [1:0] p);
     pk_words = p == 2'd0 ? 12'd328 : p == 2'd1 ? 12'd488 : 12'd648;
   endfunction
-  function automatic logic [3:0] popc(input logic [NM-1:0] m);
+  function automatic logic [SW-1:0] popc(input logic [NM-1:0] m);
     popc = '0;
-    for (int i = 0; i < NM; i++) popc = popc + 4'(m[i]);
+    for (int i = 0; i < NM; i++) popc = popc + SW'(m[i]);
   endfunction
   // lowest set bit of m at or above i (NM when none)
-  function automatic logic [3:0] next_set(input logic [NM-1:0] m, input logic [3:0] i);
-    next_set = 4'(NM);
-    for (int j = NM - 1; j >= 0; j--) if (m[j] && 4'(j) >= i) next_set = 4'(j);
+  function automatic logic [SW-1:0] next_set(input logic [NM-1:0] m, input logic [SW-1:0] i);
+    next_set = SW'(NM);
+    for (int j = NM - 1; j >= 0; j--) if (m[j] && SW'(j) >= i) next_set = SW'(j);
   endfunction
   // the signed message M' = 0, 0 (pure ML-DSA, empty context) || prefix || hash
   function automatic logic [7:0] prefix_byte(input logic [6:0] j);   // j < 64
@@ -199,15 +203,15 @@ module SPDM_top #(
                   .fin(th_fin[e]), .dig(th_dig[e]), .done(th_done[e]));
   end
 
-  logic        ml_start, ml_busy, ml_done, ml_err, ml_fail;
-  logic [1:0]  ml_op;
-  logic [15:0] ml_tries;
+  logic        ml_start, ml_busy, ml_done;
   logic        hp_load, hw_valid, hw_ready, hr_en, hr_valid, hr_ready;
   logic [12:0] hp_addr;
   logic [31:0] hw_data, hr_data;
-  ML_DSA_top u_mldsa (.clk(clk), .rst_n(rst_n), .start(ml_start), .op(ml_op), .pset(key_pset),
-                      .ext_mu(1'b0), .mlen(MP_LEN), .busy(ml_busy), .done(ml_done), .err(ml_err),
-                      .fail(ml_fail), .tries(ml_tries), .hp_load(hp_load), .hp_addr(hp_addr),
+  // KeyGen in S_KGW, Sign otherwise; err (reserved op / pset / mlen), fail
+  // (Verify) and tries are never used
+  ML_DSA_top u_mldsa (.clk(clk), .rst_n(rst_n), .start(ml_start), .op(st == S_KGW ? 2'd0 : 2'd1), .pset(key_pset),
+                      .ext_mu(1'b0), .mlen(MP_LEN), .busy(ml_busy), .done(ml_done), .err(),
+                      .fail(), .tries(), .hp_load(hp_load), .hp_addr(hp_addr),
                       .hw_valid(hw_valid), .hw_data(hw_data), .hw_ready(hw_ready), .hr_en(hr_en),
                       .hr_valid(hr_valid), .hr_data(hr_data), .hr_ready(hr_ready));
 
@@ -220,27 +224,26 @@ module SPDM_top #(
   logic [7:0]   rq_n;                  // bytes received (saturates at 255)
   logic         rq_ovf, drain;
   logic [7:0]   vca [0:255];
-  logic [8:0]   vca_n;
-  logic [7:0]   rb [0:39];             // response header bytes
-  logic [5:0]   hb_n;
+  logic [7:0]   vca_n;                 // VCA is at most 220 bytes
+  logic [2:0]   rt;                    // response kind
   logic [6:0]   seg_en;
   logic [2:0]   seg;
   logic [15:0]  k;                     // byte of the segment / words written
-  logic [15:0]  cc_off, cc_cnt;
+  logic [CC_AW-1:0] cc_off;
+  logic [CC_AW:0]   cc_cnt;
   logic [NM-1:0] mb_mask, ms_mask;
-  logic [3:0]   mb_slot;
+  logic [SW-1:0] mb_slot;
   logic [5:0]   mb_j;
   logic [2:0]   tgt;                   // transcripts fed: M, L, VCA
   logic         sgn, sg_cm;            // signed response; 0 CHALLENGE_AUTH, 1 MEASUREMENTS context
   logic         need_cc, need_ms, need_rn, ax_ms;
-  logic         is_err, rst_tr;
+  logic         is_err, e_v10;
   logic [7:0]   e_code;
   logic [255:0] nonce;
   logic [383:0] cc_dig;
   logic         hash_ok, asym_ok, meas_ok;
-  logic [15:0]  dts;                   // min(requester DataTransferSize, DTS)
+  logic [12:0]  dts;                   // min(requester DataTransferSize, DTS)
   logic         clr_p;
-  logic         kg_fromsl;
   logic [255:0] kseed;
 
   // ---------------- request decode ----------------
@@ -267,16 +270,19 @@ module SPDM_top #(
   // GET_CERTIFICATE
   wire [15:0] q_off = {rqb[5], rqb[4]};
   wire [15:0] q_len = {rqb[7], rqb[6]};
-  wire [15:0] c_av = 16'(cc_len) - q_off;
-  wire [15:0] c_p0 = q_len < c_av ? q_len : c_av;
-  wire [15:0] c_por = c_p0 < dts - 16'd8 ? c_p0 : dts - 16'd8;
+  // bytes after the offset, and the portion sent (clipped to the request and to DataTransferSize)
+  function automatic logic [12:0] c_por(input logic [CC_AW:0] av, input logic [15:0] ln, input logic [12:0] d);
+    logic [CC_AW:0] p;
+    p = 17'(ln) < 17'(av) ? (CC_AW + 1)'(ln) : av;
+    c_por = 17'(p) < 17'(d - 13'd8) ? 13'(p) : d - 13'd8;
+  endfunction
+  wire [CC_AW:0] c_av = cc_len - (CC_AW + 1)'(q_off);
+  wire [12:0]    c_pn = c_por(c_av, q_len, dts);   // below DTS
   // GET_MEASUREMENTS
   wire        q_sig = q_p1[0];
   wire [NM-1:0] q_mask = q_p2 == 8'hFF ? m_en : q_p2 == 8'h00 ? '0 : NM'(1) << (q_p2 - 8'd1);
   wire        q_idx_ok = q_p2 == 8'hFF || q_p2 == 8'h00 || (q_p2 <= 8'(NM) && m_en[3'(q_p2 - 8'd1)]);
-  wire [3:0]  q_nb = popc(q_mask);
-  wire [15:0] l_meas = 16'd42 + 16'd55 * 16'(q_nb) + (q_sig ? sig_len(key_pset) : 16'd0);
-  wire [15:0] l_chal = 16'd86 + (q_p2 != 8'h00 ? 16'd48 : 16'd0) + sig_len(key_pset);
+  wire [SW-1:0] q_nb = popc(q_mask);
 
   // the decision for a request: error code (0: none) and what to do
   logic [7:0] d_err;
@@ -295,22 +301,22 @@ module SPDM_top #(
         C_NEG:  d_err = conn != 2'd2 ? E_UNEXP :
                         16'(rq_n) != q_alen || rq_n < 8'd32 || q_nae > 9'd20 ||
                         q_alen < 16'd32 + 16'd4 * 16'(q_nae) ? E_INV : 8'h00;
-        C_GDIG: d_err = !cr_ok ? E_UNEXP : rq_n != 8'd4 ? E_INV : slot_ok && dts < 16'd52 ? E_BIG : 8'h00;
+        C_GDIG: d_err = !cr_ok ? E_UNEXP : rq_n != 8'd4 ? E_INV : slot_ok && dts < 13'd52 ? E_BIG : 8'h00;
         C_GCRT: d_err = !cr_ok ? E_UNEXP :
                         rq_n != 8'd8 || q_p1[3:0] != 4'd0 || !slot_ok || 17'(q_off) >= 17'(cc_len) ? E_INV : 8'h00;
         C_CHAL: d_err = !cr_ok ? E_UNEXP :
                         rq_n != 8'd36 || q_p1 != 8'h00 || !slot_ok ||
                         !(q_p2 == 8'h00 || q_p2 == 8'h01 || q_p2 == 8'hFF) ? E_INV :
-                        l_chal > dts ? E_BIG : 8'h00;
+                        13'd86 + (q_p2 != 8'h00 ? 13'd48 : 13'd0) + sig_len(key_pset) > dts ? E_BIG : 8'h00;
         default: d_err = !cr_ok ? E_UNEXP : !meas_ok ? E_UNSUP :
                         rq_n != (q_sig ? 8'd37 : 8'd4) || !q_idx_ok || (q_sig && (rqb[36] != 8'h00 || !slot_ok)) ? E_INV :
-                        l_meas > dts ? E_BIG : 8'h00;
+                        13'd42 + 13'd55 * 13'(q_nb) + (q_sig ? sig_len(key_pset) : 13'd0) > dts ? E_BIG : 8'h00;
       endcase
     end
   end
 
   // ---------------- response byte generator ----------------
-  wire [15:0] cc_a = cc_off + k;
+  wire [CC_AW-1:0] cc_a = cc_off + CC_AW'(k);
   wire [31:0] cc_w = ccm[cc_a[CC_AW-1:2]];
   wire [5:0]  mj7 = mb_j - 6'd7;
   wire [31:0] mv_w = mvm[8'(mb_slot) * 8'd12 + 8'(mj7[5:2])];
@@ -321,23 +327,59 @@ module SPDM_top #(
       6'd1:    mb_byte = 8'h01;
       6'd2:    mb_byte = 8'd51;
       6'd3:    mb_byte = 8'h00;
-      6'd4:    mb_byte = m_type[8 * mb_slot[2:0] +: 8];
+      6'd4:    mb_byte = m_type[8 * mb_slot +: 8];
       6'd5:    mb_byte = 8'd48;
       6'd6:    mb_byte = 8'h00;
       default: mb_byte = mv_w[8 * mj7[1:0] +: 8];
     endcase
+  // the response header, formed from the request (still in rqb) and the state
+  logic [7:0]  hb;
+  logic [3:0]  hb_w;                   // header length in 32-bit words
+  always_comb begin
+    hb = 8'h00;
+    case (rt)
+      R_ERR: hb_w = 4'd1;
+      R_CAP: hb_w = 4'd5;
+      R_ALG: hb_w = asym_ok ? 4'd10 : 4'd9;
+      R_DIG, R_CHAL: hb_w = 4'd1;
+      default: hb_w = 4'd2;            // VERSION, CERTIFICATE, MEASUREMENTS
+    endcase
+    case (k[5:0])
+      6'd0: hb = rt == R_ERR ? (e_v10 ? V10 : V12) : rt == R_VER ? V10 : V12;
+      6'd1: hb = rt == R_ERR ? 8'h7F : q_code & 8'h7F;
+      6'd2: hb = rt == R_ERR ? e_code : rt == R_MEAS && q_p2 == 8'h00 ? 8'(popc(m_en)) : 8'h00;
+      6'd3: hb = rt == R_ERR ? (e_code == E_UNSUP ? q_code : 8'h00) : rt == R_DIG ? {7'd0, slot_ok} :
+                 rt == R_CHAL ? 8'h01 : 8'h00;
+      6'd4: hb = rt == R_ALG ? (asym_ok ? 8'd40 : 8'd36) : rt == R_CRT ? cc_cnt[7:0] :
+                 rt == R_MEAS ? 8'(popc(mb_mask)) : 8'h00;
+      6'd5: hb = rt == R_VER ? 8'd1 : rt == R_CAP ? ct_exp : rt == R_CRT ? 8'(cc_cnt >> 8) :
+                 rt == R_MEAS ? 8'(13'd55 * 13'(popc(mb_mask))) : 8'h00;
+      6'd6: hb = rt == R_ALG ? {7'd0, meas_ok} : rt == R_CRT ? 8'(c_av - cc_cnt) :
+                 rt == R_MEAS ? 8'((13'd55 * 13'(popc(mb_mask))) >> 8) : 8'h00;
+      6'd7: hb = rt == R_VER ? 8'h12 : rt == R_CRT ? 8'((c_av - cc_cnt) >> 8) : 8'h00;
+      6'd8: hb = rt == R_CAP ? 8'h16 : rt == R_ALG && meas_ok ? 8'h20 : 8'h00;
+      6'd12, 6'd16: hb = rt == R_CAP ? DTS13[7:0] : rt == R_ALG && k[4] && hash_ok ? 8'h10 : 8'h00;
+      6'd13, 6'd17: hb = rt == R_CAP ? 8'(DTS13 >> 8) : 8'h00;
+      6'd32: hb = {7'd0, asym_ok};
+      6'd36: hb = asym_id[7:0];
+      6'd37: hb = asym_id[15:8];
+      6'd38: hb = asym_id[23:16];
+      6'd39: hb = asym_id[31:24];
+      default: ;
+    endcase
+  end
   logic [7:0]  g_byte;
-  logic [15:0] g_len;
+  logic [CC_AW:0] g_len;
   always_comb begin
     g_byte = 8'h00;
-    g_len = 16'd2;
+    g_len = (CC_AW + 1)'(2);
     case (seg)
-      3'(G_HB):  begin g_byte = rb[k[5:0]];               g_len = 16'(hb_n); end
-      3'(G_D0):  begin g_byte = cc_dig[8 * k[5:0] +: 8];  g_len = 16'd48; end
+      3'(G_HB):  begin g_byte = hb;                       g_len = (CC_AW + 1)'({hb_w, 2'b00}); end
+      3'(G_D0):  begin g_byte = cc_dig[8 * k[5:0] +: 8];  g_len = (CC_AW + 1)'(48); end
       3'(G_CC):  begin g_byte = cc_w[8 * cc_a[1:0] +: 8]; g_len = cc_cnt; end
-      3'(G_MB):  begin g_byte = mb_byte;                  g_len = 16'd55 * 16'(popc(mb_mask)); end
-      3'(G_NON): begin g_byte = nonce[8 * k[4:0] +: 8];   g_len = 16'd32; end
-      3'(G_D1):  begin g_byte = th_dig[2][8 * k[5:0] +: 8]; g_len = 16'd48; end
+      3'(G_MB):  begin g_byte = mb_byte;                  g_len = (CC_AW + 1)'(9'd55 * 9'(popc(mb_mask))); end
+      3'(G_NON): begin g_byte = nonce[8 * k[4:0] +: 8];   g_len = (CC_AW + 1)'(32); end
+      3'(G_D1):  begin g_byte = th_dig[2][8 * k[5:0] +: 8]; g_len = (CC_AW + 1)'(48); end
       default:   ;                                        // G_OPQ: OpaqueDataLength 0
     endcase
   end
@@ -346,20 +388,20 @@ module SPDM_top #(
     next_seg = 3'd7;
     for (int i = 6; i >= 0; i--) if (en[i] && 3'(i) > s) next_seg = 3'(i);
   endfunction
-  wire        g_end = k == g_len - 16'd1;
+  wire        g_end = k[CC_AW:0] == g_len - (CC_AW + 1)'(1);
   wire [2:0]  seg_nx = next_seg(seg_en, seg);
 
   // ---------------- handshakes ----------------
   wire        tg_rdy = (!tgt[T_M] || th_br[0]) && (!tgt[T_L] || th_br[1]);
-  wire [15:0] slen = sig_len(key_pset);
+  wire [12:0] slen = sig_len(key_pset);
   assign rq_ready = st == S_RX || (st == S_IDLE && (drain || !(clr_p || clr || kg_start || pk_open)));
   assign rs_valid = (st == S_OUT && tg_rdy) || (st == S_SIGO && ph && hr_valid);
   assign rs_data  = st == S_SIGO ? hr_data[8 * k[1:0] +: 8] : g_byte;
-  assign rs_last  = st == S_SIGO ? k == slen - 16'd1 : g_end && seg_nx == 3'd7 && !sgn;
+  assign rs_last  = st == S_SIGO ? k[12:0] == slen - 13'd1 : g_end && seg_nx == 3'd7 && !sgn;
   wire        rs_go = rs_valid && rs_ready;
   wire        ax_go = st == S_AX && ph && k < 16'hFFFE && th_br[2];
   wire        frq_go = st == S_FRQ && tg_rdy;
-  wire        rpl_go = st == S_RPL && ph && k[8:0] != vca_n && th_br[sg_cm];
+  wire        rpl_go = st == S_RPL && ph && k[7:0] != vca_n && th_br[sg_cm];
   assign th_bd = st == S_FRQ ? rqb[k[6:0]] : st == S_RPL ? vca[k[7:0]] : g_byte;
   assign th_bv[0] = (st == S_OUT && rs_go || frq_go) && tgt[T_M] || rpl_go && !sg_cm;
   assign th_bv[1] = (st == S_OUT && rs_go || frq_go) && tgt[T_L] || rpl_go && sg_cm;
@@ -373,7 +415,7 @@ module SPDM_top #(
   // ML-DSA host port
   always_comb begin
     hp_load = 1'b0; hp_addr = '0; hw_valid = 1'b0; hw_data = '0; hr_en = 1'b0; hr_ready = 1'b0;
-    ml_start = 1'b0; ml_op = 2'd1;
+    ml_start = 1'b0;
     case (st)
       S_RN:   begin hp_load = k[3] && !ph; hp_addr = W_RND;
                     hw_valid = k[3] && ph && rn_valid; hw_data = rn_data; end
@@ -381,12 +423,12 @@ module SPDM_top #(
                     for (int i = 0; i < 4; i++) hw_data[8 * i +: 8] = mp_byte(sg_cm, th_dig[sg_cm], 8'({k[5:0], 2'(i)})); end
       S_SG:   ml_start = !ph;
       S_SIGO: begin hp_load = !ph; hp_addr = W_SIG; hr_en = ph;
-                    hr_ready = ph && rs_ready && (k[1:0] == 2'd3 || k == slen - 16'd1); end
+                    hr_ready = ph && rs_ready && (k[1:0] == 2'd3 || k[12:0] == slen - 13'd1); end
       S_KG:   begin hp_load = !ph; hp_addr = W_XI; hw_valid = ph; hw_data = kseed[32 * k[2:0] +: 32]; end
-      S_KGW:  begin ml_start = !ph; ml_op = 2'd0; end
+      S_KGW:  ml_start = !ph;
       S_KGZ:  begin hp_load = !ph; hp_addr = W_XI; hw_valid = ph; end
       S_PK:   begin hp_load = !ph; hp_addr = W_PK; hr_en = ph; hr_ready = ph && pk_ready; end
-      S_CLR:  begin hp_load = !ph; hp_addr = W_SK; hw_valid = ph && !ml_busy; end
+      S_CLR:  begin hp_load = !ph; hp_addr = W_SK; hw_valid = ph; end
       default: ;
     endcase
   end
@@ -408,14 +450,13 @@ module SPDM_top #(
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       st <= S_IDLE; ph <= 1'b0; rq_n <= '0; rq_ovf <= 1'b0; drain <= 1'b0; vca_n <= '0;
-      hb_n <= '0; seg_en <= '0; seg <= '0; k <= '0; cc_off <= '0; cc_cnt <= '0;
+      rt <= R_ERR; e_v10 <= 1'b0; seg_en <= '0; seg <= '0; k <= '0; cc_off <= '0; cc_cnt <= '0;
       mb_mask <= '0; ms_mask <= '0; mb_slot <= '0; mb_j <= '0; tgt <= '0; sgn <= 1'b0; sg_cm <= 1'b0;
-      need_cc <= 1'b0; need_ms <= 1'b0; need_rn <= 1'b0; ax_ms <= 1'b0; is_err <= 1'b0; rst_tr <= 1'b0;
+      need_cc <= 1'b0; need_ms <= 1'b0; need_rn <= 1'b0; ax_ms <= 1'b0; is_err <= 1'b0;
       e_code <= '0; nonce <= '0; cc_dig <= '0; hash_ok <= 1'b0; asym_ok <= 1'b0; meas_ok <= 1'b0;
-      dts <= '0; clr_p <= 1'b0; kg_fromsl <= 1'b0; kseed <= '0;
+      dts <= '0; clr_p <= 1'b0; kseed <= '0;
       conn <= '0; key_ok <= 1'b0; key_pset <= '0; rsp_done <= 1'b0; rsp_err <= 1'b0; err_code <= '0;
       kg_done <= 1'b0; cmd_err <= 1'b0;
-      for (int i = 0; i < 40; i++) rb[i] <= '0;
     end else begin
       rsp_done <= 1'b0; rsp_err <= 1'b0; kg_done <= 1'b0; cmd_err <= 1'b0;
       if (clr) clr_p <= 1'b1;
@@ -450,55 +491,41 @@ module SPDM_top #(
           end
           S_DEC: begin
             // defaults: an ERROR response
-            is_err <= d_err != 8'h00; e_code <= d_err;
+            is_err <= d_err != 8'h00; e_code <= d_err; rt <= R_ERR;
+            e_v10 <= conn == 2'd0 || q_code == C_GVER || rq_n < 8'd2;
             seg_en <= 7'b0000001; tgt <= '0; sgn <= 1'b0; need_cc <= 1'b0; need_ms <= 1'b0;
-            need_rn <= 1'b0; rst_tr <= 1'b0; hb_n <= 6'd4; cc_off <= '0; cc_cnt <= '0;
+            need_rn <= 1'b0; cc_off <= '0; cc_cnt <= '0;
             mb_mask <= '0; ms_mask <= '0; seg <= '0; k <= '0;
-            for (int i = 0; i < 40; i++) rb[i] <= 8'h00;
-            rb[0] <= V12; rb[1] <= q_code & 8'h7F; rb[2] <= 8'h00; rb[3] <= 8'h00;
             st <= S_FRQ;
-            if (d_err != 8'h00) begin
-              rb[0] <= (conn == 2'd0 || q_code == C_GVER || rq_n < 8'd2) ? V10 : V12;
-              rb[1] <= 8'h7F; rb[2] <= d_err; rb[3] <= d_err == E_UNSUP ? q_code : 8'h00;
-              st <= S_OUT;
-            end else case (q_code)
+            if (d_err != 8'h00) st <= S_OUT;
+            else case (q_code)
               C_GVER: begin
-                rb[0] <= V10; rb[5] <= 8'd1; rb[7] <= 8'h12; hb_n <= 6'd8;
-                tgt <= 3'b111; conn <= 2'd1; vca_n <= '0; hash_ok <= 1'b0; asym_ok <= 1'b0; meas_ok <= 1'b0;
+                rt <= R_VER; tgt <= 3'b111; conn <= 2'd1; vca_n <= '0;
+                hash_ok <= 1'b0; asym_ok <= 1'b0; meas_ok <= 1'b0;
               end
               C_GCAP: begin
-                rb[5] <= ct_exp; rb[8] <= 8'h16;
-                rb[12] <= DTS16[7:0]; rb[13] <= DTS16[15:8]; rb[16] <= DTS16[7:0]; rb[17] <= DTS16[15:8];
-                hb_n <= 6'd20; tgt <= 3'b111; conn <= 2'd2;
-                dts <= q_dts < 32'(DTS) ? q_dts[15:0] : DTS16;
+                rt <= R_CAP; tgt <= 3'b111; conn <= 2'd2;
+                dts <= q_dts < 32'(DTS) ? q_dts[12:0] : DTS13;
               end
               C_NEG: begin
-                rb[4] <= q_asym ? 8'd40 : 8'd36;
-                rb[6] <= {7'd0, rqb[6][0]}; rb[8] <= rqb[6][0] ? 8'h20 : 8'h00;
-                rb[16] <= rqb[12][4] ? 8'h10 : 8'h00;
-                rb[32] <= {7'd0, q_asym};
-                rb[36] <= asym_id[7:0]; rb[37] <= asym_id[15:8]; rb[38] <= asym_id[23:16]; rb[39] <= asym_id[31:24];
-                hb_n <= q_asym ? 6'd40 : 6'd36; tgt <= 3'b111; conn <= 2'd3;
+                rt <= R_ALG; tgt <= 3'b111; conn <= 2'd3;
                 hash_ok <= rqb[12][4]; asym_ok <= q_asym; meas_ok <= rqb[6][0];
               end
               C_GDIG: begin
-                rb[3] <= {7'd0, slot_ok}; seg_en <= {5'd0, slot_ok, 1'b1}; need_cc <= slot_ok; tgt <= 3'b001;
+                rt <= R_DIG; seg_en <= {5'd0, slot_ok, 1'b1}; need_cc <= slot_ok; tgt <= 3'b001;
               end
               C_GCRT: begin
-                rb[4] <= c_por[7:0]; rb[5] <= c_por[15:8];
-                rb[6] <= 8'(c_av - c_por); rb[7] <= 8'((c_av - c_por) >> 8);
-                hb_n <= 6'd8; cc_off <= q_off; cc_cnt <= c_por; seg_en <= {4'd0, c_por != '0, 2'b01}; tgt <= 3'b001;
+                rt <= R_CRT; cc_off <= CC_AW'(q_off); cc_cnt <= (CC_AW + 1)'(c_pn);
+                seg_en <= {4'd0, c_pn != '0, 2'b01}; tgt <= 3'b001;
               end
               C_CHAL: begin
-                rb[3] <= 8'h01; seg_en <= {1'b1, q_p2 != 8'h00, 1'b1, 2'b00, 2'b11};
+                rt <= R_CHAL; seg_en <= {1'b1, q_p2 != 8'h00, 1'b1, 2'b00, 2'b11};
                 need_cc <= 1'b1; need_ms <= q_p2 != 8'h00; ms_mask <= q_p2 == 8'h01 ? m_en & m_tcb : m_en;
                 need_rn <= 1'b1; sgn <= 1'b1; sg_cm <= 1'b0; tgt <= 3'b001;
               end
               default: begin           // GET_MEASUREMENTS
-                rb[2] <= q_p2 == 8'h00 ? 8'(popc(m_en)) : 8'h00;
-                rb[4] <= 8'(q_nb); rb[5] <= 8'(16'd55 * 16'(q_nb)); rb[6] <= 8'((16'd55 * 16'(q_nb)) >> 8);
-                hb_n <= 6'd8; mb_mask <= q_mask;
-                seg_en <= {1'b1, 1'b0, 1'b1, q_nb != 4'd0, 3'b001};
+                rt <= R_MEAS; mb_mask <= q_mask;
+                seg_en <= {1'b1, 1'b0, 1'b1, q_nb != '0, 3'b001};
                 need_rn <= 1'b1; sgn <= q_sig; sg_cm <= 1'b1; tgt <= 3'b010;
               end
             endcase
@@ -510,7 +537,7 @@ module SPDM_top #(
           S_AX: begin
             if (!ph) begin
               ph <= 1'b1; k <= '0; seg <= ax_ms ? 3'(G_MB) : 3'(G_CC);
-              cc_off <= '0; cc_cnt <= 16'(cc_len); mb_mask <= ms_mask; mb_slot <= next_set(ms_mask, 4'd0); mb_j <= '0;
+              cc_off <= '0; cc_cnt <= cc_len; mb_mask <= ms_mask; mb_slot <= next_set(ms_mask, '0); mb_j <= '0;
               // an empty summary: close at once
               if (ax_ms && ms_mask == '0) k <= 16'hFFFE;
             end else if (k == 16'hFFFE) k <= 16'hFFFF;
@@ -528,7 +555,7 @@ module SPDM_top #(
               k <= g_end ? 16'hFFFE : k + 16'd1;
               if (seg == 3'(G_MB)) begin
                 mb_j <= mb_j == 6'd54 ? 6'd0 : mb_j + 6'd1;
-                if (mb_j == 6'd54) mb_slot <= next_set(mb_mask, mb_slot + 4'd1);
+                if (mb_j == 6'd54) mb_slot <= next_set(mb_mask, mb_slot + SW'(1));
               end
             end
           end
@@ -543,28 +570,27 @@ module SPDM_top #(
           end
           // the request into the transcripts
           S_FRQ: begin
-            if (tgt[1:0] == 2'b00 && !tgt[T_V]) begin st <= S_OUT; k <= '0; end
-            else if (frq_go) begin
-              if (tgt[T_V]) begin vca[vca_n[7:0]] <= rqb[k[6:0]]; vca_n <= vca_n + 9'd1; end
+            if (frq_go) begin
+              if (tgt[T_V]) begin vca[vca_n] <= rqb[k[6:0]]; vca_n <= vca_n + 8'd1; end
               k <= k + 16'd1;
               if (k[7:0] == rq_n - 8'd1) begin
                 st <= S_OUT; k <= '0; seg <= '0;
-                mb_slot <= next_set(mb_mask, 4'd0); mb_j <= '0;
+                mb_slot <= next_set(mb_mask, '0); mb_j <= '0;
               end
             end
           end
           S_OUT: if (rs_go) begin
-            if (tgt[T_V]) begin vca[vca_n[7:0]] <= g_byte; vca_n <= vca_n + 9'd1; end
+            if (tgt[T_V]) begin vca[vca_n] <= g_byte; vca_n <= vca_n + 8'd1; end
             if (seg == 3'(G_MB)) begin
               mb_j <= mb_j == 6'd54 ? 6'd0 : mb_j + 6'd1;
-              if (mb_j == 6'd54) mb_slot <= next_set(mb_mask, mb_slot + 4'd1);
+              if (mb_j == 6'd54) mb_slot <= next_set(mb_mask, mb_slot + SW'(1));
             end
             if (!g_end) k <= k + 16'd1;
             else begin
               k <= '0;
               if (seg_nx != 3'd7) begin
                 seg <= seg_nx;
-                if (seg_nx == 3'(G_MB)) begin mb_slot <= next_set(mb_mask, 4'd0); mb_j <= '0; end
+                if (seg_nx == 3'(G_MB)) begin mb_slot <= next_set(mb_mask, '0); mb_j <= '0; end
               end else if (sgn) begin st <= S_FIN; ph <= 1'b0; end
               else begin
                 st <= S_IDLE; rsp_done <= 1'b1; rsp_err <= is_err;
@@ -578,7 +604,7 @@ module SPDM_top #(
           end
           S_MW: begin
             if (!ph) ph <= 1'b1;
-            else if (hw_ready) begin
+            else begin                  // the ML-DSA engine is idle: hw_ready
               k <= k + 16'd1;
               if (k[5:0] == 6'd37) begin st <= S_SG; ph <= 1'b0; k <= '0; end
             end
@@ -591,19 +617,19 @@ module SPDM_top #(
             if (!ph) ph <= 1'b1;
             else if (rs_go) begin
               k <= k + 16'd1;
-              if (k == slen - 16'd1) begin st <= S_RPL; ph <= 1'b0; k <= '0; end
+              if (k[12:0] == slen - 13'd1) begin st <= S_RPL; ph <= 1'b0; k <= '0; end
             end
           end
           // restart the signed transcript with VCA
           S_RPL: begin
             if (!ph) ph <= 1'b1;
-            else if (k[8:0] == vca_n) begin st <= S_IDLE; rsp_done <= 1'b1; end
+            else if (k[7:0] == vca_n) begin st <= S_IDLE; rsp_done <= 1'b1; end
             else if (rpl_go) k <= k + 16'd1;
           end
           // KeyGen: seed into XI, run, wipe XI
           S_KG: begin
             if (!ph) ph <= 1'b1;
-            else if (hw_ready) begin
+            else begin
               k <= k + 16'd1;
               if (k[2:0] == 3'd7) begin st <= S_KGW; ph <= 1'b0; k <= '0; kseed <= '0; end
             end
@@ -614,7 +640,7 @@ module SPDM_top #(
           end
           S_KGZ: begin
             if (!ph) ph <= 1'b1;
-            else if (hw_ready) begin
+            else begin
               k <= k + 16'd1;
               if (k[2:0] == 3'd7) begin st <= S_IDLE; key_ok <= 1'b1; kg_done <= 1'b1; end
             end
@@ -631,7 +657,7 @@ module SPDM_top #(
             if (!ph) begin
               ph <= 1'b1; key_ok <= 1'b0; conn <= 2'd0; vca_n <= '0; nonce <= '0; cc_dig <= '0;
               kseed <= '0; hash_ok <= 1'b0; asym_ok <= 1'b0; meas_ok <= 1'b0;
-            end else if (hw_valid && hw_ready) begin
+            end else begin
               k <= k + 16'd1;
               if (k[11:0] == N_WIPE - 12'd1) st <= S_IDLE;
             end

@@ -52,9 +52,10 @@ module SPDM_sva #(parameter int NM = 4, parameter int CC_AW = 14) (
   input logic [12:0]       hp_addr,
   input logic [31:0]       hw_data, hr_data,
   input logic              ml_start, ml_done, ml_busy,
-  input logic [1:0]        ml_op,
   input logic [4:0]        st
 );
+  localparam logic [4:0] S_KGW = 5'd13;  // the KeyGen wait state
+  wire [1:0] ml_op = st == S_KGW ? 2'd0 : 2'd1;
   `COV_CLOCKING(clk, !rst_n)
 
   // ---------------- SHA3-384 from FIPS 202 ----------------
@@ -548,7 +549,7 @@ module SPDM_sva #(parameter int NM = 4, parameter int CC_AW = 14) (
   `SVA_INV(a_done_bound, sdone_q < 600)
   `SVA_IMP(a_err_code, rsp_done && m_iserr_q, err_code == m_ecode_q)
   `SVA_IMP(a_err_hold, !rsp_done, $stable(err_code))
-  `SVA_IMP(a_rq_hold_off, m_act_q || m_sent_q, !rq_ready)
+  `SVA_IMP(a_rq_hold_off, m_act_q || m_sent_q && !rsp_done, !rq_ready)
   `SVA_IMP(a_rq_open, !busy && !clr && !m_clr_q && !kg_start && !pk_open, rq_ready)
   `SVA_IMP(a_rq_drain, m_drain_q, rq_ready || m_clr_q || clr)
   `SVA_IMP(a_busy_answer, m_act_q || m_sent_q && !rsp_done || m_rx_q || m_kg_q && !kg_done || m_pk_q, busy)

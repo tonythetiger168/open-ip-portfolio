@@ -3,6 +3,10 @@
 """Test vectors for SPDM_top from the reference model (spdm_ref.py).
 
   python3 scripts/spdm/gen_vec.py tb/SPDM_vec.hex [--check]
+  python3 scripts/spdm/gen_vec.py tb/SPDM_apb_vec.hex --apb [--check]
+
+--apb writes the shorter scenario that tb/apb/SPDM_apb_func.svh runs through
+the APB registers.
 
 The file is a list of 32-bit words (hex, one per line) holding records
 {op[31:24], arg[23:0]} followed by their data:
@@ -41,15 +45,18 @@ class Gen:
         self.w = []
         self.ncase = 0
         self.sl_valid = 0
+        self.asym = ASYM_ID
 
     def words(self, b):
         b = bytes(b) + bytes(-len(b) % 4)
         return [int.from_bytes(b[i:i + 4], "little") for i in range(0, len(b), 4)]
 
-    def cfg(self, ct_exp=12, pset=0, cc_len=None, m_en=None, m_tcb=None, m_type=None):
+    def cfg(self, ct_exp=12, pset=0, cc_len=None, m_en=None, m_tcb=None, m_type=None, asym=None):
         m = self.m
         m.ct_exp = ct_exp
-        m.asym_id = ASYM_ID
+        if asym is not None:
+            self.asym = asym
+        m.asym_id = self.asym
         if m_en is not None:
             m.m_en = m_en
         if m_tcb is not None:
@@ -59,7 +66,7 @@ class Gen:
         cc = len(m.cc) if cc_len is None else cc_len
         self.cc_len = cc
         self.pset = pset
-        self.w += [0x01 << 24, ct_exp, ASYM_ID, pset, cc, m.m_en, m.m_tcb,
+        self.w += [0x01 << 24, ct_exp, self.asym, pset, cc, m.m_en, m.m_tcb,
                    sum(t << (8 * i) for i, t in enumerate(m.m_type))]
 
     def store_cc(self, cc, addr=0):
@@ -78,8 +85,8 @@ class Gen:
         self.m.m_val[i] = bytes(val)
         self.w += [0x02 << 24 | 1 << 16 | 12, 16 * i] + self.words(val)
 
-    def keygen(self, pset, sel=0, clr=False, err=False):
-        seed = bytes(self.r.getrandbits(8) for _ in range(32))
+    def keygen(self, pset, sel=0, clr=False, err=False, seed=None):
+        seed = bytes(self.r.getrandbits(8) for _ in range(32)) if seed is None else seed
         self.w += [0x03 << 24 | (pset << 12) | (err << 8) | (clr << 4) | sel] + self.words(seed)
         if err or clr:
             if clr:
@@ -129,15 +136,64 @@ class Gen:
         self.ncase += 1
         return r
 
-    def vca(self, dts=0x2000, ext=(ASYM_ID,), base_hash=sr.BASE_HASH_SHA3_384, meas_spec=1):
+    def vca(self, dts=0x2000, ext=None, base_hash=sr.BASE_HASH_SHA3_384, meas_spec=1):
+        ext = (self.asym,) if ext is None else ext
         self.req(sr.get_version())
         self.req(sr.get_capabilities(dts=dts))
         self.req(sr.negotiate_algorithms(ext_asym=ext, base_hash=base_hash, meas_spec=meas_spec))
 
 
+def main_apb(out, check):
+    g = Gen(random.Random(20261101), check)
+    r = g.r
+    nonce = lambda: bytes(r.getrandbits(8) for _ in range(32))
+    body = bytes(r.getrandbits(8) for _ in range(250))
+    cc = sr.u16(4 + 48 + len(body)) + bytes(2) + sr.sha3(body) + body
+    g.cfg(ct_exp=0x5A, pset=0, cc_len=0, m_en=0b1111, m_tcb=0b0101, m_type=[0xA5, 0x5A, 0xFF, 0x00], asym=0xFFFF_FFFF)
+    g.set_cc(cc)
+    for i in range(4):
+        g.store_meas(i, bytes(r.getrandbits(8) for _ in range(48)))
+    g.m.cc = b""
+    g.keygen(3, err=True)
+    g.keygen(0)
+    g.set_cc_len(len(cc))
+    g.req(sr.get_digests())                            # UnexpectedRequest
+    g.req(sr.get_version(0x11))                        # VersionMismatch
+    g.vca()
+    g.req(bytes([0x12, 0xFF, 0, 0]))                   # UnsupportedRequest
+    g.req(sr.get_digests())
+    g.req(sr.get_certificate(0, 100))
+    g.req(sr.get_certificate(100, 1000))
+    g.req(sr.challenge(nonce(), mtype=0xFF))
+    g.req(sr.get_measurements(0))
+    g.req(sr.get_measurements(0xFF, sig=True, nonce=nonce()))
+    g.vca(dts=42)
+    g.req(sr.get_digests())                            # ResponseTooLarge
+    g.slv(1)
+    g.cfg(ct_exp=0xA5, pset=2, asym=0)
+    g.keygen(2, sel=1)
+    g.cfg(ct_exp=0xA5, pset=1)
+    g.keygen(1)
+    g.slv(0)
+    big = bytes(r.getrandbits(8) for _ in range(16384))
+    g.set_cc(big)
+    g.set_cc_len(16384)
+    g.vca()
+    g.req(sr.get_digests())
+    g.clr()
+    g.m.cc = b""
+    g.cfg(ct_exp=0, pset=0, cc_len=0, m_en=0, m_tcb=0, m_type=[0, 0, 0, 0], asym=0)
+    g.w += [0]
+    with open(out, "w") as f:
+        f.write("\n".join(f"{x & 0xFFFFFFFF:08x}" for x in g.w) + "\n")
+    print(f"{g.ncase} requests, {len(g.w)} words -> {out}")
+
+
 def main():
     out = sys.argv[1]
     check = "--check" in sys.argv
+    if "--apb" in sys.argv:
+        return main_apb(out, check)
     g = Gen(random.Random(20261031), check)
     r = g.r
     nonce = lambda: bytes(r.getrandbits(8) for _ in range(32))
@@ -159,6 +215,9 @@ def main():
     g.req(bytes([0x12, 0x04, 0, 0]))                   # a response code
     g.req(bytes([0x12, 0xE4]) + bytes(40))             # KEY_EXCHANGE: unsupported
     g.req(bytes([0x12, 0x84]) + bytes(200))            # over 128 bytes
+    g.req(bytes([0x12, 0xE3]) + bytes(298))            # over 255 bytes
+    g.req(bytes([0x00, 0xE1, 0, 0]))
+    g.req(bytes([0xFF, 0x84, 0, 0]))
     g.req(get_v := sr.get_version(0x11))               # version mismatch
     g.req(sr.get_version(0x12))
     g.req(sr.get_version() + b"\x00")                  # bad length
@@ -166,6 +225,8 @@ def main():
     g.req(sr.get_version())                            # again: restarts VCA
     # ---- GET_CAPABILITIES ----
     g.req(sr.get_capabilities(ver=0x11))
+    g.req(sr.get_capabilities(ver=0xFF))
+    g.req(sr.get_capabilities(ver=0x00))
     g.req(sr.negotiate_algorithms(ext_asym=[ASYM_ID]))  # out of order
     g.req(sr.get_digests())
     g.req(sr.get_capabilities()[:12])                  # 1.1 length
@@ -217,6 +278,8 @@ def main():
     g.req(sr.get_certificate(0, 4) + b"\x00")
     g.req(sr.challenge(nonce(), mtype=2))
     g.req(sr.challenge(nonce(), slot=1))
+    g.req(sr.challenge(nonce(), slot=0xFF))
+    g.req(bytes([0x12, 0xE0, 0xFE, 0xFF]))             # GET_MEASUREMENTS, reserved Param1 bits set
     g.req(sr.challenge(nonce()) + b"\x00")
     g.req(sr.challenge(nonce(), mtype=0))
     g.req(sr.challenge(nonce(), mtype=1))              # M1 restarted from VCA
@@ -243,6 +306,7 @@ def main():
     # ---- negotiation without a common algorithm ----
     g.vca(ext=(0x1111_2222,))
     g.req(sr.get_digests())
+    g.req(sr.get_certificate(0, 4))
     g.req(sr.get_measurements(0))
     g.vca(base_hash=1 << 1)                            # SHA-384 only
     g.req(sr.challenge(nonce()))
@@ -283,8 +347,32 @@ def main():
     g.req(sr.get_certificate(0, 0xFFFF))
     g.req(sr.challenge(nonce(), mtype=0xFF))
     g.req(sr.get_measurements(0xFF, sig=True, nonce=nonce()))
+    # ---- the whole 16 KiB chain store, other chain lengths, another ExtAsym value ----
+    big = bytes(r.getrandbits(8) for _ in range(16384))
+    g.set_cc(big)
+    for n in (1, 777, 2112, 3000, 4095, 5000, 9999, 12345, 16384):
+        g.set_cc_len(n)
+        g.req(sr.get_digests())
+    g.req(sr.get_certificate(12000, 0xFFFF))
+    g.req(sr.get_certificate(16000, 0x7FFF))
+    g.req(sr.get_certificate(8191, 1))
+    g.req(sr.challenge(nonce(), mtype=0xFF))
+    g.cfg(ct_exp=20, pset=0, m_type=[0xFF, 0xFF, 0xFF, 0xFF])
+    g.req(sr.get_measurements(0xFF))
+    g.cfg(ct_exp=20, pset=0, asym=~ASYM_ID & 0xFFFFFFFF, m_type=[0x00, 0x7F, 0x80, 0x01])
+    g.keygen(0, seed=b"\xff" * 32)
+    g.vca(dts=1100)
+    g.req(sr.get_certificate(5, 2000))
+    g.req(sr.get_measurements(0xFF))
+    g.vca(dts=0x2000)
+    g.req(sr.challenge(nonce(), mtype=0xFF))
+    g.keygen(0, seed=bytes(32))
     g.clr()
     g.req(sr.get_digests())
+    # configuration back to zero
+    g.store_cc(bytes(4))
+    g.m.cc = b""
+    g.cfg(ct_exp=0, pset=0, cc_len=0, m_en=0, m_tcb=0, m_type=[0, 0, 0, 0], asym=0)
     g.w += [0]
     with open(out, "w") as f:
         f.write("\n".join(f"{x & 0xFFFFFFFF:08x}" for x in g.w) + "\n")
