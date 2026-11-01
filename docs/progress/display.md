@@ -1,3 +1,18 @@
+# 2026-11-01 15:28（Asia/Taipei）Display 跟進
+
+最新核對main e6a39a36d131c916688735a9874dfafb30474203；本repo draft PR仍open／未merged，無reviews／inline／conversation新意見。
+
+本輪未改本repo RTL；跨consumer接點已新增PRISM standalone line→frame tagger，可供後續整合，尚未接入本repo。
+
+- design：新tagger合約見PRISM docs/design/line_to_frame_adapter.md，保留各repo既有矩陣。
+- RTL：無本repo新增RTL；沒有宣稱2D/AA、FRC、PHY或完整PQ整合完成。
+- verified：PRISM tagger使用Verilator5.052，DATA_W36/144 lint、8 seeds×32 frames PASS；accepted input 9068／output 9060／reset-aborted 8，SOF 256、stall cycles 7393。這是standalone結果，不代表open-ip-portfolio其他RTL回歸或系統性能。
+- physical：未做synthesis／STA／power／板測；無新PPA。
+- 阻塞／下一步：scaler→tagger系統TB、descriptor／epoch／timeout、tail/packing／4→1lane；2D/AA／PQ授權／PHY與SKU仍待決。ETA：未知，待合約與整合測試基線。
+- branch：codex/display-design-2026-10-26；延續既有draft PR、不合併；提交SHA依承載本檔的commit。中央每小時讀取本檔，未新增排程。
+
+## 先前checkpoint（歷史）
+
 # Display：IP表格對照 checkpoint
 
 時間：2026-11-01 14:59（Asia/Taipei）。branch：codex/display-design-2026-10-26。來源main：e6a39a36d131c916688735a9874dfafb30474203。本次提交SHA以本檔所屬commit為準，避免自引用。既有draft PR #7延續。
