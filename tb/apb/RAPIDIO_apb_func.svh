@@ -295,4 +295,12 @@ task automatic ip_func;
   rd(A_RX_REP);                                          // empty
   rd(A_FLAGS); if (rdv[FLAG_RX_REP_AVAIL]) fail("RX_REP read while empty");
   wr(A_IRQ_STATUS, IRQ_ALL);
+  // Leave a real doorbell pending for the generated TB's final reset.
+  c_hdr(4'd10); c_put(0); c_put(8'h52); c_put(8'h12); c_put(8'h34);
+  p_send(0, 1);
+  rd(A_IRQ_STATUS);
+  if (rdv == 0) fail("doorbell did not create a pending IRQ");
+  wr(A_IRQ_ENABLE, IRQ_ALL);
+  cycles(2);
+  if (irq !== 1) fail("reset scenario requires a pending enabled IRQ");
 endtask

@@ -406,4 +406,12 @@ task automatic ip_func;
   wr(A_CTRL, 32'h2);
   if (rq.size()) fail($sformatf("%0d RT reports not read", rq.size()));
   $display("MIL_STD_1553_apb: %0d RT reports, %0d BC messages", n_rt, n_bc + 1);
+  // Leave checked BC status pending for the generated TB's final reset.
+  wr(A_CTRL, 32'h3); // the functional tests restore RT mode above
+  d_go(3, 0, cw(26, 1, 0, 2));
+  poll(A_IRQ_STATUS, 32'h1, 32'h1, 20000);
+  d_expect("pending reset status", 0, stw(26));
+  wr(A_IRQ_ENABLE, 32'h1);
+  cycles(2);
+  if (irq !== 1) fail("reset scenario requires a pending enabled IRQ");
 endtask
