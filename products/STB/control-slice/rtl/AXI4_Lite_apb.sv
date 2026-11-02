@@ -53,7 +53,7 @@ module AXI4_Lite_apb #(
   logic [4:0] hit;
   always_comb begin
     hit = '0;
-    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd5) hit[PADDR[11:2]] = 1'b1;
+    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd5) hit[PADDR[4:2]] = 1'b1;
   end
   assign PREADY  = acc;
   assign PSLVERR = acc & ~|hit;
