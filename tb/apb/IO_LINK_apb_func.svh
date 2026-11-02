@@ -241,4 +241,11 @@ task automatic ip_func;
   wr(A_CTRL, 32'h10);
   if (rq.size()) fail($sformatf("%0d reports not read", rq.size()));
   $display("IO_LINK_apb: %0d master requests, %0d device reports", n_x, n_rep);
+  // Leave a real unread report pending for the generated TB's final reset.
+  cfg(0, 2, 2, 3, 1);
+  p_go(8'h80);
+  poll(A_IRQ_STATUS, 32'd1 << IRQ_D_MSG_AVAIL, 32'd1 << IRQ_D_MSG_AVAIL, 100000);
+  wr(A_IRQ_ENABLE, 32'd1 << IRQ_D_MSG_AVAIL);
+  cycles(2);
+  if (irq !== 1) fail("reset scenario requires a pending enabled IRQ");
 endtask

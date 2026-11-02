@@ -196,14 +196,6 @@ module MIL_STD_1553_apb_tb;
     cycles(2);
     reg_tests();
     ip_func();
-    // Leave a completed, checked BC transaction pending across reset.
-    wr(A_CTRL, 32'h3); // ip_func restores RT mode before returning
-    d_go(3, 0, cw(26, 1, 0, 2));
-    poll(A_IRQ_STATUS, 32'h1, 32'h1, 20000);
-    d_expect("pending reset status", 0, stw(26));
-    wr(A_IRQ_ENABLE, 32'h1);
-    cycles(2);
-    if (irq !== 1) fail("reset scenario requires a pending enabled IRQ");
     PRESETN = 0;
     cycles(3);
     if (irq !== 0 || PRDATA !== 0) fail("outputs in reset");
