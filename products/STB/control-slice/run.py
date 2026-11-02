@@ -138,19 +138,27 @@ def main():
         except AssertionError as error: mutations.append(dict(name=name,status='DETECTED',witness=str(error),kind='actual RTL mutant'))
         else: raise AssertionError('checker missed RTL mutant '+name)
     evidence=[]
-    for p in sorted(OUT.iterdir()):
-        if p.is_file() and p.name!='result.json':
-            evidence.append(dict(path=p.name,sha256=hashlib.sha256(p.read_bytes()).hexdigest(),bytes=p.stat().st_size))
+    from irq_wait import run as run_endpoint
+    endpoint=run_endpoint(ROOT,OUT/'irq-wait',command,linux)
+    results.extend(endpoint['runs']);mutations.extend(endpoint['mutations']);commands.extend(endpoint['commands'])
+    for p in sorted(OUT.rglob('*')):
+        if p.is_file() and p!=OUT/'result.json':
+            evidence.append(dict(path=p.relative_to(OUT).as_posix(),sha256=hashlib.sha256(p.read_bytes()).hexdigest(),bytes=p.stat().st_size))
     own_hashes={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in
-        (ROOT/'run.py',ROOT/'scoreboard.py',ROOT/'control_slice_tb.sv',ROOT/'sources.json',ROOT/'ci-workflow.yml')}
+        (ROOT/'run.py',ROOT/'scoreboard.py',ROOT/'control_slice_tb.sv',ROOT/'sources.json',ROOT/'ci-workflow.yml',
+         ROOT/'irq_wait.py',ROOT/'irq_wait_scoreboard.py',ROOT/'irq_wait_tb.sv')}
     report=dict(status='PASS',date='2026-11-02',scope='real-RTL APB control slice; not SoC/UVM/native coverage',
         executed_at_utc=datetime.now(timezone.utc).isoformat(),python_version=sys.version,host_platform=sys.platform,
         top='control_slice_tb',hierarchy=['u_router','u_reg0','u_reg0.u_core','u_reg1','u_reg1.u_core'],
+        endpoint_top='irq_wait_tb',endpoint_hierarchy=['u_ep','u_ep.u_core'],
+        endpoint_filelist=['rtl/AXI4_Lite_top.sv','rtl/AXI4_Lite_apb.sv','irq_wait_tb.sv'],
         filelist=[p['path'] for p in pins]+['control_slice_tb.sv'],
         parameters={'PAGE0':'0x10000','normal_PAGE1':'0x10001','overlap_PAGE1':'0x10000','DW':32,'AW':32},
         clock_reset='single 10ns bench clock; async active-low reset driven at negative edges; not SKU timing',
-        ownership='one APB requester; two independent scratch/enable state models; AXI channels idle',
-        requirements=['STB-001','STB-002 partial APB byte strobes only','STB-003 partial CSR/reset only','STB-022 checker sensitivity'],
+        ownership='routing fixture AXI idle; separate real endpoint AXI error/response-wait ledger',
+        requirements=['STB-001 routing fixture','STB-002 APB strobes and bounded AXI response waits',
+                      'STB-003 CSR/error IRQ/mask/set-wins/reset subset; not full codec RAL',
+                      'STB-014 local reset only; no fabric drain','STB-022 checker sensitivity'],
         source_pins=pins,harness_sha256=own_hashes,commands=commands,runs=results,mutations=mutations,
         artifacts=evidence,native_coverage=None,
         native_metrics={m:dict(status='NOT_MEASURED',raw_hit=None,raw_total=None,exclusions=[]) for m in
