@@ -94,6 +94,7 @@ module LPDDR5X_Lite_sva (
       e_fsp1_cl = pc == C_RD && fsp_m && `LITE_CL_OF != CL0; \
       e_mrw_fsp1 = hvalid && q_hready && !filling && hcmd == 3'd3 && fsp_m;
 
+`define LITE_ACT_HI_ZERO
   `include "lite_chk.svh"
 
   // clock and clock-enable pins

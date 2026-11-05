@@ -37,6 +37,8 @@ module GDDR6_tb;
     m = $urandom; m[7:0] = 8'hF2;
     cmd(3'd3, m, {15'($urandom), x8});
   endtask
+  `include "mem_tb_common.svh"
+  // ip_extra uses the scoreboard (sb, sbv) declared in the common include
   task automatic ip_extra;
     logic [31:0] a;
     int c;
@@ -56,8 +58,6 @@ module GDDR6_tb;
     mailbox(0);
     wr(a, 16'h5678); rd(a);
   endtask
-
-  `include "mem_tb_common.svh"
 
   initial begin
     repeat (400) #10000;

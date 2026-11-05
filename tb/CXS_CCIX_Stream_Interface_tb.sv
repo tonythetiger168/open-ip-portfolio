@@ -30,14 +30,14 @@ module CXS_CCIX_Stream_Interface_tb;
   endtask
   task automatic wait_clk(input int n); repeat (n) @(negedge clk); endtask
   bit both = 0;
+  wire  [1:0]         tx_ready, rx_valid, rx_last, rx_err;
+  wire  [1:0]         ctv, ctrtn, ctreq, crgnt, crack, crhint;
   always @(posedge clk) both = ctv[0] && rx_valid[0];
 
   // ---------------- ports: 0 = A, 1 = B ----------------
   logic [1:0]         tx_en = 0, rx_en = 0, tx_valid = 0, tx_last = 0, tx_err = 0, rx_ready = 0;
   logic [1:0][31:0]   tx_data = 0;
-  wire  [1:0]         tx_ready, rx_valid, rx_last, rx_err;
   wire  [1:0][31:0]   rx_data;
-  wire  [1:0]         ctv, ctrtn, ctreq, crgnt, crack, crhint;
   wire  [1:0][127:0]  ctd;
   wire  [1:0][13:0]   ctc;
   logic [1:0]         i_tgnt, i_tack, i_thint, i_rv, i_rrtn, i_rreq;

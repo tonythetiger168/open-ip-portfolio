@@ -1,0 +1,34 @@
+{
+  "title": "xSPI (JESD251) 8D-8D-8D NOR flash target: octal DDR command / address / data with a DQS read strobe, JESD251 Profile 1.0 command set, page program, sector and chip erase, configurable read latency",
+  "code": "0x7853",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Device state as the host sees it",
+      "fields": [
+        {"port": "sr", "desc": "status register bits: [1] WEL (write enable latch), [0] WIP (program / erase in progress)"},
+        {"port": "dummy", "desc": "read latency in CK cycles (WRCR, 4..31; 8 after reset or RESET)"},
+        {"port": "err_code", "desc": "last error: 1 bad extension, 2 unknown command, 3 busy, 4 WEL not set, 5 bad frame length or CS# with CK high, 6 dummy setting below 4, 7 RESET without RESET ENABLE"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "CMD", "port": "irq_cmd", "desc": "a frame ended and its command was accepted"},
+    {"name": "DONE", "port": "irq_done", "desc": "a page program, sector erase or chip erase finished (WIP and WEL cleared)"},
+    {"name": "ERR", "port": "irq_err", "desc": "a frame was rejected; the cause is in STATUS.err_code"}
+  ],
+  "features": [
+    "xSPI 8D-8D-8D (JESD251 octal DDR): every CK edge carries a byte on DQ[7:0], the command is followed by its inverted extension, 4 address bytes, a configurable latency (DUMMY CK cycles) for reads, then data two bytes per CK cycle.",
+    "Reads drive DQS low through the latency (preamble) and toggle it with each byte, so byte 2k is captured on a DQS rise and byte 2k + 1 on a DQS fall; A0 is ignored and the array address wraps.",
+    "Commands (JESD251 Profile 1.0 set): 06F9 WREN, 04FB WRDI, 05FA RDSR, 9F60 RDID, EE11 8D READ, 12ED PAGE PROGRAM, 21DE SECTOR ERASE, 609F CHIP ERASE, 817E WRCR (dummy cycles), 857A RDCR, 6699 RESET ENABLE, 9966 RESET.",
+    "NOR array of 2^MEM_AW bytes (default 512): program only clears bits (new = old & data) and wraps inside its 2^PAGE_AW-byte page; sector erase (2^SECT_AW bytes) and chip erase set bytes to FF. Program and erase need WEL and run in the background, one byte per clock, with WIP set; only RDSR is accepted meanwhile.",
+    "Frame checks: wrong extension, unknown command, busy, WEL not set, a frame ending off its length or with CK high, a latency below 4 and RESET without RESET ENABLE reject the frame and set err_code."
+  ],
+  "notes": [
+    "ck, csn, dq_i, dq_o, dq_oe, dqs_o and dqs_oe are the xSPI pins (pad directions split: the pad ring merges dq_o / dq_i under dq_oe); they pass through unchanged. CK, CS# and DQ are sampled on PCLK: CK must stay high and low at least two clocks each, DQ be stable one clock before and one clock after each CK edge.",
+    "Not implemented: 1S-1S-1S power-up mode and the mode switch to 8D (the target is in 8D-8D-8D from reset), SFDP, data strobe on writes (DQS as write mask), INT#, deep power-down, suspend / resume, block protection and ECC. The array is not cleared by reset."
+  ]
+}

@@ -15,13 +15,14 @@ module eMMC_apb_tb;
   logic [3:0]  PSTRB = 0;
   wire  [31:0] PRDATA;
   wire         PREADY, PSLVERR, irq;
+  wire           emmc_clk;
   tri            cmd;
   tri   [7:0]    dat;
-  logic          emmc_rst_n;
-  eMMC_apb dut (.*);
+  wire           emmc_rst_n;
+  eMMC_apb #(.RST_LOW(8), .RST_WAIT(100), .RD_TIMEOUT(300), .BUSY_TIMEOUT(200)) dut (.*);
   always #5 PCLK = ~PCLK;
 
-  localparam logic [31:0] ID_VALUE = 32'h654D0200;
+  localparam logic [31:0] ID_VALUE = 32'h654D0300;
   localparam logic [11:0] A_ID = 12'h000;
   localparam logic [11:0] A_IRQ_STATUS = 12'h004;
   localparam logic [11:0] A_IRQ_ENABLE = 12'h008;

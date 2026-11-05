@@ -195,7 +195,7 @@ module GDDR5_top #(
               if (rp_t[act_bank] == 0) dstate <= D_ACT;
             end
             else if (rp_ok) begin           // plain PRE: hold hready low through tRP
-              ref_req <= (ref_cnt == 0); dstate <= (ref_cnt == 0) ? D_PRE : D_IDLE;
+              ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE;
             end
           end
         end
@@ -215,7 +215,7 @@ module GDDR5_top #(
             if (ref_walk)      begin ref_walk <= 1'b0; dstate <= D_IDLE; end
             else if (auto_rd)  begin auto_rd <= 1'b0; dstate <= D_RD; end
             else if (auto_wr)  begin auto_wr <= 1'b0; dstate <= D_WR; end
-            else begin ref_req <= (ref_cnt == 0); dstate <= (ref_cnt == 0) ? D_PRE : D_IDLE; end
+            else begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
           end
         end
         D_RD: begin
@@ -237,7 +237,7 @@ module GDDR5_top #(
             if (rd_pending) hrdata <= mem[{c_ch, cur_addr[7:0]}];
             else wtr_t[cur_bank] <= TWTR[8:0];   // write burst done: tWTR fence
             rd_pending <= 1'b0;
-            begin ref_req <= (ref_cnt == 0); dstate <= (ref_cnt == 0) ? D_PRE : D_IDLE; end
+            begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
           end
         end
         default: dstate <= D_IDLE;

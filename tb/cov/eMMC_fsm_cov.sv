@@ -4,28 +4,30 @@
 // state and per explicit RTL arc, bound into the DUT module(s).
 
 module eMMC_top__fsm_cov (
-  input logic c_emmc_clk,
-  input logic r_srst_n,
+  input logic c_clk,
+  input logic r_rst_n,
   input logic [2:0] s_state
 );
-  // ---- FSM eMMC_top.state: 6 states, 11 arcs ----
-  fsm_st__state__H_CTX: cover property (@(posedge c_emmc_clk) disable iff (!r_srst_n) s_state == 3'd0);
-  fsm_st__state__H_GAP: cover property (@(posedge c_emmc_clk) disable iff (!r_srst_n) s_state == 3'd1);
-  fsm_st__state__H_RSP: cover property (@(posedge c_emmc_clk) disable iff (!r_srst_n) s_state == 3'd2);
-  fsm_st__state__H_IDLE: cover property (@(posedge c_emmc_clk) disable iff (!r_srst_n) s_state == 3'd3);
-  fsm_st__state__H_WDAT: cover property (@(posedge c_emmc_clk) disable iff (!r_srst_n) s_state == 3'd4);
-  fsm_st__state__H_RDAT: cover property (@(posedge c_emmc_clk) disable iff (!r_srst_n) s_state == 3'd5);
-  fsm_arc__state__H_CTX__H_GAP: cover property (@(posedge c_emmc_clk) disable iff (!r_srst_n) s_state == 3'd0 ##1 s_state == 3'd1);
-  fsm_arc__state__H_GAP__H_CTX: cover property (@(posedge c_emmc_clk) disable iff (!r_srst_n) s_state == 3'd1 ##1 s_state == 3'd0);
-  fsm_arc__state__H_GAP__H_RSP: cover property (@(posedge c_emmc_clk) disable iff (!r_srst_n) s_state == 3'd1 ##1 s_state == 3'd2);
-  fsm_arc__state__H_RSP__H_CTX: cover property (@(posedge c_emmc_clk) disable iff (!r_srst_n) s_state == 3'd2 ##1 s_state == 3'd0);
-  fsm_arc__state__H_RSP__H_IDLE: cover property (@(posedge c_emmc_clk) disable iff (!r_srst_n) s_state == 3'd2 ##1 s_state == 3'd3);
-  fsm_arc__state__H_RSP__H_WDAT: cover property (@(posedge c_emmc_clk) disable iff (!r_srst_n) s_state == 3'd2 ##1 s_state == 3'd4);
-  fsm_arc__state__H_RSP__H_RDAT: cover property (@(posedge c_emmc_clk) disable iff (!r_srst_n) s_state == 3'd2 ##1 s_state == 3'd5);
-  fsm_arc__state__H_IDLE__H_CTX: cover property (@(posedge c_emmc_clk) disable iff (!r_srst_n) s_state == 3'd3 ##1 s_state == 3'd0);
-  fsm_arc__state__H_WDAT__H_CTX: cover property (@(posedge c_emmc_clk) disable iff (!r_srst_n) s_state == 3'd4 ##1 s_state == 3'd0);
-  fsm_arc__state__H_WDAT__H_IDLE: cover property (@(posedge c_emmc_clk) disable iff (!r_srst_n) s_state == 3'd4 ##1 s_state == 3'd3);
-  fsm_arc__state__H_RDAT__H_IDLE: cover property (@(posedge c_emmc_clk) disable iff (!r_srst_n) s_state == 3'd5 ##1 s_state == 3'd3);
+  // ---- FSM eMMC_top.state: 7 states, 12 arcs ----
+  fsm_st__state__H_CTX: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd0);
+  fsm_st__state__H_GAP: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd1);
+  fsm_st__state__H_RSP: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd2);
+  fsm_st__state__H_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd3);
+  fsm_st__state__H_WDAT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd4);
+  fsm_st__state__H_RDAT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd5);
+  fsm_st__state__H_PWR: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd6);
+  fsm_arc__state__H_CTX__H_GAP: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd0 ##1 s_state == 3'd1);
+  fsm_arc__state__H_GAP__H_CTX: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd1 ##1 s_state == 3'd0);
+  fsm_arc__state__H_GAP__H_RSP: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd1 ##1 s_state == 3'd2);
+  fsm_arc__state__H_RSP__H_CTX: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd2 ##1 s_state == 3'd0);
+  fsm_arc__state__H_RSP__H_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd2 ##1 s_state == 3'd3);
+  fsm_arc__state__H_RSP__H_WDAT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd2 ##1 s_state == 3'd4);
+  fsm_arc__state__H_RSP__H_RDAT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd2 ##1 s_state == 3'd5);
+  fsm_arc__state__H_IDLE__H_CTX: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd3 ##1 s_state == 3'd0);
+  fsm_arc__state__H_WDAT__H_CTX: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd4 ##1 s_state == 3'd0);
+  fsm_arc__state__H_WDAT__H_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd4 ##1 s_state == 3'd3);
+  fsm_arc__state__H_RDAT__H_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd5 ##1 s_state == 3'd3);
+  fsm_arc__state__H_PWR__H_CTX: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd6 ##1 s_state == 3'd0);
 endmodule
 
-bind eMMC_top eMMC_top__fsm_cov u_fsm_cov (.c_emmc_clk(emmc_clk), .r_srst_n(srst_n), .s_state(state));
+bind eMMC_top eMMC_top__fsm_cov u_fsm_cov (.c_clk(clk), .r_rst_n(rst_n), .s_state(state));

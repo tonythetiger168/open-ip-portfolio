@@ -21,14 +21,14 @@ module HSI_tb;
   always #5 clk = ~clk;
 
   int errors = 0;
+  logic [7:0]  cfg_div = 4;
+  logic [2:0]  cfg_chbits = 4;
   function automatic void fail(input string m);
     errors++;
     if (errors < 40) $display("ERROR: %s @%0t (chbits %0d div %0d)", m, $time, cfg_chbits, cfg_div);
   endfunction
 
   // ---------------- endpoints ----------------
-  logic [7:0]  cfg_div = 4;
-  logic [2:0]  cfg_chbits = 4;
   logic [1:0]  cfg_rx_en = 2'b11, cfg_wake = 0;
   logic [1:0]  txq_valid = 0, rxq_ready = 0, tx_brk = 0;
   logic [3:0]  txq_ch [0:1];

@@ -58,15 +58,16 @@ module ARM_Q_Channel_Low_Power_Interface_top #(
     if (!rst_n) state <= Q_RUN;
     else
       case (state)
-        Q_RUN     : state <= qreqn ? Q_RUN  : Q_REQUEST;
+        Q_RUN     : if (qreqn) state <= Q_RUN; else state <= Q_REQUEST;
         // qreqn must stay low until the device responds; a premature
         // qreqn rise is an illegal sequence (flagged via irq)
-        Q_REQUEST : state <= qreqn ? Q_RUN     :
-                             active ? Q_DENIED : Q_STOPPED;
-        Q_DENIED  : state <= qreqn ? Q_RUN  : Q_DENIED;
-        Q_STOPPED : state <= qreqn ? Q_EXIT : Q_STOPPED;
+        Q_REQUEST : if (qreqn)       state <= Q_RUN;
+                    else if (active) state <= Q_DENIED;
+                    else             state <= Q_STOPPED;
+        Q_DENIED  : if (qreqn) state <= Q_RUN; else state <= Q_DENIED;
+        Q_STOPPED : if (qreqn) state <= Q_EXIT; else state <= Q_STOPPED;
         // qreqn must stay high through the exit; a drop here is illegal
-        Q_EXIT    : state <= qreqn ? Q_RUN  : Q_STOPPED;
+        Q_EXIT    : if (qreqn) state <= Q_RUN; else state <= Q_STOPPED;
         default   : state <= Q_RUN;
       endcase
   end

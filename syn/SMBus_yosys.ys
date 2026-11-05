@@ -1,0 +1,8 @@
+# SMBus synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/SMBus_top.sv 
+hierarchy -check -top SMBus_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json SMBus_top.json
+write_verilog SMBus_top_netlist.v

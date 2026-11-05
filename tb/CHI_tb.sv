@@ -167,6 +167,8 @@ module CHI_tb;
     n_out--;
   endtask
   // the beats of a write, once its DBID is known
+  bit done_after_data [0:255];
+  int f_dp = -1;                                // forced write data byte (directed)
   task automatic queue_data(input logic [7:0] txn, input logic [7:0] dbid);
     int ids [0:3];
     int n;
@@ -191,7 +193,6 @@ module CHI_tb;
     if (t_kind[txn] == 3) done_after_data[txn] = 1;
   endtask
   // a WriteNoSnpFull ends when its last beat has gone out
-  bit done_after_data [0:255];
   always @(negedge clk) begin
     for (int t = 0; t < 256; t++)
       if (done_after_data[t] && t_v[t]) begin : b_chk
@@ -204,7 +205,6 @@ module CHI_tb;
 
   // ---------------- requests ----------------
   int p_out = 10, gap = 4;
-  int f_dp = -1;                                // forced write data byte (directed)
   bit stop = 0;
   task automatic wait_clk(input int n);
     repeat (n) @(negedge clk);
