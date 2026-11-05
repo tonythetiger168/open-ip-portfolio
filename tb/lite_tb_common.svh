@@ -90,6 +90,9 @@
     rnd_addr = mk($urandom_range(0, NBANK - 1), $urandom_range(0, 3), $urandom_range(0, 7));
   endfunction
 
+`ifdef MEM_PERF
+  `include "perf/lite_perf.svh"
+`else
   initial begin
     logic [31:0] a;
     hvalid = 0; hcmd = 0; haddr = 0; hwdata = 0;
@@ -182,3 +185,4 @@
     else $display("TEST FAILED: %m (%0d errors)", errors);
     $finish;
   end
+`endif
