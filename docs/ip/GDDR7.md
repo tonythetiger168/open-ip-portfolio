@@ -210,3 +210,64 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 |---|---|---|---|---|---|---|
 | core `rtl/GDDR7_top.sv` | pass | 105/105 (+4 excl.) | 1292/1292 (+202 excl.) | 24/24 | 26/26 | 83/83 |
 | wrapper `rtl/GDDR7_apb.sv` | pass | 33/33 | 842/842 (+12 excl.) | n/a | 11/11 | 42/42 |
+
+## Performance
+
+Measured, not estimated: `bash scripts/perf/run_perf.sh GDDR7` runs the core's own testbench with `+define+MEM_PERF` (`tb/perf/mem_perf.svh`), which drives the host port as fast as `hready` allows and times every command at the core's ports, then synthesizes the core on the open SkyWater SKY130 library (`scripts/perf/sta_sky130.sh`). Raw data: [`docs/perf/GDDR7.json`](../perf/GDDR7.json). One host operation moves one 16-bit word (2 bytes); the host port peaks at 2 bytes per clock. Clock-based figures hold at any frequency; ns and MB/s are at the estimated Fmax below. Family comparison: [MEMORY_PERFORMANCE.md](../MEMORY_PERFORMANCE.md).
+
+### Implementation (pre-layout estimate)
+
+| Item | Value |
+|---|---|
+| Library | SKY130 `sky130_fd_sc_hd`, typical corner (tt, 25 C, 1.80 V) |
+| Longest logic path | 3.05 ns |
+| Estimated Fmax | 282 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
+| Area | 0.073 mm2 (73374 um2), 9864 cells, 454 flip-flops |
+| Not counted | the in-model DRAM array, 8192 bits (1 KiB): a real controller has the DRAM off chip |
+
+No wire load, placement, clock skew or on-chip variation: these rank the designs and give the order of magnitude; they are not a timing sign-off.
+
+### DRAM timing used (clocks)
+
+| CL | TRCD | TRP | TRAS | TRC | TRFC | TREFI |
+|---|---|---|---|---|---|---|
+| 18 | 15 | 15 | 32 | 46 | 150 | 3900 |
+
+### Latency, unloaded
+
+From the first clock the host presents the command to the clock `hrdata` is valid (read) or the core can take the next command (write). Min and max over 8 samples in different banks, away from refresh, with the bank's timers (tRAS, tRC) already run out.
+
+| Command | Clocks | ns at Fmax |
+|---|---|---|
+| Read, page hit | 20 | 71 |
+| Read, bank closed (ACT first) | 39 | 138 |
+| Read, row conflict (PRE + ACT first) | 54 | 191 |
+| Write, page hit | 21 | 74 |
+| Write, bank closed | 40 | 142 |
+| Write, row conflict | 55 | 195 |
+| Read, page hit, requested as a refresh falls due (worst case seen) | 208 | 738 |
+
+### Sustained throughput
+
+2048 back-to-back commands per pattern, refreshes included. Host utilization = bytes per clock over the port's 2-byte peak.
+
+| Pattern | Clocks / op | Bytes / clock | Host utilization | MB/s at Fmax |
+|---|---|---|---|---|
+| Sequential reads, one open row (page hits) | 22.01 | 0.091 | 4.5% | 26 |
+| Sequential writes, one open row (page hits) | 22.10 | 0.090 | 4.5% | 26 |
+| Alternating write / read, one open row | 22.01 | 0.091 | 4.5% | 26 |
+| Reads interleaved over every bank, rows open | 22.88 | 0.087 | 4.4% | 25 |
+| Reads alternating two rows of one bank (row conflicts) | 57.24 | 0.035 | 1.7% | 10 |
+| Random reads (bank, row, column uniform) | 55.65 | 0.036 | 1.8% | 10 |
+| Random writes | 55.71 | 0.036 | 1.8% | 10 |
+| Random mix, 2 reads : 1 write | 55.65 | 0.036 | 1.8% | 10 |
+
+### Refresh cost
+
+With no host traffic for 31200 clocks, `hready` is low (the core cannot take a command) 4.33% of the time, in 8 windows of at most 169 clocks (599 ns).
+
+### Limits of these figures
+
+* One command in flight: the core finishes a command before it takes the next, so throughput is set by the per-command latency, not by the DRAM data bus. A production controller queues and reorders many commands and keeps the data bus busy.
+* The host port is 16 bits wide; the figures are bytes through that port, not DRAM pin bandwidth.
+* Timing parameters are in controller clocks as listed above, not tied to a JEDEC speed bin.

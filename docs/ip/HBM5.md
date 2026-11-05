@@ -210,3 +210,68 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 |---|---|---|---|---|---|---|
 | core `rtl/HBM5_top.sv` | pass | 92/92 (+3 excl.) | 1846/1846 (+30 excl.) | 24/24 | 24/24 | 66/66 |
 | wrapper `rtl/HBM5_apb.sv` | pass | 33/33 | 1290/1290 (+12 excl.) | n/a | 11/11 | 42/42 |
+
+## Performance
+
+Measured, not estimated: `bash scripts/perf/run_perf.sh HBM5` runs the core's own testbench with `+define+MEM_PERF` (`tb/perf/mem_perf.svh`), which drives the host port as fast as `hready` allows and times every command at the core's ports, then synthesizes the core on the open SkyWater SKY130 library (`scripts/perf/sta_sky130.sh`). Raw data: [`docs/perf/HBM5.json`](../perf/HBM5.json). One host operation moves one 16-bit word (2 bytes); the host port peaks at 2 bytes per clock. Clock-based figures hold at any frequency; ns and MB/s are at the estimated Fmax below. Family comparison: [MEMORY_PERFORMANCE.md](../MEMORY_PERFORMANCE.md).
+
+### Implementation (pre-layout estimate)
+
+| Item | Value |
+|---|---|
+| Library | SKY130 `sky130_fd_sc_hd`, typical corner (tt, 25 C, 1.80 V) |
+| Longest logic path | 3.98 ns |
+| Estimated Fmax | 223 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
+| Area | 0.634 mm2 (633676 um2), 81782 cells, 5505 flip-flops |
+| Not counted | the in-model DRAM array, 65536 bits (8 KiB): a real controller has the DRAM off chip |
+
+No wire load, placement, clock skew or on-chip variation: these rank the designs and give the order of magnitude; they are not a timing sign-off.
+
+### DRAM timing used (clocks)
+
+| CL | TRCD | TRP | TRAS | TRC | TRFC_PB | TREFI |
+|---|---|---|---|---|---|---|
+| 16 | 12 | 12 | 26 | 42 | 40 | 1560 |
+
+### Latency, unloaded
+
+From the first clock the host presents the command to the clock `hrdata` is valid (read) or the core can take the next command (write). Min and max over 8 samples in different banks, away from refresh, with the bank's timers (tRAS, tRC) already run out.
+
+| Command | Clocks | ns at Fmax |
+|---|---|---|
+| Read, page hit | 18 | 81 |
+| Read, bank closed (ACT first) | 34 | 152 |
+| Read, row conflict (PRE + ACT first) | 46 | 206 |
+| Write, page hit | 19 | 85 |
+| Write, bank closed | 35 | 157 |
+| Write, row conflict | 47 | 211 |
+| Read, page hit, requested as a refresh falls due (worst case seen) | 62 | 278 |
+
+### Sustained throughput
+
+2048 back-to-back commands per pattern, refreshes included. Host utilization = bytes per clock over the port's 2-byte peak.
+
+| Pattern | Clocks / op | Bytes / clock | Host utilization | MB/s at Fmax |
+|---|---|---|---|---|
+| Sequential reads, one open row (page hits) | 24.57 | 0.081 | 4.1% | 18 |
+| Sequential writes, one open row (page hits) | 24.53 | 0.082 | 4.1% | 18 |
+| Alternating write / read, one open row | 24.55 | 0.081 | 4.1% | 18 |
+| Reads interleaved over every bank, rows open | 29.32 | 0.068 | 3.4% | 15 |
+| Reads alternating two rows of one bank (row conflicts) | 59.37 | 0.034 | 1.7% | 8 |
+| Random reads (bank, row, column uniform) | 58.51 | 0.034 | 1.7% | 8 |
+| Random writes | 59.12 | 0.034 | 1.7% | 8 |
+| Random mix, 2 reads : 1 write | 59.28 | 0.034 | 1.7% | 8 |
+
+### Refresh cost
+
+With no host traffic for 1560 clocks, `hready` is low (the core cannot take a command) 28.72% of the time, in 8 windows of at most 56 clocks (251 ns).
+
+### Reading the figures for this IP
+
+* Fine-granularity refresh: one entry is refreshed every 195 clocks (tREFI / 8) for tRFC_PB = 40 clocks, so the core is unavailable about 29% of the idle time, in short windows; the longest stall a read sees is one refresh slice, against several hundred clocks behind an all-bank refresh in the other cores.
+
+### Limits of these figures
+
+* One command in flight: the core finishes a command before it takes the next, so throughput is set by the per-command latency, not by the DRAM data bus. A production controller queues and reorders many commands and keeps the data bus busy.
+* The host port is 16 bits wide; the figures are bytes through that port, not DRAM pin bandwidth.
+* Timing parameters are in controller clocks as listed above, not tied to a JEDEC speed bin.

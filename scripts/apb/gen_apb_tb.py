@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """TB, checker, synthesis script and doc page generators for gen_apb.py."""
-import json, os, re
+import json, os, re, sys
 
 AW = 12
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -976,6 +976,11 @@ def gen_doc(P, spec, core, words, irqb, flagb, pt):
         for v in spec["verification"]:
             a(v)
     a("")
+    # measured performance (memory controllers): docs/perf/<P>.json
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "perf"))
+    import perf_report
+    for line in perf_report.perf_section(P, spec.get("perf_notes", [])):
+        a(line)
     out = "\n".join(L)
     while "\n\n\n" in out:
         out = out.replace("\n\n\n", "\n\n")

@@ -171,6 +171,9 @@
     random_traffic(100);
   endtask
 
+`ifdef MEM_PERF
+  `include "perf/mem_perf.svh"
+`else
   initial begin
     common_tests();
     quiesce(); idle(20);
@@ -178,3 +181,4 @@
     else             $display("TEST FAILED: %0d errors", errors);
     $finish;
   end
+`endif
