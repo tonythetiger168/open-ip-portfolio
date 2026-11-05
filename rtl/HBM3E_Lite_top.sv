@@ -179,6 +179,12 @@ module HBM3E_Lite_top #(
   assign dq      = dq_oe  ? dq_out      : 16'hzzzz;
   assign dqs     = dqs_oe ? {~dqs_t, dqs_t} : 2'bzz;
 
+  // refresh-gate wires: declared here, before their first use in the pin block
+  // refresh may only start when no bank is mid-write or inside tRAS
+  wire ref_go = (&wr_done) && (&ras_done);
+  // a per-entry refresh waits for that entry only
+  wire rfb_go = wr_done[eng_bank] && ras_done[eng_bank];
+
   // ---------------- pins ----------------
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -398,10 +404,6 @@ module HBM3E_Lite_top #(
   always_ff @(posedge clk) if (mem_we) mem[mem_wa] <= mem_wd;
   wire hit = bank_open[eng_bank] &&
              (bank_row[eng_bank] == eng_row);
-  // refresh may only start when no bank is mid-write or inside tRAS
-  wire ref_go = (&wr_done) && (&ras_done);
-  // a per-entry refresh waits for that entry only
-  wire rfb_go = wr_done[eng_bank] && ras_done[eng_bank];
   // lowest due entry
   logic [4:0] pb_pick;
   always_comb begin
