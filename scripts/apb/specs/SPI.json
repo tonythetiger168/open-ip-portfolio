@@ -19,6 +19,6 @@
     {"name": "BYTE", "port": "irq", "desc": "a byte was received (eighth SCLK rising edge)"}
   ],
   "notes": [
-    "sclk, mosi, miso and csn are the SPI pins; they pass through unchanged. SCLK is sampled on clk: it must stay high and low at least two clocks each."
+    "sclk, mosi, miso and csn are the SPI pins; they pass through unchanged. MISO is high-Z while CSn is high, so several targets can share it. SCLK is sampled on clk: it must stay high and low at least two clocks each."
   ]
 }

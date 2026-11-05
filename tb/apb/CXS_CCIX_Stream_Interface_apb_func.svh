@@ -30,12 +30,12 @@ CXS_CCIX_Stream_Interface_top u_peer (
   .cxs_rx_crdrtn(cxs_tx_crdrtn), .cxs_rx_activereq(cxs_tx_activereq), .cxs_rx_activeack(p_crack), .cxs_rx_deacthint(p_crhint),
   .tx_link(p_txl), .rx_link(p_rxl), .tx_credits(p_tcr), .ev_crd(p_ev_crd), .ev_cntl(p_ev_cntl));
 // the DUT's transmit interface sees the peer's receive side
+logic        j_v = 0, j_req = 0, j_rtn = 0, j_gnt = 0;
 always @* begin
   cxs_tx_crdgnt = p_crgnt | j_gnt; cxs_tx_activeack = p_crack; cxs_tx_deacthint = p_crhint;
 end
 // the DUT's receive interface: the peer's transmit side, or the TB
 bit          inj = 0;
-logic        j_v = 0, j_req = 0, j_rtn = 0, j_gnt = 0;
 int          j_cr = 0;                          // credits the DUT granted the TB
 always @(posedge PCLK) if (inj && cxs_rx_crdgnt) j_cr++;
 logic [127:0] j_d = 0;

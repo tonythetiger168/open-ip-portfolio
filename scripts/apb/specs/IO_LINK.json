@@ -1,0 +1,63 @@
+{
+  "title": "IO-Link (IEC 61131-9 SDCI) master port or device data link layer: wake-up, M-sequences with PD / OD, checksums, 256-byte message buffer",
+  "code": "0x10C9",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "300ms",
+  "regs": [
+    {"name": "CTRL", "kind": "rw", "desc": "Role, M-sequence type, device reply",
+     "fields": [{"port": "cfg_master", "desc": "1 = master port, 0 = device"},
+                {"port": "cfg_mtype", "desc": "M-sequence type in CKT (the device answers only this type)"},
+                {"port": "cfg_ta", "reset": "2", "desc": "device: reply delay in bit times after the middle of the last stop bit (0 acts as 1)"},
+                {"port": "cfg_event", "desc": "device: CKS event flag"},
+                {"port": "cfg_pd_invalid", "desc": "device: CKS PD status (1 = invalid)"}]},
+    {"name": "TIMING", "kind": "rw", "desc": "Bit time and wake-up length",
+     "fields": [{"port": "cfg_bit", "reset": "217", "desc": "PCLK cycles per bit, >= 4 (217 = COM3 at 50 MHz)"},
+                {"port": "cfg_wurq", "reset": "4000", "desc": "PCLK cycles of the wake-up request (80 us at 50 MHz); a device accepts +-1/16"}]},
+    {"name": "LENGTHS", "kind": "rw", "desc": "Octet counts and master reply timeout",
+     "fields": [{"port": "cfg_pdout_len", "desc": "PD octets master to device, 0..32"},
+                {"port": "cfg_pdin_len", "desc": "PD octets device to master, 0..32"},
+                {"port": "cfg_od_len", "reset": "1", "desc": "OD octets per message, 0..32"},
+                {"port": "cfg_resp_timeout", "reset": "16", "desc": "master: bit times of silence before a timeout"}]},
+    {"name": "MC", "kind": "rw", "desc": "Master: M-sequence control octet",
+     "fields": [{"port": "m_mc", "desc": "{R/W (1 read), channel (0 process, 1 page, 2 diagnosis, 3 ISDU), address}"}]},
+    {"name": "MEM_ADDR", "kind": "rw", "desc": "Message buffer address for CMD.host_rd / host_wr",
+     "fields": [{"port": "host_addr", "desc": "0x00 tx PD, 0x20 tx OD, 0x40 rx PD, 0x60 rx OD, 0x80 device page"}]},
+    {"name": "MEM_WDATA", "kind": "rw", "desc": "Message buffer write data",
+     "fields": [{"port": "host_wdata", "desc": "octet written by CMD.host_wr"}]},
+    {"name": "CMD", "kind": "cmd", "desc": "Commands",
+     "fields": [{"port": "m_start", "desc": "1 = master: send the M-sequence for MC (when M_STATUS.m_busy = 0)"},
+                {"port": "m_wurq", "desc": "1 = master: send a wake-up request"},
+                {"port": "host_wr", "desc": "1 = write MEM_WDATA at MEM_ADDR"},
+                {"port": "host_rd", "desc": "1 = read MEM_ADDR into MEM_RDATA"}]},
+    {"name": "MEM_RDATA", "kind": "ro", "desc": "Message buffer read data",
+     "fields": [{"port": "host_rdata", "desc": "octet read by CMD.host_rd"}]},
+    {"name": "M_STATUS", "kind": "ro", "desc": "Master: result of the last request",
+     "fields": [{"port": "m_busy", "desc": "a request is under way"},
+                {"port": "m_err_timeout", "desc": "no reply or a gap in it"},
+                {"port": "m_err_uart", "desc": "parity or framing error in the reply"},
+                {"port": "m_err_cks", "desc": "reply checksum error"},
+                {"port": "m_cks", "desc": "CKS octet {event, PD invalid, checksum}"},
+                {"port": "m_cnt", "desc": "reply octets received"}]},
+    {"name": "D_MSG", "kind": "stream_out", "data": ["d_msg_mc", "d_msg_why"], "valid": "d_msg",
+     "desc": "Device: message report; reading it frees it",
+     "fdesc": {"d_msg_mc": "MC octet", "d_msg_why": "0 ok (answered), 1 parity / framing, 2 checksum, 3 M-sequence type, 4 gap"}}
+  ],
+  "irqs": [
+    {"name": "M_DONE", "port": "m_done", "desc": "master: the request or wake-up ended (M_STATUS)"},
+    {"name": "WURQ", "port": "d_wurq", "desc": "device: wake-up request detected"}
+  ],
+  "features": [
+    "Master port: wake-up request, M-sequences of any type with 0..32 PD octets each way and 0..32 OD octets, reply timeout, checksum, parity and framing checks",
+    "Device: wake-up detection (+-1/16), frame checks with reports, 16-bit-time drop after errors, programmable reply delay, page channel served from a 32-octet parameter page",
+    "UART 8E1 at any bit time from 4 PCLK cycles (COM1 / COM2 / COM3), 256 x 8 message buffer"
+  ],
+  "notes": [
+    "txd / tx_en drive the C/Q transceiver, rxd is the received line (1 idle); the line is ignored while tx_en is high.",
+    "Not implemented: ISDU segmentation, event memory and the startup / preoperate state machines (host software uses the channels directly)."
+  ],
+  "sequence": [
+    "Master: CTRL.cfg_master = 1, TIMING, LENGTHS; CMD.m_wurq, then for each cycle write the PD out / OD octets, MC, CMD.m_start; on IRQ M_DONE read M_STATUS and the reply at 0x40 / 0x60.",
+    "Device: CTRL, TIMING, LENGTHS; keep PD in at 0x00, OD at 0x20 and the page at 0x80; on IRQ D_MSG_AVAIL read D_MSG and the received octets at 0x40 / 0x60."
+  ]
+}

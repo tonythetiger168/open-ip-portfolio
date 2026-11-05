@@ -1,0 +1,8 @@
+# ETHERCAT synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/ETHERCAT_top.sv 
+hierarchy -check -top ETHERCAT_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json ETHERCAT_top.json
+write_verilog ETHERCAT_top_netlist.v

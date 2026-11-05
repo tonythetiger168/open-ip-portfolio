@@ -1,0 +1,71 @@
+{
+  "title": "SAE J2716 SENT (Single Edge Nibble Transmission) transmitter and receiver with the slow serial channel (short and enhanced messages)",
+  "code": "0x4A32",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "200ms",
+  "regs": [
+    {"name": "CTRL", "kind": "rw", "desc": "Control",
+     "fields": [{"port": "tx_en", "desc": "1 = send frames back to back"},
+                {"port": "cfg_crc_legacy", "desc": "1 = the pre-2010 CRC (no appended zero nibble), both directions"},
+                {"port": "cfg_rx_pause", "desc": "1 = a pause pulse must follow the CRC nibble"},
+                {"port": "cfg_rx_cal_check", "desc": "1 = drop a frame whose calibration pulse is more than 1/64 off the one before"}]},
+    {"name": "TX_CFG", "kind": "rw", "desc": "Transmitter timing and format",
+     "fields": [{"port": "cfg_tx_tick_clks", "reset": "150", "desc": "PCLK cycles per tick, 4..4095 (150: 3 us at 50 MHz)"},
+                {"port": "cfg_tx_low_ticks", "reset": "5", "desc": "low part of every pulse in ticks, 4..11 (clamped)"},
+                {"port": "cfg_tx_nibbles", "reset": "6", "desc": "data nibbles, 1..6 (0 = 1, 7 = 6)"},
+                {"port": "cfg_tx_pause_mode", "desc": "0 no pause, 1 a fixed pause of TX_PAUSE ticks, 2 / 3 constant frames of TX_PAUSE ticks"}]},
+    {"name": "TX_PAUSE", "kind": "rw", "desc": "Pause length or constant frame length",
+     "fields": [{"port": "cfg_tx_pause", "desc": "ticks (the pause itself is clamped to 12..768)"}]},
+    {"name": "TX_FRAME", "kind": "rw", "desc": "Next frame's content, taken when a frame starts (IRQ TX_FRAME)",
+     "fields": [{"port": "tx_status", "desc": "status and communication nibble (bits 3:2 are the serial channel's while SER_TX runs)"},
+                {"port": "tx_data", "desc": "data nibbles, nibble i in bits 4i+3:4i, nibble 0 sent first"}]},
+    {"name": "SER_TX", "kind": "rw", "desc": "Serial message to send",
+     "fields": [{"port": "ser_tx_id", "desc": "message ID (short: 4 bits, enhanced: 8 bits or 4 with ser_tx_cfg)"},
+                {"port": "ser_tx_data", "desc": "data (short: 8 bits, enhanced: 12 bits or 16 with ser_tx_cfg)"},
+                {"port": "ser_tx_enh", "desc": "1 = enhanced message (18 frames), 0 = short (16 frames)"},
+                {"port": "ser_tx_cfg", "desc": "enhanced configuration bit C: 1 = 4-bit ID, 16-bit data"}]},
+    {"name": "CMD", "kind": "cmd", "desc": "Commands",
+     "fields": [{"port": "ser_tx_start", "desc": "1 = send SER_TX from the next frame on (ignored while one is sent)"}]},
+    {"name": "RX_CFG", "kind": "rw", "desc": "Receiver",
+     "fields": [{"port": "cfg_rx_tick_clks", "reset": "150", "desc": "nominal PCLK cycles per tick; calibration pulses within +-25 % are accepted"},
+                {"port": "cfg_rx_nibbles", "reset": "6", "desc": "data nibbles, 1..6 (0 = 1, 7 = 6)"},
+                {"port": "cfg_rx_filt", "reset": "2", "desc": "glitch filter: the line must be stable for this many PCLK cycles"}]},
+    {"name": "STATUS", "kind": "ro", "desc": "Status",
+     "fields": [{"port": "ser_tx_busy", "desc": "a serial message is being sent"}]},
+    {"name": "RX", "kind": "stream_out", "data": ["rx_status", "rx_data", "rx_cal_clks"], "valid": "rx_valid",
+     "desc": "Received frame; reading RX1 frees it",
+     "fdesc": {"rx_status": "status and communication nibble", "rx_data": "data nibbles (nibble i in bits 4i+3:4i; past RX_CFG nibbles read 0)",
+               "rx_cal_clks": "calibration pulse of the frame in PCLK cycles (56 ticks)"}},
+    {"name": "SER_RX", "kind": "stream_out", "data": ["ser_rx_enh", "ser_rx_cfg", "ser_rx_id", "ser_rx_data"], "valid": "ser_rx_valid",
+     "desc": "Received serial message; reading SER_RX frees it",
+     "fdesc": {"ser_rx_enh": "1 = enhanced message", "ser_rx_cfg": "enhanced configuration bit C",
+               "ser_rx_id": "message ID", "ser_rx_data": "message data"}}
+  ],
+  "irqs": [
+    {"name": "TX_FRAME", "port": "tx_frame_start", "desc": "a frame started (TX_FRAME was taken)"},
+    {"name": "SER_TX_DONE", "port": "ser_tx_done", "desc": "the serial message went out with its last frame"},
+    {"name": "ERR_NIBBLE", "port": "rx_err_nibble", "desc": "a period that is no nibble, or a calibration pulse inside a frame"},
+    {"name": "ERR_LOW", "port": "rx_err_low", "desc": "a low part shorter than 3.5 ticks"},
+    {"name": "ERR_CRC", "port": "rx_err_crc", "desc": "wrong CRC nibble"},
+    {"name": "ERR_PAUSE", "port": "rx_err_pause", "desc": "a pause outside 12..768 ticks"},
+    {"name": "ERR_SYNC", "port": "rx_err_sync", "desc": "no calibration pulse where one was due"},
+    {"name": "ERR_CAL", "port": "rx_err_cal", "desc": "a calibration pulse more than 1/64 off the previous one (the frame is dropped)"},
+    {"name": "SER_CRC", "port": "ser_rx_err_crc", "desc": "a serial message with a wrong CRC"}
+  ],
+  "features": [
+    "Transmitter: programmable tick (4..4095 PCLK cycles), low time, 1..6 data nibbles, no pause, a fixed pause or constant-length frames",
+    "Receiver: synchroniser and glitch filter, calibration pulse within +-25 % sets the tick, ticks rounded from the measured calibration pulse, optional 1/64 drift check",
+    "CRC-4 (recommended and legacy) on the fast channel; short (4-bit CRC) and enhanced (6-bit CRC, 8-bit ID / 12-bit data or 4-bit ID / 16-bit data) serial messages both ways",
+    "Errors reported one by one: nibble, low time, CRC, pause, missing sync, calibration drift, serial CRC"
+  ],
+  "notes": [
+    "sent_out is the open-drain style output (1 = released); sent_in is the line as received (it may be sent_out for a loopback).",
+    "The receiver holds one frame and one serial message; a frame that arrives while RX is full is dropped and sets RX_OVF.",
+    "Not implemented: SPC (short PWM code) master triggers; the fast channel formats (H.1..H.7) are data interpretations left to software."
+  ],
+  "sequence": [
+    "Transmit: TX_CFG, TX_PAUSE, TX_FRAME, then CTRL.tx_en; on IRQ TX_FRAME write the next TX_FRAME. Serial: write SER_TX, CMD.ser_tx_start, wait for IRQ SER_TX_DONE.",
+    "Receive: RX_CFG and CTRL, IRQ_ENABLE; on IRQ RX_AVAIL read RX0, RX1; on SER_RX_AVAIL read SER_RX; error bits as they come."
+  ]
+}

@@ -1,21 +1,24 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of eMMC_apb_tb: the device model of the core TB (tb/apb/
-// eMMC_apb_models.svh: checks every command frame, answers R3 / R2 / R1,
-// stores CMD24 blocks, sends CMD17 blocks, one-shot faults on a chosen
-// response or data phase). Initialisation with CMD1 busy polling, clean
-// write / read-back rounds, response, CRC-status, busy and read faults, each
-// latched in IRQ_STATUS.ERR (masked and on the irq pin) with the host
-// recovering; emmc_rst_n and PRESETN restarts with init-phase faults.
+// eMMC_apb_models.svh: runs on the host's CLK and RST_n, checks every
+// command frame, answers R3 / R2 / R1 at N_CR 2..5, answers CMD24 / CMD17
+// only once CMD7 selected it, stores CMD24 blocks, sends CMD17 blocks,
+// one-shot faults on a chosen response or data phase). Power-up (RST_n
+// pulse, then no command before tRSCA), initialisation with CMD1 busy
+// polling and CMD7, clean write / read-back rounds, response, CRC-status,
+// busy, read and CMD7-busy faults, each latched in IRQ_STATUS.ERR (masked
+// and on the irq pin) with the host recovering; PRESETN restarts with
+// init-phase faults.
   pullup pu_cmd (cmd);
   pullup pu_d0 (dat[0]), pu_d1 (dat[1]), pu_d2 (dat[2]), pu_d3 (dat[3]),
          pu_d4 (dat[4]), pu_d5 (dat[5]), pu_d6 (dat[6]), pu_d7 (dat[7]);
-  initial emmc_rst_n = 0;                // held until ip_func
   // DAT[7:1] are unused in 1-bit mode: the TB wiggles them to show that
   logic up_oe = 0;
   assign dat[7:1] = up_oe ? 7'h00 : 7'hzz;
-  emmc_card #(.BC(1)) card (.clk(PCLK), .cmd(cmd), .dat0(dat[0]));
+  emmc_card #(.BUSY_HOLD(220)) card (.clk(emmc_clk), .rst_n(emmc_rst_n), .cmd(cmd), .dat0(dat[0]));
 
   int irqs = 0;
-  always @(posedge PCLK) if (dut.c_irq) irqs++;
+  always @(posedge dut.c_irq) irqs++;
 
   task automatic check(input bit c, input string m);
     if (!c) fail(m);
@@ -28,12 +31,12 @@
   task automatic wait_rounds(input int n, input string what);
     int t, m0;
     m0 = dut.u_core.match_cnt; t = 0;
-    while (8'(dut.u_core.match_cnt - m0) < n && t < 3000 * n) begin @(posedge PCLK); t++; end
+    while (8'(dut.u_core.match_cnt - m0) < n && t < 3000 * n) begin @(posedge emmc_clk); t++; end
     check(8'(dut.u_core.match_cnt - m0) >= n, {what, ": rounds did not complete"});
   endtask
   task automatic wait_init(input string what);
     int t = 0;
-    while (!dut.u_core.init_done && t < 20000) begin @(posedge PCLK); t++; end
+    while (!dut.u_core.init_done && t < 20000) begin @(posedge emmc_clk); t++; end
     check(dut.u_core.init_done === 1'b1, {what, ": init did not complete"});
   endtask
 
@@ -44,7 +47,7 @@
     int i0, t;
     i0 = irqs; t = 0;
     card.fault = f; card.fault_cmd = idx;
-    while (irqs == i0 && t < 8000) begin @(posedge PCLK); t++; end
+    while (irqs == i0 && t < 8000) begin @(posedge emmc_clk); t++; end
     check(irqs == i0 + 1, {what, ": no irq"});
     rd_exp(A_IRQ_STATUS, 1 << IRQ_ERR);
     if (irq !== en) fail({what, ": irq pin vs enable"});
@@ -52,34 +55,34 @@
     rd_exp(A_IRQ_STATUS, 0);
   endtask
 
-  task automatic reset_dev(input bit sys);
+  task automatic reset_dev();
     @(negedge PCLK);
-    if (sys) PRESETN = 0; else emmc_rst_n = 0;
+    PRESETN = 0;
     card.kill();
     repeat (3) @(negedge PCLK);
-    check(irq === 1'b0 && dut.u_core.init_done === 1'b0 && dut.u_core.match_cnt == 0, "reset state");
-    PRESETN = 1; emmc_rst_n = 1;
-    if (sys) begin
-      cycles(1);
-      check_reset_values();
-      if (en) wr(A_IRQ_ENABLE, 1 << IRQ_ERR);
-    end
+    check(irq === 1'b0 && dut.u_core.init_done === 1'b0 && dut.u_core.match_cnt == 0 &&
+          emmc_rst_n === 1'b0, "reset state");
+    PRESETN = 1;
+    cycles(1);
+    check_reset_values();
+    if (en) wr(A_IRQ_ENABLE, 1 << IRQ_ERR);
   endtask
 
   task automatic ip_func;
     for (int b = 0; b < 4; b++) card.mem[b] = '1;
     card.busy_polls = 3;
     rd_exp(A_FLAGS, 0);
-    emmc_rst_n = 1;
 
-    // ---- init with CMD1 busy polling, clean rounds ----
+    // ---- power-up, init with CMD1 busy polling and CMD7, clean rounds ----
+    wait (emmc_rst_n === 1'b1);
+    check(card.n_cmds == 0, "command before RST_n / tRSCA");
     wait_init("first init");
-    check(dut.u_core.cid == card.cid_val(), "CID");
+    check(dut.u_core.cid == card.cid_val() && card.selected, "CID / selected");
     up_oe = 1;
     wait_rounds(5, "clean rounds (DAT[7:1] held low)");
     up_oe = 0;
     for (int b = 0; b < 4; b++) check(card.mem[b] == pat(8'(b == 0 ? 4 : b)), "device store contents");
-    check(card.bad_frames == 0, "host command frame errors");
+    check(card.bad_frames == 0 && card.unselected == 0, "host command frames / selection");
     rd_exp(A_IRQ_STATUS, 0);
 
     // ---- data-phase faults, masked ----
@@ -95,16 +98,17 @@
     fault(card.F_RDDATA, 17, "read compare");       check(dut.u_core.err_cmp, "err_cmp"); wait_rounds(1, "after compare");
     fault(card.F_RDMUTE, 17, "no read data");       wait_rounds(1, "after read mute");
 
-    // ---- init-phase faults after emmc_rst_n / PRESETN ----
-    reset_dev(0);  fault(card.F_R3, 1, "R3 framing");   wait_init("after R3");
-    reset_dev(1);  fault(card.F_R2, 2, "R2 CID CRC");   wait_init("after R2");
+    // ---- init-phase faults after PRESETN ----
+    reset_dev();  fault(card.F_R3, 1, "R3 framing");   wait_init("after R3");
+    reset_dev();  fault(card.F_R2, 2, "R2 CID CRC");   wait_init("after R2");
+    reset_dev();  fault(card.F_SELBUSY, 7, "CMD7 busy timeout"); wait_rounds(1, "after CMD7 busy");
     en = 0; wr(A_IRQ_ENABLE, 0);
-    reset_dev(0);  fault(card.F_MUTE, 1, "no R3");      wait_init("after no R3");
+    reset_dev();  fault(card.F_MUTE, 1, "no R3");      wait_init("after no R3");
     // PRESETN in the middle of a write block
-    wait (dut.u_core.state == 3'd4 && dut.u_core.dphase == 3'd1); repeat (40) @(posedge PCLK);
-    reset_dev(1);  wait_init("after reset in a write");
+    wait (dut.u_core.state == 3'd4 && dut.u_core.dphase == 3'd1); repeat (40) @(posedge emmc_clk);
+    reset_dev();  wait_init("after reset in a write");
     wait_rounds(2, "rounds after reset");
-    check(card.bad_frames == 0, "host command frame errors");
+    check(card.bad_frames == 0 && card.unselected == 0, "host command frames / selection");
     rd_exp(A_IRQ_STATUS, 0);
 
     // leave ERR pending (masked) for the final reset
@@ -112,7 +116,7 @@
       int i0;
       i0 = irqs;
       card.fault = card.F_CRC7; card.fault_cmd = 24;
-      while (irqs == i0) @(posedge PCLK);
+      while (irqs == i0) @(posedge emmc_clk);
     end
     cycles(2);
     rd_exp(A_IRQ_STATUS, 1 << IRQ_ERR);

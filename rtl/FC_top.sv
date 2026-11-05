@@ -217,9 +217,9 @@ module FC_top (
           T_DATA: if (tx_valid) begin
             tcrc <= crc8(tcrc, tx_data);
             if (tn != 5'd24) tn <= tn + 5'd1;
-            if (tx_last) begin ts <= pad_end ? T_CRC : T_PAD; teot <= tx_eoft; end
+            if (tx_last) begin if (pad_end) ts <= T_CRC; else ts <= T_PAD; teot <= tx_eoft; end
           end else begin
-            tx_underrun <= 1'b1; tabt <= 1'b1; ts <= tw == 2'd3 ? T_EOF : T_FILL;
+            tx_underrun <= 1'b1; tabt <= 1'b1; if (tw == 2'd3) ts <= T_EOF; else ts <= T_FILL;
           end
           T_PAD: begin
             tcrc <= crc8(tcrc, 8'h00); tn <= tn + 5'd1;

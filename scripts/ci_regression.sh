@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-# CI regression: run sim + syn (and apb, where the Makefile has it) for every
+# CI regression: run sim + syn (and apb / func, where the Makefile has them) for every
 # Makefile.<PROTOCOL>. Protocols run in parallel (JOBS, default: CPU count),
 # each in its own directory under work/ci/ that links the repository's
 # files, so each run has a private ./simv and work/. Exits non-zero if any
@@ -13,7 +13,7 @@ JOBS="${1:-$(nproc)}"
 
 rm -rf work/ci; mkdir -p work/ci
 
-one() {   # one <PROTOCOL>: writes work/ci_{sim,syn,apb}_<P>.log and work/ci/<P>.res
+one() {   # one <PROTOCOL>: writes work/ci_{sim,syn,apb,func}_<P>.log and work/ci/<P>.res
   proto=$1; mk=Makefile.$proto; d=$ROOT/work/ci/$proto
   mkdir -p "$d/work"
   for f in "$ROOT"/*; do
@@ -31,6 +31,11 @@ one() {   # one <PROTOCOL>: writes work/ci_{sim,syn,apb}_<P>.log and work/ci/<P>
        && ! grep -q "ERROR" "$ROOT/work/ci_apb_${proto}.log"; then
       r="$r apb:ok"; else r="$r apb:FAIL"; fi
   fi
+  if grep -q '^func:' "$mk"; then   # pin-level functional test (tb/func)
+    if make -f "$mk" func >"$ROOT/work/ci_func_${proto}.log" 2>&1 && grep -q "TEST PASSED" "$ROOT/work/ci_func_${proto}.log" \
+       && ! grep -q "ERROR" "$ROOT/work/ci_func_${proto}.log"; then
+      r="$r func:ok"; else r="$r func:FAIL"; fi
+  fi
   echo "$r" > "$ROOT/work/ci/$proto.res"
   cd "$ROOT"; rm -rf "$d"
 }
@@ -38,7 +43,7 @@ export -f one; export ROOT
 
 ls Makefile.* | sed 's/^Makefile\.//' | grep -vx common | xargs -P "$JOBS" -I{} bash -c 'one {}'
 
-pass_sim=0; fail_sim=0; pass_syn=0; fail_syn=0; pass_apb=0; fail_apb=0
+pass_sim=0; fail_sim=0; pass_syn=0; fail_syn=0; pass_apb=0; fail_apb=0; pass_func=0; fail_func=0
 failed=""
 for res in work/ci/*.res; do
   proto=$(basename "$res" .res)
@@ -56,6 +61,7 @@ echo "=================================================="
 echo "SIM: $pass_sim passed, $fail_sim failed"
 echo "SYN: $pass_syn passed, $fail_syn failed"
 echo "APB: $pass_apb passed, $fail_apb failed"
+echo "FUNC: $pass_func passed, $fail_func failed"
 [ -n "$failed" ] && echo "FAILED:$failed"
 echo "=================================================="
-[ "$fail_sim" -eq 0 ] && [ "$fail_syn" -eq 0 ] && [ "$fail_apb" -eq 0 ]
+[ "$fail_sim" -eq 0 ] && [ "$fail_syn" -eq 0 ] && [ "$fail_apb" -eq 0 ] && [ "$fail_func" -eq 0 ]

@@ -120,7 +120,7 @@ module Ethernet_top (
           T_DATA: if (tx_valid) begin
             gtxd <= tx_data; tcrc <= crc8(tcrc, tx_data);
             if (tn != 6'd60) tn <= tn + 6'd1;
-            if (tx_last) begin ts <= tn >= 6'd59 ? T_FCS : T_PAD; tk <= '0; end
+            if (tx_last) begin if (tn >= 6'd59) ts <= T_FCS; else ts <= T_PAD; tk <= '0; end
           end else begin
             gtxd <= 8'h00; gtx_er <= 1'b1; tx_underrun <= 1'b1; ts <= T_IFG; tk <= '0;
           end
@@ -164,7 +164,7 @@ module Ethernet_top (
             if (rn == 11'd16 || rn == 11'd17) rq <= {rq[7:0], grxd};
             if (rn >= 11'd6 && acc) begin rx_valid <= 1'b1; rx_data <= p5; rx_last <= 1'b0; end
           end else if (rn < 11'd6) begin rs <= R_IDLE; rx_frag <= 1'b1; end
-          else rs <= acc ? R_FL1 : R_IDLE;
+          else if (acc) rs <= R_FL1; else rs <= R_IDLE;
           R_DROP: if (!grx_dv) rs <= R_IDLE;
           R_FL1: begin
             rx_valid <= 1'b1; rx_data <= p5; rx_last <= 1'b0; rs <= R_FL2;

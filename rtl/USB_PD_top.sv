@@ -194,7 +194,7 @@ module USB_PD_top #(
                 rx_mtype <= hdr_next[4:0];
                 two_obj  <= hdr_next[13];
                 obj_cnt  <= 1'b0;
-                rx_st    <= (hdr_next[13:12] == 2'd0) ? RX_CRC : RX_DATA;
+                if (hdr_next[13:12] == 2'd0) rx_st <= RX_CRC; else rx_st <= RX_DATA;
               end
             end
           end
@@ -352,7 +352,7 @@ module USB_PD_top #(
           tx_bit_cnt <= tx_bit_cnt + 5'd1;
           if (tx_bit_cnt == 5'd15) begin
             tx_bit_cnt <= '0;
-            tx_st      <= tx_req ? TX_DATA : TX_CRC;
+            if (tx_req) tx_st <= TX_DATA; else tx_st <= TX_CRC;
           end
         end
         TX_DATA: begin
