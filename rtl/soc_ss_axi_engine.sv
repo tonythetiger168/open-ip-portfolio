@@ -88,7 +88,7 @@ module soc_ss_axi_engine #(
     to4k = 11'd1024 - {1'b0, a[11:2]};
     c = (left < 16'd16) ? left : 16'd16;
     if ({5'd0, to4k} < c) c = {5'd0, to4k};
-    return c[4:0];
+    chunk = c[4:0];
   endfunction
 
   // ---------------- job state ----------------
