@@ -1,0 +1,185 @@
+{
+  "title": "System timer and watchdog: periodic timer with AXI4 timestamp records, bark interrupt and bite reset request",
+  "code": "0x5C0C",
+  "version": "1.0",
+  "axi_master": {
+    "id": 11,
+    "reads": false,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "Tick: one every PRESCALE + 1 clocks; COUNT counts ticks.",
+    "Timer (TMR_EN): TIMER fires every PERIOD + 1 ticks. With TS_EN and TS_WORDS != 0 each timer event writes COUNT (the value in the event's clock) at TS_BASE + 4 * (n mod TS_WORDS); TS_WP counts records, TS_MISSED events that came while a record was being written.",
+    "Watchdog (WDT_EN): WDT_COUNT loads WDT_LOAD, counts down one per tick; CMD.kick reloads. At 0: BARK fires and it reloads; at 0 again without a kick wdt_reset goes high until a kick or WDT_EN = 0."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Enables and prescaler",
+      "fields": [
+        {
+          "port": "prescale",
+          "reset": "0",
+          "desc": "clocks per tick - 1"
+        },
+        {
+          "port": "tmr_en",
+          "reset": "0",
+          "desc": "timer on"
+        },
+        {
+          "port": "ts_en",
+          "reset": "0",
+          "desc": "timestamp records on"
+        },
+        {
+          "port": "wdt_en",
+          "reset": "0",
+          "desc": "watchdog on"
+        }
+      ]
+    },
+    {
+      "name": "PERIOD",
+      "kind": "rw",
+      "desc": "Timer period",
+      "fields": [
+        {
+          "port": "period",
+          "reset": "0",
+          "desc": "ticks per event - 1"
+        }
+      ]
+    },
+    {
+      "name": "TS_BASE",
+      "kind": "rw",
+      "desc": "Timestamp ring base",
+      "fields": [
+        {
+          "port": "ts_base",
+          "reset": "0",
+          "desc": "byte address of record 0"
+        }
+      ]
+    },
+    {
+      "name": "TS_WORDS",
+      "kind": "rw",
+      "desc": "Timestamp ring size",
+      "fields": [
+        {
+          "port": "ts_words",
+          "reset": "0",
+          "desc": "words (0: no records)"
+        }
+      ]
+    },
+    {
+      "name": "WDT_LOAD",
+      "kind": "rw",
+      "desc": "Watchdog timeout",
+      "fields": [
+        {
+          "port": "wdt_load",
+          "reset": "0",
+          "desc": "ticks"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "kick",
+          "desc": "reload the watchdog"
+        }
+      ]
+    },
+    {
+      "name": "COUNT",
+      "kind": "ro",
+      "desc": "Tick counter",
+      "fields": [
+        {
+          "port": "count",
+          "desc": "ticks since reset"
+        }
+      ]
+    },
+    {
+      "name": "TS_STATE",
+      "kind": "ro",
+      "desc": "Record counters",
+      "fields": [
+        {
+          "port": "ts_wp",
+          "desc": "records written"
+        },
+        {
+          "port": "ts_missed",
+          "desc": "events not recorded"
+        }
+      ]
+    },
+    {
+      "name": "WDT_COUNT",
+      "kind": "ro",
+      "desc": "Watchdog counter",
+      "fields": [
+        {
+          "port": "wdt_count",
+          "desc": "ticks left"
+        }
+      ]
+    },
+    {
+      "name": "WDT_STATE",
+      "kind": "ro",
+      "desc": "Watchdog output",
+      "fields": [
+        {
+          "port": "wdt_reset",
+          "desc": "bite: reset request"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "TIMER",
+      "port": "tmr_irq",
+      "desc": "timer event"
+    },
+    {
+      "name": "BARK",
+      "port": "bark",
+      "desc": "watchdog expired once"
+    },
+    {
+      "name": "TS_ERR",
+      "port": "ts_err",
+      "desc": "a record write got an AXI error response"
+    }
+  ],
+  "pins": [
+    "wdt_reset"
+  ],
+  "sequence": [
+    "Write CTRL.prescale, PERIOD, TS_BASE, TS_WORDS, then CTRL with tmr_en / ts_en.",
+    "Watchdog: write WDT_LOAD, set CTRL.wdt_en, write CMD.kick periodically."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time. A read burst is issued only when its data has room, a write burst only when all its data is ready.",
+    "wdt_reset (the reset request) drives a pin and reads in WDT_STATE."
+  ]
+}

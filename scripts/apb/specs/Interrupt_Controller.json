@@ -1,0 +1,137 @@
+{
+  "title": "Interrupt controller: 32 level sources, enables, software set, priority claim and an AXI4 event log",
+  "code": "0x5C0B",
+  "version": "1.0",
+  "axi_master": {
+    "id": 10,
+    "reads": false,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "PENDING = (irq_src | SW_SET) & ENABLE; cpu_irq = |PENDING (a pin, also STATE.cpu_irq).",
+    "CLAIM = {valid (bit 31), id (bits 4:0)} of the lowest-numbered pending source.",
+    "LOG_EN 1: each source that becomes pending (rising edge of its PENDING bit) is written as {timestamp[23:0], 3'b000, id[4:0]} at LOG_BASE + 4 * (n mod LOG_WORDS), n = the record number; LOG_WP counts records. The lowest-numbered waiting source is written first; edges of a source still waiting are merged.",
+    "timestamp: a free-running 24-bit clock counter, read in the clock the record write starts."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "ENABLE",
+      "kind": "rw",
+      "desc": "Source enables",
+      "fields": [
+        {
+          "port": "enable",
+          "reset": "0",
+          "desc": "1: source can be pending"
+        }
+      ]
+    },
+    {
+      "name": "SW_SET",
+      "kind": "rw",
+      "desc": "Software interrupts",
+      "fields": [
+        {
+          "port": "sw_set",
+          "reset": "0",
+          "desc": "ORed into irq_src"
+        }
+      ]
+    },
+    {
+      "name": "LOG_CTRL",
+      "kind": "rw",
+      "desc": "Event log",
+      "fields": [
+        {
+          "port": "log_en",
+          "reset": "0",
+          "desc": "1: log records"
+        },
+        {
+          "port": "log_words",
+          "reset": "0",
+          "desc": "ring size in words (0: no log)"
+        }
+      ]
+    },
+    {
+      "name": "LOG_BASE",
+      "kind": "rw",
+      "desc": "Event log base",
+      "fields": [
+        {
+          "port": "log_base",
+          "reset": "0",
+          "desc": "byte address of record 0"
+        }
+      ]
+    },
+    {
+      "name": "PENDING",
+      "kind": "ro",
+      "desc": "Pending sources",
+      "fields": [
+        {
+          "port": "pending",
+          "desc": "(irq_src | SW_SET) & ENABLE"
+        }
+      ]
+    },
+    {
+      "name": "CLAIM",
+      "kind": "ro",
+      "desc": "Highest-priority pending source",
+      "fields": [
+        {
+          "port": "claim",
+          "desc": "{valid, 26'b0, id}"
+        }
+      ]
+    },
+    {
+      "name": "STATE",
+      "kind": "ro",
+      "desc": "Output and log state",
+      "fields": [
+        {
+          "port": "log_wp",
+          "desc": "records written"
+        },
+        {
+          "port": "cpu_irq",
+          "desc": "the CPU interrupt"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "CPU",
+      "port": "cpu_irq",
+      "desc": "cpu_irq was high (level: sets again while a source is pending)"
+    },
+    {
+      "name": "LOG_ERR",
+      "port": "log_err",
+      "desc": "a log write got an AXI error response"
+    }
+  ],
+  "pins": [
+    "cpu_irq"
+  ],
+  "sequence": [
+    "Write LOG_BASE and LOG_CTRL (optional), then ENABLE.",
+    "On cpu_irq read CLAIM, service source id at its device, repeat until CLAIM.valid = 0."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time. A read burst is issued only when its data has room, a write burst only when all its data is ready.",
+    "irq_src[31:0] (the interrupt inputs) and cpu_irq pass through."
+  ]
+}

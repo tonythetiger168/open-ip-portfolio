@@ -1,0 +1,178 @@
+{
+  "title": "NPU: int8 4-tap 1-D convolution engine with bias, ReLU and requantization over AXI4",
+  "code": "0x5C02",
+  "version": "1.0",
+  "axi_master": {
+    "id": 2,
+    "reads": true,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "Input and output: four signed int8 samples per word, byte 0 first; sample n of the job is byte n mod 4 of word n / 4.",
+    "acc[n] = BIAS + W0*x[n] + W1*x[n-1] + W2*x[n-2] + W3*x[n-3], with x[-1] = x[-2] = x[-3] = 0 (each job starts from zero history).",
+    "y[n] = sat8((RELU ? max(acc[n], 0) : acc[n]) >>> SHIFT): arithmetic shift, then clip to -128..127.",
+    "SATURATIONS counts the results that were clipped in the last job (saturating)."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "SRC_ADDR",
+      "kind": "rw",
+      "desc": "Source address (byte address, word aligned)",
+      "fields": [
+        {
+          "port": "src_addr",
+          "reset": "0",
+          "desc": "first word read by the job"
+        }
+      ]
+    },
+    {
+      "name": "DST_ADDR",
+      "kind": "rw",
+      "desc": "Destination address (byte address, word aligned)",
+      "fields": [
+        {
+          "port": "dst_addr",
+          "reset": "0",
+          "desc": "first word written by the job"
+        }
+      ]
+    },
+    {
+      "name": "LEN",
+      "kind": "rw",
+      "desc": "Job length",
+      "fields": [
+        {
+          "port": "xfer_len",
+          "reset": "0",
+          "desc": "32-bit words (0: the job ends at once)"
+        }
+      ]
+    },
+    {
+      "name": "WEIGHTS",
+      "kind": "rw",
+      "desc": "Filter taps (signed 8-bit)",
+      "fields": [
+        {
+          "port": "w0",
+          "reset": "0",
+          "desc": "tap of x[n]"
+        },
+        {
+          "port": "w1",
+          "reset": "0",
+          "desc": "tap of x[n-1]"
+        },
+        {
+          "port": "w2",
+          "reset": "0",
+          "desc": "tap of x[n-2]"
+        },
+        {
+          "port": "w3",
+          "reset": "0",
+          "desc": "tap of x[n-3]"
+        }
+      ]
+    },
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Bias and requantization",
+      "fields": [
+        {
+          "port": "bias",
+          "reset": "0",
+          "desc": "signed 16-bit bias"
+        },
+        {
+          "port": "shift",
+          "reset": "0",
+          "desc": "right shift 0..15"
+        },
+        {
+          "port": "relu",
+          "reset": "0",
+          "desc": "1: ReLU before the shift"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "start",
+          "desc": "start a job with the current registers; ignored while busy"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Job state",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "a job is running"
+        },
+        {
+          "port": "err",
+          "desc": "the current / last job saw an AXI error response (cleared by start)"
+        }
+      ]
+    },
+    {
+      "name": "SATURATIONS",
+      "kind": "ro",
+      "desc": "Clipped results",
+      "fields": [
+        {
+          "port": "saturations",
+          "desc": "results clipped in the current / last job"
+        }
+      ]
+    },
+    {
+      "name": "CYCLES",
+      "kind": "ro",
+      "desc": "Job length in clocks",
+      "fields": [
+        {
+          "port": "cycles",
+          "desc": "clocks from start to DONE of the current / last job"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DONE",
+      "port": "done",
+      "desc": "a job ended"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "a job ended that saw an AXI error response"
+    }
+  ],
+  "sequence": [
+    "Write SRC_ADDR, DST_ADDR (word aligned) and LEN (32-bit words).",
+    "Write CTRL with the job's options and IRQ_ENABLE with DONE (and ERR).",
+    "Write CMD.start = 1 (ignored while STATUS.busy is 1).",
+    "Wait for irq (or poll STATUS.busy = 0), read the result registers, write 1s to IRQ_STATUS to clear it."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time. A read burst is issued only when its data has room, a write burst only when all its data is ready."
+  ]
+}

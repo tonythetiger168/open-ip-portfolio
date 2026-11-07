@@ -1,0 +1,8 @@
+# Modem synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/Modem_top.sv ../rtl/soc_ss_axi_engine.sv
+hierarchy -check -top Modem_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json Modem_top.json
+write_verilog Modem_top_netlist.v
