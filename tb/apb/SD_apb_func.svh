@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of SD_apb_tb: the card model (tb/apb/SD_apb_models.svh, the core
 // TB's) answers the host; ERR is checked through the registers for clean
 // rounds, round faults and init-phase faults, each followed by recovery.
