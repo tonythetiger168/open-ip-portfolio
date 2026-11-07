@@ -86,7 +86,7 @@ module Interrupt_Controller_top #(
     lid = '0; lvalid = 1'b0;
     for (int i = 31; i >= 0; i--) if (tolog[i]) begin lid = 5'(i); lvalid = 1'b1; end
   end
-  wire go = log_en && lvalid && !e_busy && log_words != 0;
+  wire go = log_en && lvalid && !e_busy && !e_done && log_words != 0;   // not in the DONE clock: slot moves on
   logic [4:0] lid_q;
 
   soc_ss_axi_engine #(.ID(AXI_ID)) u_eng (

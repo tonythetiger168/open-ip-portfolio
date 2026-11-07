@@ -17,7 +17,8 @@ Protocol IP `Timer_WDT`, version 1.0. Apache-2.0.
 Timer_WDT: system timer and watchdog of the phone SoC, with timestamp records in memory (AXI4 manager, APB4 registers) A prescaler makes one tick every PRESCALE + 1 clocks; COUNT is a free- running 32-bit tick counter.
 
 - Timer: with TMR_EN set, the TIMER interrupt fires every PERIOD + 1
-ticks (periodic, auto-reload). With TS_EN also set, each timer event
+ticks (periodic, auto-reload; lowering PERIOD below the current count
+ends the current period at the next tick). With TS_EN also set, each timer event
 writes COUNT at that tick as one 32-bit record into a ring of TS_WORDS
 words at TS_BASE (record n at TS_BASE + 4 * (n mod TS_WORDS)); TS_WP
 counts records written. An event while the previous record is still
@@ -33,7 +34,7 @@ kick or WDT_EN = 0.
 Features:
 
 - Tick: one every PRESCALE + 1 clocks; COUNT counts ticks.
-- Timer (TMR_EN): TIMER fires every PERIOD + 1 ticks. With TS_EN and TS_WORDS != 0 each timer event writes COUNT (the value in the event's clock) at TS_BASE + 4 * (n mod TS_WORDS); TS_WP counts records, TS_MISSED events that came while a record was being written.
+- Timer (TMR_EN): TIMER fires every PERIOD + 1 ticks (the event is the tick at which the timer count is >= PERIOD, so lowering PERIOD ends the current period at the next tick). With TS_EN and TS_WORDS != 0 each timer event writes COUNT (the value in the event's clock) at TS_BASE + 4 * (n mod TS_WORDS); TS_WP counts records, TS_MISSED events that came while a record was being written.
 - Watchdog (WDT_EN): WDT_COUNT loads WDT_LOAD, counts down one per tick; CMD.kick reloads. At 0: BARK fires and it reloads; at 0 again without a kick wdt_reset goes high until a kick or WDT_EN = 0.
 
 m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time. A read burst is issued only when its data has room, a write burst only when all its data is ready.

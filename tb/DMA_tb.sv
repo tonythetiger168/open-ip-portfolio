@@ -98,7 +98,10 @@ module DMA_tb;
       for (int c = 0; c < 4; c++) if (m[c]) begin kick(4'b1 << c); clks($urandom % 30); end
     end else begin
       kick(m);
-      if (pending != 0) kick(m & pending);   // queued again while queued: no effect
+      // start again the channels still queued (not the one starting now): no effect
+      {start3, start2, start1, start0} = m & pending & ~(dut.e_start ? 4'b1 << dut.nxt : 4'b0);
+      @(negedge clk);
+      {start3, start2, start1, start0} = 0;
     end
     wait_idle();
     exp_n = 0;
@@ -130,7 +133,7 @@ module DMA_tb;
     kick(4'b0010); clks(2); kick(4'b1101);
     wait_idle();
     if (order.size() != 4 || order[0] != 1 || order[1] != 2 || order[2] != 3 || order[3] != 0)
-      fail($sformatf("round-robin order %p, expected 1 2 3 0", order));
+      fail($sformatf("round-robin order wrong (%0d jobs), expected 1 2 3 0", order.size()));
     for (int k = 0; k < 30; k++) begin
       mem.stall = (k % 4) != 3;
       round(4'($urandom), k % 3 == 0);

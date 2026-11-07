@@ -76,7 +76,7 @@ module Modem_top #(
   function automatic logic [31:0] crc32_word(input logic [31:0] c, input logic [31:0] d);
     for (int i = 0; i < 32; i++)
       c = (c[0] ^ d[i]) ? ((c >> 1) ^ 32'hEDB8_8320) : (c >> 1);
-    return c;
+    crc32_word = c;
   endfunction
 
   wire go = start && !busy;

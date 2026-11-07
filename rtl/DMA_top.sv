@@ -65,13 +65,14 @@ module DMA_top #(
   input  logic        m_rvalid,
   output logic        m_rready
 );
-  logic [31:0] src [4], dst [4], fill [4];
-  logic [15:0] len [4];
-  logic [3:0]  mode, start;
-  assign src  = '{src0, src1, src2, src3};
-  assign dst  = '{dst0, dst1, dst2, dst3};
-  assign fill = '{fill0, fill1, fill2, fill3};
-  assign len  = '{len0, len1, len2, len3};
+  // channel registers side by side: channel c is bits [W*c +: W]
+  logic [127:0] src, dst, fill;
+  logic [63:0]  len;
+  logic [3:0]   mode, start;
+  assign src  = {src3, src2, src1, src0};
+  assign dst  = {dst3, dst2, dst1, dst0};
+  assign fill = {fill3, fill2, fill1, fill0};
+  assign len  = {len3, len2, len1, len0};
   assign mode  = {mode3, mode2, mode1, mode0};
   assign start = {start3, start2, start1, start0};
 
@@ -83,9 +84,12 @@ module DMA_top #(
 
   // round robin: the first pending channel after the last one served
   always_comb begin
+    logic [1:0] c;
     nxt = ch;
-    for (int k = 4; k >= 1; k--)
-      if (pending[2'(ch + 2'(k))]) nxt = 2'(ch + 2'(k));
+    for (int k = 4; k >= 1; k--) begin
+      c = ch + k[1:0];          // 2-bit wrap: ch+1, ch+2, ch+3, ch
+      if (pending[c]) nxt = c;
+    end
   end
   assign e_start = !run && (pending != 0);
 
@@ -108,7 +112,7 @@ module DMA_top #(
   soc_ss_axi_engine #(.ID(AXI_ID)) u_eng (
     .clk, .rst_n,
     .start(e_start), .rd_en(!mode[nxt]), .wr_en(1'b1),
-    .src(src[nxt]), .dst(dst[nxt]), .len(len[nxt]),
+    .src(src[32*nxt +: 32]), .dst(dst[32*nxt +: 32]), .len(len[16*nxt +: 16]),
     .busy(e_busy), .done(e_done), .err, .cycles,
     .rs_valid, .rs_data, .rs_ready, .ws_valid, .ws_data, .ws_ready,
     .m_awid(m_awid),
@@ -146,7 +150,7 @@ module DMA_top #(
   // datapath: COPY passes the read stream through, FILL repeats the fill word
   wire fill_m = mode[ch];
   assign ws_valid = fill_m ? run : rs_valid;
-  assign ws_data  = fill_m ? fill[ch] : rs_data;
+  assign ws_data  = fill_m ? fill[32*ch +: 32] : rs_data;
   assign rs_ready = ws_ready;
 
   assign done0 = e_done && ch == 2'd0;

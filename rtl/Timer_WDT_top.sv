@@ -6,7 +6,8 @@
 // A prescaler makes one tick every PRESCALE + 1 clocks; COUNT is a free-
 // running 32-bit tick counter.
 // - Timer: with TMR_EN set, the TIMER interrupt fires every PERIOD + 1
-// ticks (periodic, auto-reload). With TS_EN also set, each timer event
+// ticks (periodic, auto-reload; lowering PERIOD below the current count
+// ends the current period at the next tick). With TS_EN also set, each timer event
 // writes COUNT at that tick as one 32-bit record into a ring of TS_WORDS
 // words at TS_BASE (record n at TS_BASE + 4 * (n mod TS_WORDS)); TS_WP
 // counts records written. An event while the previous record is still
@@ -80,9 +81,9 @@ module Timer_WDT_top #(
   logic        barked;
 
   wire tick = (pre >= prescale);
-  assign tmr_irq = tmr_en && tick && tcnt == period;
+  assign tmr_irq = tmr_en && tick && tcnt >= period;
   assign bark    = wdt_en && tick && wdt_count == 0 && !barked && !kick;
-  wire   go      = tmr_irq && ts_en && ts_words != 0 && !e_busy;
+  wire   go      = tmr_irq && ts_en && ts_words != 0 && !e_busy && !e_done;   // not in the DONE clock: slot moves on
 
   soc_ss_axi_engine #(.ID(AXI_ID)) u_eng (
     .clk, .rst_n,
@@ -135,9 +136,9 @@ module Timer_WDT_top #(
       if (tick) count <= count + 32'd1;
       // timer
       if (!tmr_en) tcnt <= '0;
-      else if (tick) tcnt <= (tcnt == period) ? 32'd0 : tcnt + 32'd1;
+      else if (tick) tcnt <= (tcnt >= period) ? 32'd0 : tcnt + 32'd1;
       if (go) rec <= count;
-      if (tmr_irq && ts_en && ts_words != 0 && e_busy && ts_missed != 16'hFFFF) ts_missed <= ts_missed + 16'd1;
+      if (tmr_irq && ts_en && ts_words != 0 && (e_busy || e_done) && ts_missed != 16'hFFFF) ts_missed <= ts_missed + 16'd1;
       if (e_done) begin
         ts_wp <= ts_wp + 16'd1;
         slot  <= (slot + 16'd1 >= ts_words) ? 16'd0 : slot + 16'd1;

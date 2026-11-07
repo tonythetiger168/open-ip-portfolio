@@ -14,7 +14,7 @@
   },
   "features": [
     "Tick: one every PRESCALE + 1 clocks; COUNT counts ticks.",
-    "Timer (TMR_EN): TIMER fires every PERIOD + 1 ticks. With TS_EN and TS_WORDS != 0 each timer event writes COUNT (the value in the event's clock) at TS_BASE + 4 * (n mod TS_WORDS); TS_WP counts records, TS_MISSED events that came while a record was being written.",
+    "Timer (TMR_EN): TIMER fires every PERIOD + 1 ticks (the event is the tick at which the timer count is >= PERIOD, so lowering PERIOD ends the current period at the next tick). With TS_EN and TS_WORDS != 0 each timer event writes COUNT (the value in the event's clock) at TS_BASE + 4 * (n mod TS_WORDS); TS_WP counts records, TS_MISSED events that came while a record was being written.",
     "Watchdog (WDT_EN): WDT_COUNT loads WDT_LOAD, counts down one per tick; CMD.kick reloads. At 0: BARK fires and it reloads; at 0 again without a kick wdt_reset goes high until a kick or WDT_EN = 0."
   ],
   "tb_clk_ns": 10,

@@ -74,7 +74,7 @@ module CPU_Cluster_top #(
   logic [15:0] ridx, widx;
 
   function automatic logic [31:0] pattern(input logic [31:0] s, input logic [15:0] i);
-    return s ^ {~i, i};
+    pattern = s ^ {~i, i};
   endfunction
 
   wire go = start && !busy;

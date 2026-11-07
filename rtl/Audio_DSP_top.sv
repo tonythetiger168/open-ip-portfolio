@@ -129,7 +129,7 @@ module Audio_DSP_top #(
       else if (p < -32'sd32768)   begin y = -16'sd32768; nclip = nclip + 2'd1; end
       else                        y = p[15:0];
       ws_data[16*c +: 16] = y;
-      ay = (y < 0) ? 16'(-32'(y)) : 16'(y);
+      ay = y[15] ? (~y + 16'd1) : y;
       if (ay > pk) pk = ay;
     end
   end

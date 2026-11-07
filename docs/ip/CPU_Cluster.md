@@ -19,7 +19,7 @@ CPU_Cluster: CPU cluster memory-traffic model of the phone SoC (AXI4 manager, AP
 - MODE 0 WRITE: write pattern(i) to word i of DST (cache-line write-backs).
 - MODE 1 CHECK: read word i of SRC and compare with pattern(i); MISMATCHES
 counts the differences and FIRST_FAIL holds the index of the first one.
-- MODE 2 COPY: read SRC and write it to DST (memcpy).
+- MODE 2 COPY: read SRC and write it to DST (memcpy); MODE 3 is COPY too.
 - pattern(i) = SEED ^ {~i[15:0], i[15:0]}: every word of a job differs.
 - DONE interrupt when a job ends, ERR as well on an AXI error response,
 MISMATCH as well when a CHECK job found a difference.
