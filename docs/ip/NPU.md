@@ -281,4 +281,4 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
 | core `rtl/NPU_top.sv` | not run | | | | | |
-| wrapper `rtl/NPU_apb.sv` | not run | | | | | |
+| wrapper `rtl/NPU_apb.sv` | pass | 39/39 | 1386/1446 (+54 excl.) | n/a | 18/18 | 46/46 |

@@ -284,4 +284,4 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
 | core `rtl/ISP_top.sv` | not run | | | | | |
-| wrapper `rtl/ISP_apb.sv` | not run | | | | | |
+| wrapper `rtl/ISP_apb.sv` | pass | 36/36 | 1169/1368 (+66 excl.) | n/a | 15/15 | 44/44 |

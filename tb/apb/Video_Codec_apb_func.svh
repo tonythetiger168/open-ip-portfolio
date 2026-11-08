@@ -2,6 +2,7 @@
 // Video_Codec-specific part of tb/Video_Codec_apb_tb.sv. An soc_ss_axi_mem subordinate sits
 // on the AXI4 manager pins m_*. Covered through the registers: ENCODE then DECODE of the result gives the source back (three placements, with and without line restarts), ZEROS on a flat frame, CHECKSUM equal in both directions, DONE / ERR on an AXI read error.
 `SOC_SS_AXI_MEM(mem, PCLK, PRESETN)
+int panel_pct = 75;   // Display panel model: ready percentage
 
 // one job through the registers; ends when STATUS.busy is 0
 task automatic job_go(input int max);
@@ -15,9 +16,9 @@ task automatic irq_check(input bit e);
   if (rdv[IRQ_ERR] !== e) fail($sformatf("ERR = %b, expected %b", rdv[IRQ_ERR], e));
   rd(A_STATUS);
   if (rdv[1] !== e) fail("STATUS.err");
-  wr(A_IRQ_ENABLE, 32'(1) << IRQ_DONE);
+  wr(A_IRQ_ENABLE, e ? 32'(1) << IRQ_ERR : 32'(1) << IRQ_DONE);
   cycles(1);
-  if (irq !== 1'b1) fail("irq low with DONE pending and enabled");
+  if (irq !== 1'b1) fail("irq low with DONE / ERR pending and enabled");
   wr(A_IRQ_STATUS, IRQ_ALL);
   cycles(1);
   if (irq !== 1'b0) fail("irq high after clearing IRQ_STATUS");
@@ -41,6 +42,35 @@ endtask
 function automatic logic [31:0] place(input int k);
   return (k == 0) ? 32'h0000_0040 : (k == 1) ? 32'hBFFF_FF00 : 32'h8000_0FC0;
 endfunction
+// coverage tail: odd lengths at word offsets that toggle address bits 2..6
+// and 30, an AXI error response on each direction the IP uses, a
+// 65535-word job (every LEN and count bit), and an interrupt left pending
+// into the reset that ends the TB
+task automatic cov_tail(input int maxpoll);
+  rd_exp(A_FLAGS, 0);
+  for (int k = 0; k < 4; k++) begin
+    wr(A_SRC_ADDR, (k % 2) ? 32'h4000_0054 : 32'h0000_0054);
+    wr(A_DST_ADDR, (k % 2) ? 32'h0000_0054 : 32'h4000_0054);
+    wr(A_LEN, (k < 2) ? 7 : 1);
+    job_go(400);
+  end
+  mem.err_lo = 32'h0000_0054; mem.err_hi = 32'h0000_0060;   // write error (BRESP SLVERR)
+  wr(A_SRC_ADDR, 32'h4000_0054);
+  wr(A_DST_ADDR, 32'h0000_0054); wr(A_LEN, 3);
+  job_go(400); irq_check(1);
+  mem.err_lo = 32'h4000_0054; mem.err_hi = 32'h4000_0060;   // read error (RRESP SLVERR)
+  wr(A_DST_ADDR, 32'h0000_0154);
+  job_go(400); irq_check(1);
+  mem.err_lo = '1; mem.err_hi = '1;
+  wr(A_SRC_ADDR, 32'h1000_0000);
+  wr(A_DST_ADDR, 32'h2000_0000);
+  mem.stall = 0;
+  wr(A_LEN, 32'hFFFF);
+  job_go(maxpoll);
+  mem.stall = 1;
+  wr(A_IRQ_ENABLE, IRQ_ALL);   // DONE left pending and enabled into the final reset
+endtask
+
 
 task automatic ip_func;
   logic [31:0] s, d, s2, ck;
@@ -60,5 +90,6 @@ task automatic ip_func;
   set_job(place(0), place(0) ^ 32'h4000_0000, 6);
   job_go(300); irq_check(1);
   mem.err_lo = '1; mem.err_hi = '1;
+  cov_tail(200000);
   if (mem.errors != 0) fail("AXI rule violations");
 endtask

@@ -336,4 +336,4 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
 | core `rtl/SMMU_top.sv` | not run | | | | | |
-| wrapper `rtl/SMMU_apb.sv` | not run | | | | | |
+| wrapper `rtl/SMMU_apb.sv` | pass | 31/31 | 1464/1464 (+56 excl.) | n/a | 10/10 | 38/38 |

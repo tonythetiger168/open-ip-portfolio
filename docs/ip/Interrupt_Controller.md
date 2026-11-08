@@ -274,4 +274,4 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
 | core `rtl/Interrupt_Controller_top.sv` | not run | | | | | |
-| wrapper `rtl/Interrupt_Controller_apb.sv` | not run | | | | | |
+| wrapper `rtl/Interrupt_Controller_apb.sv` | pass | 34/34 | 1195/1484 | n/a | 12/12 | 41/41 |

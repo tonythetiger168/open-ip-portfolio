@@ -278,4 +278,4 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
 | core `rtl/GPU_top.sv` | not run | | | | | |
-| wrapper `rtl/GPU_apb.sv` | not run | | | | | |
+| wrapper `rtl/GPU_apb.sv` | pass | 39/39 | 1346/1406 (+54 excl.) | n/a | 14/14 | 46/46 |

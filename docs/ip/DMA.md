@@ -330,4 +330,4 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
 | core `rtl/DMA_top.sv` | not run | | | | | |
-| wrapper `rtl/DMA_apb.sv` | not run | | | | | |
+| wrapper `rtl/DMA_apb.sv` | pass | 75/75 | 2720/2826 | n/a | 31/31 | 85/85 |
