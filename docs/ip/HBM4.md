@@ -220,9 +220,9 @@ Measured, not estimated: `bash scripts/perf/run_perf.sh HBM4` runs the core's ow
 | Item | Value |
 |---|---|
 | Library | SKY130 `sky130_fd_sc_hd`, typical corner (tt, 25 C, 1.80 V) |
-| Longest logic path | 3.64 ns |
-| Estimated Fmax | 241 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
-| Area | 0.668 mm2 (667541 um2), 86633 cells, 6025 flip-flops |
+| Longest logic path | 3.63 ns |
+| Estimated Fmax | 242 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
+| Area | 0.668 mm2 (668292 um2), 87128 cells, 6025 flip-flops |
 | Not counted | the in-model DRAM array, 65536 bits (8 KiB): a real controller has the DRAM off chip |
 
 No wire load, placement, clock skew or on-chip variation: these rank the designs and give the order of magnitude; they are not a timing sign-off.
@@ -241,11 +241,11 @@ From the first clock the host presents the command to the clock `hrdata` is vali
 |---|---|---|
 | Read, page hit | 16 | 66 |
 | Read, bank closed (ACT first) | 30 | 124 |
-| Read, row conflict (PRE + ACT first) | 41 | 170 |
-| Write, page hit | 17 | 71 |
-| Write, bank closed | 31 | 129 |
+| Read, row conflict (PRE + ACT first) | 41 | 169 |
+| Write, page hit | 17 | 70 |
+| Write, bank closed | 31 | 128 |
 | Write, row conflict | 42 | 174 |
-| Read, page hit, requested as a refresh falls due (worst case seen) | 181 | 751 |
+| Read, page hit, requested as a refresh falls due (worst case seen) | 181 | 748 |
 
 ### Sustained throughput
 
@@ -264,7 +264,7 @@ From the first clock the host presents the command to the clock `hrdata` is vali
 
 ### Refresh cost
 
-With no host traffic for 12480 clocks, `hready` is low (the core cannot take a command) 10.58% of the time, in 8 windows of at most 165 clocks (685 ns).
+With no host traffic for 12480 clocks, `hready` is low (the core cannot take a command) 10.58% of the time, in 8 windows of at most 165 clocks (682 ns).
 
 ### Limits of these figures
 

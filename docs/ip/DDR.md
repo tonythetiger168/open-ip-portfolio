@@ -220,9 +220,9 @@ Measured, not estimated: `bash scripts/perf/run_perf.sh DDR` runs the core's own
 | Item | Value |
 |---|---|
 | Library | SKY130 `sky130_fd_sc_hd`, typical corner (tt, 25 C, 1.80 V) |
-| Longest logic path | 2.42 ns |
-| Estimated Fmax | 342 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
-| Area | 0.029 mm2 (29454 um2), 3946 cells, 172 flip-flops |
+| Longest logic path | 2.37 ns |
+| Estimated Fmax | 349 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
+| Area | 0.029 mm2 (29477 um2), 3877 cells, 172 flip-flops |
 | Not counted | the in-model DRAM array, 4096 bits (512 bytes): a real controller has the DRAM off chip |
 
 No wire load, placement, clock skew or on-chip variation: these rank the designs and give the order of magnitude; they are not a timing sign-off.
@@ -240,12 +240,12 @@ From the first clock the host presents the command to the clock `hrdata` is vali
 | Command | Clocks | ns at Fmax |
 |---|---|---|
 | Read, page hit | 7 | 20 |
-| Read, bank closed (ACT first) | 16 | 47 |
+| Read, bank closed (ACT first) | 16 | 46 |
 | Read, row conflict (PRE + ACT first) | 7 | 20 |
 | Write, page hit | 8 | 23 |
-| Write, bank closed | 17 | 50 |
+| Write, bank closed | 17 | 49 |
 | Write, row conflict | 8 | 23 |
-| Read, page hit, requested as a refresh falls due (worst case seen) | 115 | 336 |
+| Read, page hit, requested as a refresh falls due (worst case seen) | 115 | 330 |
 
 ### Sustained throughput
 
@@ -253,18 +253,18 @@ From the first clock the host presents the command to the clock `hrdata` is vali
 
 | Pattern | Clocks / op | Bytes / clock | Host utilization | MB/s at Fmax |
 |---|---|---|---|---|
-| Sequential reads, one open row (page hits) | 8.26 | 0.242 | 12.1% | 83 |
-| Sequential writes, one open row (page hits) | 8.26 | 0.242 | 12.1% | 83 |
-| Alternating write / read, one open row | 8.32 | 0.240 | 12.0% | 82 |
-| Reads interleaved over every bank, rows open | 8.29 | 0.241 | 12.1% | 83 |
-| Reads alternating two rows of one bank (row conflicts) | 8.32 | 0.240 | 12.0% | 82 |
-| Random reads (bank, row, column uniform) | 8.29 | 0.241 | 12.1% | 82 |
-| Random writes | 8.34 | 0.240 | 12.0% | 82 |
-| Random mix, 2 reads : 1 write | 8.29 | 0.241 | 12.1% | 83 |
+| Sequential reads, one open row (page hits) | 8.26 | 0.242 | 12.1% | 84 |
+| Sequential writes, one open row (page hits) | 8.26 | 0.242 | 12.1% | 84 |
+| Alternating write / read, one open row | 8.32 | 0.240 | 12.0% | 84 |
+| Reads interleaved over every bank, rows open | 8.29 | 0.241 | 12.1% | 84 |
+| Reads alternating two rows of one bank (row conflicts) | 8.32 | 0.240 | 12.0% | 84 |
+| Random reads (bank, row, column uniform) | 8.29 | 0.241 | 12.1% | 84 |
+| Random writes | 8.34 | 0.240 | 12.0% | 84 |
+| Random mix, 2 reads : 1 write | 8.29 | 0.241 | 12.1% | 84 |
 
 ### Refresh cost
 
-With no host traffic for 24960 clocks, `hready` is low (the core cannot take a command) 3.17% of the time, in 8 windows of at most 99 clocks (289 ns).
+With no host traffic for 24960 clocks, `hready` is low (the core cannot take a command) 3.17% of the time, in 8 windows of at most 99 clocks (284 ns).
 
 ### Reading the figures for this IP
 

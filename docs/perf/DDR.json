@@ -14,10 +14,10 @@
  },
  "impl": {
   "library": "sky130_fd_sc_hd tt_025C_1v80 (pre-layout)",
-  "logic_path_ns": 2.42,
-  "fmax_mhz": 342,
-  "area_um2": 29454,
-  "cells": 3946,
+  "logic_path_ns": 2.37,
+  "fmax_mhz": 349,
+  "area_um2": 29477,
+  "cells": 3877,
   "flip_flops": 172,
   "model_array_bits": 4096
  },
@@ -55,7 +55,7 @@
    "clk_per_op": 8.26,
    "bytes_per_clk": 0.242,
    "host_util_pct": 12.1,
-   "mbyte_s_at_fmax": 82.8
+   "mbyte_s_at_fmax": 84.5
   },
   "seq_wr": {
    "ops": 2048,
@@ -63,7 +63,7 @@
    "clk_per_op": 8.26,
    "bytes_per_clk": 0.242,
    "host_util_pct": 12.1,
-   "mbyte_s_at_fmax": 82.8
+   "mbyte_s_at_fmax": 84.5
   },
   "seq_rw": {
    "ops": 2048,
@@ -71,7 +71,7 @@
    "clk_per_op": 8.32,
    "bytes_per_clk": 0.24,
    "host_util_pct": 12.0,
-   "mbyte_s_at_fmax": 82.2
+   "mbyte_s_at_fmax": 83.9
   },
   "ilv_rd": {
    "ops": 2048,
@@ -79,7 +79,7 @@
    "clk_per_op": 8.29,
    "bytes_per_clk": 0.241,
    "host_util_pct": 12.1,
-   "mbyte_s_at_fmax": 82.6
+   "mbyte_s_at_fmax": 84.2
   },
   "conf_rd": {
    "ops": 2048,
@@ -87,7 +87,7 @@
    "clk_per_op": 8.32,
    "bytes_per_clk": 0.24,
    "host_util_pct": 12.0,
-   "mbyte_s_at_fmax": 82.2
+   "mbyte_s_at_fmax": 83.9
   },
   "rnd_rd": {
    "ops": 2048,
@@ -95,7 +95,7 @@
    "clk_per_op": 8.29,
    "bytes_per_clk": 0.241,
    "host_util_pct": 12.1,
-   "mbyte_s_at_fmax": 82.5
+   "mbyte_s_at_fmax": 84.2
   },
   "rnd_wr": {
    "ops": 2048,
@@ -103,7 +103,7 @@
    "clk_per_op": 8.34,
    "bytes_per_clk": 0.24,
    "host_util_pct": 12.0,
-   "mbyte_s_at_fmax": 82.0
+   "mbyte_s_at_fmax": 83.7
   },
   "rnd_mix": {
    "ops": 2048,
@@ -111,7 +111,7 @@
    "clk_per_op": 8.29,
    "bytes_per_clk": 0.241,
    "host_util_pct": 12.1,
-   "mbyte_s_at_fmax": 82.6
+   "mbyte_s_at_fmax": 84.2
   }
  },
  "refresh_idle": {

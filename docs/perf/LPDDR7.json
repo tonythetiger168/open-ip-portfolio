@@ -16,8 +16,8 @@
   "library": "sky130_fd_sc_hd tt_025C_1v80 (pre-layout)",
   "logic_path_ns": 2.95,
   "fmax_mhz": 290,
-  "area_um2": 70483,
-  "cells": 9219,
+  "area_um2": 70478,
+  "cells": 9220,
   "flip_flops": 493,
   "model_array_bits": 8192
  },
