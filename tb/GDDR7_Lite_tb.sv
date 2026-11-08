@@ -25,7 +25,11 @@ module GDDR7_Lite_tb;
   logic trace_valid; logic [3:0] trace_cmd; logic [31:0] trace_addr;
 
   localparam int T_REFI = 400, NBANK = 8, NLINES = 8 * 512 * 8, CL0 = 11, CWL0 = 8;
+`ifdef MEM_PERF
+  GDDR7_Lite_top dut (.*);   // performance run: default (datasheet) timing
+`else
   GDDR7_Lite_top #(.T_RC(40), .T_WTR(8), .T_REFI(T_REFI), .CL(CL0), .CWL(CWL0)) dut (.*);
+`endif
   always #5 clk = ~clk;
 
   function automatic logic [31:0] mk(input int b, input int row, input int line);
@@ -90,7 +94,11 @@ module GDDR7_Lite_tb;
   `include "lite_tb_common.svh"
 
   initial begin
+`ifdef MEM_PERF
+    repeat (20000) #10000;   // performance run (tb/perf)
+`else
     repeat (4000) #10000;
+`endif
     $display("TIMEOUT"); $finish;
   end
 endmodule

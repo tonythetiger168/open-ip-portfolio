@@ -1,0 +1,13 @@
+# Modem_apb coverage exclusions. Structural constants of the AXI4 manager
+# (rtl/soc_ss_axi_engine.sv): fixed ID, 32-bit beats (size 2, addresses
+# word aligned, all strobes set), INCR bursts, fixed AxPROT, at most 16 beats.
+TOGGLE \.m_(aw|ar)id\[ # constant: the manager drives its fixed AXI_ID parameter
+TOGGLE \.m_[br]id\[ # tied to the manager's single AXI_ID by the subordinate echo; never varies
+TOGGLE \.m_(aw|ar)addr\[[01]\] # constant 0: every access is a word-aligned 32-bit beat
+TOGGLE \.m_(aw|ar)len\[[567]\] # constant 0: bursts are at most 16 beats (AxLEN <= 15)
+TOGGLE \.m_(aw|ar)size\[ # constant 3'b010: 4-byte beats only
+TOGGLE \.m_(aw|ar)burst\[ # constant 2'b01: INCR bursts only
+TOGGLE \.m_(aw|ar)prot\[ # constant: the PROT parameter
+TOGGLE \.m_wstrb\[ # constant 4'hF: full-word writes only
+TOGGLE \.m_[br]resp\[0\] # constant 0: the test memory answers OKAY (00) or SLVERR (10); EXOKAY / DECERR not used
+TOGGLE \.c_cycles\[(1[7-9]|2\d|3[01])\] # CYCLES bits 17-31: the longest job (65535 words) ends in under 2^17 clocks

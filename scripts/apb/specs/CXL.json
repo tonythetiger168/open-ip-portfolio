@@ -1,43 +1,130 @@
 {
-  "title": "CXL.mem Type 3 device transaction layer: M2S Req and RwD in, S2M NDR and DRS out, host-managed device memory with a 2-bit meta state, poison and an HDM range decoder",
+  "title": "CXL 3.x-style Type 3 memory device: 256-byte flit link (CRC-64, sequence numbers, credits) carrying CXL.cachemem and CXL.io, CXL.mem M2S Req / RwD and S2M NDR / DRS with a 2-bit meta state, poison and an HDM range decoder, HDM-DB back-invalidation with a snoop filter",
   "code": "0x4358",
-  "version": "2.0",
+  "version": "3.0",
   "tb_clk_ns": 10,
-  "tb_timeout": "20ms",
+  "tb_timeout": "80ms",
   "regs": [
-    {"name": "CTRL", "kind": "rw", "desc": "HDM decoder",
-     "fields": [{"port": "hdm_base", "reset": "0", "desc": "first host line address (byte address bits 21:6) of the device's LINES = 16 lines; change it only while no message is in flight"}]},
-    {"name": "REQ", "kind": "stream_in", "data": ["req_addr", "req_tag", "req_opcode", "req_meta_field", "req_meta_value", "req_snp_type"],
-     "valid": "req_valid", "ready": "req_ready",
-     "desc": "M2S Req message; writing REQ1 sends it (the core holds up to RQD = 4 requests)",
-     "fdesc": {"req_addr": "host line address", "req_tag": "tag, returned in the response",
-               "req_opcode": "MemInv 0, MemRd 1, MemRdData 2, MemSpecRd 8, MemInvNT 9, MemClnEvct 10 (others are dropped: ERR_OPCODE)",
-               "req_meta_field": "Meta0-State 00, No-Op 11 (01, 10: ERR_PROTO, taken as No-Op)",
-               "req_meta_value": "new meta state for Meta0-State: Invalid 00, Any 10, Shared 11",
-               "req_snp_type": "SnpType (1xx: ERR_PROTO)"}},
-    {"name": "RWD", "kind": "stream_in", "data": ["rwd_addr", "rwd_tag", "rwd_data", "rwd_be", "rwd_opcode", "rwd_meta_field", "rwd_meta_value", "rwd_snp_type", "rwd_poison"],
-     "valid": "rwd_valid", "ready": "rwd_ready",
-     "desc": "One beat of an M2S RwD message (8 beats of 8 bytes, beat 0 first); writing RWD3 sends the beat. The header fields are taken from beat 0; RWD0 need not be written again for beats 1..7",
-     "fdesc": {"rwd_addr": "host line address", "rwd_tag": "tag, returned in the NDR", "rwd_data": "8 data bytes",
-               "rwd_be": "byte enables (MemWrPtl)", "rwd_opcode": "MemWr 1, MemWrPtl 2 (others are dropped: ERR_OPCODE)",
-               "rwd_meta_field": "Meta0-State 00, No-Op 11", "rwd_meta_value": "new meta state",
-               "rwd_snp_type": "SnpType", "rwd_poison": "the data is poisoned"}},
-    {"name": "NDR", "kind": "stream_out", "data": ["ndr_tag", "ndr_opcode", "ndr_meta_value", "ndr_devload"], "valid": "ndr_valid", "ready": "ndr_ready",
-     "desc": "S2M NDR message (completion of MemInv, MemInvNT, MemClnEvct, MemWr, MemWrPtl); reading it pops it",
-     "fdesc": {"ndr_tag": "the request's tag", "ndr_opcode": "Cmp 0, Cmp-S 1, Cmp-E 2", "ndr_meta_value": "the line's meta state before the request",
-               "ndr_devload": "DevLoad: Light 0, Optimal 1, Moderate 2, Severe 3"}},
-    {"name": "DRS", "kind": "stream_out", "data": ["drs_data", "drs_tag", "drs_meta_value", "drs_devload", "drs_poison", "drs_last"], "valid": "drs_valid", "ready": "drs_ready",
-     "desc": "One beat of an S2M DRS MemData message (8 beats per line); reading DRS2 pops it",
-     "fdesc": {"drs_data": "8 data bytes", "drs_tag": "the request's tag", "drs_meta_value": "the line's meta state before the request",
-               "drs_devload": "DevLoad", "drs_poison": "the line is poisoned (or the address was out of range)", "drs_last": "the eighth beat"}}
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "HDM decoder and coherence mode",
+      "fields": [
+        {
+          "port": "hdm_base",
+          "reset": "0",
+          "desc": "first host line address (byte address bits 21:6) of the device's LINES = 16 lines; change it only while no message is in flight"
+        },
+        {
+          "port": "bi_en",
+          "reset": "0",
+          "desc": "HDM-DB: device-managed coherence with back-invalidation (BISnp / BIRsp) and a snoop filter of SFE = 4 lines; 0 is HDM-H (host-only coherent). Change it only while the link is idle"
+        }
+      ]
+    },
+    {
+      "name": "BI",
+      "kind": "stream_in",
+      "data": [
+        "bi_line",
+        "bi_op"
+      ],
+      "valid": "bi_valid",
+      "ready": "bi_ready",
+      "desc": "device-initiated back-invalidation of one line (HDM-DB only); writing BI sends it. The core takes it when no BISnp is outstanding",
+      "fdesc": {
+        "bi_line": "device line 0..15",
+        "bi_op": "BISnpCur 0, BISnpData 1, BISnpInv 2 (3 is taken as 2)"
+      }
+    },
+    {
+      "name": "BIDONE",
+      "kind": "stream_out",
+      "data": [
+        "bi_state"
+      ],
+      "valid": "bi_done",
+      "desc": "completion of a BI request: the line's new meta state; reading it pops it",
+      "fdesc": {
+        "bi_state": "meta state after the BIRsp: Invalid 00, Any 10, Shared 11 (a line already Invalid completes at once)"
+      }
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "snoop filter",
+      "fields": [
+        {
+          "port": "sf_cnt",
+          "desc": "lines not Invalid (the snoop filter occupancy; at most SFE with HDM-DB)"
+        }
+      ]
+    }
   ],
   "irqs": [
-    {"name": "ERR_RANGE", "port": "ev_range", "desc": "a request or write outside the HDM range (reads return poisoned zeros, writes are dropped; both complete)"},
-    {"name": "ERR_OPCODE", "port": "ev_opcode", "desc": "an unsupported opcode: the message was dropped without a response"},
-    {"name": "ERR_PROTO", "port": "ev_proto", "desc": "a reserved MetaField or SnpType (taken as No-Op)"},
-    {"name": "POISON_RD", "port": "ev_poison", "desc": "a read returned a poisoned line"}
+    {
+      "name": "ERR_RANGE",
+      "port": "ev_range",
+      "desc": "a request or write outside the HDM range (reads return poisoned zeros, writes are dropped; both complete)"
+    },
+    {
+      "name": "ERR_OPCODE",
+      "port": "ev_opcode",
+      "desc": "an unsupported opcode: the message was dropped without a response"
+    },
+    {
+      "name": "ERR_PROTO",
+      "port": "ev_proto",
+      "desc": "a reserved MetaField or SnpType (taken as No-Op), an illegal BIRsp (taken as BIRspI), or a BIRsp with a stale tag or none outstanding (dropped)"
+    },
+    {
+      "name": "POISON_RD",
+      "port": "ev_poison",
+      "desc": "a read returned a poisoned line"
+    },
+    {
+      "name": "ERR_CRC",
+      "port": "ev_crc",
+      "desc": "a flit failed its CRC-64 and was dropped whole"
+    },
+    {
+      "name": "ERR_SEQ",
+      "port": "ev_seq",
+      "desc": "a flit's sequence number skipped (taken, and the count resynchronised)"
+    },
+    {
+      "name": "ERR_FMT",
+      "port": "ev_fmt",
+      "desc": "a reserved flit type, unit code or misplaced RwD header: the unit or flit was dropped"
+    },
+    {
+      "name": "OVERFLOW",
+      "port": "ev_ovf",
+      "desc": "a message or CXL.io flit arrived without a free buffer (the host sent without credit): dropped"
+    }
   ],
   "notes": [
-    "The core parameters LINES (16 cache lines of device memory) and RQD (4 Req FIFO entries) keep their defaults; device memory is zero after reset."
+    "rx_valid / rx_data and tx_valid / tx_ready / tx_data are the link: one 64-bit beat per PCLK, 32 beats per 256-byte flit. io_rx_* and io_tx_* are the CXL.io payload ports (30 beats of 8 bytes per flit). They all pass through unchanged.",
+    "The core parameters LINES (16 cache lines of device memory), RQD (4 Req FIFO entries), WQD (2 RwD buffers), SFE (4 snoop filter entries) and IOD (2 CXL.io receive flits) keep their defaults; device memory is zero after reset.",
+    "The flit and message layouts follow CXL 3.x in shape (256-byte flit, 16-byte slots, CRC, credits) but are our own simplified encoding; they have not been checked against a compliant host. Not implemented: CXL.cache, the 68-byte flit, the latency-optimised 256-byte flit, link-layer retry (a bad flit is dropped and reported), FEC correction, IDE, PBR / multi-headed devices, the full CXL.io transaction layer (the payload is handed to an external one), MemSpecRd prefetch hints, extended meta states."
+  ],
+  "features": [
+    "256-byte flits of 32 beats: header with type and 8-bit sequence number, 14 generic slots of 16 bytes, credit return field, CRC-64 over the first 242 bytes.",
+    "CXL.cachemem units: M2S Req, RwD (header, byte enables, then 64 data bytes rolling over slots and flits), BIRsp in; S2M NDR, DRS (header and 64 data bytes), BISnp out.",
+    "CXL.io flits pass the 240-byte payload through to and from an external transaction layer, with their own credits.",
+    "Per-class credits in both directions (Req, RwD, BIRsp, CXL.io in; NDR, DRS, BISnp, CXL.io out), saturating at 255.",
+    "CXL.mem Type 3 transaction layer as in version 2.0: MemRd, MemRdData, MemInv, MemInvNT, MemClnEvct, MemSpecRd, MemWr, MemWrPtl, meta state, poison, DevLoad.",
+    "HDM-DB: snoop filter of SFE lines, eviction by BISnpInv, device-initiated BISnpCur / BISnpData / BISnpInv, BIRsp legality checks, BIConflict / BIConflictAck.",
+    "Error events for range, opcode, protocol, poison, CRC, sequence, format and overflow."
+  ],
+  "sequence": [
+    "Write CTRL with hdm_base (and bi_en for HDM-DB) while the link is idle, then bring the link up; the host's credits arrive in its first flits.",
+    "Device-initiated back-invalidation: write BI with the line and op; on BIDONE_AVAIL read BIDONE for the line's new state.",
+    "Enable the error interrupts of interest in IRQ_ENABLE; on an interrupt read IRQ_STATUS and clear it by writing the bits back."
+  ],
+  "verification": [
+    "Core: tb/CXL_tb.sv drives the link with a host model (tb/CXL_host.svh) that packs Req, RwD and BIRsp messages into flits unit by unit within the device's credits, mixes in CXL.io and NOP flits, checks and parses every S2M flit (CRC, sequence, FEC and reserved bits, credits) and predicts every response from a reference memory. Phases: six back-pressure and gap modes with a moving HDM base, poison, range edges, conflicts, stalls, credits held and saturated, overflow of every buffer, every error flit, BIRsps in every unit, HDM-DB with evictions, device BI requests, write-backs, BIConflict and illegal or stale BIRsps, the first arbitration ties after reset, a reset mid-flit in both directions.",
+    "The core checker (tb/cov/CXL_sva.sv) is an independent cycle model fed only by the inputs: it computes the CRC-64 of each transmitted flit itself and predicts every output beat, ready, BI result, snoop-filter count and event on every clock.",
+    "Sign-off (docs/SIGNOFF.md): Verilator -Wall lint clean, mutation testing with the checker (scripts/mut/run_mut.py CXL --flow cov), a bounded formal proof of 10 properties to depth 36 (formal/CXL_props.svh), which found and led to the fix of a credit-counter wrap when a host sends without credit, and the area / depth report."
   ]
 }

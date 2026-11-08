@@ -123,7 +123,7 @@ module UART_top #(
           if (rsub == 4'd7) begin
             rsub   <= '0;
             rbit   <= '0;
-            rstate <= rxd_s ? RX_IDLE : RX_DATA;
+            if (rxd_s) rstate <= RX_IDLE; else rstate <= RX_DATA;
           end
         end
         RX_DATA: if (tick16) begin

@@ -83,8 +83,9 @@ module AHB_top #(
     if (!rst_n) state <= S_NORM;
     else
       case (state)
-        S_NORM : state <= (valid_q && err_q)            ? S_ERR2 :
-                          (valid_q && slow_q)           ? S_SLOW : S_NORM;
+        S_NORM : if (valid_q && err_q)       state <= S_ERR2;
+                 else if (valid_q && slow_q) state <= S_SLOW;
+                 else                        state <= S_NORM;
         S_SLOW : state <= S_NORM;
         S_ERR2 : state <= S_NORM;
         default: state <= S_NORM;

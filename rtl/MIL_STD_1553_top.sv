@@ -500,7 +500,7 @@ module MIL_STD_1553_top (
             bs <= BS_IDLE; bc_busy <= 1'b0; bc_done <= 1'b1;
           end else if (w_ok[bc_bus_q]) begin
             bc_cnt <= bc_cnt + 6'd1; tm_b <= '0;
-            if (bc_cnt + 6'd1 == b_n) bs <= (b_type == 3'd2 && !b_bc1) ? BS_WAIT : BS_CHK;
+            if (bc_cnt + 6'd1 == b_n) if (b_type == 3'd2 && !b_bc1) bs <= BS_WAIT; else bs <= BS_CHK;
           end else if (!d_busy[bc_bus_q] && tm_b >= hb(8'd4, cfg_half)) begin
             bc_err_wc <= 1'b1; bs <= BS_IDLE; bc_busy <= 1'b0; bc_done <= 1'b1;
           end

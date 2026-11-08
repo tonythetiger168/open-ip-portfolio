@@ -14,41 +14,46 @@ module CXL_apb_tb;
   logic [3:0]  PSTRB = 0;
   wire  [31:0] PRDATA;
   wire         PREADY, PSLVERR, irq;
+  logic          rx_valid;
+  logic [63:0]   rx_data;
+  wire           tx_valid;
+  logic          tx_ready;
+  wire  [63:0]   tx_data;
+  wire           io_rx_valid;
+  logic          io_rx_ready;
+  wire  [63:0]   io_rx_data;
+  wire           io_rx_last;
+  logic          io_tx_valid;
+  wire           io_tx_ready;
+  logic [63:0]   io_tx_data;
   CXL_apb dut (.*);
   always #5 PCLK = ~PCLK;
 
-  localparam logic [31:0] ID_VALUE = 32'h43580200;
+  localparam logic [31:0] ID_VALUE = 32'h43580300;
   localparam logic [11:0] A_ID = 12'h000;
   localparam logic [11:0] A_IRQ_STATUS = 12'h004;
   localparam logic [11:0] A_IRQ_ENABLE = 12'h008;
   localparam logic [11:0] A_FLAGS = 12'h00C;
   localparam logic [11:0] A_SCRATCH = 12'h010;
   localparam logic [11:0] A_CTRL = 12'h014;
-  localparam logic [11:0] A_REQ0 = 12'h018;
-  localparam logic [11:0] A_REQ1 = 12'h01C;
-  localparam logic [11:0] A_RWD0 = 12'h020;
-  localparam logic [11:0] A_RWD1 = 12'h024;
-  localparam logic [11:0] A_RWD2 = 12'h028;
-  localparam logic [11:0] A_RWD3 = 12'h02C;
-  localparam logic [11:0] A_NDR = 12'h030;
-  localparam logic [11:0] A_DRS0 = 12'h034;
-  localparam logic [11:0] A_DRS1 = 12'h038;
-  localparam logic [11:0] A_DRS2 = 12'h03C;
+  localparam logic [11:0] A_BI = 12'h018;
+  localparam logic [11:0] A_BIDONE = 12'h01C;
+  localparam logic [11:0] A_STATUS = 12'h020;
   localparam int IRQ_ERR_RANGE = 0;
   localparam int IRQ_ERR_OPCODE = 1;
   localparam int IRQ_ERR_PROTO = 2;
   localparam int IRQ_POISON_RD = 3;
-  localparam int IRQ_REQ_DONE = 4;
-  localparam int IRQ_REQ_OVF = 5;
-  localparam int IRQ_RWD_DONE = 6;
-  localparam int IRQ_RWD_OVF = 7;
-  localparam int IRQ_NDR_AVAIL = 8;
-  localparam int IRQ_DRS_AVAIL = 9;
-  localparam int FLAG_REQ_FULL = 0;
-  localparam int FLAG_RWD_FULL = 1;
-  localparam int FLAG_NDR_AVAIL = 2;
-  localparam int FLAG_DRS_AVAIL = 3;
-  localparam logic [31:0] IRQ_ALL = 32'h3FF;
+  localparam int IRQ_ERR_CRC = 4;
+  localparam int IRQ_ERR_SEQ = 5;
+  localparam int IRQ_ERR_FMT = 6;
+  localparam int IRQ_OVERFLOW = 7;
+  localparam int IRQ_BI_DONE = 8;
+  localparam int IRQ_BI_OVF = 9;
+  localparam int IRQ_BIDONE_AVAIL = 10;
+  localparam int IRQ_BIDONE_OVF = 11;
+  localparam int FLAG_BI_FULL = 0;
+  localparam int FLAG_BIDONE_AVAIL = 1;
+  localparam logic [31:0] IRQ_ALL = 32'hFFF;
 
   int errors = 0;
   function automatic void fail(input string m);
@@ -137,12 +142,7 @@ module CXL_apb_tb;
     rd_exp(A_IRQ_ENABLE, 0);
     rd_exp(A_SCRATCH, 0);
     rd_exp(A_CTRL, 32'h0);
-    rd_exp(A_REQ0, 0);
-    rd_exp(A_REQ1, 0);
-    rd_exp(A_RWD0, 0);
-    rd_exp(A_RWD1, 0);
-    rd_exp(A_RWD2, 0);
-    rd_exp(A_RWD3, 0);
+    rd_exp(A_BI, 0);
   endtask
 
   task automatic reg_tests;
@@ -151,11 +151,9 @@ module CXL_apb_tb;
     wr(A_FLAGS, 32'hFFFF_FFFF);
     rw_test(A_SCRATCH, 32'hFFFF_FFFF, 0);
     rw_test(A_IRQ_ENABLE, IRQ_ALL, 0);
-    rw_test(A_CTRL, 32'hFFFF, 32'h0);
-    wr(A_NDR, 32'hFFFF_FFFF);                     // read-only: ignored
-    wr(A_DRS0, 32'hFFFF_FFFF);                     // read-only: ignored
-    wr(A_DRS1, 32'hFFFF_FFFF);                     // read-only: ignored
-    wr(A_DRS2, 32'hFFFF_FFFF);                     // read-only: ignored
+    rw_test(A_CTRL, 32'h1FFFF, 32'h0);
+    wr(A_BIDONE, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_STATUS, 32'hFFFF_FFFF);                     // read-only: ignored
     // unmapped and misaligned: PSLVERR, read data 0, no side effects
     wr(A_SCRATCH, 32'h5A5A_A5A5);
     bad(0, 12'h001); bad(1, 12'h001);
@@ -163,6 +161,7 @@ module CXL_apb_tb;
     bad(0, 12'h003); bad(1, 12'h003);
     bad(0, 12'h011); bad(1, 12'h011);
     bad(0, 12'h013); bad(1, 12'h013);
+    bad(0, 12'h024); bad(1, 12'h024);
     bad(0, 12'h040); bad(1, 12'h040);
     bad(0, 12'h080); bad(1, 12'h080);
     bad(0, 12'h100); bad(1, 12'h100);
@@ -197,7 +196,7 @@ module CXL_apb_tb;
   end
 
   initial begin
-    #20ms;
+    #80ms;
     $display("TEST FAILED: CXL_apb (timeout)");
     $finish;
   end

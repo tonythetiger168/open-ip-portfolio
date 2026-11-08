@@ -399,6 +399,7 @@ module AXI_tb;
   // ------------------------------------------------------------------
   // stimulus
   // ------------------------------------------------------------------
+  logic [31:0] rdata_seen;
   initial begin
     awvalid = 0; wvalid = 0; bready = 0; arvalid = 0; rready = 0;
     wlast = 0;
@@ -675,7 +676,6 @@ module AXI_tb;
   end
 
   // captured read data for spot checks
-  logic [31:0] rdata_seen;
   always @(posedge clk) if (rvalid && rready) rdata_seen <= rdata;
 
   // ------------------------------------------------------------------

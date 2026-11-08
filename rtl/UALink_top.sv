@@ -147,7 +147,7 @@ module UALink_top #(
           rpop = 1'b1;
           x_cmd <= h_cmd; x_tag <= rh[26:19]; x_w <= h_addr[MA+2:3]; x_len <= h_len; x_st <= h_st;
           x_nb <= h_nb; x_i <= '0;
-          es <= h_nb != 4'd0 ? E_DATA : h_cmd == C_RD ? E_RD : E_RSP;
+          if (h_nb != 4'd0) es <= E_DATA; else if (h_cmd == C_RD) es <= E_RD; else es <= E_RSP;
         end
         E_DATA: if (dq_n != '0) begin
           dpop = 1'b1;

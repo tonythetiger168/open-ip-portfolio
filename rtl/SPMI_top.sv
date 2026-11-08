@@ -75,8 +75,9 @@ module SPMI_top #(
             addr_q <= head_w; bit_cnt <= '0;
             sd_oe  <= 1'b0;
             tx_q   <= tx_byte;
-            state <= (cmd == 4'h0) ? ST_DATA :   // write: data follows
-                     (cmd == 4'h1) ? ST_ACKP : ST_IGNORE;
+            if (cmd == 4'h0)      state <= ST_DATA;   // write: data follows
+            else if (cmd == 4'h1) state <= ST_ACKP;
+            else                  state <= ST_IGNORE;
           end else bit_cnt <= bit_cnt + 1'b1;
         end
         // write: receive 8 data bits, then ACK (drive 0 one bit)

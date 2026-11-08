@@ -1,0 +1,8 @@
+# Timer_WDT synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/Timer_WDT_top.sv ../rtl/soc_ss_axi_engine.sv
+hierarchy -check -top Timer_WDT_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json Timer_WDT_top.json
+write_verilog Timer_WDT_top_netlist.v
