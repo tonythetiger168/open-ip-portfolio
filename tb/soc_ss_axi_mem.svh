@@ -56,6 +56,7 @@ module soc_ss_axi_mem #(parameter logic [31:0] RESET_WORD = 32'h0) (
   logic [29:0] tag [262144];
   bit          vld [262144];
   bit          stall = 1;
+  bit          aw_hold = 0;      // 1: AWREADY held low (a blocked write path)
   logic [31:0] err_lo = 32'hFFFF_FFFF, err_hi = 32'hFFFF_FFFF;
   int          errors = 0;
   int          n_wr_bursts = 0, n_rd_bursts = 0, n_wr_beats = 0, n_rd_beats = 0;
@@ -122,7 +123,7 @@ module soc_ss_axi_mem #(parameter logic [31:0] RESET_WORD = 32'h0) (
     awready = 0; wready = 0; bvalid = 0; bid = 0; bresp = 0;
     forever begin
       @(posedge clk);
-      if (!rst_n || !awvalid) continue;
+      if (!rst_n || !awvalid || aw_hold) continue;
       fork
         wr_burst();
         @(negedge rst_n);
