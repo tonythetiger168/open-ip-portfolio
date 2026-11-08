@@ -220,9 +220,9 @@ Measured, not estimated: `bash scripts/perf/run_perf.sh HBM3E` runs the core's o
 | Item | Value |
 |---|---|
 | Library | SKY130 `sky130_fd_sc_hd`, typical corner (tt, 25 C, 1.80 V) |
-| Longest logic path | 5.97 ns |
+| Longest logic path | 5.98 ns |
 | Estimated Fmax | 154 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
-| Area | 0.790 mm2 (789836 um2), 90018 cells, 10883 flip-flops |
+| Area | 0.791 mm2 (791402 um2), 90187 cells, 10883 flip-flops |
 | Not counted | the in-model DRAM array, 43008 bits (5.25 KiB): a real controller has the DRAM off chip |
 
 No wire load, placement, clock skew or on-chip variation: these rank the designs and give the order of magnitude; they are not a timing sign-off.

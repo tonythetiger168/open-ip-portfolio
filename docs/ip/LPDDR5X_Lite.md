@@ -258,9 +258,9 @@ Measured, not estimated: `bash scripts/perf/run_perf.sh LPDDR5X_Lite` runs the c
 | Item | Value |
 |---|---|
 | Library | SKY130 `sky130_fd_sc_hd`, typical corner (tt, 25 C, 1.80 V) |
-| Longest logic path | 2.23 ns |
-| Estimated Fmax | 367 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
-| Area | 0.046 mm2 (45555 um2), 3770 cells, 1080 flip-flops |
+| Longest logic path | 2.18 ns |
+| Estimated Fmax | 374 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
+| Area | 0.046 mm2 (45599 um2), 3770 cells, 1081 flip-flops |
 | Not counted | the in-model DRAM array, 4194304 bits (512 KiB): a real controller has the DRAM off chip |
 
 No wire load, placement, clock skew or on-chip variation: these rank the designs and give the order of magnitude; they are not a timing sign-off.
@@ -277,13 +277,13 @@ From the first clock the host presents the command to `hdone` (the last of the 8
 
 | Command | Clocks | ns at Fmax |
 |---|---|---|
-| Read, page hit | 31 | 84 |
-| Read, bank closed (ACT first) | 37 | 101 |
-| Read, row conflict (PRE + ACT first) | 46 | 125 |
-| Write, page hit | 28 | 76 |
-| Write, bank closed | 34 | 93 |
-| Write, row conflict | 43 | 117 |
-| Read, page hit, requested as a refresh falls due (worst case seen) | 64 | 174 |
+| Read, page hit | 31 | 83 |
+| Read, bank closed (ACT first) | 37 | 99 |
+| Read, row conflict (PRE + ACT first) | 46 | 123 |
+| Write, page hit | 28 | 75 |
+| Write, bank closed | 34 | 91 |
+| Write, row conflict | 43 | 115 |
+| Read, page hit, requested as a refresh falls due (worst case seen) | 64 | 171 |
 
 ### Sustained throughput
 
@@ -291,18 +291,18 @@ From the first clock the host presents the command to `hdone` (the last of the 8
 
 | Pattern | Clocks / op | Bytes / clock | Host utilization | MB/s at Fmax |
 |---|---|---|---|---|
-| Sequential reads, one open row (page hits) | 31.15 | 0.514 | 25.7% | 188 |
-| Sequential writes, one open row (page hits) | 28.15 | 0.568 | 28.4% | 209 |
-| Alternating write / read, one open row | 30.12 | 0.531 | 26.6% | 195 |
-| Reads interleaved over every bank, rows open | 31.24 | 0.512 | 25.6% | 188 |
-| Reads alternating two rows of one bank (row conflicts) | 46.20 | 0.346 | 17.3% | 127 |
-| Random reads (bank, row, column uniform) | 46.11 | 0.347 | 17.4% | 127 |
-| Random writes | 43.18 | 0.371 | 18.5% | 136 |
-| Random mix, 2 reads : 1 write | 45.28 | 0.353 | 17.7% | 130 |
+| Sequential reads, one open row (page hits) | 31.15 | 0.514 | 25.7% | 192 |
+| Sequential writes, one open row (page hits) | 28.15 | 0.568 | 28.4% | 213 |
+| Alternating write / read, one open row | 30.12 | 0.531 | 26.6% | 199 |
+| Reads interleaved over every bank, rows open | 31.24 | 0.512 | 25.6% | 192 |
+| Reads alternating two rows of one bank (row conflicts) | 46.20 | 0.346 | 17.3% | 130 |
+| Random reads (bank, row, column uniform) | 46.11 | 0.347 | 17.4% | 130 |
+| Random writes | 43.18 | 0.371 | 18.5% | 139 |
+| Random mix, 2 reads : 1 write | 45.28 | 0.353 | 17.7% | 132 |
 
 ### Refresh cost
 
-With no host traffic for 31200 clocks, the command engine is busy refreshing 0.82% of the time, in 8 windows of at most 32 clocks (87 ns).
+With no host traffic for 31200 clocks, the command engine is busy refreshing 0.82% of the time, in 8 windows of at most 32 clocks (86 ns).
 
 ### Limits of these figures
 

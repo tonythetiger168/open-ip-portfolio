@@ -218,7 +218,7 @@ Measured, not estimated: `bash scripts/perf/run_perf.sh LPDDR7` runs the core's 
 | Library | SKY130 `sky130_fd_sc_hd`, typical corner (tt, 25 C, 1.80 V) |
 | Longest logic path | 2.95 ns |
 | Estimated Fmax | 290 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
-| Area | 0.070 mm2 (70483 um2), 9219 cells, 493 flip-flops |
+| Area | 0.070 mm2 (70478 um2), 9220 cells, 493 flip-flops |
 | Not counted | the in-model DRAM array, 8192 bits (1 KiB): a real controller has the DRAM off chip |
 
 No wire load, placement, clock skew or on-chip variation: these rank the designs and give the order of magnitude; they are not a timing sign-off.
