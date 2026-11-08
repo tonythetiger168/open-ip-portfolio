@@ -1,0 +1,91 @@
+{
+  "title": "Quad-SPI NOR flash controller with execute-in-place: AXI4 read window (quad 0x6B / single 0x0B, stream kept open across bursts) and a register command port",
+  "code": "0x5C53",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "features": [
+    "The flash-host role that the QSPI_top target does not cover: boot and code flash of the SoC.",
+    "XIP: AXI4 reads of the window (INCR / FIXED / WRAP, any length, AxSIZE 0..2) read the flash at addr[23:0], bytes little-endian in a word.",
+    "QUAD = 1 uses 0x6B (quad output fast read), QUAD = 0 uses 0x0B (fast read); 8 dummy clocks either way.",
+    "The read stays open after a burst: a burst starting at the next word continues it without a new command (XIP_CMDS counts commands, XIP_BEATS beats).",
+    "SCLK stops while RREADY is low, so a stalled reader never loses data. AXI writes get SLVERR.",
+    "Command port: one single-bit flash command with an optional 24-bit address, 0..4 bytes out of PC_WDATA and 0..4 bytes into PC_RDATA (byte 0 in bits 7:0).",
+    "SPI mode 0; half an SCLK period is DIV + 1 clocks."
+  ],
+  "regs": [
+    {
+      "name": "CFG",
+      "kind": "rw",
+      "desc": "XIP read mode and SCLK timing",
+      "fields": [
+        {"port": "div", "reset": "0x1", "desc": "half SCLK period - 1, in clocks"},
+        {"port": "quad", "reset": "1", "desc": "1: XIP reads with 0x6B, 0: with 0x0B"}
+      ]
+    },
+    {
+      "name": "PC_CTRL",
+      "kind": "rw",
+      "desc": "Command port: the next command",
+      "fields": [
+        {"port": "pc_cmd", "reset": "0", "desc": "command byte"},
+        {"port": "pc_has_addr", "reset": "0", "desc": "send PC_ADDR after the command"},
+        {"port": "pc_nwr", "reset": "0", "desc": "bytes sent from PC_WDATA (0..4)"},
+        {"port": "pc_nrd", "reset": "0", "desc": "bytes read into PC_RDATA (0..4)"}
+      ]
+    },
+    {
+      "name": "PC_ADDR",
+      "kind": "rw",
+      "desc": "Command port: 24-bit flash address",
+      "fields": [{"port": "pc_addr", "reset": "0", "desc": "sent MSB first"}]
+    },
+    {
+      "name": "PC_WDATA",
+      "kind": "rw",
+      "desc": "Command port: bytes to send, byte 0 (bits 7:0) first",
+      "fields": [{"port": "pc_wdata", "reset": "0", "desc": "data bytes"}]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [{"port": "pc_start", "desc": "run the command in PC_CTRL; ignored while busy"}]
+    },
+    {
+      "name": "PC_RDATA",
+      "kind": "ro",
+      "desc": "Command port: bytes read by the last command, byte 0 in bits 7:0",
+      "fields": [{"port": "pc_rdata", "desc": "data bytes"}]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "State",
+      "fields": [{"port": "pc_busy", "desc": "a command is pending or running"}]
+    },
+    {
+      "name": "XIP_CMDS",
+      "kind": "ro",
+      "desc": "XIP read commands issued",
+      "fields": [{"port": "xip_cmds", "desc": "wraps at 0xFFFF"}]
+    },
+    {
+      "name": "XIP_BEATS",
+      "kind": "ro",
+      "desc": "XIP read beats returned",
+      "fields": [{"port": "xip_beats", "desc": "wraps at 0xFFFF"}]
+    }
+  ],
+  "irqs": [
+    {"name": "PC_DONE", "port": "pc_done", "desc": "a command-port command ended"}
+  ],
+  "sequence": [
+    "Write CFG (DIV, QUAD for the flash part); XIP reads work from then on.",
+    "Flash command: PC_ADDR and PC_WDATA if used, PC_CTRL, CMD.pc_start, wait for PC_DONE, read PC_RDATA.",
+    "Program: 0x06 write enable, then 0x02 with the address and up to 4 bytes, then poll 0x05 status until WIP is 0. Erase: 0x06, then 0x20 with the address."
+  ],
+  "notes": [
+    "The AXI4 subordinate port (s_*) and the flash pins (sclk, csn, io[3:0]) pass through the wrapper unchanged.",
+    "A command closes the open XIP stream and waits for an XIP burst in progress; XIP waits for the command. IO2 / IO3 (WP#, HOLD#) are driven high outside the quad data phase."
+  ]
+}
