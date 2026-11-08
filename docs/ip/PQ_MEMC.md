@@ -14,7 +14,7 @@ Protocol IP `PQ_MEMC`, version 1.0. Apache-2.0.
 
 ## Overview
 
-PQ_MEMC: picture-quality engine of the TV SoC: HDR tone mapping and MEMC frame blending over AXI4 (AXI4 manager, APB4 registers) The processing stages are reused unchanged from pq-pipeline-sv (rtl/pq/, see rtl/pq/README.md): l0_metadata_unit (HDR10 / Dolby Vision metadata -> tone parameters), l1_tone_map_eetf (2-segment EETF + L2 trim) and l2d_memc_blend (out = prev * (256 - a) + cur * a >> 8). This wrapper adds the frame DMA, back-pressure and registers.
+PQ_MEMC: picture-quality engine of the TV SoC: HDR tone mapping and MEMC frame blending over AXI4 (AXI4 manager, APB4 registers) Processing stages (rtl/pq/pq_stages.sv): pq_meta_decode (HDR10 / Dolby Vision metadata -> tone parameters), pq_eetf (2-segment tone curve + trim gain / offset, clamped) and pq_blend (out = prev * (256 - a) + cur * a >> 8). With PQ_EXT defined the private pq-pipeline-sv stages l0 / l1 / l2d are used instead (fetched at build time, rtl/pq/README.md). This wrapper adds the frame DMA, back-pressure and registers.
 
 - Pixels: one 32-bit word, {2'b00, R[9:0], G[9:0], B[9:0]}; a 10-bit code c
 enters the pipeline as the Q0.16 value {c, c[9:4]} and leaves as bits
@@ -37,7 +37,7 @@ MAXW = 7680 and about 8 GB/s read + 4 GB/s write with MEMC on.
 
 Features:
 
-- Processing stages reused unchanged from pq-pipeline-sv (rtl/pq/): l0 metadata decode, l1 EETF tone map with L2 trim, l2d MEMC blend.
+- Processing stages in rtl/pq/pq_stages.sv: metadata decode, 2-segment tone curve with trim gain / offset (clamped), MEMC blend; interface-compatible with the private pq-pipeline-sv l0 / l1 / l2d stages, which a build-time fetch can substitute (rtl/pq/README.md).
 - Pixel word {2'b00, R[9:0], G[9:0], B[9:0]}.
 - CMD.start runs a frame: per line k, with MEMC_EN the previous-frame line PREV_ADDR + k * STRIDE is read into a line buffer, then CUR_ADDR + k * STRIDE is read, processed and written to DST_ADDR + k * STRIDE.
 - out = prev * (256 - MV_FRAC) + cur * MV_FRAC >> 8 after both pass the tone curve; MEMC_EN 0: tone mapping only.
@@ -45,7 +45,6 @@ Features:
 - H_ACTIVE 0 or above the line buffer (MAXW) ends the job at once with STATUS.cfg_err.
 
 m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time.
-Known issue of the reused l1 stage: a trim gain above 1.0 wraps bright pixels (rtl/pq/README.md).
 The core testbench prints one `LAT <master> dram R|W <cycles>` line per AXI burst (tb/tv_lat_mon.svh), the regression suite's latency format.
 
 ## Files

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # PQ_MEMC Open IP (TV SoC picture quality: HDR tone mapping + MEMC blend, AXI4 manager) -- sim & synthesis entry points
 S      := PQ_MEMC
-DEPS   := rtl/pq/pq_pkg.sv rtl/pq/l0_metadata_unit.sv rtl/pq/l1_tone_map_eetf.sv rtl/pq/l2d_memc_blend.sv rtl/soc_ss_axi_engine.sv rtl/tv_fifo.sv
+DEPS   := rtl/pq/pq_stages.sv rtl/soc_ss_axi_engine.sv rtl/tv_fifo.sv
 SIM    ?= iverilog
 VFLAGS := -g2012 -Wall
 SYN    ?= yosys
@@ -14,6 +14,14 @@ sim:
 
 syn:
 	mkdir -p work && cd work && $(SYN) ../syn/$(S)_yosys.ys
+
+# the same core and TB with the private pq-pipeline-sv stages (fetched by
+# scripts/ext/fetch_pq.sh into the git-ignored ext/pq/)
+PQ_EXT := ext/pq/pq_pkg.sv ext/pq/l0_metadata_unit.sv ext/pq/l1_tone_map_eetf.sv ext/pq/l2d_memc_blend.sv
+sim_ext:
+	test -f ext/pq/l1_tone_map_eetf.sv || bash scripts/ext/fetch_pq.sh
+	$(SIM) $(VFLAGS) -DPQ_EXT -I tb -o simv_ext $(PQ_EXT) rtl/$(S)_top.sv rtl/soc_ss_axi_engine.sv rtl/tv_fifo.sv tb/$(S)_tb.sv
+	./simv_ext
 
 apb:
 	$(SIM) $(VFLAGS) -I tb -o simv_apb rtl/$(S)_top.sv $(DEPS) rtl/$(S)_apb.sv tb/$(S)_apb_tb.sv

@@ -13,7 +13,7 @@
     "max_burst": 16
   },
   "features": [
-    "Processing stages reused unchanged from pq-pipeline-sv (rtl/pq/): l0 metadata decode, l1 EETF tone map with L2 trim, l2d MEMC blend.",
+    "Processing stages in rtl/pq/pq_stages.sv: metadata decode, 2-segment tone curve with trim gain / offset (clamped), MEMC blend; interface-compatible with the private pq-pipeline-sv l0 / l1 / l2d stages, which a build-time fetch can substitute (rtl/pq/README.md).",
     "Pixel word {2'b00, R[9:0], G[9:0], B[9:0]}.",
     "CMD.start runs a frame: per line k, with MEMC_EN the previous-frame line PREV_ADDR + k * STRIDE is read into a line buffer, then CUR_ADDR + k * STRIDE is read, processed and written to DST_ADDR + k * STRIDE.",
     "out = prev * (256 - MV_FRAC) + cur * MV_FRAC >> 8 after both pass the tone curve; MEMC_EN 0: tone mapping only.",
@@ -265,7 +265,6 @@
   ],
   "notes": [
     "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time.",
-    "Known issue of the reused l1 stage: a trim gain above 1.0 wraps bright pixels (rtl/pq/README.md).",
     "The core testbench prints one `LAT <master> dram R|W <cycles>` line per AXI burst (tb/tv_lat_mon.svh), the regression suite's latency format."
   ]
 }

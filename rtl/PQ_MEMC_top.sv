@@ -3,10 +3,11 @@
 // PQ_MEMC: picture-quality engine of the TV SoC: HDR tone mapping and MEMC
 // frame blending over AXI4 (AXI4 manager, APB4 registers)
 // ----------------------------------------------------------------------------
-// The processing stages are reused unchanged from pq-pipeline-sv (rtl/pq/,
-// see rtl/pq/README.md): l0_metadata_unit (HDR10 / Dolby Vision metadata ->
-// tone parameters), l1_tone_map_eetf (2-segment EETF + L2 trim) and
-// l2d_memc_blend (out = prev * (256 - a) + cur * a >> 8). This wrapper adds
+// Processing stages (rtl/pq/pq_stages.sv): pq_meta_decode (HDR10 / Dolby
+// Vision metadata -> tone parameters), pq_eetf (2-segment tone curve + trim
+// gain / offset, clamped) and pq_blend (out = prev * (256 - a) + cur * a >> 8).
+// With PQ_EXT defined the private pq-pipeline-sv stages l0 / l1 / l2d are
+// used instead (fetched at build time, rtl/pq/README.md). This wrapper adds
 // the frame DMA, back-pressure and registers.
 // - Pixels: one 32-bit word, {2'b00, R[9:0], G[9:0], B[9:0]}; a 10-bit code c
 // enters the pipeline as the Q0.16 value {c, c[9:4]} and leaves as bits
@@ -97,6 +98,7 @@ module PQ_MEMC_top #(
   // ---------------- tone parameters (l0) ----------------
   logic        pv;
   logic [15:0] l0_knee, l0_slope, l0_gain, l0_off;
+`ifdef PQ_EXT
   l0_metadata_unit u_l0 (
     .clk, .rst_n,
     .meta_valid(meta_load), .meta({meta3, meta2, meta1, meta0}),
@@ -105,6 +107,12 @@ module PQ_MEMC_top #(
     .tone_knee(l0_knee), .tone_slope(l0_slope), .trim_gain(l0_gain), .trim_offset(l0_off),
     .content_max_nits(content_max)
   );
+`else
+  pq_meta_decode u_l0 (
+    .clk, .rst_n, .load(meta_load), .meta({meta3, meta2, meta1, meta0}), .peak_nits(display_peak),
+    .valid(pv), .knee(l0_knee), .slope(l0_slope), .gain(l0_gain), .offset(l0_off), .cmax(content_max)
+  );
+`endif
   always_ff @(posedge clk or negedge rst_n)
     if (!rst_n) params_ok <= 1'b0;
     else if (meta_load) params_ok <= 1'b0;
@@ -197,17 +205,18 @@ module PQ_MEMC_top #(
   end
   logic        v1, s1, v1p, s1p, v2, s2;
   logic [47:0] p1, p1p, p2;
+  wire  [47:0] cur_pix  = {up(cw[29:20]), up(cw[19:10]), up(cw[9:0])};
+  wire  [47:0] prev_pix = {up(pw[29:20]), up(pw[19:10]), up(pw[9:0])};
+  // the previous-frame pixel goes through the same tone curve, so both blend
+  // inputs are in display light (MEMC_EN 0: the blend sees cur twice)
+`ifdef PQ_EXT
   l1_tone_map_eetf u_l1 (
-    .clk, .rst_n, .in_valid(issue), .in_sof(1'b0),
-    .in_pix({up(cw[29:20]), up(cw[19:10]), up(cw[9:0])}),
+    .clk, .rst_n, .in_valid(issue), .in_sof(1'b0), .in_pix(cur_pix),
     .tone_knee(knee), .tone_slope(slope), .trim_gain(gain), .trim_offset(off),
     .out_valid(v1), .out_sof(s1), .out_pix(p1)
   );
-  // the previous-frame pixel goes through the same tone curve, so both blend
-  // inputs are in display light (MEMC_EN 0: the blend sees cur twice)
   l1_tone_map_eetf u_l1p (
-    .clk, .rst_n, .in_valid(issue), .in_sof(1'b0),
-    .in_pix({up(pw[29:20]), up(pw[19:10]), up(pw[9:0])}),
+    .clk, .rst_n, .in_valid(issue), .in_sof(1'b0), .in_pix(prev_pix),
     .tone_knee(knee), .tone_slope(slope), .trim_gain(gain), .trim_offset(off),
     .out_valid(v1p), .out_sof(s1p), .out_pix(p1p)
   );
@@ -216,6 +225,21 @@ module PQ_MEMC_top #(
     .in_cur(p1), .in_prev(p1p), .in_mvfrac(mv_d[3]),
     .out_valid(v2), .out_sof(s2), .out_pix(p2)
   );
+`else
+  assign s1 = 1'b0; assign s1p = 1'b0; assign s2 = 1'b0;
+  pq_eetf u_l1 (
+    .clk, .rst_n, .in_valid(issue), .in_pix(cur_pix),
+    .knee, .slope, .gain, .offset(off), .out_valid(v1), .out_pix(p1)
+  );
+  pq_eetf u_l1p (
+    .clk, .rst_n, .in_valid(issue), .in_pix(prev_pix),
+    .knee, .slope, .gain, .offset(off), .out_valid(v1p), .out_pix(p1p)
+  );
+  pq_blend u_l2d (
+    .clk, .rst_n, .in_valid(v1), .cur(p1), .prev(p1p), .a(mv_d[3]),
+    .out_valid(v2), .out_pix(p2)
+  );
+`endif
   always_ff @(posedge clk or negedge rst_n)
     if (!rst_n) inflight <= '0;
     else inflight <= inflight + 3'(issue) - 3'(v2);

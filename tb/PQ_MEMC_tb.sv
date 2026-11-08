@@ -9,7 +9,8 @@
 // back-pressure), line widths 1..MAXW and strides with gaps, random
 // and zero memory stalls, CFG_ERR (H_ACTIVE 0 or above MAXW), V_ACTIVE 0, an
 // AXI read error (ERR + ERR interrupt), START while busy, reset in the middle
-// of a job. The trim gain is kept at or below 1.0 (see rtl/pq/README.md).
+// of a job, a trim gain above 1.0 (clamped to full scale; skipped with
+// PQ_EXT, whose l1 stage wraps there, see rtl/pq/README.md).
 // Prints LAT lines.
 `timescale 1ns/1ps
 `include "soc_ss_axi_mem.svh"
@@ -187,6 +188,13 @@ module PQ_MEMC_tb;
       mem.stall = k % 2; memc_en = k[0]; mv_frac = 8'($urandom);
       job(1 + $urandom % MAXW, 1 + $urandom % 3, $sformatf("DV trim %0d", k));
     end
+`ifndef PQ_EXT
+    load_meta(2, 1000, 24000, 16'h0800, 300);         // trim gain 1.46: bright pixels clamp
+    for (int k = 0; k < 2; k++) begin
+      memc_en = k[0]; mv_frac = 8'($urandom);
+      job(1 + $urandom % MAXW, 2, $sformatf("trim gain above 1.0, %0d", k));
+    end
+`endif
     load_meta(1, 200, 16384, 0, 300);                 // display brighter than content: slope 1.0
     job(MAXW, 2, "HDR10 no compression, full MAXW");
     // tone mapping off again while metadata stays loaded
