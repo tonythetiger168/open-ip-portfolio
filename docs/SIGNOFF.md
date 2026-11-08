@@ -37,6 +37,8 @@ not a timing sign-off.
 | SHA-3 1.0 | clean | 100% / 100% | 32/32 killed (every site; none equivalent) | bounded proof, 7 properties, depth 30, and k-induction (any depth) | 51.4 kGE (1620 flip-flops) | 20 gate levels |
 | AES-GCM 1.0 | clean | 100% / 100% | 40/40 killed (6 equivalent listed) | bounded proof, 12 properties, depth 24 (reduced AES, see below) | 49.9 kGE (1619 flip-flops) | 56 gate levels |
 | TRNG 1.0 | clean | 100% / 100% | 40/40 killed, Icarus flow (13 equivalent listed) | bounded proof, 7 properties, depth 20 | 21.4 kGE (1431 flip-flops) | 74 gate levels |
+| PCIe / CXL IDE 1.0 | clean | 100% / 100% | 40 sampled: 37 killed, 3 equivalent (7 equivalent listed) | bounded proof, 9 properties (with the engines' 24), depth 10 | 124.9 kGE (8464 flip-flops) + 2 AES-GCM engines | 91 gate levels |
+| SPDM 1.0 | clean | 100% / 100% | 40 sampled: 37 killed, 3 equivalent (14 equivalent listed, mostly reset values that are set again before use; a first sample led to 2 new checker assertions) | bounded proof, 15 properties, depth 24 (engines cut, see below) | 72.4 kGE logic (5493 flip-flops) + 133 kbit RAM, plus 3 SHA-3 and 1 ML-DSA cores | 75 gate levels (59 in the ML-DSA) |
 
 Formal properties:
 
@@ -90,6 +92,31 @@ Formal properties:
   (changing at any clock), en and ready are all free. A seed (512 samples)
   lies beyond the bound, so the output side is checked by the simulation
   checker, which recomputes every seed with its own SHA-256.
+- **SPDM** (`formal/SPDM_props.svh`, 15 properties, 2 measurement indices,
+  64-byte chain store). The three SHA-3 transcript engines and the ML-DSA
+  engine are cut: their outputs are free at every clock, so the result
+  holds whatever they answer, and the engines themselves are checked in
+  their own rows. The properties are:
+  - the control state and the response segment are legal;
+  - a request byte is taken only when idle or receiving, and never while
+    a response byte, a public-key word or a random word is offered;
+  - the public key goes out only with a key;
+  - random words are taken only for a nonce or signing randomness;
+  - ML-DSA starts only to sign with a key, or for KeyGen;
+  - a signing sequence belongs to CHALLENGE_AUTH or a signed MEASUREMENTS,
+    with a key;
+  - there is no key while KeyGen runs;
+  - negotiated algorithms exist only once ALGORITHMS was sent;
+  - only the five ERROR codes (0x01, 0x04, 0x07, 0x0D, 0x41) are ever chosen;
+  - an ERROR pulse comes with a response;
+  - a request cut by clr is drained only while idle.
+
+  Requests of any length and content, commands, clr, random words and
+  back-pressure are all free. Depth 24 takes a short request through
+  decode into its response. k-induction does not close within 4 steps, so
+  the result is the bounded one. The message contents (transcripts and
+  signatures) are checked in simulation instead, against the reference
+  model and the checker's own SHA3-384.
 
 - **SHA-3** (`formal/SHA3_props.svh`, 7 properties): the control, return
   and mode registers are legal; the lane index stays inside the rate block
@@ -122,6 +149,24 @@ Formal properties:
   clocks. The AES and GHASH values themselves are checked by simulation
   against NIST CAVP and Wycheproof vectors, and by a gate-level simulation
   of the synthesized netlist (below).
+
+- **PCIe / CXL IDE** (`formal/PCIe_CXL_IDE_props.svh`, 9 properties, one
+  stream, 3-bit invocation counters): a key slot that is not loaded holds
+  no key and no counter; a loaded slot's counter is never 0 (it starts at 1
+  and stops at all-ones, never wrapping); a Secure stream's active key set
+  has a loaded key, in both directions; both state registers hold encoded
+  states; an IDE prefix is 4 bytes, never last; a MAC block is last and 12
+  bytes, or 0 bytes when nullified, and only a MAC is nullified; a receive
+  END block is last and empty, and only an END is bad. Stream
+  configuration, key commands, keys, blocks and back-pressure are free in
+  every clock. The two AES_GCM_top engines run their reduced FORMAL AES and
+  their own 12 properties each are proven in the same run (33 assertions).
+  The run found a real hole: a stream made Secure as cachemem (only
+  sub-stream 0 keyed) and then switched to TLPs sent a TLP with an
+  unloaded sub-stream key (zero key, counter of an empty slot). Transmit
+  now refuses a slot without a key (error 3), and the core test does
+  exactly that switch. Two streams at depth 16 did not finish in 50
+  minutes.
 
 - **ML-KEM**: no SAT proof: the 8 KiB buffer and the 2560 x 12-bit
   polynomial store are too large for the open solver flow. Instead
@@ -221,6 +266,17 @@ Changes made for this bar:
   RS-FEC) are compiled in but not scored in the coverage of the IP that
   uses them, are skipped by the FSM extraction, and are read as black
   boxes by the area report (their area is in their own row).
+- SPDM 1.0 is new: an SPDM 1.2 (DMTF DSP0274) responder for device
+  attestation, built on the SHA-3 and ML-DSA cores. It answers
+  GET_VERSION, GET_CAPABILITIES, NEGOTIATE_ALGORITHMS, GET_DIGESTS,
+  GET_CERTIFICATE, CHALLENGE and GET_MEASUREMENTS, keeps the M1 and L1
+  transcripts in SHA3-384, and signs with ML-DSA-44, -65 or -87. The key
+  is generated inside, from a seed register or a sideload port, and the
+  private key never leaves the ML-DSA buffer. The vectors come from
+  `scripts/spdm/spdm_ref.py`, and every signature is verified with ML-DSA
+  Verify (`make -f Makefile.SPDM vec`). Icarus mis-evaluated a conditional
+  expression in the ML-DSA op port connection (the engine finished at
+  once with unknown outputs); the op is now a plain signal.
 - TRNG 1.0 is new: an SP 800-90B noise source with repetition count and
   adaptive proportion tests, a start-up test and SHA-256 conditioning, to
   seed the Root of Trust and a DRBG later. Mutation testing (Icarus flow:
@@ -237,6 +293,22 @@ Changes made for this bar:
   let the word counter wrap would have passed it (the OTP now holds the
   digest a wrapped counter gives, `IMG_WRAP_DIG`); and the rejected-digest
   cases now flip a bit in the first, the last and a middle digest word.
+- PCIe / CXL IDE 1.0 is new: IDE for PCIe TLPs, CXL.io and CXL.cachemem
+  on two AES-GCM engines (one per direction, AES-256, 96-bit MACs), with
+  two key sets of three sub-stream keys per stream and direction, IV
+  invocation counters, IDE_KM-style key commands, TLP prefixes and
+  cachemem MAC epochs (truncated when another message needs the engine).
+  The field layouts are our own (the specifications are member-only).
+  Formal found the unkeyed sub-stream hole above. Synthesis of the first
+  version did not finish in 15 minutes: the slot writes were variable
+  part-selects of the 6144-bit key stores; they are now one constant-index
+  write per slot, and the slot reads are muxes (about 4 minutes). The bound
+  checker had to learn that an engine clr on a terminating error drops the
+  blocks still inside the engine (found at 10% output ready). `run_formal.sh`
+  takes `FILES` in `formal/<P>.cfg` for cores that instantiate other IPs. Mutation
+  testing (three samples of 40 as equivalents were listed) killed every
+  mutant that changes behaviour; the 7 survivors were reset or clear values
+  of flags that are always reloaded before they are read.
 - ML-DSA: mutation testing found three test gaps, now closed: no Sign case
   had ||c t0|| exactly gamma2 (a crafted private key now gives one), no
   Verify case repeated a hint index while decoding to the same hints (only
@@ -284,7 +356,8 @@ These need tools, data or documents this repository does not have:
 - **CXL.** The flit and message layouts are our own simplified encoding of
   the CXL 3.x 256-byte flit (no 68-byte or latency-optimised flit); there
   is no link-layer retry (a bad flit is dropped and reported), no FEC
-  correction, no IDE (planned once AES-GCM is in), no CXL.cache, no PBR or
+  correction, no IDE inside the core (PCIe_CXL_IDE is a separate IP that
+  sits between the link layer and the transaction layer), no CXL.cache, no PBR or
   multi-headed devices; CXL.io carries the payload to an external
   transaction layer. Device memory is 16 lines of flip-flops.
 - **Ethernet PCS.** The PCS works on the aggregate 640-bit stream (two
@@ -292,11 +365,31 @@ These need tools, data or documents this repository does not have:
   lanes, per-lane alignment-marker lock and deskew are not built yet. The
   marker period is a parameter (4096 pairs, the 400G value; tests use 3).
   200GBASE-R (8 lanes) needs its own marker table.
+- **SPDM.** SPDM 1.2 has no ML-DSA algorithm code. The key is offered
+  as an ExtAsym entry whose ID is a configuration register, so it is not
+  claimed to interoperate with other requesters until a later SPDM
+  version (or a vendor registry) defines one. Not built:
+  - slots 1 to 7, KEY_EXCHANGE / FINISH sessions and secured messages
+    (DSP0277), so IDE_KM runs on a session the host provides;
+  - chunking, RESPOND_IF_READY, SPDM 1.0, 1.1 and 1.3;
+  - opaque data and raw bit-stream measurements.
+
+  The certificate chain is stored as given: no X.509 parsing, and the
+  chain must carry the ML-DSA public key the host reads out. Requests are
+  at most 128 bytes. The ML-DSA timing caveats below apply to the signing
+  time.
 - **AES-GCM.** No masking or other power / EM side-channel
   countermeasure and no fault-injection detection (the public repository
   carries the functional baseline); only 96-bit IVs; 11 / 15 clocks per
   block, so a multi-Gbit/s link needs a pipelined (unrolled) AES and an
   aggregated GHASH with powers of H; no CAVP validation.
+- **PCIe / CXL IDE.** The prefix, MAC placement and epoch framing are our
+  own layouts, not checked against PCIe 6.x / CXL 3.x (member-only), and
+  there are no compliance vectors; no IDE_KM transport (DOE / SPDM), no
+  CXL.cachemem containment or skid mode, no key refresh by the link
+  partner's K-bit timing rules beyond the switch on a received K; the
+  engines run 15 clocks per block, far from link rate; no side-channel or
+  fault countermeasures. Formal covers one stream at depth 10.
 - **Root of Trust.** The OTP is a model, with no ECC; there is no
   entropy source, attestation signature (the key is for a crypto engine
   on the sideload port), glitch or clock monitor, or masking of the
@@ -313,7 +406,7 @@ These need tools, data or documents this repository does not have:
 - **Timing closure.** No foundry standard-cell library, no STA with
   constraints and corners. The deepest paths (Ethernet RS-FEC 82 levels in
   the Berlekamp-Massey step; CXL 82; PCIe 64 in the transmit scheduler; ML-KEM 53 in
-  the compress stage; ML-DSA 59; Root of Trust 74 in the SHA-256 round; AES-GCM 56; UCIe 44) would need pipelining for a GHz-class clock in a
+  the compress stage; ML-DSA 59; Root of Trust 74 in the SHA-256 round; AES-GCM 56; SPDM 75 in the request decoder; UCIe 44) would need pipelining for a GHz-class clock in a
   modern node.
 - **Memories.** The replay and receive buffers are flip-flop arrays (most of
   the flip-flops counted above); a product would use SRAM macros, with BIST.

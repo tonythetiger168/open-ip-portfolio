@@ -272,7 +272,7 @@ module USB4_top #(
         if (dst == D_HUNT) begin
           if (r_s == 8'h00) begin
             dst <= D_PRE; dcnt <= 3'd1; rm <= 2'd0;
-            rleft <= pad4(r_nw[15:8]); rst <= pad4(r_nw[15:8]) == 9'd0 ? R_HDR : R_PAY; rcnt <= '0;
+            rleft <= pad4(r_nw[15:8]); if (pad4(r_nw[15:8]) == 9'd0) rst <= R_HDR; else rst <= R_PAY; rcnt <= '0;
           end
         end else if (rst == R_HDR) begin
           rcnt <= rcnt + 2'd1;

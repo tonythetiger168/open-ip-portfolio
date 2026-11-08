@@ -117,7 +117,7 @@ module CSI_2_top #(
         if (rx_byte == SOT_SYNC) begin state <= S_HDR0; bit_cnt <= '0; end
       end else if (byte_rdy) begin
         case (state)
-          S_NEXT: state <= (rx_byte == SOT_SYNC) ? S_HDR0 : S_EOT;
+          S_NEXT: if (rx_byte == SOT_SYNC) state <= S_HDR0; else state <= S_EOT;
           S_HDR0: begin hdr[7:0]   <= rx_byte; state <= S_HDR1; end
           S_HDR1: begin hdr[15:8]  <= rx_byte; state <= S_HDR2; end
           S_HDR2: begin hdr[23:16] <= rx_byte; state <= S_ECC;  end
@@ -140,7 +140,7 @@ module CSI_2_top #(
               end else begin                            // long packet
                 if (syn != 6'h00) err_flags[3] <= 1'b1;
                 wc <= hc[23:8]; pay_cnt <= '0; crc <= 16'hFFFF;
-                state <= (hc[23:8] == 16'h0) ? S_CRC0 : S_PAY;
+                if (hc[23:8] == 16'h0) state <= S_CRC0; else state <= S_PAY;
               end
             end
           end

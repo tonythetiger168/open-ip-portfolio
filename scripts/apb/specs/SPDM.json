@@ -1,0 +1,139 @@
+{
+  "title": "SPDM 1.2 responder (DMTF DSP0274): device attestation in hardware with VERSION / CAPABILITIES / ALGORITHMS, DIGESTS, CERTIFICATE, CHALLENGE_AUTH and MEASUREMENTS, SHA3-384 transcripts on three SHA-3 engines and ML-DSA-44 / 65 / 87 signatures on an ML-DSA engine",
+  "code": "0x5364",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "800ms",
+  "regs": [
+    {
+      "name": "CFG",
+      "kind": "rw",
+      "desc": "Responder configuration",
+      "fields": [
+        {"port": "ct_exp", "reset": "0", "desc": "CAPABILITIES CTExponent: the requester's timeout is 2^ct_exp microseconds (cover the ML-DSA signing time)"},
+        {"port": "pset", "reset": "0", "desc": "CMD.kg_start parameter set: 0 ML-DSA-44, 1 ML-DSA-65, 2 ML-DSA-87 (3 is refused with CMD_ERR)"},
+        {"port": "kg_sel", "reset": "0", "desc": "CMD.kg_start seed: 0 the SEED registers, 1 the sideload port sl_seed (refused with CMD_ERR unless sl_valid)"}
+      ]
+    },
+    {
+      "name": "ASYM",
+      "kind": "rw",
+      "desc": "ExtAsym entry of the ML-DSA key (RegistryID, reserved, AlgorithmID; little-endian as in the message)",
+      "fields": [
+        {"port": "asym_id", "reset": "0", "desc": "matched against the requester's ExtAsym list in NEGOTIATE_ALGORITHMS and returned in ALGORITHMS"}
+      ]
+    },
+    {
+      "name": "CCLEN",
+      "kind": "rw",
+      "desc": "Certificate chain of slot 0",
+      "fields": [
+        {"port": "cc_len", "reset": "0", "desc": "bytes of the chain in the store (0: slot 0 empty); at most 16384"}
+      ]
+    },
+    {
+      "name": "MEAS",
+      "kind": "rw",
+      "desc": "Measurement indices",
+      "fields": [
+        {"port": "m_en", "reset": "0", "desc": "bit i: measurement index i + 1 present"},
+        {"port": "m_tcb", "reset": "0", "desc": "bit i: index i + 1 is part of the TCB measurement summary hash (CHALLENGE type 1)"}
+      ]
+    },
+    {
+      "name": "MTYPE",
+      "kind": "rw",
+      "desc": "DMTF measurement value types",
+      "fields": [
+        {"port": "m_type", "reset": "0", "desc": "bits 8i+7:8i: DMTFSpecMeasurementValueType of index i + 1 (the value is a 48-byte SHA3-384 digest)"}
+      ]
+    },
+    {
+      "name": "STORE",
+      "kind": "stream_in",
+      "data": ["st_data", "st_addr", "st_sel"],
+      "valid": "st_we",
+      "desc": "Store write: STORE0 = data word, STORE1 = {sel, address}, which commits it. sel 0: certificate chain word address (bytes 4a .. 4a + 3, little-endian); sel 1: measurement word 16 i + w (w = 0..11: digest bytes 4w .. 4w + 3 of index i + 1)",
+      "fdesc": {"st_data": "data word", "st_addr": "word address", "st_sel": "0 certificate chain, 1 measurement"}
+    },
+    {
+      "name": "SEED",
+      "kind": "rw",
+      "secret": true,
+      "desc": "KeyGen seed xi, eight write-only words (SEED0 = bytes 3..0); reads return 0. Write zeros after CMD.kg_start",
+      "fields": [
+        {"port": "seed", "reset": "0", "desc": "32-byte ML-DSA KeyGen seed, little-endian"}
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {"port": "kg_start", "desc": "generate the identity key (ML-DSA KeyGen of CFG.pset from the seed); refused with CMD_ERR while busy"},
+        {"port": "pk_open", "desc": "stream the public key into PK; refused with CMD_ERR while busy or without a key"},
+        {"port": "clr", "desc": "abort what runs (after an ML-DSA operation in progress), wipe the private key, the seed area and the nonce, end the connection"}
+      ]
+    },
+    {
+      "name": "PK",
+      "kind": "stream_out",
+      "data": ["pk_data", "pk_last"],
+      "valid": "pk_valid",
+      "ready": "pk_ready",
+      "desc": "Public key word (PK0 = bytes 3..0, little-endian), PK1 = last flag; reading PK1 pops it. 1312 / 1952 / 2592 bytes",
+      "fdesc": {"pk_data": "public-key bytes", "pk_last": "last word of the key"}
+    },
+    {
+      "name": "RN",
+      "kind": "stream_in",
+      "data": ["rn_data"],
+      "valid": "rn_valid",
+      "ready": "rn_ready",
+      "desc": "Random word (from a TRNG): eight per responder nonce, eight more per signature (rnd); the core takes them while it answers CHALLENGE and GET_MEASUREMENTS",
+      "fdesc": {"rn_data": "random word"}
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Responder state",
+      "fields": [
+        {"port": "busy", "desc": "a request, a command or a clr is in progress"},
+        {"port": "conn", "desc": "connection: 0 none, 1 after VERSION, 2 after CAPABILITIES, 3 after ALGORITHMS"},
+        {"port": "key_ok", "desc": "an identity key is present"},
+        {"port": "key_pset", "desc": "its parameter set"},
+        {"port": "err_code", "desc": "ErrorCode of the last ERROR response"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "RSP_DONE", "port": "rsp_done", "desc": "a response was sent"},
+    {"name": "RSP_ERR", "port": "rsp_err", "desc": "... and it was an ERROR (STATUS.err_code)"},
+    {"name": "KG_DONE", "port": "kg_done", "desc": "the identity key was generated"},
+    {"name": "CMD_ERR", "port": "cmd_err", "desc": "CMD.kg_start or CMD.pk_open was refused"}
+  ],
+  "features": [
+    "SPDM 1.2 responder in hardware: GET_VERSION, GET_CAPABILITIES, NEGOTIATE_ALGORITHMS, GET_DIGESTS, GET_CERTIFICATE, CHALLENGE and GET_MEASUREMENTS are parsed, checked and answered without firmware; every other request code gets ERROR UnsupportedRequest. Error responses: InvalidRequest, UnexpectedRequest, UnsupportedRequest, ResponseTooLarge, VersionMismatch.",
+    "Post-quantum identity: ML-DSA-44, -65 or -87 (FIPS 204) signs CHALLENGE_AUTH and MEASUREMENTS; the key pair is generated inside from a 32-byte seed (a register or a sideload port, e.g. a DICE CDI from Root_of_Trust) and the private key never leaves the ML-DSA engine. The public key can be read for a certificate request.",
+    "Transcripts M1 and L1 hashed on the fly with SHA3-384 by two SHA3 engines; a third hashes the certificate chain for DIGESTS / CHALLENGE_AUTH and the measurement summary (TCB or all). The signed message is the DSP0274 1.2 combined SPDM prefix and context string followed by the transcript hash.",
+    "Byte-stream request / response port for a DOE mailbox or an MCTP binding; responses up to 4889 bytes are streamed as they are formed (the signature last), the requester's DataTransferSize is honoured (CERTIFICATE portions are clipped to it, larger responses get ResponseTooLarge).",
+    "Slot 0 certificate chain store of 16 KiB and four measurement indices (48-byte digests with DMTF value types) written through STORE."
+  ],
+  "notes": [
+    "Message layouts follow the public DSP0274 1.2 text. SPDM 1.2 has no ML-DSA code point, so the key is negotiated through one ExtAsym entry (ASYM); the core is not claimed to be interoperable with a given requester stack.",
+    "The core needs no response buffer: header fields are formed from the request, digests come from the SHA3 engines, certificate and measurement bytes from the stores, the signature from the ML-DSA buffer.",
+    "Signing time: about 63k / 91k / 128k clocks per attempt of the ML-DSA rejection loop (4.25 / 5.1 / 3.85 attempts on average) for ML-DSA-44 / 65 / 87; set CFG.ct_exp so that the requester waits long enough (RESPOND_IF_READY is not implemented).",
+    "The stores and the CFG / MEAS registers are read while a request is answered: change them only while STATUS.busy = 0 and no request is in flight.",
+    "Not implemented: secured sessions (KEY_EXCHANGE, PSK_EXCHANGE, FINISH, secured messages; so IDE key programming by IDE_KM still needs a session from firmware), mutual authentication, slots 1-7, CHUNK_SEND / CHUNK_GET, SPDM 1.0 / 1.1 / 1.3, opaque data, raw bit-stream measurements, masking against power analysis."
+  ],
+  "sequence": [
+    "Write the certificate chain (DSP0274 format: length, reserved, root hash, DER certificates) with STORE (sel 0) and CCLEN; write the measurement digests with STORE (sel 1), MTYPE and MEAS. Write ASYM with the ExtAsym value the requesters use.",
+    "Generate the key: CFG.pset (and kg_sel), SEED (or the sideload port), CMD.kg_start = 1; wait for IRQ_STATUS.KG_DONE, write zeros to SEED. For a certificate request, CMD.pk_open = 1 and read PK0 / PK1 until the last flag.",
+    "Keep RN supplied with random words (FLAGS.RN_FULL = 0: write the next word) while requests are answered; requests and responses use the rq_* / rs_* byte pins. IRQ_STATUS.RSP_DONE / RSP_ERR report each response.",
+    "CMD.clr = 1 ends the connection and wipes the key (generate a new one before the next CHALLENGE)."
+  ],
+  "verification": [
+    "Core: tb/SPDM_tb.sv runs 122 requests from scripts/spdm/gen_vec.py, an SPDM 1.2 responder model (scripts/spdm/spdm_ref.py) with the FIPS 204 model scripts/mldsa/mldsa_ref.py; every response is compared byte for byte, signatures of all three parameter sets included (and the generator checks each signature with ML-DSA Verify against the transcript). The requests cover every request code with every error it can get, both DataTransferSize limits, the measurement summary types, interleaved M1 / L1 transcripts, VCA restarts, the key commands and clr while a request is received, signed, sent and while KeyGen runs.",
+    "The core checker has its own SHA3-384 and keeps the transcripts as byte queues: it decides each request, forms every response byte but the signature (digests included), and checks the seed, M' and rnd in the ML-DSA buffer when KeyGen / Sign start, the wipes, the handshakes and the status outputs."
+  ]
+}

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of SAS_4__Serial_Attached_SCSI__apb_tb: the core TB's link
 // partner (OOB peer, scrambled block transmitter, frame decoder that checks
 // every DUT frame and reflects it so the built-in sequencer verifies its own

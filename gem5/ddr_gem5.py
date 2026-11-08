@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 # gem5 config fragment for DDR controller co-verification
 # Usage: gem5.opt ddr_gem5.py --cmd "access sequence"
 # Produces m5out/dramctrl.trace with activate/rd/wr commands per address,

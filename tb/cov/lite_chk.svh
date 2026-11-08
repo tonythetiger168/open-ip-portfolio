@@ -63,7 +63,7 @@
 `define LITE_ACT_ADDR(a) 14'(row_of(a))
 `endif
 `ifndef LITE_RW_ADDR
-`define LITE_RW_ADDR(a) {7'h0, 3'(line_of(a)), 4'h0}
+`define LITE_RW_ADDR(a) {2'b01, 5'h0, 3'(line_of(a)), 4'h0}   // A12 = BC_n = 1
 `endif
 `ifndef LITE_PRE_ADDR
 `define LITE_PRE_ADDR(b) 14'h0
@@ -227,6 +227,9 @@
           if (n - t_lact < T_RRD) v_trrd = 1;
           e_trc_tight = n - t_act[b] <= T_RC + 3;
           if (op_v && q_addr != `LITE_ACT_ADDR(op_a)) v_paddr = 1;
+`ifdef LITE_ACT_HI_ZERO
+          if ({q_ras_n, q_cas_n, q_we_n} != 3'b000) v_paddr = 1;   // A16..A14
+`endif
           open_m[b] = 1; row_m[b] = row_of(op_a); t_act[b] = n; t_lact = n; s_act = 1;
           lact_b = b;
         end

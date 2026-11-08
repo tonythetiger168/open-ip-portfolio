@@ -45,7 +45,7 @@ module eMMC_apb_sva (
 
   function automatic logic [31:0] m_read(input logic [9:0] i);
     case (i)
-      0: return 32'h654D0200;
+      0: return 32'h654D0300;
       1: return m_w[1];
       2: return m_w[2];
       3: return 0;

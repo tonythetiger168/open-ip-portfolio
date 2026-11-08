@@ -1,0 +1,172 @@
+{
+  "title": "PCIe / CXL Integrity and Data Encryption (IDE): AES-256-GCM protection of PCIe TLPs, CXL.io and CXL.cachemem flits over two IDE streams, key sets with sub-stream keys and IV invocation counters, MAC epochs",
+  "code": "0x4944",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "400ms",
+  "regs": [
+    {
+      "name": "CFG",
+      "kind": "rw",
+      "desc": "Stream configuration",
+      "fields": [
+        {"port": "s_en", "reset": "0", "desc": "bit i: stream i enabled"},
+        {"port": "s_cm", "reset": "0", "desc": "bit i: stream i type, 0 PCIe / CXL.io TLPs, 1 CXL.cachemem flits"},
+        {"port": "cm_agg", "reset": "0", "desc": "cachemem MAC epoch: cm_agg + 1 flits"}
+      ]
+    },
+    {
+      "name": "SID",
+      "kind": "rw",
+      "desc": "Stream IDs",
+      "fields": [
+        {"port": "s_id", "reset": "0", "desc": "Stream ID of stream i in bits 8i+7:8i"}
+      ]
+    },
+    {
+      "name": "IVFIX",
+      "kind": "rw",
+      "desc": "IV fixed fields: IVFIX0 stream 0, IVFIX1 stream 1",
+      "fields": [
+        {"port": "s_ivfix", "reset": "0", "desc": "the first 32 IV bits of stream i (IVFIXi)"}
+      ]
+    },
+    {
+      "name": "KM",
+      "kind": "rw",
+      "desc": "Key management target, used by CMD.km_prog / km_go / km_stop",
+      "fields": [
+        {"port": "km_dir", "reset": "0", "desc": "0 transmit, 1 receive"},
+        {"port": "km_sid", "reset": "0", "desc": "stream"},
+        {"port": "km_ks", "reset": "0", "desc": "key set (the prefix K bit)"},
+        {"port": "km_sub", "reset": "0", "desc": "km_prog: sub-stream, 0 posted, 1 non-posted, 2 completion (cachemem: 0)"},
+        {"port": "km_sel", "reset": "0", "desc": "km_prog: 0 the KEY registers, 1 the sideload key port"}
+      ]
+    },
+    {
+      "name": "KEY",
+      "kind": "rw",
+      "secret": true,
+      "desc": "AES-256 key for CMD.km_prog, eight write-only words (KEY7 holds bits 255:224, the first key bytes); reads return 0",
+      "fields": [
+        {"port": "km_key", "reset": "0", "desc": "AES-256 key, big-endian"}
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {"port": "km_prog", "desc": "load the key into the KM slot and set its invocation counter to 1"},
+        {"port": "km_go", "desc": "make KM's key set the stream's active set and the stream Secure"},
+        {"port": "km_stop", "desc": "clear KM's key set; the stream becomes Insecure if that set was active"},
+        {"port": "clr", "desc": "clear every key, counter and stream state and abort both directions"}
+      ]
+    },
+    {
+      "name": "TX",
+      "kind": "stream_in",
+      "data": ["tx_data", "tx_bytes", "tx_hdr", "tx_last", "tx_ide", "tx_sid", "tx_sub"],
+      "valid": "tx_valid",
+      "ready": "tx_ready",
+      "desc": "Transmit input block: TX0..TX3 the 128-bit block (TX3 holds bytes 0-3), then TX4 with the byte count and flags, which commits it",
+      "fdesc": {"tx_data": "block, big-endian", "tx_bytes": "valid bytes 1..16",
+                "tx_hdr": "TLP header block", "tx_last": "last block of the TLP / flit",
+                "tx_ide": "first block: protect the message (0 passes it through)",
+                "tx_sid": "first block: stream", "tx_sub": "first block: sub-stream (TLP)"}
+    },
+    {
+      "name": "TXO",
+      "kind": "stream_out",
+      "data": ["txo_data", "txo_bytes", "txo_kind", "txo_last", "txo_bad", "txo_cm"],
+      "valid": "txo_valid",
+      "ready": "txo_ready",
+      "desc": "Transmit output block: read TXO0..TXO3, then TXO4, which pops it",
+      "fdesc": {"txo_data": "block, big-endian", "txo_bytes": "valid bytes 0..16",
+                "txo_kind": "0 header, 1 data, 2 MAC, 3 IDE prefix", "txo_last": "last block of the TLP / flit",
+                "txo_bad": "nullified MAC: the message was dropped", "txo_cm": "cachemem flit or epoch MAC"}
+    },
+    {
+      "name": "RX",
+      "kind": "stream_in",
+      "data": ["rx_data", "rx_bytes", "rx_kind", "rx_last", "rx_cm", "rx_sid"],
+      "valid": "rx_valid",
+      "ready": "rx_ready",
+      "desc": "Receive input block (the transmit output format): RX0..RX3 the block, then RX4, which commits it",
+      "fdesc": {"rx_data": "block, big-endian", "rx_bytes": "valid bytes",
+                "rx_kind": "0 header, 1 data, 2 MAC, 3 IDE prefix", "rx_last": "last block of the TLP / flit",
+                "rx_cm": "cachemem flit or epoch MAC of stream rx_sid", "rx_sid": "cachemem: stream"}
+    },
+    {
+      "name": "RXO",
+      "kind": "stream_out",
+      "data": ["rxo_data", "rxo_bytes", "rxo_kind", "rxo_last", "rxo_bad", "rxo_cm"],
+      "valid": "rxo_valid",
+      "ready": "rxo_ready",
+      "desc": "Receive output block: read RXO0..RXO3, then RXO4, which pops it",
+      "fdesc": {"rxo_data": "block, big-endian (plaintext of IDE messages)", "rxo_bytes": "valid bytes 0..16",
+                "rxo_kind": "0 header, 1 data, 2 END of an IDE message", "rxo_last": "last block of the TLP / flit / message",
+                "rxo_bad": "END: the MAC did not match or the message was dropped", "rxo_cm": "cachemem"}
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Stream state and the causes of the last errors",
+      "fields": [
+        {"port": "sec_tx", "desc": "bit i: transmit stream i Secure"},
+        {"port": "sec_rx", "desc": "bit i: receive stream i Secure"},
+        {"port": "ks_tx", "desc": "bit i: active transmit key set of stream i"},
+        {"port": "ks_rx", "desc": "bit i: active receive key set of stream i"},
+        {"port": "tx_busy", "desc": "transmit message or cachemem epoch open"},
+        {"port": "rx_busy", "desc": "receive message or cachemem epoch open"},
+        {"port": "km_code", "desc": "last key management error: 1 bad stream / sub-stream, 2 key set incomplete, 3 sideload key not valid, 4 key set in use"},
+        {"port": "tx_code", "desc": "last transmit error: 1 format, 2 stream state, 3 sub-stream key not loaded, 4 counter exhausted, 5 too long"},
+        {"port": "tx_esid", "desc": "stream of the last transmit error"},
+        {"port": "rx_code", "desc": "last receive error: 1 format, 2 stream state, 3 key set not loaded, 4 counter exhausted, 5 too long, 6 unknown Stream ID, 7 MAC mismatch"},
+        {"port": "rx_eid", "desc": "Stream ID of the last receive error"}
+      ]
+    },
+    {
+      "name": "KV",
+      "kind": "ro",
+      "desc": "Loaded key slots, bit 6i + 3k + sub: stream i, key set k, sub-stream sub",
+      "fields": [
+        {"port": "kv_tx", "desc": "transmit slots loaded"},
+        {"port": "kv_rx", "desc": "receive slots loaded"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "TX_MSG", "port": "tx_done", "desc": "an IDE message (or cachemem epoch) was sent with its MAC"},
+    {"name": "TX_ERR", "port": "tx_err", "desc": "a transmit message was dropped (STATUS.tx_code, tx_esid)"},
+    {"name": "RX_MSG", "port": "rx_done", "desc": "an IDE message (or cachemem epoch) passed its MAC check"},
+    {"name": "RX_ERR", "port": "rx_err", "desc": "a receive message failed (STATUS.rx_code, rx_eid); the stream is Insecure"},
+    {"name": "KM_ERR", "port": "km_err", "desc": "a key management command was refused (STATUS.km_code)"}
+  ],
+  "features": [
+    "Integrity and Data Encryption for PCIe TLPs, CXL.io and CXL.cachemem: AES-256-GCM with 96-bit MACs, in the style of PCIe 6.x / CXL 3.x IDE (field layouts are this IP's own; the specifications are member-only).",
+    "Two AES_GCM_top engines, one per direction, so transmit and receive run at the same time; one GCM message in flight per direction.",
+    "NS IDE streams (2 in the wrapper), each with an enable, an 8-bit Stream ID, a type (TLP or cachemem) and the 32-bit IV fixed field. Per direction and stream two key sets (K = 0 / 1) of three sub-stream keys (posted, non-posted, completion), each with its own 64-bit IV invocation counter.",
+    "IDE_KM-style key commands: program a slot (key from the KEY registers or the sideload port), make a key set active (stream Secure), stop a key set, clear all. A set in use cannot be reprogrammed; the receive side switches key sets on the prefix K bit.",
+    "TLP mode: IDE prefix (Stream ID, K, sub-stream), header as AAD in the clear, encrypted payload, 96-bit MAC; receive finds the stream by Stream ID, decrypts and checks, other TLPs pass through. Cachemem mode: MAC epochs of 1..128 flits, truncated early when another IDE message needs the engine.",
+    "Errors drop the message (nullified MAC on transmit, END with bad flag on receive), any receive error makes the stream Insecure; counter exhaustion and the GCM length limit are refused before a key stream could repeat."
+  ],
+  "notes": [
+    "Data is big-endian: byte 0 of a block is bits 127:120, which is TX3 / TXO3 / RX3 / RXO3 bits 31:24.",
+    "The receive plaintext comes out before the MAC check: the link layer must hold it until the END block and drop it when rxo_bad = 1.",
+    "Field layouts (prefix, MAC placement, epoch framing) follow the public descriptions of IDE but are not claimed to be bit-compatible with PCIe 6.x / CXL 3.x.",
+    "Each block takes five register writes or reads: for line-rate use, drive the core's stream ports from the link layer or a DMA.",
+    "Not implemented (public functional baseline): side-channel (power / EM) countermeasures, fault-injection detection, IDE_KM message transport (DOE / SPDM) and the CXL.cachemem containment / skid modes; key exchange is outside the IP."
+  ],
+  "sequence": [
+    "Write CFG (s_en, s_cm, cm_agg), SID and IVFIX0..IVFIX1.",
+    "For each direction and sub-stream: write KM (dir, stream, key set, sub-stream), KEY0..KEY7 and CMD.km_prog; then CMD.km_go with the same KM: the stream is Secure (STATUS). Clear the KEY registers afterwards.",
+    "Transmit: for each block wait for FLAGS.TX_FULL = 0, write TX0..TX3 and then TX4 = bytes | hdr << 5 | last << 6 | ide << 7 | sid << 8 | sub << 10. Read each TXO block (TXO0..TXO3, then TXO4) when FLAGS.TXO_AVAIL is set.",
+    "Receive: write RX0..RX3 and RX4 = bytes | kind << 5 | last << 7 | cm << 8 | sid << 9 for each received block; read RXO blocks; use the plaintext only after the END block with rxo_bad = 0 (IRQ RX_MSG).",
+    "On IRQ TX_ERR / RX_ERR / KM_ERR read STATUS for the cause; re-key a stream that became Insecure with km_stop, km_prog and km_go."
+  ],
+  "verification": [
+    "Core: tb/PCIe_CXL_IDE_tb.sv (NS = 2, CTR_W = 4, LEN_W = 9) runs 72 known-answer cases from tb/PCIe_CXL_IDE_vec.svh (TLPs on every sub-stream and key set, header and payload lengths 4..480 bytes, cachemem epochs of 1..4 flits, key refreshes), each sent through the transmit side, compared, then looped back through the receive side; random loopback TLPs; every key management error; every transmit and receive error (framing, stream state, key set, counter exhaustion on all 24 slots, length limits, unknown Stream ID, tampered ciphertext / header / MAC); epoch truncation and bypass traffic inside epochs; clr and reset in every phase; output back-pressure down to 2 % ready.",
+    "Expected values come from scripts/ide/ide_ref.py (on scripts/aes_gcm/gcm_ref.py), every case cross-checked against Python's cryptography AESGCM. The core checker tb/cov/PCIe_CXL_IDE_sva.sv has its own AES-256 (S-box computed from the field inverse) and GHASH and models the key slots, counters, stream states and both directions block by block: every output block, error, done pulse, key slot and counter is compared every clock."
+  ]
+}

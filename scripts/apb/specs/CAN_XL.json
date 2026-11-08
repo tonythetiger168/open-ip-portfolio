@@ -1,0 +1,437 @@
+{
+  "title": "CAN XL protocol controller: CAN XL frames up to 2048 bytes (data-phase bit rate, fixed stuffing, PCRC / FCRC) plus classical CAN 2.0A/B frames",
+  "code": "0x584C",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "200ms",
+  "regs": [
+    {
+      "name": "NBTR",
+      "kind": "rw",
+      "desc": "Nominal bit timing (static while the bus is in use)",
+      "fields": [
+        {
+          "port": "cfg_brp",
+          "reset": "1",
+          "desc": "time quantum = BRP+1 clocks"
+        },
+        {
+          "port": "cfg_tseg1",
+          "reset": "5",
+          "desc": "TSEG1 = TSEG1+1 tq (propagation + phase 1)"
+        },
+        {
+          "port": "cfg_tseg2",
+          "reset": "2",
+          "desc": "TSEG2 = TSEG2+1 tq (phase 2)"
+        },
+        {
+          "port": "cfg_sjw",
+          "reset": "1",
+          "desc": "resynchronisation jump width = SJW+1 tq"
+        }
+      ]
+    },
+    {
+      "name": "DBTR",
+      "kind": "rw",
+      "desc": "Data-phase bit timing of XL frames (static while the bus is in use)",
+      "fields": [
+        {
+          "port": "cfg_dbrp",
+          "reset": "0",
+          "desc": "data-phase time quantum = DBRP+1 clocks"
+        },
+        {
+          "port": "cfg_dtseg1",
+          "reset": "3",
+          "desc": "data-phase TSEG1 = DTSEG1+1 tq"
+        },
+        {
+          "port": "cfg_dtseg2",
+          "reset": "1",
+          "desc": "data-phase TSEG2 = DTSEG2+1 tq"
+        },
+        {
+          "port": "cfg_dsjw",
+          "reset": "0",
+          "desc": "data-phase SJW = DSJW+1 tq"
+        }
+      ]
+    },
+    {
+      "name": "ACC_CODE",
+      "kind": "rw",
+      "desc": "Acceptance code",
+      "fields": [
+        {
+          "port": "acc_code",
+          "desc": "ID to match (base and XL priority IDs in bits 10:0)"
+        }
+      ]
+    },
+    {
+      "name": "ACC_MASK",
+      "kind": "rw",
+      "desc": "Acceptance mask",
+      "fields": [
+        {
+          "port": "acc_mask",
+          "desc": "1 = the ID bit must equal ACC_CODE; 0 accepts every frame"
+        }
+      ]
+    },
+    {
+      "name": "TX_ID",
+      "kind": "rw",
+      "desc": "Header of the frame to queue",
+      "fields": [
+        {
+          "port": "tx_id",
+          "desc": "identifier (base and XL frames: bits 10:0)"
+        },
+        {
+          "port": "tx_ide",
+          "desc": "1 = extended CC frame"
+        },
+        {
+          "port": "tx_rtr",
+          "desc": "1 = CC remote frame"
+        },
+        {
+          "port": "tx_xl",
+          "desc": "1 = XL frame"
+        }
+      ]
+    },
+    {
+      "name": "TX_CTRL",
+      "kind": "rw",
+      "desc": "XL control fields / length of the frame to queue",
+      "fields": [
+        {
+          "port": "tx_dlc",
+          "desc": "CC: DLC in bits 3:0; XL: data bytes - 1"
+        },
+        {
+          "port": "tx_sdt",
+          "desc": "XL SDU type"
+        },
+        {
+          "port": "tx_sec",
+          "desc": "XL SEC bit"
+        },
+        {
+          "port": "tx_vcid",
+          "desc": "XL virtual CAN network ID"
+        }
+      ]
+    },
+    {
+      "name": "TX_AF",
+      "kind": "rw",
+      "desc": "XL acceptance field of the frame to queue",
+      "fields": [
+        {
+          "port": "tx_af",
+          "desc": "XL acceptance field"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands",
+      "fields": [
+        {
+          "port": "tx_valid",
+          "desc": "1 = queue TX_ID / TX_CTRL / TX_AF with the TX buffer (ignored while STATUS.tx_ready is 0; IRQ REFUSED when longer than the buffer)"
+        },
+        {
+          "port": "tx_abort",
+          "desc": "1 = drop the queued frame when it is not being sent (IRQ ABORTED)"
+        }
+      ]
+    },
+    {
+      "name": "BUF",
+      "kind": "bus",
+      "wen": "hb_wen",
+      "waddr": "hb_waddr",
+      "wdata": "hb_wdata",
+      "raddr": "hb_raddr",
+      "rdata": "hb_rdata",
+      "words": [
+        {
+          "name": "BUF0",
+          "w": 0,
+          "r": 0,
+          "desc": "write: TX buffer bytes 0..3 (byte 0 in bits 7:0, sent first); read: bytes 0..3 of the last delivered frame"
+        },
+        {
+          "name": "BUF1",
+          "w": 1,
+          "r": 1,
+          "desc": "TX / RX buffer bytes 4..7"
+        },
+        {
+          "name": "BUF2",
+          "w": 2,
+          "r": 2,
+          "desc": "TX / RX buffer bytes 8..11"
+        },
+        {
+          "name": "BUF3",
+          "w": 3,
+          "r": 3,
+          "desc": "TX / RX buffer bytes 12..15"
+        },
+        {
+          "name": "BUF4",
+          "w": 4,
+          "r": 4,
+          "desc": "TX / RX buffer bytes 16..19"
+        },
+        {
+          "name": "BUF5",
+          "w": 5,
+          "r": 5,
+          "desc": "TX / RX buffer bytes 20..23"
+        },
+        {
+          "name": "BUF6",
+          "w": 6,
+          "r": 6,
+          "desc": "TX / RX buffer bytes 24..27"
+        },
+        {
+          "name": "BUF7",
+          "w": 7,
+          "r": 7,
+          "desc": "TX / RX buffer bytes 28..31"
+        },
+        {
+          "name": "BUF8",
+          "w": 8,
+          "r": 8,
+          "desc": "TX / RX buffer bytes 32..35"
+        },
+        {
+          "name": "BUF9",
+          "w": 9,
+          "r": 9,
+          "desc": "TX / RX buffer bytes 36..39"
+        },
+        {
+          "name": "BUF10",
+          "w": 10,
+          "r": 10,
+          "desc": "TX / RX buffer bytes 40..43"
+        },
+        {
+          "name": "BUF11",
+          "w": 11,
+          "r": 11,
+          "desc": "TX / RX buffer bytes 44..47"
+        },
+        {
+          "name": "BUF12",
+          "w": 12,
+          "r": 12,
+          "desc": "TX / RX buffer bytes 48..51"
+        },
+        {
+          "name": "BUF13",
+          "w": 13,
+          "r": 13,
+          "desc": "TX / RX buffer bytes 52..55"
+        },
+        {
+          "name": "BUF14",
+          "w": 14,
+          "r": 14,
+          "desc": "TX / RX buffer bytes 56..59"
+        },
+        {
+          "name": "BUF15",
+          "w": 15,
+          "r": 15,
+          "desc": "TX / RX buffer bytes 60..63"
+        }
+      ]
+    },
+    {
+      "name": "RX_ID",
+      "kind": "ro",
+      "desc": "Header of the last delivered frame (until the next one)",
+      "fields": [
+        {
+          "port": "rx_id",
+          "desc": "identifier"
+        },
+        {
+          "port": "rx_ide",
+          "desc": "extended CC frame"
+        },
+        {
+          "port": "rx_rtr",
+          "desc": "CC remote frame"
+        },
+        {
+          "port": "rx_xl",
+          "desc": "XL frame"
+        }
+      ]
+    },
+    {
+      "name": "RX_CTRL",
+      "kind": "ro",
+      "desc": "XL control fields / length of the last delivered frame",
+      "fields": [
+        {
+          "port": "rx_dlc",
+          "desc": "CC: DLC; XL: data bytes - 1"
+        },
+        {
+          "port": "rx_sdt",
+          "desc": "XL SDU type"
+        },
+        {
+          "port": "rx_sec",
+          "desc": "XL SEC bit"
+        },
+        {
+          "port": "rx_vcid",
+          "desc": "XL virtual CAN network ID"
+        },
+        {
+          "port": "rx_trunc",
+          "desc": "XL frame longer than the buffer: the bytes past it were dropped"
+        }
+      ]
+    },
+    {
+      "name": "RX_AF",
+      "kind": "ro",
+      "desc": "XL acceptance field of the last delivered frame",
+      "fields": [
+        {
+          "port": "rx_af",
+          "desc": "XL acceptance field"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Transmitter and fault confinement",
+      "fields": [
+        {
+          "port": "tx_ready",
+          "desc": "no frame queued (CMD.tx_valid is taken)"
+        },
+        {
+          "port": "tec",
+          "desc": "transmit error counter"
+        },
+        {
+          "port": "rec",
+          "desc": "receive error counter"
+        },
+        {
+          "port": "err_passive",
+          "desc": "error passive"
+        },
+        {
+          "port": "bus_off",
+          "desc": "bus-off"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "SENT",
+      "port": "tx_done",
+      "desc": "a queued frame was sent"
+    },
+    {
+      "name": "ABORTED",
+      "port": "tx_aborted",
+      "desc": "a queued frame was dropped by CMD.tx_abort"
+    },
+    {
+      "name": "REFUSED",
+      "port": "tx_rejected",
+      "desc": "CMD.tx_valid with a frame longer than the buffer"
+    },
+    {
+      "name": "RX",
+      "port": "rx_valid",
+      "desc": "a frame was delivered (RX_* and BUF hold it until the next one)"
+    },
+    {
+      "name": "ARB_LOST",
+      "port": "arb_lost",
+      "desc": "arbitration lost (the frame is retried)"
+    },
+    {
+      "name": "ERR_BIT",
+      "port": "err_bit",
+      "desc": "bit error"
+    },
+    {
+      "name": "ERR_STUFF",
+      "port": "err_stuff",
+      "desc": "stuff error (dynamic or fixed stuff bit)"
+    },
+    {
+      "name": "ERR_CRC",
+      "port": "err_crc",
+      "desc": "CRC error (CC CRC, SBC / PCRC, or FCRC)"
+    },
+    {
+      "name": "ERR_FORM",
+      "port": "err_form",
+      "desc": "form error"
+    },
+    {
+      "name": "ERR_ACK",
+      "port": "err_ack",
+      "desc": "acknowledgement error"
+    },
+    {
+      "name": "PEXC",
+      "port": "pexc",
+      "desc": "protocol exception (a CAN FD frame): the node waited for 11 recessive bits"
+    },
+    {
+      "name": "ERR_PASSIVE",
+      "port": "err_passive",
+      "desc": "node is error passive (level)"
+    },
+    {
+      "name": "BUS_OFF",
+      "port": "bus_off",
+      "desc": "node is bus-off (level)"
+    }
+  ],
+  "features": [
+    "CAN XL frames (priority ID, SDT, SEC, VCID, AF, 1..2048 data bytes) and classical CAN 2.0A/B frames on one controller",
+    "Separate nominal and data-phase bit timing; tx_fast / rx_fast tell the transceiver when the data phase runs",
+    "Dynamic stuffing in the arbitration field, fixed stuffing (every FS bits) in the data phase, SBC, PCRC-13 and FCRC-32",
+    "Error frames, TEC / REC, error passive, bus-off and recovery; CAN FD frames are protocol exceptions",
+    "TX buffer and double-banked RX buffer of MAX_BYTES bytes behind a 32-bit word port"
+  ],
+  "notes": [
+    "The wrapper uses the core's default MAX_BYTES = 64 (16 BUF words); a larger buffer adds BUF words.",
+    "RX_ID / RX_CTRL / RX_AF and the BUF read side show the last delivered frame and change when the next one is delivered (IRQ RX): read them before then.",
+    "Write the TX buffer and header, then CMD.tx_valid; do not change the TX buffer while STATUS.tx_ready is 0.",
+    "The XL field layout follows the public CiA 610-1 descriptions; bit-exact conformance with ISO 11898-1:2024 is not claimed. No transmitter delay compensation, PWM coding, CAN FD frames, overload frames or CANsec."
+  ],
+  "sequence": [
+    "Set NBTR and DBTR (or keep the reset values: 20-clock nominal and 7-clock data bits), ACC_CODE / ACC_MASK, IRQ_ENABLE.",
+    "Transmit: write BUF0.. with the data bytes, TX_ID, TX_CTRL, TX_AF, then CMD = 1. IRQ SENT (or REFUSED, ARB_LOST, ERR_*) follows.",
+    "Receive: on IRQ RX read RX_ID, RX_CTRL, RX_AF and BUF0.. (bytes past the length read stale data)."
+  ]
+}

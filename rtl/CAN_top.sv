@@ -265,7 +265,7 @@ module CAN_top (
               cnt <= cnt + 3'd1;
               if (cnt == 3'd2) begin
                 is_tx <= 1'b0; cnt <= '0;
-                mode <= (is_tx && err_passive) ? M_SUSPEND : M_IDLE;
+                if (is_tx && err_passive) mode <= M_SUSPEND; else mode <= M_IDLE;
               end
             end else if (mode == M_SUSPEND) begin
               cnt <= cnt + 3'd1;

@@ -15,7 +15,7 @@ Protocol IP `DDR4_Lite`, version 2.0. Apache-2.0.
 
 ## Overview
 
-DDR4_Lite_top -- educational DDR4-style controller with a real micro-architecture (the base of the *_Lite memory controllers). What makes this a *real* DDR controller model (vs the 144-line single-bank MEMCORE educational slice): * 4 independent banks with per-bank open-row tracking (open-page policy) * full JEDEC-style command set on the PHY pins: ACT / RD / WR / PRE (single & all-bank) / REF / MRS, DDR4 ACT_n encoding * timing-fenced scheduling: tRCD, tRP, tRC, tRAS, tRRD, tWR (WR burst end -> PRE), tWTR (WR burst end -> RD), tRFC, average-refresh interval tREFI (all in clk cycles); read data starts exactly CL clocks after the RD command, write data CWL clocks after the WR * BL8 x16 data path: front-end collects 8 AHB beats into a 128-bit line, one DRAM burst per transaction, dq/dqs pin-level bursts * refresh controller: tREFI countdown -> pending refresh, all-bank PRE + REF + tRFC, refresh-overrun sticky error * mode-register file MR0..MR7 (8-bit, JEDEC-style addressing; MR0 CL field and MR1 CWL field are functional and reset to the CL / CWL parameters; MRW/MRR front-end commands; MR0 bit 7 is a self-clearing DLL reset and always reads 0) * protocol-error sticky irq (bad command, out-of-range address, refresh overrun; overrun needs a tREFI shorter than one engine operation, so it is a misconfiguration alarm) Documented simplifications (an educational slice, not a production IP): * SDR-style dqs (one rising edge per beat; no true DDR strobes) * no DLL / read & write leveling / ZQ / DBI / ECC / bank groups / 2T command / gear-down / CA parity * refresh is served only when the command engine is idle * memory array lives inside the model (controller + DRAM array combined) * one command engine: a single transaction is in flight at a time Front-end (AHB-like, framework style): hcmd: 0 = NOP | 1 = READ line | 2 = WRITE line | 3 = MRW (haddr[2:0]=MR index, hwdata[7:0]=value) | 4 = MRR (hrdata[7:0]=value) | 5 = REFRESH haddr byte address: [8:7]=bank  [17:9]=row  [6:4]=line  [3:0]=byte-in-line (line = one BL8 x16 burst = 8 front-end beats).  haddr[31:18] must be 0. A command is taken when hvalid && hready. A WRITE then takes its 8 data beats on hwdata, one per clock with hvalid high (hready stays high). hready is low from a READ / WRITE / REFRESH until its hdone; MRW, MRR, NOP and rejected commands pulse hdone in the next clock. Read data is on hrdata in the 8 clocks that end with the hdone clock.
+DDR4_Lite_top -- educational DDR4-style controller with a real micro-architecture (the base of the *_Lite memory controllers). What makes this a *real* DDR controller model (vs the 144-line single-bank MEMCORE educational slice): * 4 independent banks with per-bank open-row tracking (open-page policy) * JEDEC-style command set on the PHY pins: ACT / RD / WR / PRE (single & all-bank) / REF, DDR4 ACT_n encoding (RAS_n / CAS_n / WE_n carry row bits A16..A14 = 0 during ACT; RD / WR drive A12 = BC_n = 1 so an on-the-fly MR0 setting still bursts BL8) * timing-fenced scheduling: tRCD, tRP, tRC, tRAS, tRRD, tWR (WR burst end -> PRE), tWTR (WR burst end -> RD), tRFC, average-refresh interval tREFI (all in clk cycles); read data starts exactly CL clocks after the RD command, write data CWL clocks after the WR * BL8 x16 data path: front-end collects 8 AHB beats into a 128-bit line, one DRAM burst per transaction, dq/dqs pin-level bursts * refresh controller: tREFI countdown -> pending refresh, all-bank PRE + REF + tRFC, refresh-overrun sticky error * mode-register file MR0..MR7 (8-bit, JEDEC-style addressing; MR0 CL field and MR1 CWL field are functional and reset to the CL / CWL parameters; MRW/MRR front-end commands; MR0 bit 7 is a self-clearing DLL reset and always reads 0) * protocol-error sticky irq (bad command, out-of-range address, refresh overrun; overrun needs a tREFI shorter than one engine operation, so it is a misconfiguration alarm) Documented simplifications (an educational slice, not a production IP): * SDR-style dqs (one rising edge per beat; no true DDR strobes) * no DLL / read & write leveling / ZQ / DBI / ECC / bank groups / 2T command / gear-down / CA parity * refresh is served only when the command engine is idle * memory array lives inside the model (controller + DRAM array combined) * one command engine: a single transaction is in flight at a time * the MR file is controller-side only: MRW changes the controller's CL / CWL at once and issues no MRS on the pins, so the device's mode registers must be set to match (MR0 / MR2 for CL / CWL) by initialization outside this model Front-end (AHB-like, framework style): hcmd: 0 = NOP | 1 = READ line | 2 = WRITE line | 3 = MRW (haddr[2:0]=MR index, hwdata[7:0]=value) | 4 = MRR (hrdata[7:0]=value) | 5 = REFRESH haddr byte address: [8:7]=bank  [17:9]=row  [6:4]=line  [3:0]=byte-in-line (line = one BL8 x16 burst = 8 front-end beats).  haddr[31:18] must be 0. A command is taken when hvalid && hready. A WRITE then takes its 8 data beats on hwdata, one per clock with hvalid high (hready stays high). hready is low from a READ / WRITE / REFRESH until its hdone; MRW, MRR, NOP and rejected commands pulse hdone in the next clock. Read data is on hrdata in the 8 clocks that end with the hdone clock.
 
 haddr: [8:7] bank, [17:9] row, [6:4] line; [31:18] must be 0. hcmd 0 NOP, 1 READ line, 2 WRITE line (then 8 data beats), 3 MRW (haddr[2:0], hwdata[7:0]; MR0 bit 7 is a self-clearing DLL reset), 4 MRR, 5 REFRESH; 6 and 7 are rejected.
 The DRAM pins (ck_t, ck_c, cke, cs_n, act_n, ras_n, cas_n, we_n, ba, addr, dq, dqs) and the command trace pass through unchanged.
@@ -238,3 +238,64 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 |---|---|---|---|---|---|---|
 | core `rtl/DDR4_Lite_top.sv` | pass | 161/161 (+3 excl.) | 2330/2330 (+58 excl.) | 43/43 | 31/31 | 98/98 |
 | wrapper `rtl/DDR4_Lite_apb.sv` | pass | 37/37 | 1084/1084 (+54 excl.) | n/a | 11/11 | 54/54 |
+
+## Performance
+
+Measured, not estimated: `bash scripts/perf/run_perf.sh DDR4_Lite` runs the core's own testbench with `+define+MEM_PERF` (`tb/perf/lite_perf.svh`), which drives the host port as fast as `hready` allows and times every command at the core's ports, then synthesizes the core on the open SkyWater SKY130 library (`scripts/perf/sta_sky130.sh`). Raw data: [`docs/perf/DDR4_Lite.json`](../perf/DDR4_Lite.json). One host operation moves one 128-bit line (16 bytes); the host port peaks at 2 bytes per clock. Clock-based figures hold at any frequency; ns and MB/s are at the estimated Fmax below. Family comparison: [MEMORY_PERFORMANCE.md](../MEMORY_PERFORMANCE.md).
+
+### Implementation (pre-layout estimate)
+
+| Item | Value |
+|---|---|
+| Library | SKY130 `sky130_fd_sc_hd`, typical corner (tt, 25 C, 1.80 V) |
+| Longest logic path | 1.93 ns |
+| Estimated Fmax | 412 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
+| Area | 0.036 mm2 (36206 um2), 3016 cells, 873 flip-flops |
+| Not counted | the in-model DRAM array, 2097152 bits (256 KiB): a real controller has the DRAM off chip |
+
+No wire load, placement, clock skew or on-chip variation: these rank the designs and give the order of magnitude; they are not a timing sign-off.
+
+### DRAM timing used (clocks)
+
+| CL | CWL | TRCD | TRP | TRAS | TRC | TRRD | TWR | TWTR | TRFC | TREFI |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 11 | 8 | 6 | 6 | 16 | 24 | 3 | 8 | 4 | 40 | 3900 |
+
+### Latency, unloaded
+
+From the first clock the host presents the command to `hdone` (the last of the 8 read beats, or the write's completion); the first read beat is 7 clocks earlier. Min and max over 8 samples in different banks, away from refresh, with the bank's timers (tRAS, tRC, tWR) already run out.
+
+| Command | Clocks | ns at Fmax |
+|---|---|---|
+| Read, page hit | 31 | 75 |
+| Read, bank closed (ACT first) | 37 | 90 |
+| Read, row conflict (PRE + ACT first) | 46 | 112 |
+| Write, page hit | 28 | 68 |
+| Write, bank closed | 34 | 83 |
+| Write, row conflict | 43 | 104 |
+| Read, page hit, requested as a refresh falls due (worst case seen) | 90 | 218 |
+
+### Sustained throughput
+
+2048 back-to-back commands per pattern, refreshes included. Host utilization = bytes per clock over the port's 2-byte peak.
+
+| Pattern | Clocks / op | Bytes / clock | Host utilization | MB/s at Fmax |
+|---|---|---|---|---|
+| Sequential reads, one open row (page hits) | 31.43 | 0.509 | 25.4% | 210 |
+| Sequential writes, one open row (page hits) | 28.41 | 0.563 | 28.2% | 232 |
+| Alternating write / read, one open row | 30.49 | 0.525 | 26.2% | 216 |
+| Reads interleaved over every bank, rows open | 31.56 | 0.507 | 25.3% | 209 |
+| Reads alternating two rows of one bank (row conflicts) | 46.42 | 0.345 | 17.2% | 142 |
+| Random reads (bank, row, column uniform) | 46.05 | 0.347 | 17.4% | 143 |
+| Random writes | 43.16 | 0.371 | 18.5% | 153 |
+| Random mix, 2 reads : 1 write | 45.37 | 0.353 | 17.6% | 145 |
+
+### Refresh cost
+
+With no host traffic for 31200 clocks, the command engine is busy refreshing 1.15% of the time, in 8 windows of at most 52 clocks (126 ns).
+
+### Limits of these figures
+
+* One command in flight: the core finishes a command before it takes the next, so throughput is set by the per-command latency, not by the DRAM data bus. A production controller queues and reorders many commands and keeps the data bus busy.
+* The host port is 16 bits wide, and a line moves as 8 beats; the figures are bytes through that port, not DRAM pin bandwidth.
+* Timing parameters are in controller clocks as listed above, not tied to a JEDEC speed bin.

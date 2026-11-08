@@ -1,0 +1,123 @@
+{
+ "ip": "DDR4",
+ "family": "word",
+ "bytes_per_op": 2,
+ "bank_entries": 4,
+ "timing_clk": {
+  "CL": 15,
+  "TRCD": 14,
+  "TRP": 14,
+  "TRAS": 32,
+  "TRC": 45,
+  "TRFC": 160,
+  "TREFI": 6240
+ },
+ "impl": {
+  "library": "sky130_fd_sc_hd tt_025C_1v80 (pre-layout)",
+  "logic_path_ns": 2.81,
+  "fmax_mhz": 302,
+  "area_um2": 36282,
+  "cells": 4862,
+  "flip_flops": 285,
+  "model_array_bits": 4096
+ },
+ "latency_clk": {
+  "rd_hit": [
+   17,
+   17
+  ],
+  "rd_closed": [
+   35,
+   35
+  ],
+  "rd_conflict": [
+   49,
+   49
+  ],
+  "wr_hit": [
+   18,
+   18
+  ],
+  "wr_closed": [
+   36,
+   36
+  ],
+  "wr_conflict": [
+   50,
+   50
+  ]
+ },
+ "latency_rd_refresh_clk": 213,
+ "throughput": {
+  "seq_rd": {
+   "ops": 2048,
+   "clk": 38040,
+   "clk_per_op": 18.57,
+   "bytes_per_clk": 0.108,
+   "host_util_pct": 5.4,
+   "mbyte_s_at_fmax": 32.5
+  },
+  "seq_wr": {
+   "ops": 2048,
+   "clk": 38040,
+   "clk_per_op": 18.57,
+   "bytes_per_clk": 0.108,
+   "host_util_pct": 5.4,
+   "mbyte_s_at_fmax": 32.5
+  },
+  "seq_rw": {
+   "ops": 2048,
+   "clk": 38040,
+   "clk_per_op": 18.57,
+   "bytes_per_clk": 0.108,
+   "host_util_pct": 5.4,
+   "mbyte_s_at_fmax": 32.5
+  },
+  "ilv_rd": {
+   "ops": 2048,
+   "clk": 38364,
+   "clk_per_op": 18.73,
+   "bytes_per_clk": 0.107,
+   "host_util_pct": 5.3,
+   "mbyte_s_at_fmax": 32.2
+  },
+  "conf_rd": {
+   "ops": 2048,
+   "clk": 105156,
+   "clk_per_op": 51.35,
+   "bytes_per_clk": 0.039,
+   "host_util_pct": 1.9,
+   "mbyte_s_at_fmax": 11.8
+  },
+  "rnd_rd": {
+   "ops": 2048,
+   "clk": 104310,
+   "clk_per_op": 50.93,
+   "bytes_per_clk": 0.039,
+   "host_util_pct": 2.0,
+   "mbyte_s_at_fmax": 11.9
+  },
+  "rnd_wr": {
+   "ops": 2048,
+   "clk": 104474,
+   "clk_per_op": 51.01,
+   "bytes_per_clk": 0.039,
+   "host_util_pct": 2.0,
+   "mbyte_s_at_fmax": 11.8
+  },
+  "rnd_mix": {
+   "ops": 2048,
+   "clk": 104474,
+   "clk_per_op": 51.01,
+   "bytes_per_clk": 0.039,
+   "host_util_pct": 2.0,
+   "mbyte_s_at_fmax": 11.8
+  }
+ },
+ "refresh_idle": {
+  "busy_pct": 2.85,
+  "windows": 8,
+  "window_clk": 178,
+  "observed_clk": 49920
+ }
+}

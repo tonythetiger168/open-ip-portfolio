@@ -188,7 +188,7 @@ module DDR6_top #(
               end
             end
             else if (rp_ok) begin           // plain PRE: hold hready low through tRP
-              ref_req <= (ref_cnt == 0); dstate <= (ref_cnt == 0) ? D_PRE : D_IDLE;
+              ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE;
             end
           end
         end
@@ -208,9 +208,9 @@ module DDR6_top #(
             if (ref_walk) begin ref_walk <= 1'b0; dstate <= D_IDLE; end
             else if (auto_rw) begin
               auto_rw <= 1'b0;
-              dstate <= rd_pending ? D_RD : D_WR;
+              if (rd_pending) dstate <= D_RD; else dstate <= D_WR;
             end
-            else begin ref_req <= (ref_cnt == 0); dstate <= (ref_cnt == 0) ? D_PRE : D_IDLE; end
+            else begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
           end
         end
         D_RD: begin
