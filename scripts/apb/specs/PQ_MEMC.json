@@ -1,0 +1,271 @@
+{
+  "title": "TV picture quality: HDR tone mapping (EETF) and MEMC frame blending, frames in memory over AXI4",
+  "code": "0x7C08",
+  "version": "1.0",
+  "axi_master": {
+    "id": 8,
+    "reads": true,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "Processing stages reused unchanged from pq-pipeline-sv (rtl/pq/): l0 metadata decode, l1 EETF tone map with L2 trim, l2d MEMC blend.",
+    "Pixel word {2'b00, R[9:0], G[9:0], B[9:0]}.",
+    "CMD.start runs a frame: per line k, with MEMC_EN the previous-frame line PREV_ADDR + k * STRIDE is read into a line buffer, then CUR_ADDR + k * STRIDE is read, processed and written to DST_ADDR + k * STRIDE.",
+    "out = prev * (256 - MV_FRAC) + cur * MV_FRAC >> 8 after both pass the tone curve; MEMC_EN 0: tone mapping only.",
+    "CMD.meta_load loads the 128-bit metadata META3..META0 with DISPLAY_PEAK (SDR / HDR10 / Dolby Vision); TONE_EN 0 or no metadata: neutral curve.",
+    "H_ACTIVE 0 or above the line buffer (MAXW) ends the job at once with STATUS.cfg_err."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "CUR_ADDR",
+      "kind": "rw",
+      "desc": "Current frame",
+      "fields": [
+        {
+          "port": "cur_addr",
+          "reset": "0",
+          "desc": "line 0, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "PREV_ADDR",
+      "kind": "rw",
+      "desc": "Previous frame",
+      "fields": [
+        {
+          "port": "prev_addr",
+          "reset": "0",
+          "desc": "line 0, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "DST_ADDR",
+      "kind": "rw",
+      "desc": "Output frame",
+      "fields": [
+        {
+          "port": "dst_addr",
+          "reset": "0",
+          "desc": "line 0, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "GEOM",
+      "kind": "rw",
+      "desc": "Line pitch and width",
+      "fields": [
+        {
+          "port": "stride",
+          "reset": "0",
+          "desc": "line pitch in bytes"
+        },
+        {
+          "port": "h_active",
+          "reset": "0",
+          "desc": "pixels per line"
+        }
+      ]
+    },
+    {
+      "name": "V_ACTIVE",
+      "kind": "rw",
+      "desc": "Lines",
+      "fields": [
+        {
+          "port": "v_active",
+          "reset": "0",
+          "desc": "lines per frame"
+        }
+      ]
+    },
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Options",
+      "fields": [
+        {
+          "port": "memc_en",
+          "reset": "0",
+          "desc": "blend with the previous frame"
+        },
+        {
+          "port": "mv_frac",
+          "reset": "0",
+          "desc": "weight of the current frame, 0..255"
+        },
+        {
+          "port": "tone_en",
+          "reset": "0",
+          "desc": "apply the loaded tone curve"
+        }
+      ]
+    },
+    {
+      "name": "META0",
+      "kind": "rw",
+      "desc": "Metadata 31:0",
+      "fields": [
+        {
+          "port": "meta0",
+          "reset": "0",
+          "desc": "format[15:0], content max nits[31:16]"
+        }
+      ]
+    },
+    {
+      "name": "META1",
+      "kind": "rw",
+      "desc": "Metadata 63:32",
+      "fields": [
+        {
+          "port": "meta1",
+          "reset": "0",
+          "desc": "content min, mastering peak"
+        }
+      ]
+    },
+    {
+      "name": "META2",
+      "kind": "rw",
+      "desc": "Metadata 95:64",
+      "fields": [
+        {
+          "port": "meta2",
+          "reset": "0",
+          "desc": "mastering fall, trim gain (Q2.14)"
+        }
+      ]
+    },
+    {
+      "name": "META3",
+      "kind": "rw",
+      "desc": "Metadata 127:96",
+      "fields": [
+        {
+          "port": "meta3",
+          "reset": "0",
+          "desc": "trim offset (Q0.16)"
+        }
+      ]
+    },
+    {
+      "name": "DISPLAY_PEAK",
+      "kind": "rw",
+      "desc": "Panel peak",
+      "fields": [
+        {
+          "port": "display_peak",
+          "reset": "0",
+          "desc": "nits"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "meta_load",
+          "desc": "load META0..3 and DISPLAY_PEAK"
+        },
+        {
+          "port": "start",
+          "desc": "process one frame; ignored while busy"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "State",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "a frame is being processed"
+        },
+        {
+          "port": "err",
+          "desc": "AXI error response"
+        },
+        {
+          "port": "cfg_err",
+          "desc": "H_ACTIVE 0 or above MAXW"
+        },
+        {
+          "port": "params_ok",
+          "desc": "tone parameters loaded"
+        }
+      ]
+    },
+    {
+      "name": "TONE",
+      "kind": "ro",
+      "desc": "Tone parameters",
+      "fields": [
+        {
+          "port": "tone_slope",
+          "desc": "Q0.16 slope above the knee"
+        },
+        {
+          "port": "content_max",
+          "desc": "content peak nits"
+        }
+      ]
+    },
+    {
+      "name": "LINES",
+      "kind": "ro",
+      "desc": "Lines written",
+      "fields": [
+        {
+          "port": "lines",
+          "desc": "lines written by the current / last frame"
+        }
+      ]
+    },
+    {
+      "name": "CYCLES",
+      "kind": "ro",
+      "desc": "Frame length in clocks",
+      "fields": [
+        {
+          "port": "cycles",
+          "desc": "clocks from start to DONE"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DONE",
+      "port": "done",
+      "desc": "a job ended"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "a job ended that saw an AXI error response"
+    }
+  ],
+  "sequence": [
+    "Write META0..3 and DISPLAY_PEAK, CMD.meta_load = 1; wait for STATUS.params_ok.",
+    "Write CUR_ADDR, PREV_ADDR, DST_ADDR, GEOM, V_ACTIVE, CTRL and IRQ_ENABLE.",
+    "Write CMD.start = 1 (ignored while STATUS.busy is 1).",
+    "Wait for irq (or poll STATUS.busy = 0), read the result registers, write 1s to IRQ_STATUS to clear it."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time.",
+    "Known issue of the reused l1 stage: a trim gain above 1.0 wraps bright pixels (rtl/pq/README.md).",
+    "The core testbench prints one `LAT <master> dram R|W <cycles>` line per AXI burst (tb/tv_lat_mon.svh), the regression suite's latency format."
+  ]
+}

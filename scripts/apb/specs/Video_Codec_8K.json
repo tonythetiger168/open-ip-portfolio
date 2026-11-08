@@ -1,0 +1,283 @@
+{
+  "title": "8K video decoder traffic shape: HEVC / AV1 style CTU access pattern over AXI4 for SoC bandwidth and QoS tests",
+  "code": "0x7C09",
+  "version": "1.0",
+  "axi_master": {
+    "id": 9,
+    "reads": true,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "Per CTU in raster order: BS_WORDS bitstream words read, motion-compensated reference blocks ((PU + 7) x (PU + 7) luma, 1 or 2 references, xorshift32 motion vectors in +-2^MV_LOG2) read row by row, the CTU's luma and 4:2:0 chroma written row by row.",
+    "Written words are address ^ SEED; RD_SUM is the sum of all words read.",
+    "CTU_GAP rate shaping: a CTU takes at least CTU_GAP clocks; a slower CTU counts in LATE_CNT (LATE interrupt).",
+    "CTU_LIMIT samples the first CTUs of a large picture; CFG_ERR on an invalid geometry."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "BS_ADDR",
+      "kind": "rw",
+      "desc": "Bitstream",
+      "fields": [
+        {
+          "port": "bs_addr",
+          "reset": "0",
+          "desc": "first word"
+        }
+      ]
+    },
+    {
+      "name": "REF0_ADDR",
+      "kind": "rw",
+      "desc": "Reference 0 luma",
+      "fields": [
+        {
+          "port": "ref0_addr",
+          "reset": "0",
+          "desc": "pixel (0, 0)"
+        }
+      ]
+    },
+    {
+      "name": "REF1_ADDR",
+      "kind": "rw",
+      "desc": "Reference 1 luma",
+      "fields": [
+        {
+          "port": "ref1_addr",
+          "reset": "0",
+          "desc": "pixel (0, 0)"
+        }
+      ]
+    },
+    {
+      "name": "RECON_ADDR",
+      "kind": "rw",
+      "desc": "Output luma",
+      "fields": [
+        {
+          "port": "recon_addr",
+          "reset": "0",
+          "desc": "pixel (0, 0)"
+        }
+      ]
+    },
+    {
+      "name": "CHROMA_ADDR",
+      "kind": "rw",
+      "desc": "Output chroma",
+      "fields": [
+        {
+          "port": "chroma_addr",
+          "reset": "0",
+          "desc": "interleaved CbCr (0, 0)"
+        }
+      ]
+    },
+    {
+      "name": "PIC",
+      "kind": "rw",
+      "desc": "Picture size",
+      "fields": [
+        {
+          "port": "stride",
+          "reset": "0",
+          "desc": "line pitch in bytes"
+        },
+        {
+          "port": "pic_w_ctu",
+          "reset": "0",
+          "desc": "CTUs across"
+        },
+        {
+          "port": "pic_h_ctu",
+          "reset": "0",
+          "desc": "CTUs down"
+        }
+      ]
+    },
+    {
+      "name": "CODING",
+      "kind": "rw",
+      "desc": "Coding shape",
+      "fields": [
+        {
+          "port": "ctu_log2",
+          "reset": "6",
+          "desc": "CTU size 2^n, 4..6"
+        },
+        {
+          "port": "pu_log2",
+          "reset": "4",
+          "desc": "PU size 2^n, 3..CTU"
+        },
+        {
+          "port": "n_refs",
+          "reset": "2",
+          "desc": "references per PU, 0..2"
+        },
+        {
+          "port": "mv_log2",
+          "reset": "5",
+          "desc": "motion vector range"
+        },
+        {
+          "port": "bs_words",
+          "reset": "0",
+          "desc": "bitstream words per CTU"
+        }
+      ]
+    },
+    {
+      "name": "RATE",
+      "kind": "rw",
+      "desc": "Rate shaping",
+      "fields": [
+        {
+          "port": "ctu_gap",
+          "reset": "0",
+          "desc": "minimum clocks per CTU"
+        },
+        {
+          "port": "ctu_limit",
+          "reset": "0",
+          "desc": "stop after this many CTUs (0: all)"
+        }
+      ]
+    },
+    {
+      "name": "SEED",
+      "kind": "rw",
+      "desc": "Seed",
+      "fields": [
+        {
+          "port": "seed",
+          "reset": "0",
+          "desc": "motion vectors and write data"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "start",
+          "desc": "run one picture; ignored while busy"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "State",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "a picture is running"
+        },
+        {
+          "port": "err",
+          "desc": "AXI error response"
+        },
+        {
+          "port": "cfg_err",
+          "desc": "invalid geometry"
+        }
+      ]
+    },
+    {
+      "name": "CTUS",
+      "kind": "ro",
+      "desc": "Progress",
+      "fields": [
+        {
+          "port": "ctus",
+          "desc": "CTUs done"
+        },
+        {
+          "port": "late_cnt",
+          "desc": "CTUs over CTU_GAP"
+        }
+      ]
+    },
+    {
+      "name": "RD_WORDS",
+      "kind": "ro",
+      "desc": "Words read",
+      "fields": [
+        {
+          "port": "rd_words",
+          "desc": "by the current / last picture"
+        }
+      ]
+    },
+    {
+      "name": "WR_WORDS",
+      "kind": "ro",
+      "desc": "Words written",
+      "fields": [
+        {
+          "port": "wr_words",
+          "desc": "by the current / last picture"
+        }
+      ]
+    },
+    {
+      "name": "RD_SUM",
+      "kind": "ro",
+      "desc": "Read checksum",
+      "fields": [
+        {
+          "port": "rd_sum",
+          "desc": "32-bit sum of the words read"
+        }
+      ]
+    },
+    {
+      "name": "CYCLES",
+      "kind": "ro",
+      "desc": "Picture length in clocks",
+      "fields": [
+        {
+          "port": "cycles",
+          "desc": "clocks from start to DONE"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DONE",
+      "port": "done",
+      "desc": "a job ended"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "a job ended that saw an AXI error response"
+    },
+    {
+      "name": "LATE",
+      "port": "late",
+      "desc": "a CTU took longer than CTU_GAP"
+    }
+  ],
+  "sequence": [
+    "Write the plane addresses, PIC, CODING, RATE and SEED.",
+    "Write IRQ_ENABLE with DONE (and LATE), then CMD.start = 1.",
+    "On DONE read CTUS, RD_WORDS, WR_WORDS, CYCLES."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time.",
+    "The pixel codec is c1p-codec; this core stands in for its memory traffic in SoC regressions.",
+    "The core testbench prints one `LAT <master> dram R|W <cycles>` line per AXI burst (tb/tv_lat_mon.svh), the regression suite's latency format."
+  ]
+}

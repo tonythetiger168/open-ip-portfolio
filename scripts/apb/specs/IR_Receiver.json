@@ -1,0 +1,175 @@
+{
+  "title": "Consumer IR remote receiver: NEC and RC-5 decode, codes to a ring in memory over AXI4",
+  "code": "0x7C04",
+  "version": "1.0",
+  "axi_master": {
+    "id": 5,
+    "reads": false,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "ir_in is the demodulated receiver output, active low. A tick is TICK_DIV + 1 clocks: NEC unit = 16 ticks (562.5 us at a 35.16 us tick), RC-5 half bit = 25 ticks (889 us); pulse widths are accepted within +-25%.",
+    "MODE 0 NEC (address, inverted address or extended address, command, inverted command, repeat codes), MODE 1 RC-5 (toggle, 5-bit address, 6-bit command with field bit).",
+    "Each code is one ring word {proto[1:0], repeat, toggle, 4'b0, addr_hi, addr, cmd}; LAST shows the newest code.",
+    "Ring of RING_WORDS words at RING_BASE (WR_IDX / RD_IDX); 8 codes wait in a FIFO while the ring is full, then OVF_CNT counts the lost ones."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Enable and protocol",
+      "fields": [
+        {
+          "port": "enable",
+          "reset": "0",
+          "desc": "receiver on; 0 clears WR_IDX"
+        },
+        {
+          "port": "mode",
+          "reset": "0",
+          "desc": "0 NEC, 1 RC-5"
+        }
+      ]
+    },
+    {
+      "name": "TICK_DIV",
+      "kind": "rw",
+      "desc": "Tick divider",
+      "fields": [
+        {
+          "port": "tick_div",
+          "reset": "0",
+          "desc": "tick = TICK_DIV + 1 clocks"
+        }
+      ]
+    },
+    {
+      "name": "RING_BASE",
+      "kind": "rw",
+      "desc": "Ring address",
+      "fields": [
+        {
+          "port": "ring_base",
+          "reset": "0",
+          "desc": "word 0, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "RING_WORDS",
+      "kind": "rw",
+      "desc": "Ring size",
+      "fields": [
+        {
+          "port": "ring_words",
+          "reset": "0",
+          "desc": "words"
+        }
+      ]
+    },
+    {
+      "name": "RD_IDX",
+      "kind": "rw",
+      "desc": "Software read index",
+      "fields": [
+        {
+          "port": "rd_idx",
+          "reset": "0",
+          "desc": "next word software reads"
+        }
+      ]
+    },
+    {
+      "name": "WR_IDX",
+      "kind": "ro",
+      "desc": "Hardware write index",
+      "fields": [
+        {
+          "port": "wr_idx",
+          "desc": "next word the core writes"
+        }
+      ]
+    },
+    {
+      "name": "LAST",
+      "kind": "ro",
+      "desc": "Last code",
+      "fields": [
+        {
+          "port": "last",
+          "desc": "newest decoded code"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "State",
+      "fields": [
+        {
+          "port": "err",
+          "desc": "AXI error response seen"
+        }
+      ]
+    },
+    {
+      "name": "COUNTS",
+      "kind": "ro",
+      "desc": "Counters",
+      "fields": [
+        {
+          "port": "code_cnt",
+          "desc": "codes decoded"
+        },
+        {
+          "port": "rx_err_cnt",
+          "desc": "malformed frames"
+        }
+      ]
+    },
+    {
+      "name": "OVF_CNT",
+      "kind": "ro",
+      "desc": "Lost codes",
+      "fields": [
+        {
+          "port": "ovf_cnt",
+          "desc": "codes lost to a full ring and FIFO"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "CODE",
+      "port": "code",
+      "desc": "a code was decoded"
+    },
+    {
+      "name": "RX_ERR",
+      "port": "rx_err",
+      "desc": "a malformed frame"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "a job ended that saw an AXI error response"
+    }
+  ],
+  "sequence": [
+    "Write TICK_DIV (clock / 28.44 kHz - 1), RING_BASE, RING_WORDS, RD_IDX = 0.",
+    "Write CTRL (enable, mode) and IRQ_ENABLE with CODE.",
+    "On CODE, read LAST or the ring words RD_IDX .. WR_IDX - 1 and write RD_IDX."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time.",
+    "ir_in is the receiver pin (idle high).",
+    "The core testbench prints one `LAT <master> dram R|W <cycles>` line per AXI burst (tb/tv_lat_mon.svh), the regression suite's latency format."
+  ]
+}
