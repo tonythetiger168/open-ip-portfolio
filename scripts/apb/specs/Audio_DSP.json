@@ -1,0 +1,167 @@
+{
+  "title": "Audio DSP: stereo 16-bit PCM gain, mono downmix and mute with peak and clip meters over AXI4",
+  "code": "0x5C06",
+  "version": "1.0",
+  "axi_master": {
+    "id": 8,
+    "reads": true,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "One stereo frame per word: left = bits 15:0, right = bits 31:16, signed 16-bit.",
+    "MIX 1: both channels take (L + R) >>> 1 first (17-bit sum, arithmetic shift).",
+    "y = sat16((x * GAIN) >>> 8), GAIN_L / GAIN_R signed Q8.8 (256 = 0 dB); MUTE 1: y = 0.",
+    "PEAK = the largest |y| of the last job; CLIPS = output samples that saturated (saturating)."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "SRC_ADDR",
+      "kind": "rw",
+      "desc": "Source address (byte address, word aligned)",
+      "fields": [
+        {
+          "port": "src_addr",
+          "reset": "0",
+          "desc": "first word read by the job"
+        }
+      ]
+    },
+    {
+      "name": "DST_ADDR",
+      "kind": "rw",
+      "desc": "Destination address (byte address, word aligned)",
+      "fields": [
+        {
+          "port": "dst_addr",
+          "reset": "0",
+          "desc": "first word written by the job"
+        }
+      ]
+    },
+    {
+      "name": "LEN",
+      "kind": "rw",
+      "desc": "Job length",
+      "fields": [
+        {
+          "port": "xfer_len",
+          "reset": "0",
+          "desc": "32-bit words (0: the job ends at once)"
+        }
+      ]
+    },
+    {
+      "name": "GAIN",
+      "kind": "rw",
+      "desc": "Channel gains (signed Q8.8)",
+      "fields": [
+        {
+          "port": "gain_l",
+          "reset": "256",
+          "desc": "left"
+        },
+        {
+          "port": "gain_r",
+          "reset": "256",
+          "desc": "right"
+        }
+      ]
+    },
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Job options",
+      "fields": [
+        {
+          "port": "mix",
+          "reset": "0",
+          "desc": "1: mono downmix"
+        },
+        {
+          "port": "mute",
+          "reset": "0",
+          "desc": "1: output 0"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "start",
+          "desc": "start a job with the current registers; ignored while busy"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Job state",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "a job is running"
+        },
+        {
+          "port": "err",
+          "desc": "the current / last job saw an AXI error response (cleared by start)"
+        }
+      ]
+    },
+    {
+      "name": "METER",
+      "kind": "ro",
+      "desc": "Level meters",
+      "fields": [
+        {
+          "port": "peak",
+          "desc": "largest |y|"
+        },
+        {
+          "port": "clips",
+          "desc": "saturated samples"
+        }
+      ]
+    },
+    {
+      "name": "CYCLES",
+      "kind": "ro",
+      "desc": "Job length in clocks",
+      "fields": [
+        {
+          "port": "cycles",
+          "desc": "clocks from start to DONE of the current / last job"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DONE",
+      "port": "done",
+      "desc": "a job ended"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "a job ended that saw an AXI error response"
+    }
+  ],
+  "sequence": [
+    "Write SRC_ADDR, DST_ADDR (word aligned) and LEN (32-bit words).",
+    "Write CTRL with the job's options and IRQ_ENABLE with DONE (and ERR).",
+    "Write CMD.start = 1 (ignored while STATUS.busy is 1).",
+    "Wait for irq (or poll STATUS.busy = 0), read the result registers, write 1s to IRQ_STATUS to clear it."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time. A read burst is issued only when its data has room, a write burst only when all its data is ready."
+  ]
+}

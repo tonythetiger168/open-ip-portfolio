@@ -1,0 +1,165 @@
+{
+  "title": "Video codec: lossless DPCM intra encoder / decoder of 8-bit frames over AXI4",
+  "code": "0x5C04",
+  "version": "1.0",
+  "axi_master": {
+    "id": 5,
+    "reads": true,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "Four 8-bit samples per word, byte 0 first; LEN words from SRC to DST.",
+    "Predictor: the previous sample of the job (mod 256); 128 for the first sample of the job and, when LINE_WORDS != 0, of every line of LINE_WORDS words.",
+    "MODE 0 ENCODE: out = (x - pred) mod 256. MODE 1 DECODE: out = (in + pred) mod 256, pred = the decoded sample. DECODE(ENCODE(frame)) = frame.",
+    "ZEROS counts zero residuals (ENCODE: output bytes, DECODE: input bytes), saturating.",
+    "CHECKSUM is the 32-bit sum of the frame words (ENCODE: input, DECODE: output), so both directions of one frame give the same value."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "SRC_ADDR",
+      "kind": "rw",
+      "desc": "Source address (byte address, word aligned)",
+      "fields": [
+        {
+          "port": "src_addr",
+          "reset": "0",
+          "desc": "first word read by the job"
+        }
+      ]
+    },
+    {
+      "name": "DST_ADDR",
+      "kind": "rw",
+      "desc": "Destination address (byte address, word aligned)",
+      "fields": [
+        {
+          "port": "dst_addr",
+          "reset": "0",
+          "desc": "first word written by the job"
+        }
+      ]
+    },
+    {
+      "name": "LEN",
+      "kind": "rw",
+      "desc": "Job length",
+      "fields": [
+        {
+          "port": "xfer_len",
+          "reset": "0",
+          "desc": "32-bit words (0: the job ends at once)"
+        }
+      ]
+    },
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Job options",
+      "fields": [
+        {
+          "port": "mode",
+          "reset": "0",
+          "desc": "0 ENCODE, 1 DECODE"
+        }
+      ]
+    },
+    {
+      "name": "LINE",
+      "kind": "rw",
+      "desc": "Frame geometry",
+      "fields": [
+        {
+          "port": "line_words",
+          "reset": "0",
+          "desc": "words per line, 0: one line"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "start",
+          "desc": "start a job with the current registers; ignored while busy"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Job state",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "a job is running"
+        },
+        {
+          "port": "err",
+          "desc": "the current / last job saw an AXI error response (cleared by start)"
+        }
+      ]
+    },
+    {
+      "name": "ZEROS",
+      "kind": "ro",
+      "desc": "Zero residuals",
+      "fields": [
+        {
+          "port": "zeros",
+          "desc": "zero residuals of the current / last job"
+        }
+      ]
+    },
+    {
+      "name": "CHECKSUM",
+      "kind": "ro",
+      "desc": "Frame checksum",
+      "fields": [
+        {
+          "port": "checksum",
+          "desc": "sum of the frame words"
+        }
+      ]
+    },
+    {
+      "name": "CYCLES",
+      "kind": "ro",
+      "desc": "Job length in clocks",
+      "fields": [
+        {
+          "port": "cycles",
+          "desc": "clocks from start to DONE of the current / last job"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DONE",
+      "port": "done",
+      "desc": "a job ended"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "a job ended that saw an AXI error response"
+    }
+  ],
+  "sequence": [
+    "Write SRC_ADDR, DST_ADDR (word aligned) and LEN (32-bit words).",
+    "Write CTRL with the job's options and IRQ_ENABLE with DONE (and ERR).",
+    "Write CMD.start = 1 (ignored while STATUS.busy is 1).",
+    "Wait for irq (or poll STATUS.busy = 0), read the result registers, write 1s to IRQ_STATUS to clear it."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time. A read burst is issued only when its data has room, a write burst only when all its data is ready."
+  ]
+}

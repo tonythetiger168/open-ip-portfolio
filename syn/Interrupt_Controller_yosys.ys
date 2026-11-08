@@ -1,0 +1,8 @@
+# Interrupt_Controller synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/Interrupt_Controller_top.sv ../rtl/soc_ss_axi_engine.sv
+hierarchy -check -top Interrupt_Controller_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json Interrupt_Controller_top.json
+write_verilog Interrupt_Controller_top_netlist.v
