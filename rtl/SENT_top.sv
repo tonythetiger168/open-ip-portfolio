@@ -344,7 +344,7 @@ module SENT_top (
             if (rni == r_n - 3'd1) rst <= R_CRC; else rni <= rni + 3'd1;
           end
           R_CRC: begin
-            rst <= cfg_rx_pause ? R_PAUSE : R_SYNC;
+            if (cfg_rx_pause) rst <= R_PAUSE; else rst <= R_SYNC;
             if (r_drop) bad_frame = 1'b1;                          // rx_err_cal was given
             else if (nv == crc_fast(r_d, r_n, cfg_crc_legacy)) begin
               rx_valid <= 1'b1; rx_status <= r_st; rx_data <= r_d; rx_cal_clks <= cal; good_frame = 1'b1;

@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# AES_GCM synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/AES_GCM_top.sv 
+hierarchy -check -top AES_GCM_top
+proc; opt; fsm; opt
+techmap; opt
+stat
+write_json AES_GCM_top.json
+write_verilog AES_GCM_top_netlist.v

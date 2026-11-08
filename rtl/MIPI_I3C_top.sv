@@ -332,7 +332,7 @@ module MIPI_I3C_top #(
               od_low <= 1'b0;
               ack_ph <= 1'b0;
               bcnt   <= 3'd0;
-              state  <= ack_ok ? S_RX_DATA : S_WAIT_STOP;
+              if (ack_ok) state <= S_RX_DATA; else state <= S_WAIT_STOP;
             end
           end
 

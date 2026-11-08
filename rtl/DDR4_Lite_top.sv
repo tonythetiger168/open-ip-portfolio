@@ -155,6 +155,10 @@ module DDR4_Lite_top #(
   wire rrd_done = (rrd_cnt == '0) && !ld_rrd_v;
   wire wtr_done = (wtr_cnt == '0) && !ld_wtr_v;
   wire rfc_done = (rfc_cnt == '0) && !ld_rfc_v;
+  // refresh may only start when no bank is mid-write or inside tRAS.
+  // Declared here, before its first use in the pin block (ENG_REF_PRE).
+  wire ref_go = wr_done[0] && wr_done[1] && wr_done[2] && wr_done[3] &&
+                ras_done[0] && ras_done[1] && ras_done[2] && ras_done[3];
 
   // ---------------- refresh ----------------
   logic ref_pending;
@@ -406,9 +410,6 @@ module DDR4_Lite_top #(
   always_ff @(posedge clk) if (mem_we) mem[mem_wa] <= mem_wd;
   wire hit = bank_open[eng_bank] &&
              (bank_row[eng_bank] == eng_row);
-  // refresh may only start when no bank is mid-write or inside tRAS
-  wire ref_go = wr_done[0] && wr_done[1] && wr_done[2] && wr_done[3] &&
-                ras_done[0] && ras_done[1] && ras_done[2] && ras_done[3];
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin

@@ -1,7 +1,7 @@
 # open-ip-portfolio
 
-Open-source SystemVerilog protocol IP portfolio (Apache-2.0) — **136 protocol
-IPs**, each with a synthesizable RTL core, an APB4 register wrapper, self-checking
+Open-source SystemVerilog protocol IP portfolio (Apache-2.0) — **142 protocol
+IPs** plus **13 phone SoC subsystem models** (AXI4 managers), each with a synthesizable RTL core, an APB4 register wrapper, self-checking
 testbenches for both, a coverage checker (reference model, SVA and functional
 coverage), and open-toolchain build flows (Icarus Verilog simulation, Yosys
 synthesis, Verilator coverage).
@@ -35,10 +35,10 @@ scripts/mut/run_mut.py       mutation testing of the testbenches (Icarus or the 
 docs/ip/                 one page per IP: ports, register map, coverage
 docs/                    coverage closure, portfolio review, methodology notes
 gen_framework.py         original v1 generator (frozen: out of sync with rtl/ and tb/)
-setup_tools.sh           installs iverilog / yosys if missing
+setup_tools.sh           installs yosys and iverilog 13.0 if missing
 ```
 
-## Protocol catalog (136)
+## Protocol catalog (142)
 
 ### AMBA & ARM interconnect (16)
 
@@ -174,7 +174,7 @@ setup_tools.sh           installs iverilog / yosys if missing
 
 | Protocol | Build | Standalone package |
 |---|---|---|
-| CXL | `make -f Makefile.CXL sim` | [open_ip_CXL.zip](releases/open_ip_CXL.zip) |
+| CXL 3.0 (256-byte flits, CXL.io, HDM-DB back-invalidation) | `make -f Makefile.CXL sim` | [open_ip_CXL.zip](releases/open_ip_CXL.zip) |
 | Interlaken v1.2 | `make -f Makefile.Interlaken_v1_2 sim` | [open_ip_Interlaken_v1_2.zip](releases/open_ip_Interlaken_v1_2.zip) |
 | JESD204C | `make -f Makefile.JESD204C sim` | [open_ip_JESD204C.zip](releases/open_ip_JESD204C.zip) |
 | PCIe | `make -f Makefile.PCIe sim` | [open_ip_PCIe.zip](releases/open_ip_PCIe.zip) |
@@ -222,14 +222,20 @@ setup_tools.sh           installs iverilog / yosys if missing
 |---|---|---|
 | Bluetooth 5 | `make -f Makefile.Bluetooth5 sim` | [open_ip_Bluetooth5.zip](releases/open_ip_Bluetooth5.zip) |
 
-### Security & crypto (4)
+### Security & crypto (10)
 
 | Protocol | Build | Standalone package |
 |---|---|---|
+| AES-GCM (SP 800-38D, AES-128 / AES-256) | `make -f Makefile.AES_GCM sim` | [open_ip_AES_GCM.zip](releases/open_ip_AES_GCM.zip) |
 | CSE | `make -f Makefile.CSE sim` | [open_ip_CSE.zip](releases/open_ip_CSE.zip) |
 | Crypto (Security Engine) | `make -f Makefile.Crypto___Security_Engine sim` | [open_ip_Crypto___Security_Engine.zip](releases/open_ip_Crypto___Security_Engine.zip) |
+| ML-DSA (FIPS 204 post-quantum signatures) | `make -f Makefile.ML_DSA sim` | [open_ip_ML_DSA.zip](releases/open_ip_ML_DSA.zip) |
 | ML-KEM (FIPS 203 post-quantum KEM) | `make -f Makefile.ML_KEM sim` | [open_ip_ML_KEM.zip](releases/open_ip_ML_KEM.zip) |
+| PCIe / CXL IDE (AES-256-GCM link encryption, TLPs and CXL.cachemem) | `make -f Makefile.PCIe_CXL_IDE sim` | [open_ip_PCIe_CXL_IDE.zip](releases/open_ip_PCIe_CXL_IDE.zip) |
 | Root of Trust (lifecycle, secure boot, DICE key) | `make -f Makefile.Root_of_Trust sim` | [open_ip_Root_of_Trust.zip](releases/open_ip_Root_of_Trust.zip) |
+| SHA-3 / SHAKE (FIPS 202 hash engine) | `make -f Makefile.SHA3 sim` | [open_ip_SHA3.zip](releases/open_ip_SHA3.zip) |
+| SPDM 1.2 responder (DSP0274 attestation, ML-DSA signatures) | `make -f Makefile.SPDM sim` | [open_ip_SPDM.zip](releases/open_ip_SPDM.zip) |
+| TRNG (SP 800-90B health tests, SHA-256 conditioner) | `make -f Makefile.TRNG sim` | [open_ip_TRNG.zip](releases/open_ip_TRNG.zip) |
 
 ### Low-speed & board-level (10)
 
@@ -250,9 +256,38 @@ setup_tools.sh           installs iverilog / yosys if missing
 > implementation** — this repository contains no such license and no device
 > keys. See [Protocol licensing notice](#protocol-licensing-notice-important).
 
+## Phone SoC subsystems (13)
+
+Light, synthesizable models of the blocks around the memory system of a
+phone SoC, for SoC-level testbenches: each one is an AXI4 manager (`m_*`
+pins: 32-bit address and data, 4-bit ID, INCR bursts of up to 16 beats,
+never across 4 KB, one read and one write outstanding) with an APB4
+register wrapper, interrupts, a core testbench and a wrapper testbench
+against the shared AXI4 subordinate model `tb/soc_ss_axi_mem.svh`. The data
+movers share `rtl/soc_ss_axi_engine.sv`. They model the traffic and the
+programming model, not the real compute (no ISA, shader or codec standard).
+Default AXI IDs: CPU 0, GPU 1, NPU 2, ISP 3, display 4, video 5, modem 6,
+DMA 7, audio 8, sensor hub 9, interrupt controller 10, timer 11, SMMU walker 15.
+
+| Subsystem | Build | Standalone package |
+|---|---|---|
+| DMA: 4-channel system DMA (COPY / FILL, round robin) | `make -f Makefile.DMA sim` | [open_ip_DMA.zip](releases/open_ip_DMA.zip) |
+| SMMU: system MMU / IOMMU: 4 KB pages, 4-entry TLB, table walker, faults (AXI4 subordinate in, manager out) | `make -f Makefile.SMMU sim` | [open_ip_SMMU.zip](releases/open_ip_SMMU.zip) |
+| CPU Cluster: memory-traffic model (pattern write, check, copy) | `make -f Makefile.CPU_Cluster sim` | [open_ip_CPU_Cluster.zip](releases/open_ip_CPU_Cluster.zip) |
+| GPU: 2D blitter: copy, fill, alpha blend, invert | `make -f Makefile.GPU sim` | [open_ip_GPU.zip](releases/open_ip_GPU.zip) |
+| NPU: int8 4-tap convolution with bias, shift, ReLU, saturation | `make -f Makefile.NPU sim` | [open_ip_NPU.zip](releases/open_ip_NPU.zip) |
+| ISP: camera ISP, black level and gain on a test pattern or sensor stream | `make -f Makefile.ISP sim` | [open_ip_ISP.zip](releases/open_ip_ISP.zip) |
+| Video Codec: lossless DPCM intra encoder / decoder of 8-bit frames | `make -f Makefile.Video_Codec sim` | [open_ip_Video_Codec.zip](releases/open_ip_Video_Codec.zip) |
+| Display Controller: frame scan-out, hsync / vsync, frame CRC, underruns | `make -f Makefile.Display_Controller sim` | [open_ip_Display_Controller.zip](releases/open_ip_Display_Controller.zip) |
+| Audio DSP: stereo gain and mix, mute, peak and clip meter | `make -f Makefile.Audio_DSP sim` | [open_ip_Audio_DSP.zip](releases/open_ip_Audio_DSP.zip) |
+| Modem: baseband data path, LFSR scrambler and CRC-32 | `make -f Makefile.Modem sim` | [open_ip_Modem.zip](releases/open_ip_Modem.zip) |
+| Sensor Hub: sample averaging, packing, batched writes, threshold wake-up | `make -f Makefile.Sensor_Hub sim` | [open_ip_Sensor_Hub.zip](releases/open_ip_Sensor_Hub.zip) |
+| Interrupt Controller: 32 sources, priority claim, AXI4 event log | `make -f Makefile.Interrupt_Controller sim` | [open_ip_Interrupt_Controller.zip](releases/open_ip_Interrupt_Controller.zip) |
+| Timer WDT: system timer and watchdog with AXI4 timestamp records | `make -f Makefile.Timer_WDT sim` | [open_ip_Timer_WDT.zip](releases/open_ip_Timer_WDT.zip) |
+
 ## Design organization: cores vs. variants
 
-The catalog has **136 entries, each with its own RTL core** in
+The protocol catalog has **142 entries, each with its own RTL core** in
 `rtl/<P>_top.sv`. Up to v2.5.1, 29 entries were byte-level renamed copies of
 5 shared templates (CHI, UART, CAN, the 2-wire serial shifter and the frame
 echo template). All of them have since been rewritten as implementations of
@@ -282,14 +317,16 @@ Tested on a clean Ubuntu 24.04 container. Versions used for the published result
 
 | Tool | Version | Needed for |
 |---|---|---|
-| Icarus Verilog | 12.0 | `make sim`, `make apb`, CI |
+| Icarus Verilog | 13.0 | `make sim`, `make apb`, CI |
 | Yosys | 0.33 | `make syn`, `make apb`, CI |
 | Verilator | 5.052 | coverage flow (`scripts/cov/`) only |
-| Python 3 + `pyslang` 12.0.0 | 3.10+ | coverage flow (FSM cover generation), APB generator |
+| Python 3 + `pyslang` 12.0.0 | 3.10+ | coverage flow (FSM cover generation), APB generator, strict elaboration gate |
 
 ```sh
-# Icarus Verilog + Yosys (what CI installs); needs root
-sudo sh setup_tools.sh         # or: sudo apt-get install -y iverilog yosys
+# Icarus Verilog 13.0 + Yosys (what CI installs); needs root. Distribution
+# packages ship iverilog 12, which accepts a net used above its declaration
+# (issue #25), so setup_tools.sh builds 13.0 from source (~3 min on 4 cores)
+sudo sh setup_tools.sh
 
 # Verilator 5.052: distribution packages are too old (Ubuntu 24.04 ships 5.020,
 # which silently drops covergroups), so build it from source (~25 min on 4 cores)
@@ -319,13 +356,17 @@ make -f Makefile.I2C apb        # -> TEST PASSED: I2C_apb
 # pin-level functional test, where tb/func has one (the TB plays the device)
 make -f Makefile.DDR4 func      # -> TEST PASSED: DDR4_func
 
-# full regression (what CI runs): sim + syn + apb (+ func) for all 136 IPs, in parallel (~50 min on 4 cores)
+# full regression (what CI runs): sim + syn + apb (+ func) for all 155 IPs, in parallel (~50 min on 4 cores)
 bash scripts/ci_regression.sh   # logs in work/ci_*.log
+
+# strict IEEE 1800 elaboration of every IP's RTL with slang (CI gate; iverilog accepts
+# some illegal code, e.g. a net used above its declaration)
+python3 scripts/lint/strict_elab.py   # -> strict elaboration: 155/155 IPs clean
 
 # five-metric coverage (Verilator)
 bash scripts/cov/run_cov.sh I2C        # one core  -> RESULT: CLOSED
 bash scripts/cov/run_cov.sh I2C_apb    # its wrapper
-bash scripts/cov/run_all.sh 4          # all 272 runs, 4 in parallel
+bash scripts/cov/run_all.sh 4          # all 297 runs, 4 in parallel
 
 # standalone package workflow (core + wrapper, sim / syn / apb)
 unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
@@ -336,21 +377,33 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
 - **Five-metric closure (Verilator 5.052):** every IP's testbench reaches
   100% line, toggle, FSM, SVA and functional coverage, and so does every
   IP's APB4 register wrapper (`rtl/<P>_apb.sv`, register map in
-  `docs/ip/<P>.md`): 136 cores and 136 wrappers, 272/272 closed. Results,
+  `docs/ip/<P>.md`): 142 cores and 142 wrappers, 284/284 closed. The 13
+  phone SoC subsystems are closed on their APB wrapper runs (13/13, with the
+  AXI4 manager pins in toggle coverage; constant AXI fields excluded with a
+  reason in `scripts/cov/exclude/<P>_apb.txt`); their cores are checked by
+  self-checking testbenches but have no core coverage checker yet. Results,
   exclusions and how to run: [docs/COVERAGE_CLOSURE.md](docs/COVERAGE_CLOSURE.md).
   CI runs both: `.github/workflows/regression.yml` (iverilog / yosys
   sim + syn + apb, plus a check that generated files are up to date) and
-  `.github/workflows/coverage.yml` (this five-metric flow over all 272
+  `.github/workflows/coverage.yml` (this five-metric flow over all 297
   runs, in 8 shards; any IP that is not CLOSED fails the build).
   `.github/workflows/mutation.yml` runs `scripts/mut/run_mut.py --flow cov`
   weekly: 8 operator mutants per core (relational, logical, constant bit,
   +/-1), each run through the testbench and its checker, with every
   surviving mutant listed in the job summary.
   The v2.5.1 numbers below are the earlier four-metric flow.
-- **Sign-off checks beyond coverage** (UCIe, PCIe, ML-KEM, Ethernet RS-FEC,
-  Ethernet PCS, Root of Trust so far): lint, mutation, formal (bounded proofs; exhaustive checks of the
-  ML-KEM and RS-FEC arithmetic and the PCS functions and gearboxes), area and logic depth, and the list of what a production
+- **Sign-off checks beyond coverage** (UCIe, PCIe, CXL, ML-KEM, ML-DSA, Ethernet RS-FEC,
+  Ethernet PCS, Root of Trust, SHA-3, AES-GCM, TRNG, PCIe / CXL IDE, SPDM so far): lint, mutation, formal (bounded proofs; exhaustive checks of the
+  ML-KEM, ML-DSA and RS-FEC arithmetic and the PCS functions and gearboxes), area and logic depth, and the list of what a production
   sign-off would still need: [docs/SIGNOFF.md](docs/SIGNOFF.md).
+- **Memory controller performance (measured):** every DDR / LPDDR / GDDR /
+  HBM controller page (`docs/ip/<P>.md`, 24 cores) has a Performance section:
+  unloaded read / write latency (page hit, closed bank, row conflict, behind a
+  refresh), sustained throughput for eight traffic patterns, refresh cost, and
+  a pre-layout Fmax and area on the open SKY130 library. All of it comes from
+  `bash scripts/perf/run_perf.sh <P>` (the IP's own TB with `+define+MEM_PERF`,
+  then `scripts/perf/sta_sky130.sh`); side-by-side table:
+  [docs/MEMORY_PERFORMANCE.md](docs/MEMORY_PERFORMANCE.md).
 
 ### Earlier four-metric flow (v2.5.1)
 

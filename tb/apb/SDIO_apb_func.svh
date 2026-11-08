@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of SDIO_apb_tb: the core TB's SD host model (commands, R5
 // checks, 4-bit data blocks with CRC16 and status tokens, a shadow of the
 // function 1 registers) drives the card; ERR is checked through the

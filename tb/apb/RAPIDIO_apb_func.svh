@@ -295,7 +295,8 @@ task automatic ip_func;
   rd(A_RX_REP);                                          // empty
   rd(A_FLAGS); if (rdv[FLAG_RX_REP_AVAIL]) fail("RX_REP read while empty");
   wr(A_IRQ_STATUS, IRQ_ALL);
-  // Leave a real doorbell pending for the generated TB's final reset.
+  // Pending IRQ left for the reset check that follows ip_func() in the generated TB.
+  // A real doorbell creates an unread report and pending IRQ at reset.
   c_hdr(4'd10); c_put(0); c_put(8'h52); c_put(8'h12); c_put(8'h34);
   p_send(0, 1);
   rd(A_IRQ_STATUS);

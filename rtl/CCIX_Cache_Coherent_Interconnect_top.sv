@@ -207,7 +207,7 @@ module CCIX_Cache_Coherent_Interconnect_top #(
                 tw <= tw + 1'b1;
               end
               if (r_ln == 4'd1) cmt = 1'b1;
-              else rs <= r_skip ? R_SKIP : R_MB;
+              else if (r_skip) rs <= R_SKIP; else rs <= R_MB;
             end
           end
           R_MB: begin
@@ -246,12 +246,12 @@ module CCIX_Cache_Coherent_Interconnect_top #(
           if (cl == 2'd1) oq = oq - 1'b1;
           if (cl == 2'd2) os = os - 1'b1;
         end
-        rs <= tlp_rx_last ? R_H0 : R_MH;
+        if (tlp_rx_last) rs <= R_H0; else rs <= R_MH;
       end
       if (tlp_bad) begin
         ev_err <= 1'b1;
         tw <= wp;
-        rs <= tlp_rx_last ? R_H0 : R_DROP;
+        if (tlp_rx_last) rs <= R_H0; else rs <= R_DROP;
       end
 
       // ---- the protocol layer reads
@@ -278,7 +278,7 @@ module CCIX_Cache_Coherent_Interconnect_top #(
               if (h_ty == 4'd1) cq = cq - 1'b1;
               if (h_ty == 4'd2) cs = cs - 1'b1;
               tn <= PW'(1); tbody <= 3'(h_ln - 1'b1);
-              ts <= h_ln == 4'd1 ? T_GATH : T_BODY;
+              if (h_ln == 4'd1) ts <= T_GATH; else ts <= T_BODY;
             end
           end
         T_BODY:

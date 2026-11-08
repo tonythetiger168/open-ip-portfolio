@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of M_PHY_apb_tb: the TB loops the serial line back (or injects
 // words) and runs bursts through the TX / RX registers, every byte compared:
 // all D-codes and K-codes at G1 and G2, an unsupported K-code, HIBERN8 enter

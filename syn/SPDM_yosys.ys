@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDM synthesis script -- Yosys (open-source flow): the responder core with
+# its three SHA3-384 engines and the ML-DSA engine; the stores (certificate
+# chain, measurements, request and VCA buffers) are kept as memories
+read_verilog -sv ../rtl/SPDM_top.sv ../rtl/SHA3_top.sv ../rtl/ML_DSA_top.sv
+hierarchy -check -top SPDM_top
+proc; opt; fsm; opt; memory -nomap; opt
+techmap; opt
+stat
+write_json SPDM_top.json

@@ -136,7 +136,7 @@ module MIPI_RFFE_top #(
             if (bcnt == 4'd8) begin
               bcnt <= '0;
               if (!f_ok) begin err <= 1'b1; state <= S_IDLE; end
-              else begin addr <= frm[8:1]; state <= rd_q ? S_BP : S_WDATA; end
+              else begin addr <= frm[8:1]; if (rd_q) state <= S_BP; else state <= S_WDATA; end
             end
           end
           S_WDATA: if (ev_f) begin

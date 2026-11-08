@@ -180,6 +180,7 @@ module NVMe_tb;
   logic [32:0] f_nsid = '1;                    // bit 32 set: not forced
   int          f_op = -1, f_fuse = -1, f_prpw = -1;
   logic [31:0] f_pat = 0;
+  bit bg_busy = 0, stop = 0;
   task automatic submit(input int kind, input int batch);
     logic [31:0] e [0:15];
     logic [7:0]  op, sc;
@@ -298,7 +299,6 @@ module NVMe_tb;
 
   // a background producer (Icarus cannot fork inside a task)
   int bg_n = 0, bg_kind = 0;
-  bit bg_busy = 0, stop = 0;
   initial forever begin
     @(negedge clk);
     if (bg_n != 0) begin

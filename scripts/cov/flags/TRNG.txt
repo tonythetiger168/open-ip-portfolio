@@ -1,0 +1,2 @@
+# the 512-bit collection / schedule register: score its toggles too
+--coverage-max-width 512

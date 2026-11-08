@@ -9,6 +9,7 @@
 //  - The core runs on PCLK/PRESETN; protocol pins pass through unchanged.
 //  - Register map: docs/ip/RAPIDIO.md
 // ============================================================================
+`timescale 1ns/1ps
 module RAPIDIO_apb (
   input  logic        PCLK,
   input  logic        PRESETN,

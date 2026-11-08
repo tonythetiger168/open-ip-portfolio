@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+name: STB control conformance
+on:
+  pull_request:
+    paths:
+      - 'products/STB/control-slice/**'
+      - '.github/workflows/stb-control-conformance.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install qualified Icarus
+        run: sudo apt-get update && sudo apt-get install -y iverilog
+      - name: Real RTL, independent scoreboard, mutation and raw evidence
+        run: python products/STB/control-slice/run.py
+      - name: Preserve evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stb-control-conformance-${{ github.sha }}
+          path: products/STB/control-slice/evidence/
+          if-no-files-found: error
+          retention-days: 14

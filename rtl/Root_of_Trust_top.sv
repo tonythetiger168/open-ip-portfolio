@@ -336,7 +336,7 @@ module Root_of_Trust_top #(
               if (&nw) nw_ovf <= 1'b1;
               idx <= idx + 4'd1;
               if (idx == 4'd15) begin
-                sha_go <= 1'b1; sha_init <= sfirst; sfirst <= 1'b0; ms <= img_last ? M_PADH : M_IMGH;
+                sha_go <= 1'b1; sha_init <= sfirst; sfirst <= 1'b0; if (img_last) ms <= M_PADH; else ms <= M_IMGH;
               end else if (img_last) ms <= M_PAD;
               padw <= 1'b1;
             end

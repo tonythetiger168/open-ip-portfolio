@@ -169,7 +169,7 @@ module MIPI_SPMI_top #(
               end else begin
                 if (!long_q) addr[15:8] <= 8'd0;
                 addr[7:0] <= frm[8:1];
-                state <= rd_q ? S_BP : S_WDATA;
+                if (rd_q) state <= S_BP; else state <= S_WDATA;
               end
             end
           end
@@ -182,7 +182,7 @@ module MIPI_SPMI_top #(
               else begin
                 if (in_rf) mem[addr[4:0]] <= frm[8:1];
                 addr <= addr + 16'd1;
-                if (nleft == '0) state <= ack_q ? S_ACK : S_IDLE;
+                if (nleft == '0) if (ack_q) state <= S_ACK; else state <= S_IDLE;
                 nleft <= nleft - 4'd1;
               end
             end

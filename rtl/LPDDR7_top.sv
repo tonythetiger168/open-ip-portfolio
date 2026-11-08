@@ -168,7 +168,7 @@ module LPDDR7_top #(
                 if (a_hit) begin
                   hit_cnt[a_bank] <= (hit_cnt[a_bank] == 2'd3) ? 2'd3
                                       : hit_cnt[a_bank] + 1'b1;
-                  dstate <= (hcmd == 3'd2) ? D_RD : D_WR;
+                  if (hcmd == 3'd2) dstate <= D_RD; else dstate <= D_WR;
                 end else begin
                   if (bank_open[a_bank]) begin
                     bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0];
@@ -230,7 +230,7 @@ module LPDDR7_top #(
               if (rp_t[act_bank] == 0) dstate <= D_ACT;
             end
             else if (rp_ok) begin           // plain PRE: hold hready low through tRP
-              ref_req <= (ref_cnt == 0); dstate <= (ref_cnt == 0) ? D_PRE : D_IDLE;
+              ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE;
             end
           end
         end
@@ -250,7 +250,7 @@ module LPDDR7_top #(
             if (ref_walk)      begin ref_walk <= 1'b0; dstate <= D_IDLE; end
             else if (auto_rd)  begin auto_rd <= 1'b0; dstate <= D_RD; end
             else if (auto_wr)  begin auto_wr <= 1'b0; dstate <= D_WR; end
-            else begin ref_req <= (ref_cnt == 0); dstate <= (ref_cnt == 0) ? D_PRE : D_IDLE; end
+            else begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
           end
         end
         D_RD: begin
@@ -273,7 +273,7 @@ module LPDDR7_top #(
               auto_close <= 1'b0; pre_need <= 1'b1;
               bank_open[cur_bank] <= 1'b0; rp_t[cur_bank] <= TRP[8:0];
               dstate <= D_PRE;               // adaptive closed-page exit
-            end else begin ref_req <= (ref_cnt == 0); dstate <= (ref_cnt == 0) ? D_PRE : D_IDLE; end
+            end else begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
           end
         end
         default: dstate <= D_IDLE;

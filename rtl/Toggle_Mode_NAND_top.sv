@@ -272,7 +272,7 @@ module Toggle_Mode_NAND_top #(
             if (addr_cnt == 3'd2) page_q <= cmd_in[3:0];
             addr_cnt <= addr_cnt + 3'd1;
             if (addr_cnt == 3'd4) begin
-              state <= rd_mode ? ST_WAIT30 : ST_DIN;
+              if (rd_mode) state <= ST_WAIT30; else state <= ST_DIN;
               ptr   <= col_q;
             end
           end
