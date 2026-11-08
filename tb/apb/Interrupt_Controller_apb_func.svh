@@ -7,7 +7,43 @@
 // wrap, LOG_WP in STATE), LOG_ERR on an AXI error, LOG_EN 0.
 `SOC_SS_AXI_MEM(mem, PCLK, PRESETN)
 initial irq_src = 0;
+bit storm = 0;   // 1: every source toggles at each negedge
+always @(negedge PCLK) if (storm) irq_src <= ~irq_src;
 
+// LOG_ERR driving irq, then LOG_WP through a full 16-bit wrap: all 32
+// sources toggling every other clock keep the record writer busy
+task automatic cov_tail;
+  logic [31:0] w0;
+  bit hi;
+  rd(A_FLAGS);
+  mem.err_lo = 32'hFFFF_FFF0; mem.err_hi = 32'hFFFF_FFFF;
+  wr(A_LOG_BASE, 32'hFFFF_FFF0); wr(A_LOG_CTRL, (3 << 1) | 1); wr(A_ENABLE, 32'hFFFF_FFFF);
+  wr(A_IRQ_STATUS, IRQ_ALL);
+  irq_src = 32'h0000_0010; cycles(40); irq_src = 0;
+  rd(A_IRQ_STATUS); if (!rdv[IRQ_LOG_ERR]) fail("LOG_ERR not set");
+  wr(A_IRQ_ENABLE, 32'(1) << IRQ_LOG_ERR); cycles(1);
+  if (irq !== 1) fail("irq low with LOG_ERR enabled");
+  wr(A_IRQ_STATUS, IRQ_ALL); wr(A_IRQ_ENABLE, 0);
+  mem.err_lo = '1; mem.err_hi = '1;
+  mem.stall = 0;
+  wr(A_LOG_BASE, 32'h0000_8000); wr(A_LOG_CTRL, (16'hFFFF << 1) | 1);
+  hi = 0;
+  storm = 1;
+  forever begin
+    rd(A_STATE);
+    if (rdv[15]) hi = 1;
+    if (hi && !rdv[15]) break;
+    cycles(500);
+  end
+  storm = 0;
+  @(negedge PCLK); irq_src = 0;
+  mem.stall = 1;
+  wr(A_LOG_CTRL, 0); wr(A_ENABLE, 0);
+  cycles(40);
+  irq_src = 32'h0000_0100; wr(A_ENABLE, 32'hFFFF_FFFF);
+  cycles(2);
+  wr(A_IRQ_ENABLE, IRQ_ALL);   // CPU left pending and enabled into the final reset
+endtask
 task automatic ip_func;
   logic [31:0] p;
   wr(A_ENABLE, 32'hFFFF_FFFF);
@@ -74,5 +110,6 @@ task automatic ip_func;
   wr(A_ENABLE, 0); wr(A_LOG_CTRL, 0);
   cycles(2);
   wr(A_IRQ_STATUS, IRQ_ALL);
+  cov_tail();
   if (mem.errors != 0) fail("AXI rule violations");
 endtask

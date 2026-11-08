@@ -71,7 +71,7 @@ module Interrupt_Controller_top #(
   logic [31:0] rs_data, ws_data, e_cycles;
   logic [31:0] pend_q, tolog;
   logic [23:0] ts;
-  logic [15:0] slot;
+  logic [15:0] slot, wslot;
   logic [4:0]  lid;
   logic        lvalid;
 
@@ -87,12 +87,14 @@ module Interrupt_Controller_top #(
     for (int i = 31; i >= 0; i--) if (tolog[i]) begin lid = 5'(i); lvalid = 1'b1; end
   end
   wire go = log_en && lvalid && !e_busy && !e_done && log_words != 0;   // not in the DONE clock: slot moves on
+  // the ring slot of the next record: back to 0 if LOG_WORDS was lowered below it
+  assign wslot = (slot >= log_words) ? 16'd0 : slot;
   logic [4:0] lid_q;
 
   soc_ss_axi_engine #(.ID(AXI_ID)) u_eng (
     .clk, .rst_n,
     .start(go), .rd_en(1'b0), .wr_en(1'b1),
-    .src(32'd0), .dst(log_base + {14'd0, slot, 2'b00}), .len(16'd1),
+    .src(32'd0), .dst(log_base + {14'd0, wslot, 2'b00}), .len(16'd1),
     .busy(e_busy), .done(e_done), .err(e_err), .cycles(e_cycles),
     .rs_valid, .rs_data, .rs_ready, .ws_valid, .ws_data, .ws_ready,
     .m_awid(m_awid),
@@ -141,7 +143,7 @@ module Interrupt_Controller_top #(
       if (go) lid_q <= lid;
       if (e_done) begin
         log_wp <= log_wp + 16'd1;
-        slot   <= (slot + 16'd1 >= log_words) ? 16'd0 : slot + 16'd1;
+        slot   <= (wslot + 16'd1 >= log_words) ? 16'd0 : wslot + 16'd1;
       end
     end
   end

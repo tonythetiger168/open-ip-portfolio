@@ -33,7 +33,7 @@ Features:
 
 - PENDING = (irq_src | SW_SET) & ENABLE; cpu_irq = |PENDING (a pin, also STATE.cpu_irq).
 - CLAIM = {valid (bit 31), id (bits 4:0)} of the lowest-numbered pending source.
-- LOG_EN 1: each source that becomes pending (rising edge of its PENDING bit) is written as {timestamp[23:0], 3'b000, id[4:0]} at LOG_BASE + 4 * (n mod LOG_WORDS), n = the record number; LOG_WP counts records. The lowest-numbered waiting source is written first; edges of a source still waiting are merged.
+- LOG_EN 1: each source that becomes pending (rising edge of its PENDING bit) is written as {timestamp[23:0], 3'b000, id[4:0]} at LOG_BASE + 4 * (n mod LOG_WORDS); if LOG_WORDS is lowered below the slot of the next record, that record goes to slot 0 and the ring restarts there, n = the record number; LOG_WP counts records. The lowest-numbered waiting source is written first; edges of a source still waiting are merged.
 - timestamp: a free-running 24-bit clock counter, read in the clock the record write starts.
 
 m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time. A read burst is issued only when its data has room, a write burst only when all its data is ready.
@@ -274,4 +274,4 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
 | core `rtl/Interrupt_Controller_top.sv` | not run | | | | | |
-| wrapper `rtl/Interrupt_Controller_apb.sv` | not run | | | | | |
+| wrapper `rtl/Interrupt_Controller_apb.sv` | pass | 34/34 | 1484/1484 (+289 excl.) | n/a | 12/12 | 41/41 |

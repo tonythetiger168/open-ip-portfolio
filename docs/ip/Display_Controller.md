@@ -285,4 +285,4 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
 | core `rtl/Display_Controller_top.sv` | not run | | | | | |
-| wrapper `rtl/Display_Controller_apb.sv` | not run | | | | | |
+| wrapper `rtl/Display_Controller_apb.sv` | pass | 34/34 | 1098/1304 (+52 excl.) | n/a | 11/11 | 44/44 |

@@ -281,4 +281,4 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
 | core `rtl/Sensor_Hub_top.sv` | not run | | | | | |
-| wrapper `rtl/Sensor_Hub_apb.sv` | not run | | | | | |
+| wrapper `rtl/Sensor_Hub_apb.sv` | pass | 33/33 | 1057/1256 (+50 excl.) | n/a | 13/13 | 46/46 |

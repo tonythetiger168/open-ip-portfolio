@@ -151,6 +151,22 @@ module Timer_WDT_tb;
     clks(100);
     @(negedge clk); tmr_en = 0;
     check_records();
+    // TS_WORDS lowered below the next slot: the record goes to slot 0
+    check_on = 0;
+    rst_n = 0; clks(2); rst_n = 1; clks(2);
+    ts_base = 32'h0000_9000; ts_words = 8; period = 3; prescale = 0;
+    for (int i = 0; i < 8; i++) mem.poke(ts_base + 32'(4 * i), 32'hDEAD_0000 | 32'(i));
+    @(negedge clk); ts_en = 1; tmr_en = 1;
+    while (ts_wp < 5) @(negedge clk);
+    tmr_en = 0; clks(10);
+    if (ts_wp !== 5) fail("TS_WP before lowering TS_WORDS");
+    mem.poke(ts_base, 32'hDEAD_0000);
+    ts_words = 3;
+    @(negedge clk); tmr_en = 1;
+    while (ts_wp < 7) @(negedge clk);
+    tmr_en = 0; clks(10);
+    if (mem.peek(ts_base) === 32'hDEAD_0000 || mem.peek(ts_base + 4) === 32'hDEAD_0001) fail("record not at slots 0, 1 after lowering TS_WORDS");
+    for (int i = 5; i < 8; i++) if (mem.peek(ts_base + 32'(4 * i)) !== (32'hDEAD_0000 | 32'(i))) fail($sformatf("record at slot %0d, outside the shrunk ring", i));
     finish("Timer_WDT");
   end
 endmodule

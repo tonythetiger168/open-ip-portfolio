@@ -279,4 +279,4 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
 | core `rtl/Audio_DSP_top.sv` | not run | | | | | |
-| wrapper `rtl/Audio_DSP_apb.sv` | not run | | | | | |
+| wrapper `rtl/Audio_DSP_apb.sv` | pass | 39/39 | 1342/1402 (+54 excl.) | n/a | 15/15 | 46/46 |

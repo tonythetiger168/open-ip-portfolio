@@ -11,6 +11,37 @@ logic [31:0] base [4];
 function automatic logic [11:0] a_ch(input int c, input int r);   // r: 0 SRC, 1 DST, 2 LEN, 3 FILL
   return 12'(12'h014 + 16 * c + 4 * r);
 endfunction
+// odd lengths at odd word addresses (every AxLEN and address bit), a write
+// error on a FILL, ERR driving irq, a 65535-word copy (LEN, CYCLES bits)
+task automatic cov_tail;
+  rd(A_FLAGS);
+  wr(A_MODE, 0);
+  for (int k = 0; k < 4; k++) begin
+    wr(a_ch(0, 0), (k % 2) ? 32'h4000_0054 : 32'h0000_0054);
+    wr(a_ch(0, 1), (k % 2) ? 32'h0000_0054 : 32'h4000_0054);
+    wr(a_ch(0, 2), (k < 2) ? 7 : 1);
+    wr(A_CMD, 1);
+    poll(A_STATUS, 32'h1F, 32'h0, 600);
+  end
+  mem.err_lo = 32'h0000_0054; mem.err_hi = 32'h0000_0060;   // write error (BRESP SLVERR)
+  wr(a_ch(1, 1), 32'h0000_0054); wr(a_ch(1, 2), 3); wr(A_MODE, 2);
+  wr(A_IRQ_STATUS, IRQ_ALL);
+  wr(A_CMD, 2);
+  poll(A_STATUS, 32'h1F, 32'h0, 600);
+  rd(A_IRQ_STATUS); if (!rdv[IRQ_ERR]) fail("ERR not set on a write error");
+  wr(A_IRQ_ENABLE, 32'(1) << IRQ_ERR); cycles(1);
+  if (irq !== 1) fail("irq low with ERR enabled");
+  wr(A_IRQ_STATUS, IRQ_ALL); wr(A_IRQ_ENABLE, 0);
+  mem.err_lo = '1; mem.err_hi = '1;
+  // the longest job, at full speed
+  wr(A_MODE, 0);
+  wr(a_ch(3, 0), 32'h1000_0000); wr(a_ch(3, 1), 32'h2000_0000); wr(a_ch(3, 2), 32'hFFFF);
+  mem.stall = 0;
+  wr(A_CMD, 8);
+  poll(A_STATUS, 32'h1F, 32'h0, 400000);
+  mem.stall = 1;
+  wr(A_IRQ_ENABLE, IRQ_ALL);   // DONE3 left pending and enabled into the final reset
+endtask
 task automatic ip_func;
   logic [31:0] sum;
   if (A_SRC1 !== a_ch(1, 0) || A_FILL3 !== a_ch(3, 3)) fail("channel register layout");
@@ -63,5 +94,6 @@ task automatic ip_func;
   wr(A_IRQ_STATUS, IRQ_ALL);
   mem.err_lo = '1; mem.err_hi = '1;
   rd(A_CYCLES); if (rdv == 0) fail("CYCLES");
+  cov_tail();
   if (mem.errors != 0) fail("AXI rule violations");
 endtask

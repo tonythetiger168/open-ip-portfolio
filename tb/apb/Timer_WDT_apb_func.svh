@@ -7,6 +7,44 @@
 // the bite on wdt_reset (pin and WDT_STATE), cleared by a kick.
 `SOC_SS_AXI_MEM(mem, PCLK, PRESETN)
 
+// BARK and TS_ERR driving irq, then an event every clock: TS_MISSED
+// saturates and TS_WP wraps through all 16 bits
+task automatic cov_tail;
+  bit hi;
+  rd(A_FLAGS);
+  wr(A_WDT_LOAD, 3); wr(A_CTRL, (1 << 18));
+  cycles(10);
+  rd(A_IRQ_STATUS); if (!rdv[IRQ_BARK]) fail("no BARK");
+  wr(A_IRQ_ENABLE, 32'(1) << IRQ_BARK); cycles(1);
+  if (irq !== 1) fail("irq low with BARK enabled");
+  wr(A_CTRL, 0); wr(A_IRQ_STATUS, IRQ_ALL); wr(A_IRQ_ENABLE, 0);
+  mem.err_lo = 32'hFFFF_FFF0; mem.err_hi = 32'hFFFF_FFFF;
+  wr(A_TS_BASE, 32'hFFFF_FFF0); wr(A_TS_WORDS, 4); wr(A_PERIOD, 10);
+  wr(A_CTRL, (1 << 17) | (1 << 16));
+  cycles(40);
+  wr(A_CTRL, 0);
+  cycles(20);
+  rd(A_IRQ_STATUS); if (!rdv[IRQ_TS_ERR]) fail("TS_ERR not set");
+  wr(A_IRQ_ENABLE, 32'(1) << IRQ_TS_ERR); cycles(1);
+  if (irq !== 1) fail("irq low with TS_ERR enabled");
+  wr(A_IRQ_STATUS, IRQ_ALL); wr(A_IRQ_ENABLE, 0);
+  mem.err_lo = '1; mem.err_hi = '1;
+  mem.stall = 0;
+  wr(A_TS_BASE, 32'h0000_8000); wr(A_TS_WORDS, 16'hFFFF); wr(A_PERIOD, 0);
+  wr(A_CTRL, (1 << 17) | (1 << 16));
+  hi = 0;
+  forever begin
+    rd(A_TS_STATE);
+    if (rdv[15]) hi = 1;
+    if (hi && !rdv[15]) break;
+    cycles(500);
+  end
+  rd(A_TS_STATE); if (rdv[31:16] !== 16'hFFFF) fail("TS_MISSED did not saturate");
+  wr(A_CTRL, 0);
+  mem.stall = 1;
+  cycles(20);
+  wr(A_IRQ_ENABLE, IRQ_ALL);   // TIMER left pending and enabled into the final reset
+endtask
 task automatic ip_func;
   logic [31:0] c0, c1, r0, r1;
   wr(A_CTRL, 3);                                   // prescale 3: a tick every 4 clocks
@@ -59,5 +97,6 @@ task automatic ip_func;
   wr(A_CTRL, 0);
   cycles(2);
   wr(A_IRQ_STATUS, IRQ_ALL);
+  cov_tail();
   if (mem.errors != 0) fail("AXI rule violations");
 endtask

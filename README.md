@@ -1,7 +1,7 @@
 # open-ip-portfolio
 
 Open-source SystemVerilog protocol IP portfolio (Apache-2.0) — **142 protocol
-IPs**, each with a synthesizable RTL core, an APB4 register wrapper, self-checking
+IPs** plus **13 phone SoC subsystem models** (AXI4 managers), each with a synthesizable RTL core, an APB4 register wrapper, self-checking
 testbenches for both, a coverage checker (reference model, SVA and functional
 coverage), and open-toolchain build flows (Icarus Verilog simulation, Yosys
 synthesis, Verilator coverage).
@@ -276,9 +276,38 @@ wrapper test. Pages in [docs/ip](docs/ip/README.md).
 > implementation** — this repository contains no such license and no device
 > keys. See [Protocol licensing notice](#protocol-licensing-notice-important).
 
+## Phone SoC subsystems (13)
+
+Light, synthesizable models of the blocks around the memory system of a
+phone SoC, for SoC-level testbenches: each one is an AXI4 manager (`m_*`
+pins: 32-bit address and data, 4-bit ID, INCR bursts of up to 16 beats,
+never across 4 KB, one read and one write outstanding) with an APB4
+register wrapper, interrupts, a core testbench and a wrapper testbench
+against the shared AXI4 subordinate model `tb/soc_ss_axi_mem.svh`. The data
+movers share `rtl/soc_ss_axi_engine.sv`. They model the traffic and the
+programming model, not the real compute (no ISA, shader or codec standard).
+Default AXI IDs: CPU 0, GPU 1, NPU 2, ISP 3, display 4, video 5, modem 6,
+DMA 7, audio 8, sensor hub 9, interrupt controller 10, timer 11, SMMU walker 15.
+
+| Subsystem | Build | Standalone package |
+|---|---|---|
+| DMA: 4-channel system DMA (COPY / FILL, round robin) | `make -f Makefile.DMA sim` | [open_ip_DMA.zip](releases/open_ip_DMA.zip) |
+| SMMU: system MMU / IOMMU: 4 KB pages, 4-entry TLB, table walker, faults (AXI4 subordinate in, manager out) | `make -f Makefile.SMMU sim` | [open_ip_SMMU.zip](releases/open_ip_SMMU.zip) |
+| CPU Cluster: memory-traffic model (pattern write, check, copy) | `make -f Makefile.CPU_Cluster sim` | [open_ip_CPU_Cluster.zip](releases/open_ip_CPU_Cluster.zip) |
+| GPU: 2D blitter: copy, fill, alpha blend, invert | `make -f Makefile.GPU sim` | [open_ip_GPU.zip](releases/open_ip_GPU.zip) |
+| NPU: int8 4-tap convolution with bias, shift, ReLU, saturation | `make -f Makefile.NPU sim` | [open_ip_NPU.zip](releases/open_ip_NPU.zip) |
+| ISP: camera ISP, black level and gain on a test pattern or sensor stream | `make -f Makefile.ISP sim` | [open_ip_ISP.zip](releases/open_ip_ISP.zip) |
+| Video Codec: lossless DPCM intra encoder / decoder of 8-bit frames | `make -f Makefile.Video_Codec sim` | [open_ip_Video_Codec.zip](releases/open_ip_Video_Codec.zip) |
+| Display Controller: frame scan-out, hsync / vsync, frame CRC, underruns | `make -f Makefile.Display_Controller sim` | [open_ip_Display_Controller.zip](releases/open_ip_Display_Controller.zip) |
+| Audio DSP: stereo gain and mix, mute, peak and clip meter | `make -f Makefile.Audio_DSP sim` | [open_ip_Audio_DSP.zip](releases/open_ip_Audio_DSP.zip) |
+| Modem: baseband data path, LFSR scrambler and CRC-32 | `make -f Makefile.Modem sim` | [open_ip_Modem.zip](releases/open_ip_Modem.zip) |
+| Sensor Hub: sample averaging, packing, batched writes, threshold wake-up | `make -f Makefile.Sensor_Hub sim` | [open_ip_Sensor_Hub.zip](releases/open_ip_Sensor_Hub.zip) |
+| Interrupt Controller: 32 sources, priority claim, AXI4 event log | `make -f Makefile.Interrupt_Controller sim` | [open_ip_Interrupt_Controller.zip](releases/open_ip_Interrupt_Controller.zip) |
+| Timer WDT: system timer and watchdog with AXI4 timestamp records | `make -f Makefile.Timer_WDT sim` | [open_ip_Timer_WDT.zip](releases/open_ip_Timer_WDT.zip) |
+
 ## Design organization: cores vs. variants
 
-The catalog has **142 entries, each with its own RTL core** in
+The protocol catalog has **142 entries, each with its own RTL core** in
 `rtl/<P>_top.sv`. Up to v2.5.1, 29 entries were byte-level renamed copies of
 5 shared templates (CHI, UART, CAN, the 2-wire serial shifter and the frame
 echo template). All of them have since been rewritten as implementations of
@@ -347,17 +376,17 @@ make -f Makefile.I2C apb        # -> TEST PASSED: I2C_apb
 # pin-level functional test, where tb/func has one (the TB plays the device)
 make -f Makefile.DDR4 func      # -> TEST PASSED: DDR4_func
 
-# full regression (what CI runs): sim + syn + apb (+ func) for all 142 IPs, in parallel (~50 min on 4 cores)
+# full regression (what CI runs): sim + syn + apb (+ func) for all 155 IPs, in parallel (~50 min on 4 cores)
 bash scripts/ci_regression.sh   # logs in work/ci_*.log
 
 # strict IEEE 1800 elaboration of every IP's RTL with slang (CI gate; iverilog accepts
 # some illegal code, e.g. a net used above its declaration)
-python3 scripts/lint/strict_elab.py   # -> strict elaboration: 142/142 IPs clean
+python3 scripts/lint/strict_elab.py   # -> strict elaboration: 155/155 IPs clean
 
 # five-metric coverage (Verilator)
 bash scripts/cov/run_cov.sh I2C        # one core  -> RESULT: CLOSED
 bash scripts/cov/run_cov.sh I2C_apb    # its wrapper
-bash scripts/cov/run_all.sh 4          # all 284 runs, 4 in parallel
+bash scripts/cov/run_all.sh 4          # all 297 runs, 4 in parallel
 
 # standalone package workflow (core + wrapper, sim / syn / apb)
 unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
@@ -368,11 +397,15 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
 - **Five-metric closure (Verilator 5.052):** every IP's testbench reaches
   100% line, toggle, FSM, SVA and functional coverage, and so does every
   IP's APB4 register wrapper (`rtl/<P>_apb.sv`, register map in
-  `docs/ip/<P>.md`): 142 cores and 142 wrappers, 284/284 closed. Results,
+  `docs/ip/<P>.md`): 142 cores and 142 wrappers, 284/284 closed. The 13
+  phone SoC subsystems are closed on their APB wrapper runs (13/13, with the
+  AXI4 manager pins in toggle coverage; constant AXI fields excluded with a
+  reason in `scripts/cov/exclude/<P>_apb.txt`); their cores are checked by
+  self-checking testbenches but have no core coverage checker yet. Results,
   exclusions and how to run: [docs/COVERAGE_CLOSURE.md](docs/COVERAGE_CLOSURE.md).
   CI runs both: `.github/workflows/regression.yml` (iverilog / yosys
   sim + syn + apb, plus a check that generated files are up to date) and
-  `.github/workflows/coverage.yml` (this five-metric flow over all 284
+  `.github/workflows/coverage.yml` (this five-metric flow over all 297
   runs, in 8 shards; any IP that is not CLOSED fails the build).
   `.github/workflows/mutation.yml` runs `scripts/mut/run_mut.py --flow cov`
   weekly: 8 operator mutants per core (relational, logical, constant bit,
