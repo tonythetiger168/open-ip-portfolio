@@ -1,0 +1,2 @@
+# SPDM_apb coverage exclusions: METRIC regex # justification
+TOGGLE SPDM_apb\.c_err_code\[(4|5|7)\]: # constant 0: the core's err_code (see SPDM.txt): the error codes sent are 0x01, 0x04, 0x07, 0x0D and 0x41, none with bits 4, 5 or 7 set

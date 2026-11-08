@@ -1,0 +1,9 @@
+# SMMU_apb coverage exclusions. The SMMU forwards AxSIZE, AxBURST and WSTRB
+# unchanged (s_* to m_*); the test memory (tb/soc_ss_axi_mem.svh) accepts
+# only 4-byte INCR full-word beats, so the upstream BFM drives those values.
+TOGGLE \.[sm]_(aw|ar)size\[ # constant 3'b010: the test memory accepts 4-byte beats only (forwarded unchanged)
+TOGGLE \.[sm]_(aw|ar)burst\[ # constant 2'b01: the test memory accepts INCR only (forwarded unchanged)
+TOGGLE \.[sm]_wstrb\[ # constant 4'hF: the test memory accepts full-word writes only (forwarded unchanged)
+TOGGLE \.m_(aw|ar)addr\[[01]\] # constant 0: forwarded bursts are word aligned (unaligned addresses are tested on the fault path, which is not forwarded)
+TOGGLE \.s_awaddr\[[01]\] # constant 0: write bursts are word aligned (the unaligned fault test uses reads)
+TOGGLE \.[sm]_[br]resp\[0\] # constant 0: OKAY (00) or SLVERR (10) only; EXOKAY / DECERR not used

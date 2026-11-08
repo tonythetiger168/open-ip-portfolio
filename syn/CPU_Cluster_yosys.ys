@@ -1,0 +1,8 @@
+# CPU_Cluster synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/CPU_Cluster_top.sv ../rtl/soc_ss_axi_engine.sv
+hierarchy -check -top CPU_Cluster_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json CPU_Cluster_top.json
+write_verilog CPU_Cluster_top_netlist.v

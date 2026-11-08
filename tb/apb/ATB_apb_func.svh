@@ -10,6 +10,7 @@ logic [31:0] cap [0:15];
 int n = 0;
 bit took;
 // one beat offered from a falling edge until accepted or for hold clocks
+logic [6:0] b_id = 0;
 task automatic beat(input logic [31:0] d, input bit last, input int hold = 4);
   int t;
   atvalid = 1; atdata = d; atlast = last;
@@ -40,6 +41,7 @@ task automatic rd_all;
     endcase
   end
 endtask
+logic [6:0] cur = 0, lid = 0;
 task automatic fill(input logic [31:0] d, input bit rnd);
   while (n < 16) begin
     beat(rnd ? {$urandom} : d, 0);
@@ -57,8 +59,6 @@ task automatic reset_core;
   rd_exp(A_STATUS, 0);
 endtask
 // ATB: the ID on beats, the current ID, the ID of the last frame end
-logic [6:0] b_id = 0;
-logic [6:0] cur = 0, lid = 0;
 always @(posedge PCLK) if (PRESETN) begin
   if (afready !== 1'b1) fail("afready low");
   if (atvalid && atready && atlast) lid <= atid;

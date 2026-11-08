@@ -1,0 +1,2 @@
+TOGGLE SPDM_top\.(err_code|e_code|d_err)\[(4|5|7)\]: # constant 0: the error codes sent are 0x01, 0x04, 0x07, 0x0D and 0x41, none with bits 4, 5 or 7 set
+TOGGLE SPDM_top\.hp_addr\[(0|1|2)\]: # constant 0: every ML-DSA buffer area used (pk, sk, sig, xi, rnd, M') starts at a multiple of 32 bytes

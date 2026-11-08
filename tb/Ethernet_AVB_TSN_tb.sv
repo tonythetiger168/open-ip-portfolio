@@ -81,6 +81,7 @@ module Ethernet_AVB_TSN_tb;
   int          s_ivl [0:7];
   bit          m_run = 0;
   longint      rn = 0;                    // clocks since the schedule started
+  logic [7:0]  inc_ns_q;
   function automatic logic [3:0] gate_at(input longint n);
     longint p, cum;
     p = (n * longint'(inc_ns_q)) % longint'(gcl_cycle);
@@ -100,7 +101,6 @@ module Ethernet_AVB_TSN_tb;
   logic        time_set_q, time_adj_q, gcl_en_q;
   logic [63:0] time_set_ns_q, gcl_base_q, t_prev_sel;
   logic [31:0] time_adj_ns_q;
-  logic [7:0]  inc_ns_q;
   logic [15:0] inc_frac_q, m_frac_prev;
   longint      rn_prev_sel;
   bit          run_prev_sel;
@@ -195,6 +195,7 @@ module Ethernet_AVB_TSN_tb;
   task automatic stats_clear; $display("@%0t frames %0d %0d %0d %0d", $time, n_tx[0], n_tx[1], n_tx[2], n_tx[3]); for (int c = 0; c < 4; c++) begin n_tx[c] = 0; bytes[c] = 0; end endtask
 
   // ---------------- scenarios ----------------
+  int g_off = -1;                       // >= 0: entry k gets gate mask g_off + k
   initial begin
     for (int c = 0; c < 4; c++) begin qh[c] = 0; qt[c] = 0; n_tx[c] = 0; bytes[c] = 0; sat_hi[c] = 0; sat_lo[c] = 0; end
     for (int k = 0; k < 8; k++) begin s_gates[k] = 0; s_ivl[k] = 0; end
@@ -355,7 +356,6 @@ module Ethernet_AVB_TSN_tb;
 
   // one schedule: random gates and intervals, frames on all classes, base
   // time in the future, then in the past; switched off at the end
-  int g_off = -1;                       // >= 0: entry k gets gate mask g_off + k
   task automatic gcl_test(input logic [2:0] last, input logic [23:0] cyc, input logic [7:0] inc,
                           input bit with_cbs, input int ivl_max);
     gcl_en = 0; cycles(2);

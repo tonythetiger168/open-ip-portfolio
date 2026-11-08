@@ -55,12 +55,13 @@ partially-encoded enum, a tie-off that is constant by construction, and the
 upper bits of a counter whose largest load is below the next power of two.
 FSM, SVA and functional coverage have no exclusions.
 
-Totals: 126 line points out of 13675 and 4564 toggle points out of 193530
-for the cores; 505 toggle points out of 118762 for the wrappers.
+Totals: 128 line points out of 14383 and 4598 toggle points out of 217208
+for the cores; 511 toggle points out of 126546 for the wrappers.
 
 Verilator leaves signals wider than 256 bits out of toggle coverage by
 default. An IP with wider buses (UCIe: 544-bit flits, Ethernet_RS_FEC:
-320-bit beats and the 460-bit riBM registers) raises the limit in
+320-bit beats and the 460-bit riBM registers, PCIe_CXL_IDE: the 3072-bit
+key stores) raises the limit in
 `scripts/cov/flags/<P>.txt`, which `run_cov.sh` passes to Verilator for the
 core and wrapper runs, so those bits are scored too.
 
@@ -103,6 +104,12 @@ core and wrapper runs, so those bits are scored too.
   0x06 (SHA3) or 0x1F (SHAKE), so bits 1 and 2 never fall and bits 5-7
   never rise; and bit 1 of the last rate lane (17, 16, 12, 8, 20 or 16) is
   always clear.
+* SPDM: the 24 toggle exclusions are constant bits. Bits 4, 5 and 7 of
+  the error code (and of the decoder's choice) never rise, because the
+  codes sent are 0x01, 0x04, 0x07, 0x0D and 0x41. The three low bits of the
+  ML-DSA buffer pointer are always 0, because every area used starts on a
+  32-byte boundary. The wrapper excludes its copy of the error code bits
+  (6 points). The SHA-3 and ML-DSA engines are scored in their own rows.
 * TRNG: the line exclusion is the same kind of `default:` item (unused
   state encodings go to FAIL with an alert). The three toggle exclusions
   are bit 10 of the adaptive proportion count, its next value and its
@@ -122,12 +129,13 @@ all closed), with the PCIe, UCIe, ML_KEM and Ethernet_RS_FEC rows (core and
 wrapper) re-run on 2026-10-28 after their v3.0 / v1.0 changes, ML_KEM
 again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
 2026-10-29, and SHA3, AES_GCM and ML_DSA added on 2026-10-30, and TRNG
-(from the CI coverage job) on 2026-10-31. The tables come from
+(from the CI coverage job) and PCIe_CXL_IDE on 2026-10-31, and SPDM (Verilator 5.052)
+on 2026-11-01. The tables come from
 `python3 scripts/cov/report.py`.
 
 ### Cores
 
-129/129 closed.
+131/131 closed.
 
 | IP | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
@@ -222,6 +230,7 @@ again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
 | OCP_IP_Open_Core_Protocol | 48/49 (+1 excl.) | 1086/1098 (+12 excl.) | 15/15 | 13/13 | 75/75 | pass |
 | ONFI | 119/119 | 458/458 | 17/17 | 5/5 | 61/61 | pass |
 | PCIe | 192/192 | 1834/1838 (+4 excl.) | 22/22 | 8/8 | 128/128 | pass |
+| PCIe_CXL_IDE | 338/340 (+2 excl.) | 18002/18012 (+10 excl.) | 62/62 | 23/23 | 51/51 | pass |
 | PWM | 11/11 | 256/276 (+20 excl.) | n/a | 5/5 | 29/29 | pass |
 | QSPI | 46/46 | 156/156 | n/a | 6/6 | 60/60 | pass |
 | RFFE | 70/70 | 236/236 | 16/16 | 10/10 | 83/83 | pass |
@@ -233,6 +242,7 @@ again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
 | SD | 137/137 | 1850/1850 | 18/18 | 7/7 | 71/71 | pass |
 | SDIO | 92/93 (+1 excl.) | 1342/1342 | 30/30 | 5/5 | 67/67 | pass |
 | SHA3 | 66/66 | 6872/6882 (+10 excl.) | 19/19 | 11/11 | 87/87 | pass |
+| SPDM | 368/368 | 5642/5666 (+24 excl.) | 43/43 | 39/39 | 77/77 | pass |
 | SPI | 15/15 | 108/108 | n/a | 5/5 | 46/46 | pass |
 | SPMI | 44/44 | 162/162 | 12/12 | 6/6 | 62/62 | pass |
 | TRNG | 73/74 (+1 excl.) | 3520/3526 (+6 excl.) | 15/15 | 13/13 | 38/38 | pass |
@@ -261,7 +271,7 @@ again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
 | eMMC | 120/120 | 1622/1622 | 17/17 | 6/6 | 64/64 | pass |
 | eUSB2 | 107/108 (+1 excl.) | 394/394 | 16/16 | 6/6 | 74/74 | pass |
 
-Totals: line 13549/13675 (+126 excluded), toggle 188966/193530 (+4564 excluded), fsm 2698/2698, sva 1603/1603, functional 12301/12301.
+Totals: line 14255/14383 (+128 excluded), toggle 212610/217208 (+4598 excluded), fsm 2803/2803, sva 1665/1665, functional 12429/12429.
 
 For the IPs rebuilt last (UniPro, DisplayPort2, SAS-4, SATA, the clone
 rewrites and the memory family), the checker was also tested with deliberate
@@ -274,7 +284,7 @@ The wrapper's coverage scope is the wrapper alone (`u_core` is excluded),
 because the core is closed by its own run above. The wrapper has no state
 machine, so FSM is n/a.
 
-129/129 closed.
+131/131 closed.
 
 | APB wrapper | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
@@ -369,6 +379,7 @@ machine, so FSM is n/a.
 | OCP_apb | 19/19 | 612/612 | n/a | 7/7 | 23/23 | pass |
 | ONFI_apb | 40/40 | 818/818 | n/a | 15/15 | 72/72 | pass |
 | PCIe_apb | 34/34 | 640/640 | n/a | 14/14 | 91/91 | pass |
+| PCIe_CXL_IDE_apb | 107/107 | 4836/4836 | n/a | 53/53 | 155/155 | pass |
 | PWM_apb | 19/19 | 466/466 | n/a | 9/9 | 28/28 | pass |
 | QSPI_apb | 21/21 | 448/448 | n/a | 11/11 | 32/32 | pass |
 | RFFE_apb | 40/40 | 664/664 | n/a | 15/15 | 68/68 | pass |
@@ -380,6 +391,7 @@ machine, so FSM is n/a.
 | SDIO_apb | 19/19 | 404/404 | n/a | 7/7 | 23/23 | pass |
 | SD_apb | 19/19 | 404/404 | n/a | 7/7 | 23/23 | pass |
 | SHA3_apb | 44/44 | 1006/1006 | n/a | 15/15 | 66/66 | pass |
+| SPDM_apb | 71/71 | 2942/2948 (+6 excl.) | n/a | 33/33 | 99/99 | pass |
 | SPI_apb | 21/21 | 440/440 | n/a | 11/11 | 28/28 | pass |
 | SPMI_apb | 28/28 | 518/518 | n/a | 8/8 | 42/42 | pass |
 | TRNG_apb | 36/36 | 912/914 (+2 excl.) | n/a | 16/16 | 50/50 | pass |
@@ -408,4 +420,4 @@ machine, so FSM is n/a.
 | eMMC_apb | 19/19 | 412/412 | n/a | 7/7 | 23/23 | pass |
 | eUSB2_apb | 20/20 | 406/406 | n/a | 7/7 | 25/25 | pass |
 
-Totals: line 4299/4299, toggle 118257/118762 (+505 excluded), fsm 0/0, sva 1540/1540, functional 6569/6569.
+Totals: line 4477/4477, toggle 126035/126546 (+511 excluded), fsm 0/0, sva 1626/1626, functional 6823/6823.

@@ -15,7 +15,7 @@ Protocol IP `I2S`, version 2.0. Apache-2.0.
 
 ## Overview
 
-I2S slave transmitter/receiver, 16-bit samples, 2 channels Samples SDIN on BCLK rise, shifts SDOUT on BCLK fall, with the I2S standard one-BCLK data delay after each LRCK transition.
+I2S slave transmitter/receiver, 16-bit samples, 2 channels Samples SDIN on BCLK rise, shifts SDOUT on BCLK fall, with the I2S standard one-BCLK data delay after each LRCK transition. Clock ratio: BCLK is oversampled, so SDOUT changes up to two clk periods after a BCLK falling edge (synchroniser + edge detect). The I2S transmitter limit (data valid 0.8 T after the previous rising edge, so 0.3 T after the fall, leaving the receiver its 0.2 T setup) then needs 2 * Tclk + t_co(sdout pad) <= 0.3 * T_BCLK: clk >= 7 x BCLK, with 8 x or more recommended so the pad delay fits. SDIN is taken in the clk cycle after the BCLK rise, so the master must hold it one clk past the rise (a master that changes SDIN on the falling edge holds it T / 2).
 
 Features:
 
@@ -25,7 +25,7 @@ Features:
 - BCLK, LRCK and SDIN are synchronised to the system clock.
 - Interrupt FRAME on every LRCK transition (frame sync, twice per stereo frame).
 
-bclk, lrck, sdin and sdout are the I2S pins; they pass through unchanged. BCLK and LRCK are sampled on clk: each BCLK phase must last at least two clocks.
+bclk, lrck, sdin and sdout are the I2S pins; they pass through unchanged. BCLK and LRCK are sampled on clk, so PCLK must run at 7 x BCLK or more (8 x recommended): SDOUT changes up to two PCLK periods after a BCLK falling edge, and the I2S transmitter limit (valid 0.8 T after the previous rising edge) leaves 0.3 T for that and the pad delay. SDIN is sampled in the PCLK cycle after the BCLK rise, so the master must hold it one PCLK past the rise (any master that changes SDIN on the falling edge does).
 
 ## Files
 

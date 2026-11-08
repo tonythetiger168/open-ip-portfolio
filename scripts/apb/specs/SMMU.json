@@ -1,0 +1,129 @@
+{
+  "title": "SMMU / IOMMU: 4 KB page translation with a 4-entry TLB, hardware table walk and fault reporting between AXI4 ports",
+  "code": "0x5C0A",
+  "version": "1.0",
+  "axi_master": {
+    "id": 15,
+    "reads": true,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "axi_subordinate": {
+    "port_prefix": "s_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4
+  },
+  "features": [
+    "s_* is the AXI4 subordinate port of the upstream master, m_* the AXI4 manager port downstream; both pass through unchanged.",
+    "PTE at PT_BASE + 4 * VA[31:12]: bit 0 VALID, bit 1 WRITABLE, bits 31:12 PPN; PA = {PPN, VA[11:0]}. Walks are single-beat reads with ID 15 (AxPROT 3'b010).",
+    "4-entry fully associative TLB, round-robin fill; CMD.tlb_inv empties it.",
+    "Fault (not VALID, walk error response, write to a page that is not WRITABLE): the burst is not forwarded and ends with SLVERR upstream (all W beats taken first); FAULT_ADDR = VA, FAULT_INFO = {walk_err, write, not_writable, not_valid}.",
+    "CTRL.enable 0: bypass (PA = VA). One burst at a time; reads and writes alternate when both wait."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Translation control",
+      "fields": [
+        {
+          "port": "enable",
+          "reset": "0",
+          "desc": "1: translate, 0: bypass"
+        }
+      ]
+    },
+    {
+      "name": "PT_BASE",
+      "kind": "rw",
+      "desc": "Page table base",
+      "fields": [
+        {
+          "port": "pt_base",
+          "reset": "0",
+          "desc": "byte address of the PTE of page 0"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "tlb_inv",
+          "desc": "invalidate every TLB entry"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "State",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "a burst is in progress"
+        }
+      ]
+    },
+    {
+      "name": "FAULT_ADDR",
+      "kind": "ro",
+      "desc": "Last fault",
+      "fields": [
+        {
+          "port": "fault_addr",
+          "desc": "virtual address of the last faulting burst"
+        }
+      ]
+    },
+    {
+      "name": "FAULT_INFO",
+      "kind": "ro",
+      "desc": "Last fault cause",
+      "fields": [
+        {
+          "port": "fault_info",
+          "desc": "{walk_err, write, not_writable, not_valid}"
+        }
+      ]
+    },
+    {
+      "name": "TLB_STATS",
+      "kind": "ro",
+      "desc": "TLB counters (saturating)",
+      "fields": [
+        {
+          "port": "hits",
+          "desc": "lookups that hit"
+        },
+        {
+          "port": "misses",
+          "desc": "lookups that walked"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "FAULT",
+      "port": "fault",
+      "desc": "a burst faulted"
+    }
+  ],
+  "sequence": [
+    "Build the page table in memory, write PT_BASE, write CMD.tlb_inv = 1.",
+    "Write IRQ_ENABLE.FAULT = 1 and CTRL.enable = 1.",
+    "On a FAULT interrupt read FAULT_ADDR and FAULT_INFO, fix the table, write CMD.tlb_inv and clear IRQ_STATUS."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time. A read burst is issued only when its data has room, a write burst only when all its data is ready."
+  ]
+}

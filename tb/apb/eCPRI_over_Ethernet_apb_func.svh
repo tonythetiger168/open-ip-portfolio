@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of eCPRI_over_Ethernet_apb_tb: the Ethernet peer of the core TB
 // (64-byte frames with FCS byte-streamed in; a monitor checking length and
 // FCS of every DUT frame) with the CPU port driven through the APB words:

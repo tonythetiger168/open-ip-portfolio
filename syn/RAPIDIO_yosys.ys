@@ -1,0 +1,8 @@
+# RAPIDIO synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/RAPIDIO_top.sv 
+hierarchy -check -top RAPIDIO_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json RAPIDIO_top.json
+write_verilog RAPIDIO_top_netlist.v

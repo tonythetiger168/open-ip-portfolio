@@ -25,7 +25,11 @@ module HBM3E_Lite_tb;
   logic trace_valid; logic [3:0] trace_cmd; logic [31:0] trace_addr;
 
   localparam int T_REFI = 150, NBANK = 32, NLINES = 32 * 512 * 8, CL0 = 11, CWL0 = 8;
+`ifdef MEM_PERF
+  HBM3E_Lite_top dut (.*);   // performance run: default (datasheet) timing
+`else
   HBM3E_Lite_top #(.T_RC(40), .T_WTR(8), .T_REFI(T_REFI), .CL(CL0), .CWL(CWL0)) dut (.*);
+`endif
   always #5 clk = ~clk;
 
 `ifndef VERILATOR
@@ -43,12 +47,6 @@ module HBM3E_Lite_tb;
     .pc_act(o_pc), .ck_t(o_ck_t), .ck_c(o_ck_c), .cke(o_cke), .cs_n(o_cs_n), .act_n(o_act_n),
     .ras_n(o_ras_n), .cas_n(o_cas_n), .we_n(o_we_n), .ba(o_ba), .addr(o_addr), .dq(o_dq),
     .dqs(o_dqs), .trace_valid(o_tv), .trace_cmd(o_tc), .trace_addr(o_ta));
-  initial begin
-    @(posedge rst_n);
-    if (o_irq !== 1'b0) begin errors++; $display("ERROR: overrun irq set in reset"); end
-    repeat (32 * 40) @(posedge clk);
-    if (o_irq !== 1'b1) begin errors++; $display("ERROR: no irq on a refresh overrun"); end
-  end
 `endif
 
   function automatic logic [31:0] mk(input int b, input int row, input int line);
@@ -86,8 +84,22 @@ module HBM3E_Lite_tb;
 
   `include "lite_tb_common.svh"
 
+`ifndef VERILATOR
+  // checks on the overrun instance above; after the include, which declares errors
   initial begin
+    @(posedge rst_n);
+    if (o_irq !== 1'b0) begin errors++; $display("ERROR: overrun irq set in reset"); end
+    repeat (32 * 40) @(posedge clk);
+    if (o_irq !== 1'b1) begin errors++; $display("ERROR: no irq on a refresh overrun"); end
+  end
+`endif
+
+  initial begin
+`ifdef MEM_PERF
+    repeat (20000) #10000;   // performance run (tb/perf)
+`else
     repeat (8000) #10000;
+`endif
     $display("TIMEOUT"); $finish;
   end
 endmodule

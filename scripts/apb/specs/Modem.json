@@ -1,0 +1,157 @@
+{
+  "title": "Modem baseband data path: LFSR scrambler / descrambler and CRC-32 of transport blocks over AXI4",
+  "code": "0x5C07",
+  "version": "1.0",
+  "axi_master": {
+    "id": 6,
+    "reads": true,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "out word = in word ^ key (key = 0 when BYPASS is 1); LEN words from SRC to DST.",
+    "key: 32-bit Galois LFSR loaded with SEED at start (0 becomes 1); for i = 0..31: key[i] = s[0]; s = s[0] ? (s >> 1) ^ 0x80200003 : s >> 1. The state carries on to the next word.",
+    "CRC = CRC-32 (IEEE 802.3: reflected, 0xEDB88320, init and final XOR 0xFFFFFFFF, bytes little-endian) of the input words (CRC_SEL 0) or of the output words (CRC_SEL 1)."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "SRC_ADDR",
+      "kind": "rw",
+      "desc": "Source address (byte address, word aligned)",
+      "fields": [
+        {
+          "port": "src_addr",
+          "reset": "0",
+          "desc": "first word read by the job"
+        }
+      ]
+    },
+    {
+      "name": "DST_ADDR",
+      "kind": "rw",
+      "desc": "Destination address (byte address, word aligned)",
+      "fields": [
+        {
+          "port": "dst_addr",
+          "reset": "0",
+          "desc": "first word written by the job"
+        }
+      ]
+    },
+    {
+      "name": "LEN",
+      "kind": "rw",
+      "desc": "Job length",
+      "fields": [
+        {
+          "port": "xfer_len",
+          "reset": "0",
+          "desc": "32-bit words (0: the job ends at once)"
+        }
+      ]
+    },
+    {
+      "name": "SEED",
+      "kind": "rw",
+      "desc": "Scrambler seed",
+      "fields": [
+        {
+          "port": "seed",
+          "reset": "0",
+          "desc": "LFSR initial state (0: 1)"
+        }
+      ]
+    },
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Job options",
+      "fields": [
+        {
+          "port": "crc_sel",
+          "reset": "0",
+          "desc": "0 CRC of the input, 1 of the output"
+        },
+        {
+          "port": "bypass",
+          "reset": "0",
+          "desc": "1: no scrambling"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "start",
+          "desc": "start a job with the current registers; ignored while busy"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Job state",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "a job is running"
+        },
+        {
+          "port": "err",
+          "desc": "the current / last job saw an AXI error response (cleared by start)"
+        }
+      ]
+    },
+    {
+      "name": "CRC",
+      "kind": "ro",
+      "desc": "Block CRC",
+      "fields": [
+        {
+          "port": "crc",
+          "desc": "CRC-32 of the current / last job"
+        }
+      ]
+    },
+    {
+      "name": "CYCLES",
+      "kind": "ro",
+      "desc": "Job length in clocks",
+      "fields": [
+        {
+          "port": "cycles",
+          "desc": "clocks from start to DONE of the current / last job"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DONE",
+      "port": "done",
+      "desc": "a job ended"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "a job ended that saw an AXI error response"
+    }
+  ],
+  "sequence": [
+    "Write SRC_ADDR, DST_ADDR (word aligned) and LEN (32-bit words).",
+    "Write CTRL with the job's options and IRQ_ENABLE with DONE (and ERR).",
+    "Write CMD.start = 1 (ignored while STATUS.busy is 1).",
+    "Wait for irq (or poll STATUS.busy = 0), read the result registers, write 1s to IRQ_STATUS to clear it."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time. A read burst is issued only when its data has room, a write burst only when all its data is ready."
+  ]
+}

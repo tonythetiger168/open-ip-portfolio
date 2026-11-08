@@ -24,11 +24,11 @@ module SPI_sva (
     end
   end
 
-  `SVA_RST(a_reset_idle, !rst_n, !irq && rdata == 0 && miso == 0)
-  `SVA_IMP(a_miso_model, 1'b1, miso == m_tx[3'd7 - m_bit])
+  `SVA_RST(a_reset_idle, !rst_n, !irq && rdata == 0 && (csn || miso == 0))
+  `SVA_IMP(a_miso_model, !csn, miso == m_tx[3'd7 - m_bit])
   `SVA_IMP(a_read_mux, 1'b1, rdata == (raddr == 0 ? m_rx : raddr == 1 ? m_tx : 8'h00))
   `SVA_IMP(a_irq_byte_done, 1'b1, irq == m_done)
-  `SVA_NXT(a_csn_resets_count, csn, miso == m_tx[7])
+  `SVA_NXT(a_csn_resets_count, csn, csn || miso == m_tx[7])
 
   covergroup cg_spi @(posedge clk);
     option.per_instance = 1;

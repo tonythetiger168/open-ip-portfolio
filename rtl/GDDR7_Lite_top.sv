@@ -184,6 +184,10 @@ module GDDR7_Lite_top #(
   assign dq[31:16] = dq_hi_oe ? dq_out[31:16] : 16'hzzzz;
   assign dqs     = dqs_oe ? {~dqs_t, dqs_t} : 2'bzz;
 
+  // refresh-gate wires: declared here, before their first use in the pin block
+  // refresh may only start when no bank is mid-write or inside tRAS
+  wire ref_go = (&wr_done) && (&ras_done);
+
   // ---------------- pins ----------------
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -427,8 +431,6 @@ module GDDR7_Lite_top #(
   always_ff @(posedge clk) if (mem_we) mem[mem_wa] <= mem_wd;
   wire hit = bank_open[eng_bank] &&
              (bank_row[eng_bank] == eng_row);
-  // refresh may only start when no bank is mid-write or inside tRAS
-  wire ref_go = (&wr_done) && (&ras_done);
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
