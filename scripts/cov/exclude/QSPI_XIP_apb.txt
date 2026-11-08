@@ -1,0 +1,3 @@
+# QSPI_XIP_apb coverage exclusions: constant responses of the read-only XIP window.
+TOGGLE \.s_bresp\[ # constant 2'b10: every AXI write gets SLVERR
+TOGGLE \.s_rresp\[ # constant 2'b00: every XIP read beat is OKAY

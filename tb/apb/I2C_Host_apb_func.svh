@@ -45,7 +45,17 @@ task automatic ip_func;
   rd(A_RX); if (rdv[7:0] !== 8'h5C) fail($sformatf("read %h", rdv[7:0]));
   icmd(C_RD | C_NACK | C_STO, 8'h00);
   rd(A_RX); if (rdv[7:0] !== 8'h5C) fail($sformatf("read %h", rdv[7:0]));
-  icmd(C_STA | C_WR | C_STO, 8'hA2);                      // address 0x51
+  t_tx = 8'hA3;                                          // the other data bits
+  icmd(C_STA | C_WR, 8'hA1);
+  icmd(C_RD | C_NACK | C_STO, 8'h00);
+  rd(A_RX); if (rdv[7:0] !== 8'hA3) fail($sformatf("read %h", rdv[7:0]));
+  rd_exp(A_FLAGS, 0);
+  // address 0x51 with the interrupt masked: DONE still latched, irq low;
+  // left pending into the final reset
+  wr(A_IRQ_ENABLE, 0);
+  wr(A_TX_DATA, 32'hA2); wr(A_CMD, C_V | C_STA | C_WR | C_STO);
+  poll(A_IRQ_STATUS, 1, 1, 2000);
+  if (irq !== 1'b0) fail("irq high with DONE masked");
   rd(A_RX); if (rdv[8] !== 1'b1) fail("address 0x51 acknowledged");
-  wr(A_IRQ_ENABLE, 0); wr(A_PRESCALE, 32'h63);
+  wr(A_PRESCALE, 32'h63);
 endtask

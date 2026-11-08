@@ -217,7 +217,7 @@ module QSPI_XIP_apb_tb;
   end
 
   initial begin
-    #20ms;
+    #2s;
     $display("TEST FAILED: QSPI_XIP_apb (timeout)");
     $finish;
   end

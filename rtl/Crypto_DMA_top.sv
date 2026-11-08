@@ -85,9 +85,10 @@ module Crypto_DMA_top #(
   output logic         m_rready
 );
   // ---------------------------------------------------------------- sizes
-  wire [11:0] nab = aad_len[15:4] + {11'd0, aad_len[3:0] != 4'd0};   // AAD blocks
-  wire [11:0] ntb = txt_len[15:4] + {11'd0, txt_len[3:0] != 4'd0};   // text blocks
-  wire [12:0] nbl = {1'b0, nab} + {1'b0, ntb};
+  // 13 bits: 65535 bytes is 4096 blocks
+  wire [12:0] nab = {1'b0, aad_len[15:4]} + {12'd0, aad_len[3:0] != 4'd0};   // AAD blocks
+  wire [12:0] ntb = {1'b0, txt_len[15:4]} + {12'd0, txt_len[3:0] != 4'd0};   // text blocks
+  wire [13:0] nbl = {1'b0, nab} + {1'b0, ntb};
 
   logic        go;
   logic        rs_valid, rs_ready, ws_valid, ws_ready;
@@ -106,8 +107,8 @@ module Crypto_DMA_top #(
 
   soc_ss_axi_engine #(.ID(AXI_ID)) u_rd (
     .clk, .rst_n,
-    .start(go && nbl != 13'd0), .rd_en(1'b1), .wr_en(1'b0),
-    .src(src_addr), .dst(32'd0), .len({1'b0, nbl, 2'b00}),
+    .start(go && nbl != 14'd0), .rd_en(1'b1), .wr_en(1'b0),
+    .src(src_addr), .dst(32'd0), .len({nbl, 2'b00}),
     .busy(r_busy), .done(r_done), .err(r_err), .cycles(r_cyc),
     .rs_valid, .rs_data, .rs_ready, .ws_valid(1'b0), .ws_data(32'd0), .ws_ready(r_ws_ready),
     .m_awid(r_awid), .m_awaddr(r_awaddr), .m_awlen(r_awlen), .m_awsize(r_awsize),
@@ -119,8 +120,8 @@ module Crypto_DMA_top #(
   );
   soc_ss_axi_engine #(.ID(AXI_ID)) u_wr (
     .clk, .rst_n,
-    .start(go && ntb != 12'd0), .rd_en(1'b0), .wr_en(1'b1),
-    .src(32'd0), .dst(dst_addr), .len({2'b00, ntb, 2'b00}),
+    .start(go && ntb != 13'd0), .rd_en(1'b0), .wr_en(1'b1),
+    .src(32'd0), .dst(dst_addr), .len({1'b0, ntb, 2'b00}),
     .busy(w_busy), .done(w_done), .err(w_err), .cycles(w_cyc),
     .rs_valid(w_rs_valid), .rs_data(w_rs_data), .rs_ready(1'b0), .ws_valid, .ws_data, .ws_ready,
     .m_awid, .m_awaddr, .m_awlen, .m_awsize, .m_awburst, .m_awprot, .m_awvalid, .m_awready,
@@ -156,12 +157,12 @@ module Crypto_DMA_top #(
   logic [127:0] ib;
   logic [1:0]   iw;               // words of the block collected
   logic         ib_full;
-  logic [12:0]  bi;               // block index of ib
+  logic [13:0]  bi;               // block index of ib
   logic         term;             // the empty closing block is due (no text)
   logic         run;
   logic         drop;           // after a core error: drain the read, pad the write
   assign rs_ready = run && (drop || !ib_full);
-  wire          last_aad = (bi == {1'b0, nab} - 13'd1);
+  wire          last_aad = (bi == {1'b0, nab} - 14'd1);
   wire [3:0]    arem = aad_len[3:0];
   wire [3:0]    trem = txt_len[3:0];
   always_comb begin
@@ -176,7 +177,7 @@ module Crypto_DMA_top #(
         in_aad = 1'b1;
         if (last_aad && arem != 4'd0) in_bytes = {1'b0, arem};
       end else begin
-        in_last = (bi == nbl - 13'd1);
+        in_last = (bi == nbl - 14'd1);
         if (in_last && trem != 4'd0) in_bytes = {1'b0, trem};
       end
     end
@@ -203,9 +204,9 @@ module Crypto_DMA_top #(
       g_seen <= 1'b0; r_seen <= 1'b0; w_seen <= 1'b0; ax_err <= 1'b0; drop <= 1'b0;
       gcm_err <= 1'b0; err_code <= '0; cycles <= '0;
     end else if (go) begin
-      run <= 1'b1; iw <= '0; ib_full <= 1'b0; bi <= '0; term <= (ntb == 12'd0) && (nab == 12'd0);
+      run <= 1'b1; iw <= '0; ib_full <= 1'b0; bi <= '0; term <= (ntb == 13'd0) && (nab == 13'd0);
       ow <= '0; ob_full <= 1'b0;
-      g_seen <= 1'b0; r_seen <= (nbl == 13'd0); w_seen <= (ntb == 12'd0);
+      g_seen <= 1'b0; r_seen <= (nbl == 14'd0); w_seen <= (ntb == 13'd0);
       ax_err <= 1'b0; gcm_err <= 1'b0; err_code <= '0; cycles <= '0; drop <= 1'b0;
     end else if (run) begin
       cycles <= cycles + 32'd1;
@@ -218,9 +219,9 @@ module Crypto_DMA_top #(
       if (in_valid && in_ready) begin
         if (term) term <= 1'b0;
         else begin
-          ib_full <= 1'b0; bi <= bi + 13'd1;
+          ib_full <= 1'b0; bi <= bi + 14'd1;
           // AAD only: the closing empty block follows the last AAD block
-          if (ntb == 12'd0 && last_aad) term <= 1'b1;
+          if (ntb == 13'd0 && last_aad) term <= 1'b1;
         end
       end
       // split output blocks into words

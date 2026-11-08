@@ -20,7 +20,8 @@ task automatic ip_func;
   for (int i = 0; i < 4; i++) begin
     logic [7:0] d, r;
     int k;
-    d = $urandom; r = $urandom;
+    d = $urandom;
+    r = (i == 0) ? 8'hFF : (i == 1) ? 8'h00 : (i == 2) ? 8'hA5 : 8'h5A;   // every RX bit both ways
     @(negedge PCLK); t_wen = 1; t_wdata = r; @(negedge PCLK); t_wen = 0;
     wr(A_TX_DATA, {24'd0, d});
     wr(A_CMD, 1);
@@ -33,7 +34,13 @@ task automatic ip_func;
     cycles(3);
     if (t_rx !== d) fail($sformatf("target got %h, sent %h", t_rx, d));
   end
+  // one more frame with DONE masked: latched, irq low, left pending into the final reset
+  wr(A_IRQ_ENABLE, 0);
+  wr(A_TX_DATA, 32'h3C); wr(A_CMD, 1);
+  poll(A_IRQ_STATUS, 1, 1, 2000);
+  if (irq !== 1'b0) fail("irq high with DONE masked");
+  rd_exp(A_FLAGS, 0);
   wr(A_CFG, 0);
   if (csn !== 2'b11) fail("CS not released");
-  wr(A_IRQ_ENABLE, 0); wr(A_DIV, 9);
+  wr(A_DIV, 9);
 endtask
