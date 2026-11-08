@@ -260,7 +260,7 @@ module FlexRay_top (
                 if (bi < 9'd21) rdat[{bi[3:0] - 4'd5, 3'b000} +: 8] <= byte_n;
               end else rcrc_rx <= {rcrc_rx[15:0], byte_n};
               bi  <= bi + 9'd1;
-              dst <= (bi >= 9'd7 && bi == {8'(hlen) + 8'd3, 1'b1}) ? D_FES1 : D_BSS1;   // 7 + 2 x length
+              if (bi >= 9'd7 && bi == {8'(hlen) + 8'd3, 1'b1}) dst <= D_FES1; else dst <= D_BSS1;   // 7 + 2 x length
             end
           end
           D_FES1: if (strobe) begin

@@ -25,7 +25,7 @@ Features:
 - RX reads the receive shift register, which holds a complete byte when IRQ BYTE is set; TX is the byte sent in the next frame and reads back.
 - Interrupt BYTE once per received byte.
 
-sclk, mosi, miso and csn are the SPI pins; they pass through unchanged. SCLK is sampled on clk: it must stay high and low at least two clocks each.
+sclk, mosi, miso and csn are the SPI pins; they pass through unchanged. MISO is high-Z while CSn is high, so several targets can share it. SCLK is sampled on clk: it must stay high and low at least two clocks each.
 
 ## Files
 

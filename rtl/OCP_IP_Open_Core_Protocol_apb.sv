@@ -9,6 +9,8 @@
 //  - The core runs on PCLK/PRESETN; protocol pins pass through unchanged.
 //  - Register map: docs/ip/OCP_IP_Open_Core_Protocol.md
 // ============================================================================
+`timescale 1ns/1ps
+//
 module OCP_IP_Open_Core_Protocol_apb #(
   parameter int DW = 32,
   parameter int AW = 32

@@ -449,7 +449,7 @@ module PCIe_top #(
             else dllp_ok = 1'b1;
           end else ev_frame <= 1'b1;
         end else if (rx_sym != STP && rx_sym != SDP) ev_frame <= 1'b1;
-        rst <= rx_sym == STP ? R_TLP : rx_sym == SDP ? R_DLLP : R_IDLE;
+        if (rx_sym == STP) rst <= R_TLP; else if (rx_sym == SDP) rst <= R_DLLP; else rst <= R_IDLE;
         rcnt <= '0; rcrc <= 32'hFFFF_FFFF; rlong <= 1'b0; rwp <= rcp;
         if (dllp_ok) begin : b_dllp
           logic [7:0]  hdr;

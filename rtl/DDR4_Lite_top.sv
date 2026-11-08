@@ -6,8 +6,10 @@
 // What makes this a *real* DDR controller model (vs the 144-line single-bank
 // MEMCORE educational slice):
 //   * 4 independent banks with per-bank open-row tracking (open-page policy)
-//   * full JEDEC-style command set on the PHY pins: ACT / RD / WR / PRE
-//     (single & all-bank) / REF / MRS, DDR4 ACT_n encoding
+//   * JEDEC-style command set on the PHY pins: ACT / RD / WR / PRE
+//     (single & all-bank) / REF, DDR4 ACT_n encoding (RAS_n / CAS_n / WE_n
+//     carry row bits A16..A14 = 0 during ACT; RD / WR drive A12 = BC_n = 1
+//     so an on-the-fly MR0 setting still bursts BL8)
 //   * timing-fenced scheduling: tRCD, tRP, tRC, tRAS, tRRD, tWR (WR burst
 //     end -> PRE), tWTR (WR burst end -> RD), tRFC, average-refresh
 //     interval tREFI (all in clk cycles); read data starts exactly CL
@@ -31,6 +33,10 @@
 //   * refresh is served only when the command engine is idle
 //   * memory array lives inside the model (controller + DRAM array combined)
 //   * one command engine: a single transaction is in flight at a time
+//   * the MR file is controller-side only: MRW changes the controller's
+//     CL / CWL at once and issues no MRS on the pins, so the device's mode
+//     registers must be set to match (MR0 / MR2 for CL / CWL) by
+//     initialization outside this model
 //
 // Front-end (AHB-like, framework style):
 //   hcmd: 0 = NOP | 1 = READ line | 2 = WRITE line | 3 = MRW (haddr[2:0]=MR
@@ -149,6 +155,10 @@ module DDR4_Lite_top #(
   wire rrd_done = (rrd_cnt == '0) && !ld_rrd_v;
   wire wtr_done = (wtr_cnt == '0) && !ld_wtr_v;
   wire rfc_done = (rfc_cnt == '0) && !ld_rfc_v;
+  // refresh may only start when no bank is mid-write or inside tRAS.
+  // Declared here, before its first use in the pin block (ENG_REF_PRE).
+  wire ref_go = wr_done[0] && wr_done[1] && wr_done[2] && wr_done[3] &&
+                ras_done[0] && ras_done[1] && ras_done[2] && ras_done[3];
 
   // ---------------- refresh ----------------
   logic ref_pending;
@@ -207,13 +217,14 @@ module DDR4_Lite_top #(
           ba <= eng_bank; addr <= 14'h0000;
         end
         ENG_ACT: begin                    // ACT (row on addr)
-          cs_n <= 1'b0; act_n <= 1'b0; ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;
+          // with ACT_n low, RAS_n/CAS_n/WE_n are row bits A16/A15/A14 (0)
+          cs_n <= 1'b0; act_n <= 1'b0; ras_n <= 1'b0; cas_n <= 1'b0; we_n <= 1'b0;
           ba <= eng_bank; addr <= {5'h0, eng_row};
         end
         ENG_TRCD: if (lat_cnt == 5'd1 && (eng_we || wtr_done)) begin  // RD / WR command
           cs_n <= 1'b0; act_n <= 1'b1; ras_n <= 1'b1; cas_n <= 1'b0;
           we_n <= ~eng_we;
-          ba <= eng_bank; addr <= {7'h0, eng_line, 4'h0};
+          ba <= eng_bank; addr <= {1'b0, 1'b1, 5'h00, eng_line, 4'h0};  // A12 (BC_n) = 1: BL8, no burst chop
         end
         ENG_REF_PRE: if (ref_go && bank_open != 4'b0000) begin  // PREA (all banks)
           cs_n <= 1'b0; act_n <= 1'b1; ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0;
@@ -399,9 +410,6 @@ module DDR4_Lite_top #(
   always_ff @(posedge clk) if (mem_we) mem[mem_wa] <= mem_wd;
   wire hit = bank_open[eng_bank] &&
              (bank_row[eng_bank] == eng_row);
-  // refresh may only start when no bank is mid-write or inside tRAS
-  wire ref_go = wr_done[0] && wr_done[1] && wr_done[2] && wr_done[3] &&
-                ras_done[0] && ras_done[1] && ras_done[2] && ras_done[3];
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin

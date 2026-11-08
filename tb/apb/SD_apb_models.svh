@@ -53,9 +53,16 @@ module sd_card (
     cid_val[0] = 1'b1;
   endfunction
 
+  // the card drives on the sd_clk falling edge and samples on the rising
+  // edge (the host drives on the falling edge too)
   task automatic bitw(input int k);
     repeat (k) @(negedge sd_clk);
   endtask
+  task automatic bitr(input int k);
+    repeat (k) @(posedge sd_clk);
+  endtask
+  // N_CR of each response: 2 (the minimum) .. 5 clocks after the end bit
+  int ncr = 2, ncr_max = 5, n_ncr2 = 0;
 
   // drive a response MSB first on CMD
   logic [135:0] rsp;
@@ -87,17 +94,19 @@ module sd_card (
     logic [5:0] idx;
     logic [31:0] arg;
     int flt;
-    @(negedge sd_clk);
+    @(posedge sd_clk);
     if (cmd === 1'b0 && !coe) begin
       f = 0;
-      for (int i = 46; i >= 0; i--) begin bitw(1); f[i] = cmd; end
+      for (int i = 46; i >= 0; i--) begin bitr(1); f[i] = cmd; end
       idx = f[45:40]; arg = f[39:8];
       n_cmds++;
       if (!f[46] || !f[0] || crc7({80'h0, f[47:8]}, 40) != f[7:1]) bad_frames++;
       else begin
         flt = (fault_cmd == idx) ? fault : F_NONE;
         if (flt != F_NONE) begin fault = F_NONE; fault_cmd = -1; end
-        bitw(5);
+        ncr = $urandom_range(ncr_max, 2);
+        if (ncr == 2) n_ncr2++;
+        bitw(ncr);
         if (flt != F_MUTE) case (idx)
           6'd0: polls = 0;
           6'd8: begin
@@ -147,13 +156,15 @@ module sd_card (
     if (wr_go) begin
       wr_go = 0;
       t = 0;
-      while (dat !== 4'h0 && t < 200) begin @(negedge sd_clk); t++; end
-      for (int j = 0; j < 64; j++) begin bitw(1); d[255 - 4 * j -: 4] = dat; end
+      // the start bits are sampled on a rising edge (the host may drive
+      // them at this very falling edge)
+      do begin @(posedge sd_clk); t++; end while (dat !== 4'h0 && t < 200);
+      for (int j = 0; j < 64; j++) begin bitr(1); d[255 - 4 * j -: 4] = dat; end
       for (int i = 15; i >= 0; i--) begin
-        bitw(1);
+        bitr(1);
         for (int k = 0; k < 4; k++) c[k][i] = dat[k];
       end
-      bitw(1); e = dat;
+      bitr(1); e = dat;
       ok = e == 4'hF && dfault != F_WCRC;
       for (int k = 0; k < 4; k++) if (c[k] != crc16(d, k)) ok = 0;
       if (ok) mem[dblk] = d;

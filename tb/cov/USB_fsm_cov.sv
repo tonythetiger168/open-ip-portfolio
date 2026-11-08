@@ -52,7 +52,7 @@ module USB_top__fsm_cov (
   fsm_arc__cs__CS_TX__CS_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_cs == 2'd1 ##1 s_cs == 2'd0);
   fsm_arc__cs__CS_TX__CS_WACK: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_cs == 2'd1 ##1 s_cs == 2'd2);
   fsm_arc__cs__CS_WACK__CS_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_cs == 2'd2 ##1 s_cs == 2'd0);
-  // ---- FSM USB_top.rq: 7 states, 2 arcs ----
+  // ---- FSM USB_top.rq: 8 states, 2 arcs ----
   fsm_st__rq__RQ_NONE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rq == 3'd0);
   fsm_st__rq__RQ_DESC: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rq == 3'd1);
   fsm_st__rq__RQ_CFGGET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rq == 3'd2);
@@ -60,6 +60,7 @@ module USB_top__fsm_cov (
   fsm_st__rq__RQ_CFGSET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rq == 3'd4);
   fsm_st__rq__RQ_CNTSET: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rq == 3'd5);
   fsm_st__rq__RQ_STALL: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rq == 3'd6);
+  fsm_st__rq__RQ_STS: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rq == 3'd7);
   fsm_arc__rq__ANY__RQ_NONE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rq != 3'd0 ##1 s_rq == 3'd0);
   fsm_arc__rq__ANY__RQ_STALL: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_rq != 3'd6 ##1 s_rq == 3'd6);
 endmodule

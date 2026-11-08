@@ -1,0 +1,63 @@
+{
+  "title": "SGMII / 1000BASE-X PCS (IEEE 802.3 clause 36 / 37, Cisco SGMII MAC side): GMII to ten-bit interface with 8b/10b coding, comma alignment, synchronisation, ordered sets and auto-negotiation",
+  "code": "0x5347",
+  "version": "1.0",
+  "tb_clk_ns": 8,
+  "tb_params": {"LT_X": "300", "LT_SG": "211"},
+  "regs": [
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Link state",
+      "fields": [
+        {"port": "sync_ok", "desc": "code-group synchronisation acquired (clause 36 synchronisation in SYNC_ACQUIRED_1..4)"},
+        {"port": "an_done", "desc": "auto-negotiation in LINK_OK"},
+        {"port": "link_up", "desc": "sync and AN done (and the PHY's link bit in SGMII mode), or sync with AN disabled"},
+        {"port": "speed", "desc": "00 10, 01 100, 10 1000 Mb/s (the partner's speed in SGMII mode, always 10 in 1000BASE-X)"},
+        {"port": "full_duplex", "desc": "duplex result: partner bit 12 in SGMII mode, adv[5] and partner bit 5 in 1000BASE-X"}
+      ]
+    },
+    {
+      "name": "LP_ABILITY",
+      "kind": "ro",
+      "desc": "The partner's config word captured by auto-negotiation",
+      "fields": [
+        {"port": "lp_ability", "desc": "the partner's base page; [14] is set once it acknowledged"}
+      ]
+    },
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Mode and advertised abilities",
+      "fields": [
+        {"port": "an_en", "reset": "1", "desc": "auto-negotiation enable (0: data as soon as sync is acquired)"},
+        {"port": "mode_sgmii", "reset": "0", "desc": "1: SGMII (MAC side, sends 0x0001, SGMII link timer), 0: 1000BASE-X"},
+        {"port": "adv", "reset": "0x01A0", "desc": "1000BASE-X abilities sent in /C/ ([5] FD, [6] HD, [8:7] pause, [13:12] remote fault, [15] next page); [14] is ignored"}
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands",
+      "fields": [
+        {"port": "an_restart", "desc": "write 1: restart auto-negotiation"}
+      ]
+    }
+  ],
+  "irqs": [
+    {"name": "LINK", "port": "irq_link", "desc": "link_up changed"},
+    {"name": "AN", "port": "irq_an", "desc": "auto-negotiation completed"},
+    {"name": "ERR", "port": "irq_err", "desc": "an invalid code group or a comma on an odd position while in sync, a false carrier, or an error in a received packet"}
+  ],
+  "features": [
+    "GMII (gtxd / gtx_en / gtx_er, grxd / grx_dv / grx_er) to a ten-bit interface (tx_code / rx_code, bit 9 sent first) at 125 MHz.",
+    "8b/10b encoder and table decoder with running disparity; /I1/ and /I2/ idles keep the disparity negative after each idle; /S/ on an even position (the preamble byte it replaces is sent as /S/), /T/R/ or /T/R/R/ so the next ordered set starts even, gtx_er sent as /V/.",
+    "Receive: a comma aligner over a 20-bit window at any of the 10 bit offsets, the clause 36 synchronisation state machine (three commas with data between, four bad groups to lose sync, three good ones step back up), /C/ and /I/ decoding, packets from /S/ to /T/ with /V/, invalid and special groups flagged as grx_er, an early end on a comma, and false carriers reported as grx_er with 0x0E.",
+    "Clause 37 auto-negotiation: restart, ability detect, acknowledge detect, complete acknowledge, idle detect and link OK with the link timer (LT_X in 1000BASE-X, LT_SG in SGMII mode); the partner restarting (zero config words) and config words while the link is up restart it. Matches seen while the state before was running count in ability and acknowledge detect.",
+    "SGMII MAC side: sends 0x0001 (0x4001 when acknowledging) and takes speed, duplex and the PHY's link bit from the partner's word."
+  ],
+  "notes": [
+    "gtxd, gtx_en, gtx_er, grxd, grx_dv, grx_er, tx_code and rx_code pass through unchanged; the GMII and the ten-bit interface run on PCLK (125 MHz). LT_X and LT_SG set the link timers in clocks (10 ms and 1.6 ms by default).",
+    "Not implemented: SGMII rate adaptation (at 10 / 100 Mb/s the MAC repeats each byte 100 / 10 times), carrier extension, EEE, the PHY side of SGMII and next pages."
+  ]
+}

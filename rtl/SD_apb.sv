@@ -10,7 +10,8 @@
 //  - Register map: docs/ip/SD.md
 // ============================================================================
 module SD_apb #(
-  parameter int SD_CLK_DIV = 4
+  parameter int SD_CLK_DIV = 4,
+  parameter int ID_CLK_DIV = 128
 ) (
   input  logic        PCLK,
   input  logic        PRESETN,
@@ -45,7 +46,7 @@ module SD_apb #(
 
   // ---------------- core ----------------
   logic          c_irq;
-  SD_top #(.SD_CLK_DIV(SD_CLK_DIV)) u_core (
+  SD_top #(.SD_CLK_DIV(SD_CLK_DIV), .ID_CLK_DIV(ID_CLK_DIV)) u_core (
     .clk(PCLK),
     .rst_n(PRESETN),
     .sd_clk(sd_clk),

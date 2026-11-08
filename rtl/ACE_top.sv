@@ -233,7 +233,7 @@ module ACE_top #(
           sstate <= S_CR;
         end
         S_CR: if (crvalid && crready)
-          sstate <= snp_xfer_q ? S_CD : S_IDLE;
+          if (snp_xfer_q) sstate <= S_CD; else sstate <= S_IDLE;
         S_CD: if (cdvalid && cdready)
           sstate <= S_IDLE;
         default: sstate <= S_IDLE;

@@ -9,6 +9,8 @@
 //  - The core runs on PCLK/PRESETN; protocol pins pass through unchanged.
 //  - Register map: docs/ip/TileLink__TL_UL_TL_C_.md
 // ============================================================================
+`timescale 1ns/1ps
+//
 module TileLink__TL_UL_TL_C__apb #(
   parameter int DW = 32,
   parameter int AW = 32,

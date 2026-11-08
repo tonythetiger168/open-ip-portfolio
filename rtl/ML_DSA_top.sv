@@ -751,7 +751,7 @@ module ML_DSA_top (
     end else begin
       h_done <= 1'b0;
       if (ugo) begin
-        hst <= h_on ? K_ABS : K_IDLE;
+        if (h_on) hst <= K_ABS; else hst <= K_IDLE;
         kst <= '0; kpos <= '0; kseg <= '0; kidx <= '0; kout <= '0;
       end else if (p_done && h_strm) hst <= K_IDLE;
       else case (hst)
@@ -769,7 +769,7 @@ module ML_DSA_top (
         K_PERM: begin
           kst <= keccak_round(kst, KRC[64 * krnd +: 64]);
           krnd <= krnd + 5'd1;
-          if (krnd == 5'd23) hst <= ksqz ? K_SQZ : K_ABS;
+          if (krnd == 5'd23) if (ksqz) hst <= K_SQZ; else hst <= K_ABS;
         end
         K_SQZ:
           if (h_strm ? hs_ready : 1'b1) begin
