@@ -15,6 +15,10 @@
 //  - Checks every burst: AxSIZE = 2, AxBURST = INCR, no 4 KB crossing, WLAST
 //    on the last beat only, BID / RID echo the request ID. A violation
 //    increments `errors` and is printed with "ERROR:".
+//  - `any_burst` = 1 (default 0) drops the AxSIZE / AxBURST / alignment /
+//    4 KB / WSTRB checks, for a pass-through block whose test sends narrow,
+//    FIXED and WRAP bursts: every beat is then stored or read as a whole
+//    word at a, a + 4, ... (the data of such bursts is not meaningful).
 `ifndef SOC_SS_AXI_MEM_SVH
 `define SOC_SS_AXI_MEM_SVH
 module soc_ss_axi_mem #(parameter logic [31:0] RESET_WORD = 32'h0) (
@@ -57,6 +61,7 @@ module soc_ss_axi_mem #(parameter logic [31:0] RESET_WORD = 32'h0) (
   bit          vld [262144];
   bit          stall = 1;
   bit          aw_hold = 0;      // 1: AWREADY held low (a blocked write path)
+  bit          any_burst = 0;    // 1: any AxSIZE / AxBURST / WSTRB accepted (see above)
   logic [31:0] err_lo = 32'hFFFF_FFFF, err_hi = 32'hFFFF_FFFF;
   int          errors = 0;
   int          n_wr_bursts = 0, n_rd_bursts = 0, n_wr_beats = 0, n_rd_beats = 0;
@@ -81,6 +86,7 @@ module soc_ss_axi_mem #(parameter logic [31:0] RESET_WORD = 32'h0) (
   endfunction
   function automatic void check_req(input string ch, input logic [31:0] a, input logic [7:0] l,
                                     input logic [2:0] sz, input logic [1:0] bu);
+    if (any_burst) return;
     if (sz !== 3'd2) bad($sformatf("%s size %0d", ch, sz));
     if (bu !== 2'b01) bad($sformatf("%s burst %0d", ch, bu));
     if (a[1:0] !== 2'b00) bad($sformatf("%s unaligned %h", ch, a));
@@ -107,7 +113,7 @@ module soc_ss_axi_mem #(parameter logic [31:0] RESET_WORD = 32'h0) (
       @(posedge clk);
       while (!wvalid) @(posedge clk);
       if (wlast !== (i == l)) bad($sformatf("WLAST %b on beat %0d of %0d", wlast, i, l + 1));
-      if (wstrb !== 4'hF) bad($sformatf("WSTRB %h", wstrb));
+      if (wstrb !== 4'hF && !any_burst) bad($sformatf("WSTRB %h", wstrb));
       if (is_err(a)) e = 1; else poke(a, wdata);
       n_wr_beats++;
       a = a + 4;
