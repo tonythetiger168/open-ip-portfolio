@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of HDCP_2_3_Content_Protection_apb_tb: the TB plays the HDCP
 // receiver through the registers (reads TXM, answers on RXM), with its own
 // AES-128 (anchored on the FIPS-197 vector), and decrypts the pixel stream

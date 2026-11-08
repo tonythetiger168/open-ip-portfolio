@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of UniPro_apb_tb: the far UniPro device of the core TB (a symbol
 // queue fed by a frame builder with faults; an independent decoder of tx_bit
 // checking every DUT frame and answering ACK / NAC / nothing / GET response /

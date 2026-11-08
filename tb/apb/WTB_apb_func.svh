@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of WTB_apb_tb: the other stations of the core TB on a looped-back
 // bus (rx_bit = tx_en ? tx_bit : peer_bit) and a monitor decoding every frame
 // the station sends. TXF pushes, NS / DA / CTRL writes, RXF pops and STATUS
