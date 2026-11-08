@@ -34,7 +34,7 @@ kick or WDT_EN = 0.
 Features:
 
 - Tick: one every PRESCALE + 1 clocks; COUNT counts ticks.
-- Timer (TMR_EN): TIMER fires every PERIOD + 1 ticks (the event is the tick at which the timer count is >= PERIOD, so lowering PERIOD ends the current period at the next tick). With TS_EN and TS_WORDS != 0 each timer event writes COUNT (the value in the event's clock) at TS_BASE + 4 * (n mod TS_WORDS); TS_WP counts records, TS_MISSED events that came while a record was being written.
+- Timer (TMR_EN): TIMER fires every PERIOD + 1 ticks (the event is the tick at which the timer count is >= PERIOD, so lowering PERIOD ends the current period at the next tick). With TS_EN and TS_WORDS != 0 each timer event writes COUNT (the value in the event's clock) at TS_BASE + 4 * (n mod TS_WORDS); if TS_WORDS is lowered below the slot of the next record, that record goes to slot 0 and the ring restarts there; TS_WP counts records, TS_MISSED events that came while a record was being written.
 - Watchdog (WDT_EN): WDT_COUNT loads WDT_LOAD, counts down one per tick; CMD.kick reloads. At 0: BARK fires and it reloads; at 0 again without a kick wdt_reset goes high until a kick or WDT_EN = 0.
 
 m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time. A read burst is issued only when its data has room, a write burst only when all its data is ready.
@@ -291,4 +291,4 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
 | core `rtl/Timer_WDT_top.sv` | not run | | | | | |
-| wrapper `rtl/Timer_WDT_apb.sv` | pass | 40/40 | 1276/1544 | n/a | 16/16 | 52/52 |
+| wrapper `rtl/Timer_WDT_apb.sv` | pass | 40/40 | 1544/1544 (+268 excl.) | n/a | 16/16 | 52/52 |

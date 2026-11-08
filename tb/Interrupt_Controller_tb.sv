@@ -140,6 +140,16 @@ module Interrupt_Controller_tb;
     @(negedge clk); irq_src = 32'h0000_0040;
     wait_wp(1);
     if ((mem.peek(log_base) & 32'h1F) !== 6) fail("record after reset");
+    irq_src = 0;
+    // LOG_WORDS lowered below the next slot: the record goes to slot 0
+    log_words = 8;
+    for (int k = 1; k < 5; k++) begin @(negedge clk); irq_src = 32'(1) << k; wait_wp(k + 1); @(negedge clk); irq_src = 0; end
+    for (int i = 0; i < 8; i++) mem.poke(log_base + 32'(4 * i), 32'hDEAD_0000 | 32'(i));
+    log_words = 3;
+    @(negedge clk); irq_src = 32'h0000_0200; wait_wp(6);
+    if ((mem.peek(log_base) & 32'h1F) !== 9) fail($sformatf("record after lowering LOG_WORDS at slot 0: %h", mem.peek(log_base)));
+    if (mem.peek(log_base + 20) !== 32'hDEAD_0005) fail("record outside the shrunk ring");
+    irq_src = 0;
     finish("Interrupt_Controller");
   end
 endmodule

@@ -77,18 +77,20 @@ module Timer_WDT_top #(
 );
   logic        rs_valid, rs_ready, ws_valid, ws_ready, e_done, e_busy, e_err;
   logic [31:0] rs_data, ws_data, e_cycles, tcnt, rec;
-  logic [15:0] pre, slot;
+  logic [15:0] pre, slot, wslot;
   logic        barked;
 
   wire tick = (pre >= prescale);
   assign tmr_irq = tmr_en && tick && tcnt >= period;
   assign bark    = wdt_en && tick && wdt_count == 0 && !barked && !kick;
   wire   go      = tmr_irq && ts_en && ts_words != 0 && !e_busy && !e_done;   // not in the DONE clock: slot moves on
+  // the ring slot of the next record: back to 0 if TS_WORDS was lowered below it
+  assign wslot = (slot >= ts_words) ? 16'd0 : slot;
 
   soc_ss_axi_engine #(.ID(AXI_ID)) u_eng (
     .clk, .rst_n,
     .start(go), .rd_en(1'b0), .wr_en(1'b1),
-    .src(32'd0), .dst(ts_base + {14'd0, slot, 2'b00}), .len(16'd1),
+    .src(32'd0), .dst(ts_base + {14'd0, wslot, 2'b00}), .len(16'd1),
     .busy(e_busy), .done(e_done), .err(e_err), .cycles(e_cycles),
     .rs_valid, .rs_data, .rs_ready, .ws_valid, .ws_data, .ws_ready,
     .m_awid(m_awid),
@@ -141,7 +143,7 @@ module Timer_WDT_top #(
       if (tmr_irq && ts_en && ts_words != 0 && (e_busy || e_done) && ts_missed != 16'hFFFF) ts_missed <= ts_missed + 16'd1;
       if (e_done) begin
         ts_wp <= ts_wp + 16'd1;
-        slot  <= (slot + 16'd1 >= ts_words) ? 16'd0 : slot + 16'd1;
+        slot  <= (wslot + 16'd1 >= ts_words) ? 16'd0 : wslot + 16'd1;
       end
       // watchdog
       if (!wdt_en) begin
