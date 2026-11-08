@@ -5,5 +5,5 @@ simv_bitclks
 __pycache__/
 simv_apb
 simv_func
-ext/
+/ext/
 simv_ext
