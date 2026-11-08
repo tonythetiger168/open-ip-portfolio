@@ -1,0 +1,113 @@
+{
+  "title": "I2C controller (master): START / repeated START, byte write with ACK check, byte read with ACK / NACK, STOP",
+  "code": "0x5C51",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "features": [
+    "The controller role that the I2C_top target does not cover: sensor, PMIC and EEPROM control.",
+    "Byte commands: STA, then WR (send TX_DATA, ACK bit into RX_ACK) or RD (byte into RX_DATA, then ACK or NACK), then STO.",
+    "One quarter of the SCL period is PRESCALE + 1 clocks (at least 3); SCL push-pull, SDA open drain, single controller, no clock stretching."
+  ],
+  "regs": [
+    {
+      "name": "PRESCALE",
+      "kind": "rw",
+      "desc": "SCL timing",
+      "fields": [
+        {
+          "port": "prescale",
+          "reset": "0x63",
+          "desc": "quarter SCL period - 1, in clocks (reset 0x63: 100 kHz at 40 MHz)"
+        }
+      ]
+    },
+    {
+      "name": "TX_DATA",
+      "kind": "rw",
+      "desc": "Byte sent by the next WR command",
+      "fields": [
+        {
+          "port": "tx_data",
+          "reset": "0",
+          "desc": "MSB first"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Command (write 1s; one command per write)",
+      "fields": [
+        {
+          "port": "cmd_valid",
+          "desc": "issue the command made of the other bits"
+        },
+        {
+          "port": "cmd_sta",
+          "desc": "START (repeated START when the bus is held)"
+        },
+        {
+          "port": "cmd_wr",
+          "desc": "write TX_DATA"
+        },
+        {
+          "port": "cmd_rd",
+          "desc": "read a byte (ignored with WR)"
+        },
+        {
+          "port": "cmd_sto",
+          "desc": "STOP at the end"
+        },
+        {
+          "port": "cmd_nack",
+          "desc": "RD: answer NACK instead of ACK"
+        }
+      ]
+    },
+    {
+      "name": "RX",
+      "kind": "ro",
+      "desc": "Result of the last command",
+      "fields": [
+        {
+          "port": "rx_data",
+          "desc": "byte read by the last RD"
+        },
+        {
+          "port": "rx_ack",
+          "desc": "ACK bit after the last WR: 0 ACK, 1 NACK"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "State",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "a command is running"
+        },
+        {
+          "port": "bus_held",
+          "desc": "between a START and a STOP"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DONE",
+      "port": "done",
+      "desc": "a command ended"
+    }
+  ],
+  "sequence": [
+    "Write PRESCALE.",
+    "Write TX_DATA = {address, R/W}, then CMD = valid | sta | wr; wait for DONE, check RX.rx_ack.",
+    "For each data byte: TX_DATA and CMD = valid | wr (| sto on the last), or CMD = valid | rd (| nack | sto on the last) and read RX.rx_data."
+  ],
+  "notes": [
+    "scl is driven push-pull and sda is open drain (it only pulls low; an external pull-up is required); both pass through unchanged."
+  ]
+}
