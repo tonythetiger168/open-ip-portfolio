@@ -1,0 +1,163 @@
+{
+  "title": "I2S audio port with an AXI4 DMA: one stereo frame per 32-bit word, TX and RX, underrun / overrun counters",
+  "code": "0x5C21",
+  "version": "1.0",
+  "axi_master": {
+    "id": 8,
+    "reads": true,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "The unchanged I2S_top core (16-bit Philips I2S slave) fed and drained by the shared AXI4 engine.",
+    "One word per stereo frame: bits 15:0 left, bits 31:16 right.",
+    "TX: word k plays in the frame after the one in which it was taken; with no word ready a frame repeats the previous one (TX_UNDERRUN).",
+    "RX: one word per frame received entirely after START; a word not taken by the engine in time is replaced by the next frame (RX_OVERRUN).",
+    "FRAMES counts the frames played (TX jobs) or received (RX-only jobs)."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "SRC_ADDR",
+      "kind": "rw",
+      "desc": "TX buffer (byte address, word aligned)",
+      "fields": [
+        {
+          "port": "src_addr",
+          "reset": "0",
+          "desc": "first word played"
+        }
+      ]
+    },
+    {
+      "name": "DST_ADDR",
+      "kind": "rw",
+      "desc": "RX buffer (byte address, word aligned)",
+      "fields": [
+        {
+          "port": "dst_addr",
+          "reset": "0",
+          "desc": "first word written"
+        }
+      ]
+    },
+    {
+      "name": "LEN",
+      "kind": "rw",
+      "desc": "Job length",
+      "fields": [
+        {
+          "port": "xfer_len",
+          "reset": "0",
+          "desc": "frames (32-bit words); 0: the job ends at once"
+        }
+      ]
+    },
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Job directions",
+      "fields": [
+        {
+          "port": "tx_en",
+          "reset": "0",
+          "desc": "play LEN words from SRC_ADDR"
+        },
+        {
+          "port": "rx_en",
+          "reset": "0",
+          "desc": "record LEN frames to DST_ADDR"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "start",
+          "desc": "start a job (TX_EN or RX_EN set); ignored while busy"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Job state",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "a job is running"
+        },
+        {
+          "port": "err",
+          "desc": "the current / last job saw an AXI error response (cleared by start)"
+        }
+      ]
+    },
+    {
+      "name": "FRAMES",
+      "kind": "ro",
+      "desc": "Frames",
+      "fields": [
+        {
+          "port": "frames",
+          "desc": "frames played / received by the current / last job"
+        }
+      ]
+    },
+    {
+      "name": "XRUN",
+      "kind": "ro",
+      "desc": "Underrun / overrun counters (cleared by start)",
+      "fields": [
+        {
+          "port": "tx_underrun",
+          "desc": "TX frames repeated for want of data"
+        },
+        {
+          "port": "rx_overrun",
+          "desc": "RX frames lost (replaced by a newer one)"
+        }
+      ]
+    },
+    {
+      "name": "CYCLES",
+      "kind": "ro",
+      "desc": "Job length in clocks",
+      "fields": [
+        {
+          "port": "cycles",
+          "desc": "clocks from start to DONE of the current / last job"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DONE",
+      "port": "done",
+      "desc": "a job ended"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "a job ended that saw an AXI error response"
+    }
+  ],
+  "sequence": [
+    "Write SRC_ADDR / DST_ADDR (word aligned) and LEN (frames).",
+    "Write CTRL.tx_en / rx_en and IRQ_ENABLE.",
+    "Write CMD.start = 1.",
+    "Wait for irq, read FRAMES and XRUN, write 1s to IRQ_STATUS to clear it."
+  ],
+  "notes": [
+    "bclk, lrck, sdin and sdout are the I2S pins (slave: the codec drives BCLK and LRCK); they pass through unchanged. Each BCLK phase must last at least three clocks.",
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time. A read burst is issued only when its data has room, a write burst only when all its data is ready."
+  ]
+}
