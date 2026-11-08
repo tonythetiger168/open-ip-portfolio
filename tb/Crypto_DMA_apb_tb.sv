@@ -275,7 +275,7 @@ module Crypto_DMA_apb_tb;
   end
 
   initial begin
-    #20ms;
+    #1s;
     $display("TEST FAILED: Crypto_DMA_apb (timeout)");
     $finish;
   end

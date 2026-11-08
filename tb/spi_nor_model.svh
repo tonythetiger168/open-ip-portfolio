@@ -66,7 +66,9 @@ module spi_nor_model (
   end
   always @(posedge sclk) if (!csn) begin
     if (nbit < 8) begin
+`ifndef VERILATOR   // Verilator's 2-state tristate resolution reports a pulled-up line as z
       if (io[0] === 1'bx || io[0] === 1'bz) bad("command bit not driven");
+`endif
       cmd = {cmd[6:0], io[0]};
     end else if (has_addr(cmd) && nbit < 32) begin
       addr = {addr[22:0], io[0]};

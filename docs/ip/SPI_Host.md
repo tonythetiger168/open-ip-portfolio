@@ -211,4 +211,4 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
 | core `rtl/SPI_Host_top.sv` | not run | | | | | |
-| wrapper `rtl/SPI_Host_apb.sv` | not run | | | | | |
+| wrapper `rtl/SPI_Host_apb.sv` | pass | 32/32 | 548/548 | n/a | 13/13 | 36/36 |

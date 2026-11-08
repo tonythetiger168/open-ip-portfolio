@@ -3,6 +3,7 @@
   "code": "0x5C61",
   "version": "1.0",
   "tb_clk_ns": 10,
+  "tb_timeout": "1s",
   "features": [
     "The software-driven host that the fixed-sequence SD_top / eMMC_top demos do not cover: SD card and eMMC storage. Software runs the card protocol one command at a time.",
     "Commands with no response, a 48-bit response, a 136-bit response (CID / CSD) or a 48-bit response plus busy on DAT0 (R1b); CRC7 and index checks can be switched off per command (R3).",

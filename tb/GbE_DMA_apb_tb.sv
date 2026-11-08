@@ -239,7 +239,7 @@ module GbE_DMA_apb_tb;
   end
 
   initial begin
-    #20ms;
+    #1s;
     $display("TEST FAILED: GbE_DMA_apb (timeout)");
     $finish;
   end

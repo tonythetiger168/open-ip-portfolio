@@ -117,6 +117,24 @@ module Crypto_DMA_tb;
     run(8, 2, 0);
     run(9, 3, 0);
     run(10, 0, 0);
+    // the largest message (65535 AAD bytes, 65535 text bytes: 8192 blocks
+    // read, 4096 written)
+    begin
+      int rb0, wb0, t;
+      @(negedge clk);
+      mem.stall = 0;
+      rb0 = mem.n_rd_beats; wb0 = mem.n_wr_beats;
+      src_addr = 32'h0100_0000; dst_addr = 32'h0140_0000; aad_len = 16'hFFFF; txt_len = 16'hFFFF;
+      key_sel = 0; decrypt = 0; key256 = 1;
+      start = 1; @(negedge clk); start = 0;
+      t = 0;
+      while (busy && t < 2000000) begin @(negedge clk); t++; end
+      if (busy) fail("largest message timed out");
+      if (err || gcm_err) fail($sformatf("largest message: ERR %b GCM_ERR %b", err, gcm_err));
+      if (mem.n_rd_beats - rb0 != 8192 * 4) fail($sformatf("largest message: %0d words read", mem.n_rd_beats - rb0));
+      if (mem.n_wr_beats - wb0 != 4096 * 4) fail($sformatf("largest message: %0d words written", mem.n_wr_beats - wb0));
+      mem.stall = 1;
+    end
     // reset in the middle of a job: the core and the bus go idle
     @(negedge clk);
     src_addr = 32'h0000_2000; dst_addr = 32'h4000_2000; aad_len = 16; txt_len = 400; key_sel = 0;

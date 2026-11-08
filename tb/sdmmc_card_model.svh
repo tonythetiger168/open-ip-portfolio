@@ -6,7 +6,9 @@
 // - SD: CMD0, CMD8 (R7 echo), CMD55 + ACMD41 (R3, ready on the 3rd poll,
 //   CCS = 1), CMD2 (R2 CID), CMD3 (R6, RCA 0xB37A), CMD7 (R1b), ACMD6 (bus
 //   width 1 / 4), CMD13, CMD16, CMD17 / 18, CMD24 / 25, CMD12 (R1b).
-// - eMMC: CMD0, CMD1 (R3, ready on the 3rd poll, sector mode), CMD2, CMD3
+// - rnd_id: insert() picks a random CID and SD RCA (identification tests).
+// - eMMC: CMD0, CMD1 (R3, ready on the 3rd poll, sector mode, OCR bits 14:8
+//   as offered by the host), CMD2, CMD3
 //   (the host's RCA), CMD7, CMD6 SWITCH of EXT_CSD[183] BUS_WIDTH (R1b; 1 /
 //   4 / 8 bits), CMD8 SEND_EXT_CSD (one 512-byte block), and the same data
 //   commands.
@@ -16,6 +18,8 @@
 //   runs until CMD12. Each write block gets the CRC status token 2 clocks
 //   after its end bit and 0..busy_max clocks of busy.
 // - One-shot faults: f_mute (no response), f_rcrc (bad response CRC7),
+//   f_ridx (wrong index in a 48-bit response), f_rend (end bit 0),
+//   f_rd_end (DAT0 end bit 0 on the next read block),
 //   f_rd_crc (bad CRC16 on DAT0 of the next read block), f_wtok (next write
 //   block rejected, CRC status 101, not written), f_busy (next R1b busy
 //   lasts busy_long clocks).
@@ -38,6 +42,9 @@ module sdmmc_card_model #(parameter int NBLK = 64) (
   logic [15:0] rca = 0;
   bit          acmd = 0, selected = 0;
   bit          f_mute = 0, f_rcrc = 0, f_rd_crc = 0, f_wtok = 0, f_busy = 0;
+  bit          f_ridx = 0, f_rend = 0, f_rd_end = 0;
+  bit          rnd_id = 0;                // insert(): random CID body and SD RCA
+  logic [15:0] sd_rca = 16'hB37A;
   // drivers
   logic        c_oe = 0, c_o = 1, busy_lo = 0;
   logic [7:0]  d_oe = 0, d_o = 8'hFF;
@@ -69,6 +76,10 @@ module sdmmc_card_model #(parameter int NBLK = 64) (
     width = 1; blklen = 512; polls = 0; rca = 0; acmd = 0; selected = 0;
     c_oe = 0; d_oe = 0; busy_lo = 0; rd_req = 0; wr_req = 0; stop = 0;
     body = emmc ? 120'h15_0100_4D_4D43_3136_47_10_DEADBEEF_A1 : 120'h03_5344_5344_3634_47_80_12345678_016;
+    if (rnd_id) begin
+      body = {$urandom, $urandom, $urandom, $urandom};
+      sd_rca = $urandom; if (sd_rca == 0) sd_rca = 16'h1;
+    end else sd_rca = 16'hB37A;
     cid = {body, crc7({16'd0, body}, 119, 0), 1'b1};
     for (int i = 0; i < 512; i++) ext_csd[i] = 8'(i * 7 + 3);
     ext_csd[183] = 0; ext_csd[192] = 8; ext_csd[212] = 8'(NBLK); ext_csd[213] = 0;
@@ -83,6 +94,8 @@ module sdmmc_card_model #(parameter int NBLK = 64) (
   task automatic send(input logic [135:0] f, input int n, input bit r1b);
     int b;
     if (f_rcrc) begin f[1] = ~f[1]; f_rcrc = 0; end
+    if (f_ridx && n == 48) begin f[40] = ~f[40]; f[7:1] = crc7(f, 47, 8); f_ridx = 0; end  // CRC still good
+    if (f_rend) begin f[0] = 1'b0; f_rend = 0; end
     repeat (2) @(negedge sclk);                        // N_CR = 2
     for (int i = n - 1; i >= 0; i--) begin
       c_oe = 1; c_o = f[i];
@@ -153,9 +166,9 @@ module sdmmc_card_model #(parameter int NBLK = 64) (
       endcase
       else case (idx)
         6'd0:  insert();
-        6'd1:  if (emmc) begin polls++; r3({polls >= 3, 2'b10, 5'd0, 24'hFF8080}); end
+        6'd1:  if (emmc) begin polls++; r3({polls >= 3, 2'b10, 5'd0, 24'hFF8080 | (arg[23:0] & 24'h007F00)}); end
         6'd2:  r2();
-        6'd3:  if (emmc) begin rca = arg[31:16]; r1(idx, 0); end else begin rca = 16'hB37A; r6(); end
+        6'd3:  if (emmc) begin rca = arg[31:16]; r1(idx, 0); end else begin rca = sd_rca; r6(); end
         6'd6:  if (emmc) begin
                  if (arg[25:24] == 2'b11 && arg[23:16] == 8'd183) begin
                    ext_csd[183] = arg[15:8];
@@ -212,6 +225,7 @@ module sdmmc_card_model #(parameter int NBLK = 64) (
       for (int l = 0; l < 8; l++) d_o[l] = c[l][k];
     end
     @(negedge sclk); d_o = 8'hFF;                       // end bit
+    if (f_rd_end) begin d_o[0] = 1'b0; f_rd_end = 0; end
     @(negedge sclk); d_oe = 0;
     n_rd_blk++;
     d_addr += len;

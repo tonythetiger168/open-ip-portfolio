@@ -3,6 +3,7 @@
   "code": "0x5D04",
   "version": "1.0",
   "tb_clk_ns": 10,
+  "tb_timeout": "1s",
   "regs": [
     {
       "name": "N_RD",

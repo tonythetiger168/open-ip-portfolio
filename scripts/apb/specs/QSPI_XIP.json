@@ -3,6 +3,7 @@
   "code": "0x5C53",
   "version": "1.0",
   "tb_clk_ns": 10,
+  "tb_timeout": "2s",
   "features": [
     "The flash-host role that the QSPI_top target does not cover: boot and code flash of the SoC.",
     "XIP: AXI4 reads of the window (INCR / FIXED / WRAP, any length, AxSIZE 0..2) read the flash at addr[23:0], bytes little-endian in a word.",

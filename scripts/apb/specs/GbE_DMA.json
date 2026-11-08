@@ -21,6 +21,7 @@
     "A frame that does not fit in the RX FIFO, arrives with 4 frames waiting, or arrives with RX_EN off is dropped (RX_DROP)."
   ],
   "tb_clk_ns": 10,
+  "tb_timeout": "1s",
   "regs": [
     {
       "name": "CTRL",

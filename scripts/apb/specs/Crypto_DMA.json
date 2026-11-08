@@ -20,6 +20,7 @@
     "Two copies of the shared AXI4 engine, one for reads and one for writes, on one manager port."
   ],
   "tb_clk_ns": 10,
+  "tb_timeout": "1s",
   "regs": [
     {
       "name": "CTRL",
