@@ -1,0 +1,73 @@
+{
+  "title": "IEEE 1588-2019 (PTPv2) hardware clock and timestamp unit for one Ethernet port: PTP clock with rate trim, set / step, pps, target time, external event capture, and RX / TX event-message timestamps (layer 2, UDP over IPv4 and IPv6)",
+  "code": "0x5054",
+  "version": "1.0",
+  "tb_clk_ns": 8,
+  "tb_timeout": "20ms",
+  "regs": [
+    {"name": "INC", "kind": "rw", "desc": "Clock increment per PCLK (the rate)",
+     "fields": [{"port": "cfg_inc_ns", "reset": "8", "desc": "whole ns added every clock (8 at 125 MHz)"}]},
+    {"name": "INC_FRAC", "kind": "rw", "desc": "Fractional increment, 2^-32 ns per clock (the servo's trim)",
+     "fields": [{"port": "cfg_inc_frac", "desc": "fraction of a ns added every clock"}]},
+    {"name": "SET", "kind": "rw", "desc": "Time loaded by CMD.time_set (SET0 / SET1: seconds, SET2: ns)",
+     "fields": [{"port": "set_sec", "desc": "seconds"}, {"port": "set_ns", "desc": "nanoseconds (above 999,999,999 loads 999,999,999)"}]},
+    {"name": "STEP", "kind": "rw", "desc": "Signed step added by CMD.time_step",
+     "fields": [{"port": "step_ns", "desc": "ns, two's complement, |step| < 10^9"}]},
+    {"name": "CMD", "kind": "cmd", "desc": "Commands",
+     "fields": [{"port": "time_set", "desc": "1 = load SET (the fraction is cleared)"},
+                {"port": "time_step", "desc": "1 = add STEP on top of this clock's increment"},
+                {"port": "snap", "desc": "1 = copy the time into SNAP"},
+                {"port": "target_arm", "desc": "1 = arm the TARGET compare"},
+                {"port": "target_disarm", "desc": "1 = cancel the TARGET compare (arm wins when both are set)"}]},
+    {"name": "SNAP", "kind": "ro", "desc": "Time captured by CMD.snap (SNAP0 / SNAP1: seconds, SNAP2: ns)",
+     "fields": [{"port": "snap_sec", "desc": "seconds"}, {"port": "snap_ns", "desc": "nanoseconds"}]},
+    {"name": "PPS", "kind": "rw", "desc": "Pulse per second",
+     "fields": [{"port": "pps_en", "desc": "1 = pps is high while ns < width"},
+                {"port": "pps_width_ns", "desc": "pulse width in ns"}]},
+    {"name": "TARGET", "kind": "rw", "desc": "Target time (TARGET0 / TARGET1: seconds, TARGET2: ns)",
+     "fields": [{"port": "target_sec", "desc": "seconds"}, {"port": "target_ns", "desc": "nanoseconds"}]},
+    {"name": "EVT", "kind": "ro", "desc": "Time of the last ext_evt rising edge (EVT0 / EVT1: seconds, EVT2: ns)",
+     "fields": [{"port": "evt_sec", "desc": "seconds"}, {"port": "evt_ns", "desc": "nanoseconds"}]},
+    {"name": "TSU_CFG", "kind": "rw", "desc": "Timestamp units: transports",
+     "fields": [{"port": "cfg_l2_en", "reset": "1", "desc": "timestamp layer-2 PTP (EtherType 0x88F7)"},
+                {"port": "cfg_ipv4_en", "reset": "1", "desc": "timestamp PTP over UDP / IPv4"},
+                {"port": "cfg_ipv6_en", "reset": "1", "desc": "timestamp PTP over UDP / IPv6"}]},
+    {"name": "LAT", "kind": "rw", "desc": "PHY latencies to the timestamp point on the line",
+     "fields": [{"port": "cfg_rx_lat_ns", "desc": "ns subtracted from receive timestamps"},
+                {"port": "cfg_tx_lat_ns", "desc": "ns added to transmit timestamps"}]},
+    {"name": "STATUS", "kind": "ro", "desc": "Status",
+     "fields": [{"port": "target_armed", "desc": "the TARGET compare is armed"}]},
+    {"name": "RXTS", "kind": "stream_out", "data": ["rxq_type", "rxq_domain", "rxq_seq", "rxq_sec", "rxq_ns"],
+     "valid": "rxq_valid", "ready": "rxq_pop", "desc": "Receive timestamp; reading RXTS3 frees it",
+     "fdesc": {"rxq_type": "messageType (0 Sync, 1 Delay_Req, 2 Pdelay_Req, 3 Pdelay_Resp)",
+               "rxq_domain": "domainNumber", "rxq_seq": "sequenceId", "rxq_sec": "seconds", "rxq_ns": "nanoseconds"}},
+    {"name": "TXTS", "kind": "stream_out", "data": ["txq_type", "txq_domain", "txq_seq", "txq_sec", "txq_ns"],
+     "valid": "txq_valid", "ready": "txq_pop", "desc": "Transmit timestamp; reading TXTS3 frees it",
+     "fdesc": {"txq_type": "messageType", "txq_domain": "domainNumber", "txq_seq": "sequenceId",
+               "txq_sec": "seconds", "txq_ns": "nanoseconds"}}
+  ],
+  "irqs": [
+    {"name": "SEC_TICK", "port": "sec_tick", "desc": "the clock entered a new second"},
+    {"name": "TARGET", "port": "target_hit", "desc": "the TARGET time was reached (the compare disarms)"},
+    {"name": "EVENT", "port": "evt_valid", "desc": "ext_evt rose; EVT holds its time"},
+    {"name": "RX_OVF", "port": "rxq_ovf", "desc": "a receive timestamp was dropped (the core FIFO was full)"},
+    {"name": "TX_OVF", "port": "txq_ovf", "desc": "a transmit timestamp was dropped (the core FIFO was full)"}
+  ],
+  "pins": ["target_hit"],
+  "features": [
+    "PTP hardware clock: 48-bit seconds, ns, 32-bit fraction; rate set by INC / INC_FRAC, set, signed step, consistent snapshot",
+    "pps output with a programmable width, a target-time compare (TARGET irq and target_hit pin), external event time capture",
+    "RX and TX GMII stream observers: SFD timestamp -/+ PHY latency for PTP event messages over layer 2 and UDP / IPv4 / IPv6, with or without one 802.1Q tag",
+    "FCS, length, version and fragment checks; a FIFO of {messageType, domainNumber, sequenceId, seconds, ns} per direction"
+  ],
+  "notes": [
+    "TIME is not readable as registers: CMD.snap copies the time into SNAP, which reads both halves consistently.",
+    "The wrapper takes a timestamp from the core FIFO whenever RXTS / TXTS is empty, so up to FIFO_DEPTH + 1 timestamps wait per direction; a frame that finds both full is counted in RX_OVF / TX_OVF.",
+    "Not implemented: one-step timestamping, general messages (they need no timestamp), more than one VLAN tag, IPv6 extension headers; the BMCA and the servo are software."
+  ],
+  "sequence": [
+    "Set INC (and INC_FRAC), then SET0..SET2 and CMD.time_set; LAT, TSU_CFG and IRQ_ENABLE.",
+    "On IRQ RXTS_AVAIL / TXTS_AVAIL read RXTS0..RXTS3 / TXTS0..TXTS3; match them to the messages by type, domain and sequenceId.",
+    "Servo: CMD.snap and read SNAP, or compare timestamps with the master; trim INC_FRAC and correct offsets with STEP + CMD.time_step."
+  ]
+}

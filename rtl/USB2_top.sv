@@ -718,8 +718,8 @@ module USB2_top #(
                     d_q       <= (s_val[15:8] == 8'h06);   // device_qualifier
                     d_len     <= (s_len > {11'd0, dlen_max(s_val[15:8] == 8'h06)})
                                  ? dlen_max(s_val[15:8] == 8'h06) : s_len[4:0];
-                    rq        <= (rx_plen != 5'd8) ? RQ_STALL :
-                                 setup_rq(s_bm, s_rq, s_val, s_idx, s_len);
+                    if (rx_plen != 5'd8) rq <= RQ_STALL;
+                    else rq <= setup_rq(s_bm, s_rq, s_val, s_idx, s_len);
                     if (s_bm == 8'h80 && s_rq == 8'h08) d_len <= 5'd1;
                   end else if (rq == RQ_DESC || rq == RQ_CFGGET)
                     rq <= RQ_NONE;                    // OUT status stage done
@@ -739,7 +739,7 @@ module USB2_top #(
         end
         // -------------------------------------------------- transmit in flight
         CS_TX: if (tx_done) begin
-          cs        <= expect_ack ? CS_WACK : CS_IDLE;
+          if (expect_ack) cs <= CS_WACK; else cs <= CS_IDLE;
           ack_timer <= ATW'(ACK_TO);
         end
         // -------------------------------------------------- await host handshake

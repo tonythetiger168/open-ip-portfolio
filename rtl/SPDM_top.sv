@@ -517,7 +517,7 @@ module SPDM_top #(
               else st <= S_PK;
             end else if (rq_valid && !drain) begin
               rqb[0] <= rq_data; rq_n <= 8'd1; rq_ovf <= 1'b0;
-              st <= rq_last ? S_DEC : S_RX;
+              if (rq_last) st <= S_DEC; else st <= S_RX;
             end
           end
           S_RX: if (rq_valid) begin
@@ -584,7 +584,7 @@ module SPDM_top #(
                 if (!ax_ms) cc_dig <= th_dig[2];
                 if (!ax_ms && need_ms) ax_ms <= 1'b1;
                 else begin
-                  st <= need_rn ? S_RN : S_FRQ; k <= '0; seg <= '0;
+                  if (need_rn) st <= S_RN; else st <= S_FRQ; k <= '0; seg <= '0;
                   cc_off <= '0; cc_cnt <= '0; mb_mask <= '0;
                 end
               end

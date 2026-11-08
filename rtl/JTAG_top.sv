@@ -30,22 +30,22 @@ module JTAG_top #(
   always_ff @(posedge tck or negedge trst_n) begin
     if (!trst_n) tap_q <= TLR;
     else case (tap_q)
-      TLR:      tap_q <= tms ? TLR     : RTI;
-      RTI:      tap_q <= tms ? SEL_DR  : RTI;
-      SEL_DR:   tap_q <= tms ? SEL_IR  : CAP_DR;
-      CAP_DR:   tap_q <= tms ? EX1_DR  : SH_DR;
-      SH_DR:    tap_q <= tms ? EX1_DR  : SH_DR;
-      EX1_DR:   tap_q <= tms ? UPD_DR  : PAUSE_DR;
-      PAUSE_DR: tap_q <= tms ? EX2_DR  : PAUSE_DR;
-      EX2_DR:   tap_q <= tms ? UPD_DR  : SH_DR;
-      UPD_DR:   tap_q <= tms ? SEL_DR  : RTI;
-      SEL_IR:   tap_q <= tms ? TLR     : CAP_IR;
-      CAP_IR:   tap_q <= tms ? EX1_IR  : SH_IR;
-      SH_IR:    tap_q <= tms ? EX1_IR  : SH_IR;
-      EX1_IR:   tap_q <= tms ? UPD_IR  : PAUSE_IR;
-      PAUSE_IR: tap_q <= tms ? EX2_IR  : PAUSE_IR;
-      EX2_IR:   tap_q <= tms ? UPD_IR  : SH_IR;
-      UPD_IR:   tap_q <= tms ? SEL_DR  : RTI;
+      TLR:      if (tms) tap_q <= TLR; else tap_q <= RTI;
+      RTI:      if (tms) tap_q <= SEL_DR; else tap_q <= RTI;
+      SEL_DR:   if (tms) tap_q <= SEL_IR; else tap_q <= CAP_DR;
+      CAP_DR:   if (tms) tap_q <= EX1_DR; else tap_q <= SH_DR;
+      SH_DR:    if (tms) tap_q <= EX1_DR; else tap_q <= SH_DR;
+      EX1_DR:   if (tms) tap_q <= UPD_DR; else tap_q <= PAUSE_DR;
+      PAUSE_DR: if (tms) tap_q <= EX2_DR; else tap_q <= PAUSE_DR;
+      EX2_DR:   if (tms) tap_q <= UPD_DR; else tap_q <= SH_DR;
+      UPD_DR:   if (tms) tap_q <= SEL_DR; else tap_q <= RTI;
+      SEL_IR:   if (tms) tap_q <= TLR; else tap_q <= CAP_IR;
+      CAP_IR:   if (tms) tap_q <= EX1_IR; else tap_q <= SH_IR;
+      SH_IR:    if (tms) tap_q <= EX1_IR; else tap_q <= SH_IR;
+      EX1_IR:   if (tms) tap_q <= UPD_IR; else tap_q <= PAUSE_IR;
+      PAUSE_IR: if (tms) tap_q <= EX2_IR; else tap_q <= PAUSE_IR;
+      EX2_IR:   if (tms) tap_q <= UPD_IR; else tap_q <= SH_IR;
+      UPD_IR:   if (tms) tap_q <= SEL_DR; else tap_q <= RTI;
     endcase
   end
 

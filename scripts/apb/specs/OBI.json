@@ -1,0 +1,24 @@
+{
+  "title": "OBI 1.6 subordinate: a 256 x 32-bit memory behind the req / gnt A channel and the rvalid / rready R channel, up to 4 outstanding transactions, byte enables, error responses, atomics (AMOs, LR / SC), protection window, parity handshake",
+  "code": "0x4F42",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "regs": [],
+  "irqs": [
+    {"name": "DEC", "port": "irq_dec", "desc": "a request at or above byte 0x400 got an error response (write dropped, rdata 0)"},
+    {"name": "PROT", "port": "irq_prot", "desc": "a request below machine level (prot[2:1] != 2'b11) to the window from PROT_BASE (0x300) up got an error response"},
+    {"name": "ATOP", "port": "irq_atop", "desc": "a request with an unsupported atop (atop[5] = 0 with atop != 0, an undefined AMO, LR with we = 1, SC or an AMO with we = 0) got an error response"},
+    {"name": "PAR", "port": "irq_par", "desc": "reqpar was not the inverse of req, or rreadypar not the inverse of rready, in a clock"}
+  ],
+  "features": [
+    "OBI 1.6 subordinate (OpenHW Group): A channel req / gnt with addr, we, be, wdata, aid, prot and atop; R channel rvalid / rready with rdata, err and rid.",
+    "Pipelined: up to NOUT (default 4) granted requests outstanding; gnt is given only to a request and drops while NOUT responses wait. One transfer per clock with rready high.",
+    "Responses in order, held stable while rvalid is high and rready low; rid echoes aid.",
+    "Atomics in the RISC-V A encoding (atop[5] = 1, atop[4:0] = funct5): AMOSWAP, AMOADD, AMOXOR, AMOAND, AMOOR, AMOMIN, AMOMAX, AMOMINU, AMOMAXU return the old word and write the result; LR.W / SC.W with one reservation (SC returns 0 on success, 1 on failure).",
+    "Integrity handshake signals: gntpar = ~gnt, rvalidpar = ~rvalid, reqpar and rreadypar checked against req and rready."
+  ],
+  "notes": [
+    "req, gnt, addr, we, be, wdata, aid, prot, atop, reqpar, gntpar, rvalid, rready, rdata, err, rid, rvalidpar and rreadypar are the OBI pins; they pass through unchanged. The registers report the subordinate's error events.",
+    "Not implemented: the OBI 1.6 achk / rchk signal-group checksums, auser / wuser / ruser, memtype and dbg (an access answers the same whatever their value), and exclusive access per manager (one reservation for the whole memory). prot[0] (data / instruction) does not change the answer."
+  ]
+}

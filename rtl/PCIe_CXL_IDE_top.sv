@@ -525,7 +525,7 @@ module PCIe_CXL_IDE_top #(
             if (!t_epm) t <= T_WAIT;          // the TLP's last block ended the GCM message
             else begin
               t_epn <= t_epn + 1'b1;
-              t <= t_epn == cm_agg ? T_END : T_IDLE;
+              if (t_epn == cm_agg) t <= T_END; else t <= T_IDLE;
             end
           end
         end
@@ -541,7 +541,7 @@ module PCIe_CXL_IDE_top #(
           t_ep <= 1'b0; t_epn <= '0; t_mac <= '0; t_pl <= 1'b0;
           t <= T_IDLE;
         end
-        T_DROP: if (t_end || t_take && tx_last) t <= t_term ? T_TERM : T_IDLE;
+        T_DROP: if (t_end || t_take && tx_last) if (t_term) t <= T_TERM; else t <= T_IDLE;
         T_TERM: if (t_ocan) begin
           txo_valid <= 1'b1; txo_data <= '0; txo_bytes <= 5'd0; txo_kind <= K_MAC;
           txo_last <= 1'b1; txo_bad <= 1'b1; txo_cm <= t_epm;
@@ -681,7 +681,7 @@ module PCIe_CXL_IDE_top #(
           r_ep <= 1'b0; r_epn <= '0; r_mac <= '0; r_pl <= 1'b0; r_ok <= 1'b0;
           r <= R_IDLE;
         end
-        R_DROP: if (r_end || r_take && rx_last) r <= r_term ? R_TERM : R_IDLE;
+        R_DROP: if (r_end || r_take && rx_last) if (r_term) r <= R_TERM; else r <= R_IDLE;
         R_TERM: if (r_ocan) begin
           rxo_valid <= 1'b1; rxo_data <= '0; rxo_bytes <= 5'd0; rxo_kind <= K_END;
           rxo_last <= 1'b1; rxo_bad <= 1'b1; rxo_cm <= r_epm;

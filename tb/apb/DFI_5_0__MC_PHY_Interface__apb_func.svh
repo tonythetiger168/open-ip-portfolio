@@ -9,6 +9,19 @@
   localparam int T_PHY_RDLAT = 5;
   localparam logic [2:0] ACT = 3'b011, RD = 3'b101, WR = 3'b100, PRE = 3'b010,
                          REF = 3'b001, MRS = 3'b000, NOP = 3'b111;
+  bit          s_we [0:63];
+  bit          s_re [0:63];
+  bit          s_wx [0:63];     // beat is on time: apply to / read from the shadow
+  bit          s_rx [0:63];
+  logic [31:0] s_wd [0:63];
+  logic [3:0]  s_wm [0:63];
+  logic [7:0]  s_wa [0:63];
+  logic [7:0]  s_ra [0:63];
+  bit          open_m [0:7];
+  logic [1:0]  row_m  [0:7];
+  logic [31:0] mem_m  [0:255];
+  logic [7:0]  exp_a  [0:255];
+  logic [31:0] exp_d  [0:255];
   initial begin
     dfi_address = 0; dfi_bank = 0; dfi_ras_n = 1; dfi_cas_n = 1; dfi_we_n = 1; dfi_cs_n = 1;
     dfi_cke = 1; dfi_odt = 0; dfi_init_start = 0; dfi_lp_ctrl = 0;
@@ -25,23 +38,10 @@
   // ------------------------------------------------------------------
   int          cyc = 0;
   always @(posedge PCLK) cyc++;
-  bit          s_we [0:63];
-  bit          s_re [0:63];
-  bit          s_wx [0:63];     // beat is on time: apply to / read from the shadow
-  bit          s_rx [0:63];
-  logic [31:0] s_wd [0:63];
-  logic [3:0]  s_wm [0:63];
-  logic [7:0]  s_wa [0:63];
-  logic [7:0]  s_ra [0:63];
 
   // ------------------------------------------------------------------
   // MC-side model: bank table, shadow array, expected read beats
   // ------------------------------------------------------------------
-  bit          open_m [0:7];
-  logic [1:0]  row_m  [0:7];
-  logic [31:0] mem_m  [0:255];
-  logic [7:0]  exp_a  [0:255];
-  logic [31:0] exp_d  [0:255];
   int          exp_wr = 0, exp_rd = 0;
 
   always @(negedge PCLK) begin

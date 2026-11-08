@@ -128,7 +128,7 @@ module SAS_top #(
           oob_cnt <= oob_cnt + 1'b1;
           if (oob_cnt == OCW'(OOB_IDLE-1)) begin
             oob_cnt   <= '0;
-            oob_state <= (cr_seen || oob_det) ? OB_CI_BURST : OB_CR_BURST;
+            if (cr_seen || oob_det) oob_state <= OB_CI_BURST; else oob_state <= OB_CR_BURST;
           end
         end
         OB_CI_BURST: begin                    // transmit COMINIT burst

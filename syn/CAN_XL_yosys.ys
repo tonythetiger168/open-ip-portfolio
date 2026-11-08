@@ -1,0 +1,8 @@
+# CAN_XL synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/CAN_XL_top.sv 
+hierarchy -check -top CAN_XL_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json CAN_XL_top.json
+write_verilog CAN_XL_top_netlist.v
