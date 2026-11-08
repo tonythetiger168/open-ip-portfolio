@@ -1,0 +1,21 @@
+# TSP_apb coverage exclusions. Structural constants of the AXI4 manager
+# (rtl/soc_ss_axi_engine.sv): fixed ID, 32-bit beats (size 2, addresses
+# word aligned, all strobes set), INCR bursts, fixed AxPROT, at most 16 beats.
+TOGGLE \.m_(aw|ar)id\[ # constant: the manager drives its fixed AXI_ID parameter
+TOGGLE \.m_[br]id\[ # tied to the manager's single AXI_ID by the subordinate echo; never varies
+TOGGLE \.m_(aw|ar)addr\[[01]\] # constant 0: every access is a word-aligned 32-bit beat
+TOGGLE \.m_(aw|ar)len\[[567]\] # constant 0: bursts are at most 16 beats (AxLEN <= 15)
+TOGGLE \.m_(aw|ar)size\[ # constant 3'b010: 4-byte beats only
+TOGGLE \.m_(aw|ar)burst\[ # constant 2'b01: INCR bursts only
+TOGGLE \.m_(aw|ar)prot\[ # constant: the PROT parameter
+TOGGLE \.m_wstrb\[ # constant 4'hF: full-word writes only
+TOGGLE \.m_[br]resp\[0\] # constant 0: the test memory answers OKAY (00) or SLVERR (10); EXOKAY / DECERR not used
+TOGGLE \.c_a_cnt\[(3|4|5|6|7|8|9|10|11|12|13|14|15)\] # A_CNT bits 3-15: the register-level test reaches under 8 packets per job in buffer A; bit k needs 2^k of them, and the saturating +1 counter's low bits toggle here
+TOGGLE \.c_b_cnt\[(3|4|5|6|7|8|9|10|11|12|13|14|15)\] # B_CNT bits 3-15: the register-level test reaches under 8 packets per job in buffer B; bit k needs 2^k of them, and the saturating +1 counter's low bits toggle here
+TOGGLE \.c_pkt_cnt\[(5|6|7|8|9|10|11|12|13|14|15)\] # PKT_CNT bits 5-15: the register-level test reaches under 32 packets; bit k needs 2^k of them, and the saturating +1 counter's low bits toggle here
+TOGGLE \.c_desc_cnt\[(4|5|6|7|8|9|10|11|12|13|14|15)\] # DESC_CNT bits 4-15: the register-level test reaches under 16 descrambled packets; bit k needs 2^k of them, and the saturating +1 counter's low bits toggle here
+TOGGLE \.c_nokey_cnt\[(1|2|3|4|5|6|7|8|9|10|11|12|13|14|15)\] # NOKEY_CNT bits 1-15: the register-level test reaches 1 packets without a key; bit k needs 2^k of them, and the saturating +1 counter's low bits toggle here
+TOGGLE \.c_sync_cnt\[(1|2|3|4|5|6|7|8|9|10|11|12|13|14|15)\] # SYNC_CNT bits 1-15: the register-level test reaches 1 bad sync bytes; bit k needs 2^k of them, and the saturating +1 counter's low bits toggle here
+TOGGLE \.c_drop_cnt\[(1|2|3|4|5|6|7|8|9|10|11|12|13|14|15)\] # DROP_CNT bits 1-15: the register-level test reaches 1 unmatched PIDs; bit k needs 2^k of them, and the saturating +1 counter's low bits toggle here
+TOGGLE \.c_ovf_cnt\[(3|4|5|6|7|8|9|10|11|12|13|14|15)\] # OVF_CNT bits 3-15: the register-level test reaches under 8 packets that found their buffer full; bit k needs 2^k of them, and the saturating +1 counter's low bits toggle here
+TOGGLE \.c_pcr_local\[(14|15|16|17|18|19|20|21|22|23|24|25|26|27|28|29|30|31)\] # PCR_LOCAL bits 14-31: the free-running clock counter is below 2^14 when the register-level test captures its PCRs (it wraps after 2^32 clocks)
