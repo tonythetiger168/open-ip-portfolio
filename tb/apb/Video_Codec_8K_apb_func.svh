@@ -5,9 +5,13 @@
 // with the reconstruction checked in memory, CTUS, WR_WORDS, RD_WORDS,
 // RD_SUM, CYCLES, DONE, CTU_GAP 1 (every CTU LATE, LATE interrupt), CTU_LIMIT,
 // CFG_ERR, ERR on an AXI read error.
+// Coverage closure: an address sweep (bitstream, luma and chroma across 4 KB
+// at ...FFFC) with a second seed, an AXI write error, an interrupt left
+// pending for the reset that follows, FLAGS read.
 `include "apb/tv_apb_common.svh"
 
 localparam logic [31:0] V8_SEED = 32'h5EED_0001;
+localparam logic [31:0] V8_SEED2 = 32'hE112_FFFE;
 task automatic v8_setup(input logic [31:0] codings, input logic [31:0] rate);
   wr(A_BS_ADDR, 32'h1000_0000); wr(A_REF0_ADDR, 32'h2000_0000); wr(A_REF1_ADDR, 32'h3000_0000);
   wr(A_RECON_ADDR, 32'h4000_0000); wr(A_CHROMA_ADDR, 32'h5000_0000);
@@ -42,6 +46,25 @@ task automatic ip_func;
   end
   tv_no_irq(IRQ_LATE, "no CTU_GAP");
   tv_irq(IRQ_DONE, "picture");
+  // address sweep: the bitstream at 0x7FFF_FFFC, luma at 0x0FFF_FFFC and
+  // chroma at 0xAFFF_FFFC cross 4 KB and flip every AxADDR bit 2..31; a
+  // second seed flips every data bit
+  for (int i = 0; i < 16; i++) mem.poke(32'h7FFF_FFFC + 32'(4 * i), $urandom);
+  wr(A_BS_ADDR, 32'h7FFF_FFFC); wr(A_RECON_ADDR, 32'h0FFF_FFFC); wr(A_CHROMA_ADDR, 32'hAFFF_FFFC);
+  wr(A_SEED, V8_SEED2);
+  tv_job(A_CMD, 0, A_STATUS, 0, 2000);
+  rd_exp(A_CTUS, 2);
+  for (int r = 0; r < 16; r++) for (int x = 0; x < 8; x++) begin
+    logic [31:0] a;
+    a = 32'h0FFF_FFFC + 32'(32 * r + 4 * x);
+    if (mem.peek(a) !== (a ^ V8_SEED2)) begin fail($sformatf("sweep luma word at %h", a)); break; end
+  end
+  for (int r = 0; r < 8; r++) for (int x = 0; x < 8; x++) begin
+    logic [31:0] a;
+    a = 32'hAFFF_FFFC + 32'(32 * r + 4 * x);
+    if (mem.peek(a) !== (a ^ V8_SEED2)) begin fail($sformatf("sweep chroma word at %h", a)); break; end
+  end
+  tv_irq(IRQ_DONE, "sweep picture");
   // a 1-clock CTU slot: both CTUs late; CTU_LIMIT 1 stops after one
   v8_setup(V8_CODING, {16'd0, 16'd1});
   tv_job(A_CMD, 0, A_STATUS, 0, 2000);
@@ -63,7 +86,21 @@ task automatic ip_func;
   tv_job(A_CMD, 0, A_STATUS, 0, 2000);
   rd(A_STATUS);
   if (rdv[1] !== 1'b1) fail("no STATUS.err after an AXI error");
-  tv_irq(IRQ_ERR, "AXI error");
+  tv_irq(IRQ_ERR, "AXI read error");
+  // AXI write error on the reconstruction
+  mem.err_lo = 32'h4000_0024; mem.err_hi = mem.err_lo + 4;
+  tv_job(A_CMD, 0, A_STATUS, 0, 2000);
+  rd(A_STATUS);
+  if (rdv[1] !== 1'b1) fail("no STATUS.err after an AXI write error");
+  tv_irq(IRQ_ERR, "AXI write error");
   mem.err_lo = '1; mem.err_hi = '1;
+  // the picture again without errors; its DONE is left pending for the
+  // reset that follows
+  tv_job(A_CMD, 0, A_STATUS, 0, 2000);
+  rd(A_STATUS);
+  if (rdv[2:1] !== 2'b00) fail($sformatf("STATUS cfg_err / err %b", rdv[2:1]));
+  rd_exp(A_CTUS, 2);
+  tv_irq_pin(IRQ_DONE, "picture");                    // left pending for the reset
+  rd_exp(A_FLAGS, 0);
   if (mem.errors != 0) fail("AXI rule violations");
 endtask

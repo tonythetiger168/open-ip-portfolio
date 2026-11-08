@@ -4,10 +4,13 @@
 // tone curve without MEMC (output = input) at three placements, MEMC with
 // MV_FRAC 0 (output = previous frame), metadata load (STATUS.params_ok, TONE),
 // LINES, CYCLES, DONE, CFG_ERR on H_ACTIVE 0, ERR on an AXI read error.
+// Coverage closure: an AXI write error, two more metadata loads (TONE), an
+// address / burst sweep with a MEMC line at 0x7FFF_FFFC and a 1-pixel frame,
+// an interrupt left pending for the reset that follows, FLAGS read.
 `include "apb/tv_apb_common.svh"
 
 function automatic logic [31:0] place(input int k);
-  return (k == 0) ? 32'h0000_0040 : (k == 1) ? 32'hBFFF_F000 : 32'h8000_0FC0;
+  return (k == 0) ? 32'h0000_0040 : (k == 1) ? 32'h7FFF_F000 : 32'h8000_0FC0;
 endfunction
 // frame of h x v at base b (cur), b ^ 0x2000_0000 (prev), b ^ 0x4000_0000 (dst)
 task automatic pq_frame(input logic [31:0] b, input int h, input int v, input logic [31:0] ctrl);
@@ -68,7 +71,38 @@ task automatic ip_func;
   pq_frame(32'h0001_0000, 8, 1, 0);
   rd(A_STATUS);
   if (rdv[1] !== 1'b1) fail("no STATUS.err after an AXI error");
-  tv_irq(IRQ_ERR, "AXI error");
+  tv_irq(IRQ_ERR, "AXI read error");
+  // AXI write error on the output
+  mem.err_lo = 32'h4001_0008; mem.err_hi = mem.err_lo + 4;
+  pq_frame(32'h0001_0000, 8, 1, 0);
+  rd(A_STATUS);
+  if (rdv[1] !== 1'b1) fail("no STATUS.err after an AXI write error");
+  tv_irq(IRQ_ERR, "AXI write error");
   mem.err_lo = '1; mem.err_hi = '1;
+  // two more metadata loads: 700-nit panel / 1000-nit content (slope
+  // 0xB333), then 300 nits / 64535 nits
+  wr(A_META0, {16'd1000, 16'd1}); wr(A_DISPLAY_PEAK, 700);
+  wr(A_CMD, 1);
+  poll(A_STATUS, 32'h8, 32'h8, 10);
+  rd_exp(A_TONE, {16'd1000, 16'hB333});
+  wr(A_META0, {16'hFC17, 16'd1}); wr(A_DISPLAY_PEAK, 300);
+  wr(A_CMD, 1);
+  poll(A_STATUS, 32'h8, 32'h8, 10);
+  rd_exp(A_TONE, {16'hFC17, 16'((300 * 65536) / 64535)});
+  // address / burst sweep: a 17-pixel MEMC line at 0x7FFF_FFFC (previous
+  // frame at 0x5FFF_FFFC, output at 0x3FFF_FFFC) is one beat, then 16
+  // beats after the 4 KB split, so every AxADDR bit 2..30 and AxLEN bit
+  // 0..3 rises and falls; a 1-pixel line at 0x0000_0004 follows. Its DONE
+  // is left pending for the reset that follows.
+  pq_frame(32'h7FFF_FFFC, 17, 1, 32'h1);
+  for (int i = 0; i < 17; i++)
+    if (mem.peek(32'h3FFF_FFFC + 32'(4 * i)) !== mem.peek(32'h5FFF_FFFC + 32'(4 * i))) begin
+      fail($sformatf("sweep word %0d", i)); break;
+    end
+  tv_irq(IRQ_DONE, "sweep frame");
+  pq_frame(32'h0000_0004, 1, 1, 0);
+  if (mem.peek(32'h4000_0004) !== mem.peek(32'h0000_0004)) fail("1-pixel frame");
+  tv_irq_pin(IRQ_DONE, "1-pixel frame");              // left pending for the reset
+  rd_exp(A_FLAGS, 0);
   if (mem.errors != 0) fail("AXI rule violations");
 endtask

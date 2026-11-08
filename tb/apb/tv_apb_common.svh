@@ -9,8 +9,8 @@ task automatic tv_job(input logic [11:0] a_cmd, input int bit_n, input logic [11
   wr(a_cmd, 32'(1) << bit_n);
   poll(a_st, 32'(1) << bsy, 32'h0, max);
 endtask
-// IRQ_STATUS bit b set, irq follows IRQ_ENABLE, W1C clears everything
-task automatic tv_irq(input int b, input string what);
+// IRQ_STATUS bit b set, irq follows IRQ_ENABLE; the bit stays pending
+task automatic tv_irq_pin(input int b, input string what);
   rd(A_IRQ_STATUS);
   if (rdv[b] !== 1'b1) fail($sformatf("%s: IRQ_STATUS bit %0d not set (%h)", what, b, rdv));
   wr(A_IRQ_ENABLE, 32'(1) << b);
@@ -19,6 +19,10 @@ task automatic tv_irq(input int b, input string what);
   wr(A_IRQ_ENABLE, 0);
   cycles(1);
   if (irq !== 1'b0) fail({what, ": irq high with the interrupt masked"});
+endtask
+// as tv_irq_pin, then W1C clears everything
+task automatic tv_irq(input int b, input string what);
+  tv_irq_pin(b, what);
   wr(A_IRQ_STATUS, IRQ_ALL);
   rd_exp(A_IRQ_STATUS, 0);
 endtask

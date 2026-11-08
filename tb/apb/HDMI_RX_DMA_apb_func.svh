@@ -5,6 +5,9 @@
 // STATUS, captures at three frame buffer placements checked in memory, LINES,
 // CYCLES, DONE, a short line (STATUS.len_err, zero padding), an AXI write
 // error (ERR interrupt), irq masking.
+// Coverage closure: an overflow (video during the padding of a short line,
+// OVF), an address / burst sweep across 0x7FFF_FFFC..0x8000_0000 and a 1-pixel
+// line, an interrupt left pending for the reset that follows, FLAGS read.
 `include "apb/tv_apb_common.svh"
 
 initial begin tmds_ch0 = 10'h354; tmds_ch1 = 10'h354; tmds_ch2 = 10'h354; end
@@ -54,7 +57,7 @@ task automatic f_frame(input int lens []);
   f_ctl(0, 0, 40);
 endtask
 function automatic logic [31:0] place(input int k);
-  return (k == 0) ? 32'h0000_0040 : (k == 1) ? 32'hBFFF_F000 : 32'h8000_0FC0;
+  return (k == 0) ? 32'h0000_0040 : (k == 1) ? 32'h7FFF_F000 : 32'h8000_0FC0;
 endfunction
 
 task automatic ip_func;
@@ -101,6 +104,17 @@ task automatic ip_func;
   if (rdv[3] !== 1'b1) fail("no STATUS.len_err on a short line");
   for (int i = 5; i < 8; i++) if (mem.peek(32'h0001_0020 + 32'(4 * i)) !== 0) fail("short line not padded with zeros");
   wr(A_IRQ_STATUS, IRQ_ALL);
+  // overflow: a 2-pixel line padded to 200 is still padding when the next
+  // line's video starts (STATUS.ovf, OVF interrupt); the rest of that line
+  // is captured once the padding ends, and the frame still ends
+  lens = new[2]; lens = '{2, 600};
+  wr(A_FB_ADDR, 32'h0003_0000); wr(A_GEOM, {16'd200, 16'd1024}); wr(A_V_ACTIVE, 2);
+  wr(A_CMD, 1);
+  f_frame(lens);
+  poll(A_STATUS, 32'h1, 32'h0, 2000);
+  rd(A_STATUS);
+  if (rdv[2] !== 1'b1) fail("no STATUS.ovf for video during the padding");
+  tv_irq(IRQ_OVF, "next line while padding");
   // AXI write error: ERR interrupt
   mem.err_lo = 32'h0002_0000 + 32; mem.err_hi = mem.err_lo + 4;
   lens = new[2]; lens = '{8, 8};
@@ -112,5 +126,28 @@ task automatic ip_func;
   if (rdv[1] !== 1'b1) fail("no STATUS.err after an AXI error");
   tv_irq(IRQ_ERR, "AXI error");
   mem.err_lo = '1; mem.err_hi = '1;
+  // address / burst sweep: a 17-pixel line at 0x7FFF_FFFC is one beat
+  // (AWLEN 0), then 16 beats (AWLEN 15) from 0x8000_0000 after the 4 KB
+  // split, so every AWADDR bit 2..31 and AWLEN bit 0..3 rises and falls;
+  // a 1-pixel line at 0x0000_0004 follows. The second DONE is left pending
+  // for the reset that follows.
+  lens = new[1]; lens = '{17};
+  wr(A_FB_ADDR, 32'h7FFF_FFFC); wr(A_GEOM, {16'd17, 16'd128}); wr(A_V_ACTIVE, 1);
+  wr(A_CMD, 1);
+  f_frame(lens);
+  poll(A_STATUS, 32'h1, 32'h0, 50);
+  for (int i = 0; i < 17; i++)
+    if (mem.peek(32'h7FFF_FFFC + 32'(4 * i)) !== f_px[i]) begin fail($sformatf("sweep pixel %0d", i)); break; end
+  tv_irq(IRQ_DONE, "sweep capture");
+  lens = '{1};
+  wr(A_FB_ADDR, 32'h0000_0004); wr(A_GEOM, {16'd1, 16'd4});
+  wr(A_CMD, 1);
+  f_frame(lens);
+  poll(A_STATUS, 32'h1, 32'h0, 50);
+  if (mem.peek(32'h0000_0004) !== f_px[0]) fail("1-pixel line");
+  rd(A_STATUS);
+  if (rdv[3:1] !== 3'b000) fail($sformatf("1-pixel line: STATUS err / ovf / len_err %b", rdv[3:1]));
+  tv_irq_pin(IRQ_DONE, "1-pixel line");               // left pending for the reset
+  rd_exp(A_FLAGS, 0);
   if (mem.errors != 0) fail("AXI rule violations");
 endtask

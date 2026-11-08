@@ -6,9 +6,12 @@
 // pixel by pixel (padding of a partial lane group), LINES, CYCLES, DONE,
 // lock loss during a frame (LOCK_LOST, LOCK interrupt, the frame ends
 // once lock returns), ERR on an AXI read error.
+// Coverage closure: STATUS.locked low while vbo_htpdn_n is high (no panel), an
+// address / burst sweep with a line at 0x7FFF_FFFC and a 2-pixel line, an
+// interrupt left pending for the reset that follows, FLAGS read.
 `include "apb/tv_apb_common.svh"
 
-initial begin vbo_htpdn_n = 1'b0; vbo_lockn_n = 1'b1; end
+initial begin vbo_htpdn_n = 1'b1; vbo_lockn_n = 1'b1; end    // no panel yet
 int          p_line = -1, p_byte = 0, p_lines = 0, p_bad = 0, p_train = 0;
 logic [31:0] p_cur [8];
 logic [31:0] p_q [$];
@@ -41,7 +44,7 @@ always @(posedge PCLK) if (PRESETN && vbo_sym) begin
   end
 end
 function automatic logic [31:0] place(input int k);
-  return (k == 0) ? 32'h0000_0040 : (k == 1) ? 32'hBFFF_F000 : 32'h8000_0FC0;
+  return (k == 0) ? 32'h0000_0040 : (k == 1) ? 32'h7FFF_F000 : 32'h8000_0FC0;
 endfunction
 task automatic t_frame(input logic [31:0] fb, input int h, input int v);
   p_fb = fb; p_h = h; p_stride = 4 * h + 8;
@@ -60,7 +63,10 @@ task automatic ip_func;
   if (p_train == 0) fail("no training symbols before lock");
   rd(A_STATUS);
   if (rdv[4] !== 1'b0) fail("STATUS.locked before lock");
-  vbo_htpdn_n = 1'b0; vbo_lockn_n = 1'b0; cycles(4);
+  vbo_lockn_n = 1'b0; cycles(4);                      // CDR locked, but no panel
+  rd(A_STATUS);
+  if (rdv[4] !== 1'b0) fail("STATUS.locked with vbo_htpdn_n high");
+  vbo_htpdn_n = 1'b0; cycles(4);
   rd(A_STATUS);
   if (rdv[4] !== 1'b1) fail("STATUS.locked does not follow vbo_lockn_n");
   for (int k = 0; k < 3; k++) begin
@@ -97,5 +103,19 @@ task automatic ip_func;
   if (rdv[1] !== 1'b1) fail("no STATUS.err after an AXI error");
   tv_irq(IRQ_ERR, "AXI error");
   mem.err_lo = '1; mem.err_hi = '1;
+  // address / burst sweep: a 17-pixel line at 0x7FFF_FFFC is read as one
+  // beat (ARLEN 0), then 16 beats (ARLEN 15) from 0x8000_0000 after the
+  // 4 KB split, so every ARADDR bit 2..31 and ARLEN bit 0..3 rises and
+  // falls; a 2-pixel line at 0x0000_0008 follows. Its DONE is left pending
+  // for the reset that follows.
+  t_frame(32'h7FFF_FFFC, 17, 1);
+  if (p_lines != 1) fail($sformatf("sweep: panel saw %0d lines", p_lines));
+  tv_irq(IRQ_DONE, "sweep frame");
+  t_frame(32'h0000_0008, 2, 1);
+  if (p_lines != 1) fail($sformatf("2-pixel line: panel saw %0d lines", p_lines));
+  rd(A_STATUS);
+  if (rdv[3:1] !== 3'b000) fail($sformatf("2-pixel line: STATUS err / underrun / lock_lost %b", rdv[3:1]));
+  tv_irq_pin(IRQ_DONE, "2-pixel line");               // left pending for the reset
+  rd_exp(A_FLAGS, 0);
   if (mem.errors != 0) fail("AXI rule violations");
 endtask

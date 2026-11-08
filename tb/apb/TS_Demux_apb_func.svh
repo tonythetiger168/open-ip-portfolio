@@ -6,9 +6,13 @@
 // descriptor), WR_IDX / RD_IDX ring wrap, PKTS, a bad sync byte (DROP), a
 // continuity error (CC_ERR), a full ring (OVF), ENABLE off, ERR on an AXI
 // write error, irq masking.
+// Coverage closure: ts_err on a byte (DROP), an address / burst sweep with a
+// slot at 0x7FFF_FFFC, an interrupt left pending for the reset that follows,
+// FLAGS read.
 `include "apb/tv_apb_common.svh"
 
 initial begin ts_valid = 0; ts_sync = 0; ts_data = 0; ts_err = 0; end
+int ts_err_at = -1;                                   // byte that carries ts_err
 logic [7:0] ts_b [188];
 task automatic ts_send(input logic [12:0] pid, input logic [3:0] cc, input bit bad_sync);
   ts_b[0] = bad_sync ? 8'h46 : 8'h47;
@@ -17,9 +21,9 @@ task automatic ts_send(input logic [12:0] pid, input logic [3:0] cc, input bit b
   ts_b[3] = {4'b0001, cc};                            // payload only
   for (int i = 4; i < 188; i++) ts_b[i] = $urandom;
   for (int i = 0; i < 188; i++) begin
-    @(negedge PCLK); ts_valid = 1; ts_sync = (i == 0); ts_data = ts_b[i];
+    @(negedge PCLK); ts_valid = 1; ts_sync = (i == 0); ts_data = ts_b[i]; ts_err = (i == ts_err_at);
   end
-  @(negedge PCLK); ts_valid = 0; ts_sync = 0;
+  @(negedge PCLK); ts_valid = 0; ts_sync = 0; ts_err = 0;
   repeat (300) @(negedge PCLK);                     // the slot is written
 endtask
 // slot s at RING_BASE b holds the last packet sent (filter f, cc error e)
@@ -82,5 +86,27 @@ task automatic ip_func;
   rd_exp(A_WR_IDX, 0);
   ts_send(13'h0101, 9, 0);
   tv_no_irq(IRQ_PKT, "ENABLE 0");
+  // enabled again: ts_err on a byte drops the packet (DROP)
+  wr(A_RD_IDX, 0);
+  wr(A_CTRL, 32'h1 | (32'b0110 << 1));
+  ts_err_at = 100;
+  ts_send(13'h0101, 10, 0);
+  ts_err_at = -1;
+  rd_exp(A_WR_IDX, 0);
+  tv_no_irq(IRQ_PKT, "ts_err");
+  tv_irq(IRQ_DROP, "ts_err");
+  // address / burst sweep: a slot at 0x7FFF_FFFC is written as bursts of
+  // 1, 16, 16 and 15 beats (4 KB split at 0x8000_0000), so every AWADDR bit
+  // 2..31 and AWLEN bit 0..3 rises and falls; then a slot at 0x0000_0040.
+  // The last packet's interrupt is left pending for the reset that follows.
+  wr(A_RING_BASE, 32'h7FFF_FFFC); wr(A_RING_PKTS, 2); wr(A_CTRL, 0); wr(A_CTRL, 32'h1 | (32'b0110 << 1));
+  ts_send(13'h0101, 11, 0);
+  ts_check(32'h7FFF_FFFC, 0, 1, 0, "slot at 0x7FFF_FFFC");
+  wr(A_IRQ_STATUS, IRQ_ALL);
+  wr(A_RING_BASE, 32'h0000_0040); wr(A_RD_IDX, 1);
+  ts_send(13'h0101, 12, 0);
+  ts_check(32'h0000_0040, 1, 1, 0, "slot at 0x0000_0040");
+  tv_irq_pin(IRQ_PKT, "last packet");                 // left pending for the reset
+  rd_exp(A_FLAGS, 0);
   if (mem.errors != 0) fail("AXI rule violations");
 endtask

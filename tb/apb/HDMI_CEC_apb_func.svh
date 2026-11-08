@@ -7,6 +7,10 @@
 // (not stored), RX_RD / ring wrap, a broadcast sent by the core (TX OK), a
 // directed message nobody ACKs (TX NACK), TX_DONE interrupts, ERR on an AXI
 // read error of the TX message.
+// Coverage closure: the RX ring full (RX_OVF), a data bit held too long
+// (RX_ERR), RX slots across 0x7FFF_FFFC..0x8000_0000 with an AXI write error,
+// a TX message read from 0x7FFF_FFF8, arbitration lost (TX status ARB_LOST),
+// an interrupt left pending for the reset that follows, FLAGS read.
 `include "apb/tv_apb_common.svh"
 
 logic tb_low = 0;
@@ -38,7 +42,7 @@ task automatic c_send(input logic [31:0] b, input int n);
 endtask
 
 task automatic ip_func;
-  logic [31:0] rxb, txa;
+  logic [31:0] rxb, txa, r;
   rxb = 32'h8000_0FC0; txa = 32'h0001_0000;           // RX slots cross a 4 KB boundary
   wr(A_TIMING, {6'd0, 10'd7, 16'(CEC_TPC - 1)});       // SFT 7 ticks
   wr(A_RX_BASE, rxb); wr(A_RX_RING, {8'd0, 8'd2});
@@ -64,7 +68,20 @@ task automatic ip_func;
   rd_exp(A_RX_WR, 0);
   if (mem.peek(rxb + 32) !== {16'b0, 5'b0, 1'b1, 1'b0, 1'b0, 3'b0, 5'd2}) fail($sformatf("broadcast RX header %h", mem.peek(rxb + 32)));
   rd_exp(A_RX_CNT, 2);
+  // the ring is full (RX_WR 0, RX_RD 1): the next message is dropped
+  rd_exp(A_RX_OVF, 0);
+  c_send(32'h0000_445F, 2);
+  cycles(30);
+  rd_exp(A_RX_WR, 0);
+  rd_exp(A_RX_OVF, 1);
+  rd_exp(A_RX_CNT, 2);
   wr(A_IRQ_STATUS, IRQ_ALL);
+  // a data bit held low for 40 ticks (limit 34): RX_ERR, counted
+  tb_low = 1; c_ticks(74); tb_low = 0; c_ticks(16);
+  tb_low = 1; c_ticks(40); tb_low = 0; c_ticks(80);
+  rd_exp(A_RX_CNT, {16'd1, 16'd2});
+  tv_no_irq(IRQ_RX, "bad bit");
+  tv_irq(IRQ_RX_ERR, "data bit too long");
   // TX broadcast from 4: nobody objects, OK
   mem.poke(txa, 2); mem.poke(txa + 4, 32'h0000_364F); mem.poke(txa + 8, 0); mem.poke(txa + 12, 0); mem.poke(txa + 16, 0);
   wr(A_TX_ADDR, txa);
@@ -88,9 +105,58 @@ task automatic ip_func;
   poll(A_TX, 32'h10, 32'h0, 3000);
   rd(A_TX);
   if (rdv[3] !== 1'b1) fail($sformatf("TX status %b, expected ERR", rdv[3:0]));
-  rd(A_IRQ_STATUS);
-  if (rdv[IRQ_ERR] !== 1'b1) fail("no ERR interrupt");
-  wr(A_IRQ_STATUS, IRQ_ALL);
+  tv_irq(IRQ_ERR, "AXI error");
   mem.err_lo = '1; mem.err_hi = '1;
+  // RX slots at 0x7FFF_FFFC (crosses 4 KB and every address bit) and
+  // 0x8000_001C, then at 0x0000_0040; 4-byte messages with random bytes,
+  // the second one's the complement of the first. An AXI write error on
+  // the first slot's last (zero) word: RX and ERR.
+  r = $urandom;
+  wr(A_RX_BASE, 32'h7FFF_FFFC); wr(A_RX_RING, {8'd0, 8'd4});   // RX_WR 0: 3 slots free
+  for (int m = 0; m < 3; m++) begin
+    logic [31:0] b, sl;
+    b = {(m == 0) ? r[23:0] : (m == 1) ? ~r[23:0] : 24'($urandom), (m == 1) ? 8'h54 : 8'hE4};  // from 14 or 5 to 4
+    if (m == 0) begin mem.err_lo = 32'h7FFF_FFFC + 28; mem.err_hi = mem.err_lo + 4; end
+    if (m == 2) wr(A_RX_BASE, 32'h0000_0000);
+    sl = (m == 2) ? 32'h0000_0040 : 32'h7FFF_FFFC + 32'(32 * m);
+    c_send(b, 4);
+    cycles(30);
+    if (mem.peek(sl) !== {16'b0, 5'b0, 1'b0, 1'b1, 1'b0, 3'b0, 5'd4}) fail($sformatf("RX header %h at %h", mem.peek(sl), sl));
+    if (mem.peek(sl + 4) !== b) fail($sformatf("RX bytes %h at %h, sent %h", mem.peek(sl + 4), sl + 4, b));
+    if (m == 0) begin
+      mem.err_lo = '1; mem.err_hi = '1;
+      rd(A_IRQ_STATUS);
+      if (rdv[IRQ_RX] !== 1'b1) fail("no RX interrupt with the write error");
+      tv_irq(IRQ_ERR, "AXI write error on an RX slot");
+    end
+  end
+  rd_exp(A_RX_WR, 3);
+  wr(A_IRQ_STATUS, IRQ_ALL);
+  // TX message read from 0x7FFF_FFF8 (crosses 4 KB and every address bit)
+  // (the bytes past the length are random: they are read but not sent)
+  mem.poke(32'h7FFF_FFF8, 2); mem.poke(32'h7FFF_FFFC, {16'($urandom), 16'hC34F});
+  for (int i = 0; i < 3; i++) mem.poke(32'h8000_0000 + 32'(4 * i), $urandom);
+  wr(A_TX_ADDR, 32'h7FFF_FFF8);
+  wr(A_CMD, 1);
+  poll(A_TX, 32'h10, 32'h0, 3000);
+  rd_exp(A_TX, 32'h1);
+  tv_irq(IRQ_TX_DONE, "broadcast from 0x7FFF_FFF8");
+  // arbitration lost: the TB holds the line low through the sample point of
+  // the second initiator bit (a '1' of initiator 4); TX_DONE is left pending
+  // for the reset that follows
+  mem.poke(32'h0000_0024, 1); mem.poke(32'h0000_0028, {24'($urandom), 8'h40});
+  for (int i = 0; i < 3; i++) mem.poke(32'h0000_002C + 32'(4 * i), $urandom);
+  wr(A_TX_ADDR, 32'h0000_0024);
+  wr(A_CMD, 1);
+  wait (cec_oe_low === 1'b1);
+  wait (cec_oe_low === 1'b0);                         // end of the start bit's low part
+  c_ticks(16 + 48);                                   // rest of the start bit, bit 0
+  tb_low = 1; c_ticks(40); tb_low = 0;
+  poll(A_TX, 32'h10, 32'h0, 3000);
+  rd(A_TX);
+  if (rdv[3:0] !== 4'b0100) fail($sformatf("TX status %b, expected ARB_LOST", rdv[3:0]));
+  tv_irq_pin(IRQ_TX_DONE, "arbitration lost");        // left pending for the reset
+  c_ticks(200);
+  rd_exp(A_FLAGS, 0);
   if (mem.errors != 0) fail("AXI rule violations");
 endtask
