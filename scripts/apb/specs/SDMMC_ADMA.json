@@ -1,0 +1,107 @@
+{
+  "title": "SD / eMMC host controller: software-driven commands, 1- / 4- / 8-bit data, ADMA2 descriptor DMA on an AXI4 manager port",
+  "code": "0x5C61",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "features": [
+    "The software-driven host that the fixed-sequence SD_top / eMMC_top demos do not cover: SD card and eMMC storage. Software runs the card protocol one command at a time.",
+    "Commands with no response, a 48-bit response, a 136-bit response (CID / CSD) or a 48-bit response plus busy on DAT0 (R1b); CRC7 and index checks can be switched off per command (R3).",
+    "Data: BLKCNT blocks of BLKSZ bytes (a multiple of 4, 4..1020) in 1-, 4- or 8-bit mode, with per-line CRC16, the CRC status token and the busy after each write block.",
+    "A 256-word buffer between the bus and the DMA: when it has no room for the next read block, sd_clk stops at the block boundary, so the card never overruns it.",
+    "ADMA2 (32-bit descriptors: valid, end, int, act nop / tran / link, 16-bit length, address) through the shared soc_ss_axi_engine AXI4 manager (INCR bursts of up to 16 beats, never across 4 KB).",
+    "Half an sd_clk period is CLK_DIV + 1 clocks."
+  ],
+  "regs": [
+    {
+      "name": "CFG",
+      "kind": "rw",
+      "desc": "Bus clock and width",
+      "fields": [
+        {"port": "clk_div", "reset": "0xF9", "desc": "half sd_clk period - 1, in clocks (400 kHz or less for identification)"},
+        {"port": "clk_en", "reset": "0", "desc": "sd_clk running"},
+        {"port": "bus_w", "reset": "0", "desc": "data bus: 0 1-bit, 1 4-bit, 2 8-bit (set after ACMD6 / CMD6)"}
+      ]
+    },
+    {
+      "name": "BLK",
+      "kind": "rw",
+      "desc": "Transfer size",
+      "fields": [
+        {"port": "blksz", "reset": "0x200", "desc": "bytes per block, a multiple of 4, 4..1020"},
+        {"port": "blkcnt", "reset": "1", "desc": "blocks (0 counts as 1)"}
+      ]
+    },
+    {
+      "name": "DTO",
+      "kind": "rw",
+      "desc": "Data and busy timeout",
+      "fields": [{"port": "dto", "reset": "0xFFFFFF", "desc": "sd_clk periods allowed for a start bit, a CRC status or a busy release"}]
+    },
+    {
+      "name": "ADMA_ADDR",
+      "kind": "rw",
+      "desc": "ADMA2 descriptor table address (word aligned)",
+      "fields": [{"port": "adma_addr", "reset": "0", "desc": "first descriptor of the next data command"}]
+    },
+    {
+      "name": "CMD_ARG",
+      "kind": "rw",
+      "desc": "Command argument",
+      "fields": [{"port": "c_arg", "reset": "0", "desc": "32-bit argument"}]
+    },
+    {
+      "name": "CMD_CTRL",
+      "kind": "rw",
+      "desc": "Command to send",
+      "fields": [
+        {"port": "c_idx", "reset": "0", "desc": "command index"},
+        {"port": "c_rsp", "reset": "0", "desc": "response: 0 none, 1 48-bit, 2 136-bit, 3 48-bit + busy"},
+        {"port": "c_crc_chk", "reset": "1", "desc": "check the response CRC7"},
+        {"port": "c_idx_chk", "reset": "1", "desc": "check the response index (48-bit)"},
+        {"port": "c_data", "reset": "0", "desc": "data: 0 none, 1 read (card to memory), 2 write"}
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {"port": "c_start", "desc": "send CMD_CTRL / CMD_ARG; ignored while STATUS.cmd_busy, or while STATUS.dat_busy for a data command"},
+        {"port": "dat_reset", "desc": "abort the data transfer in progress"}
+      ]
+    },
+    {"name": "RSP0", "kind": "ro", "desc": "Response bits 31:0 (a 48-bit response's argument)", "fields": [{"port": "rsp0", "desc": "response"}]},
+    {"name": "RSP1", "kind": "ro", "desc": "Response bits 63:32 (136-bit)", "fields": [{"port": "rsp1", "desc": "response"}]},
+    {"name": "RSP2", "kind": "ro", "desc": "Response bits 95:64 (136-bit)", "fields": [{"port": "rsp2", "desc": "response"}]},
+    {"name": "RSP3", "kind": "ro", "desc": "Response bits 127:96 (136-bit)", "fields": [{"port": "rsp3", "desc": "response"}]},
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "State and errors of the last command / transfer",
+      "fields": [
+        {"port": "cmd_busy", "desc": "a command (or its busy) is running"},
+        {"port": "dat_busy", "desc": "a data transfer is running"},
+        {"port": "c_err", "desc": "command: 0 no response, 1 CRC7, 2 index, 3 framing, 4 busy timeout"},
+        {"port": "d_err", "desc": "data: 0 timeout, 1 read CRC16, 2 end bit, 3 write CRC status, 4 bad descriptor, 5 AXI error, 6 table too short, 7 data command failed"}
+      ]
+    },
+    {"name": "BLK_DONE", "kind": "ro", "desc": "Blocks of the current / last transfer done", "fields": [{"port": "blk_done", "desc": "blocks"}]},
+    {"name": "ADMA_CUR", "kind": "ro", "desc": "Address of the descriptor in use (the faulty one after a descriptor error)", "fields": [{"port": "adma_cur", "desc": "address"}]}
+  ],
+  "irqs": [
+    {"name": "CMD_DONE", "port": "cmd_done", "desc": "a command (and its busy) ended"},
+    {"name": "CMD_ERR", "port": "cmd_err", "desc": "a command ended with an error (STATUS.c_err)"},
+    {"name": "XFER_DONE", "port": "xfer_done", "desc": "a data transfer ended (for a read: the last word is in memory)"},
+    {"name": "XFER_ERR", "port": "xfer_err", "desc": "a data transfer was aborted (STATUS.d_err, or DAT_RESET)"},
+    {"name": "DMA_INT", "port": "dma_int", "desc": "a descriptor with int set is done"}
+  ],
+  "sequence": [
+    "CFG: CLK_DIV for 400 kHz, clk_en; wait 74 clocks. Identify the card with CMD0, CMD8 / ACMD41 (SD) or CMD1 (eMMC), CMD2, CMD3, CMD7: CMD_ARG, CMD_CTRL, CMD.c_start, wait for CMD_DONE, read RSPn and STATUS.",
+    "Bus width: ACMD6 (SD) or CMD6 SWITCH of EXT_CSD[183] (eMMC), then CFG.bus_w and a faster CLK_DIV.",
+    "Transfer: build the ADMA2 table in memory, write ADMA_ADDR and BLK, send CMD17 / 18 / 24 / 25 with CMD_CTRL.c_data; wait for XFER_DONE; after CMD18 / 25 send CMD12 (R1b)."
+  ],
+  "notes": [
+    "The bus pins (sd_clk, cmd, dat[7:0]) and the AXI4 manager port (m_*) pass through the wrapper unchanged. CMD and DAT need pull-ups.",
+    "AXI ID 11 (parameter AXI_ID of the core). Descriptor word 0: bit 0 valid, 1 end, 2 int, 5:4 act (00 nop, 01 reserved, 10 tran, 11 link), 31:16 length in bytes (0 = 65536); word 1: address. Addresses and lengths must be word aligned. The transfer ends once BLKSZ * BLKCNT bytes have moved."
+  ]
+}
