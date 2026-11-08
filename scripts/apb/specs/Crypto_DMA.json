@@ -1,0 +1,212 @@
+{
+  "title": "AES-GCM engine with an AXI4 DMA: AAD and text read from memory, the output text written back, tag in registers",
+  "code": "0x5C31",
+  "version": "1.0",
+  "axi_master": {
+    "id": 9,
+    "reads": true,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "The unchanged AES_GCM_top core (AES-128 / AES-256, 96-bit IV, NIST SP 800-38D).",
+    "Source: AAD_LEN bytes of AAD padded with zeros to 16 bytes, then TXT_LEN bytes of text; byte 0 of a block is the lowest address.",
+    "The output text goes to DST_ADDR, rounded up to 16 bytes with zero padding.",
+    "Decrypt: the plaintext is written before the tag is checked; use it only when STATUS.tag_ok is 1.",
+    "Two copies of the shared AXI4 engine, one for reads and one for writes, on one manager port."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Message configuration, taken by CMD.start",
+      "fields": [
+        {
+          "port": "key256",
+          "reset": "0",
+          "desc": "0 AES-128 (key in KEY7..KEY4), 1 AES-256"
+        },
+        {
+          "port": "decrypt",
+          "reset": "0",
+          "desc": "0 encrypt, 1 decrypt"
+        },
+        {
+          "port": "key_sel",
+          "reset": "0",
+          "desc": "0 the KEY registers, 1 the sideload key port"
+        },
+        {
+          "port": "tag_len",
+          "reset": "0",
+          "desc": "decrypt: bytes of TAG_IN compared (the first ones), 0 = 16"
+        }
+      ]
+    },
+    {
+      "name": "KEY",
+      "kind": "rw",
+      "secret": true,
+      "desc": "Key, 256 bits over eight write-only words (KEY7 holds bits 255:224, the first key bytes; AES-128 uses KEY7..KEY4); reads return 0",
+      "fields": [
+        {
+          "port": "key",
+          "reset": "0",
+          "desc": "AES key, big-endian"
+        }
+      ]
+    },
+    {
+      "name": "IV",
+      "kind": "rw",
+      "desc": "96-bit IV over three words (IV2 holds bits 95:64, the first IV bytes)",
+      "fields": [
+        {
+          "port": "iv",
+          "reset": "0",
+          "desc": "initialization vector, big-endian"
+        }
+      ]
+    },
+    {
+      "name": "TAG_IN",
+      "kind": "rw",
+      "desc": "Decrypt: the expected tag over four words (TAG_IN3 holds bits 127:96, the first tag bytes); compared when the message ends",
+      "fields": [
+        {
+          "port": "tag_in",
+          "reset": "0",
+          "desc": "expected tag, big-endian, left-aligned when truncated"
+        }
+      ]
+    },
+    {
+      "name": "SRC_ADDR",
+      "kind": "rw",
+      "desc": "Source buffer (byte address, word aligned)",
+      "fields": [
+        {
+          "port": "src_addr",
+          "reset": "0",
+          "desc": "AAD, then the text"
+        }
+      ]
+    },
+    {
+      "name": "DST_ADDR",
+      "kind": "rw",
+      "desc": "Destination buffer (byte address, word aligned)",
+      "fields": [
+        {
+          "port": "dst_addr",
+          "reset": "0",
+          "desc": "output text"
+        }
+      ]
+    },
+    {
+      "name": "LEN",
+      "kind": "rw",
+      "desc": "Message lengths in bytes",
+      "fields": [
+        {
+          "port": "aad_len",
+          "reset": "0",
+          "desc": "AAD bytes"
+        },
+        {
+          "port": "txt_len",
+          "reset": "0",
+          "desc": "text bytes"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "start",
+          "desc": "start a job; ignored while busy"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Job state and result (cleared by start)",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "a job is running"
+        },
+        {
+          "port": "err",
+          "desc": "the current / last job saw an AXI error response"
+        },
+        {
+          "port": "gcm_err",
+          "desc": "the core reported an error (ERR_CODE)"
+        },
+        {
+          "port": "err_code",
+          "desc": "core error cause: 1 format, 2 order, 3 too long, 4 sideload key not valid"
+        },
+        {
+          "port": "tag_ok",
+          "desc": "the last decryption's tag matched"
+        }
+      ]
+    },
+    {
+      "name": "TAG",
+      "kind": "ro",
+      "desc": "Encrypt: the 128-bit tag (TAG3 holds bits 127:96, the first tag bytes); 0 after a decryption",
+      "fields": [
+        {
+          "port": "tag",
+          "desc": "authentication tag of the last encryption"
+        }
+      ]
+    },
+    {
+      "name": "CYCLES",
+      "kind": "ro",
+      "desc": "Job length in clocks",
+      "fields": [
+        {
+          "port": "cycles",
+          "desc": "clocks from start to DONE of the current / last job"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DONE",
+      "port": "done",
+      "desc": "a job ended"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "a job ended with an AXI or core error"
+    }
+  ],
+  "sequence": [
+    "Write CTRL, KEY, IV (and TAG_IN when decrypting).",
+    "Write SRC_ADDR, DST_ADDR (word aligned) and LEN.",
+    "Write IRQ_ENABLE and CMD.start = 1.",
+    "Wait for irq; read TAG (encrypt) or STATUS.tag_ok (decrypt); write 1s to IRQ_STATUS."
+  ],
+  "notes": [
+    "sl_key / sl_valid are the sideload key port of the core (CTRL.key_sel = 1); they pass through unchanged.",
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time. A read burst is issued only when its data has room, a write burst only when all its data is ready."
+  ]
+}
