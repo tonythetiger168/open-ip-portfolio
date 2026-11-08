@@ -1,0 +1,9 @@
++incdir+../tb
+../rtl/PQ_MEMC_top.sv
+../rtl/pq/pq_pkg.sv
+../rtl/pq/l0_metadata_unit.sv
+../rtl/pq/l1_tone_map_eetf.sv
+../rtl/pq/l2d_memc_blend.sv
+../rtl/soc_ss_axi_engine.sv
+../rtl/tv_fifo.sv
+../tb/PQ_MEMC_tb.sv

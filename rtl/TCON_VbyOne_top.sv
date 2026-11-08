@@ -178,7 +178,7 @@ module TCON_VbyOne_top #(
   logic        sent_err;
   wire  [15:0] need    = (h_active > 16'(FIFO_DEPTH / 2)) ? 16'(FIFO_DEPTH / 2) : h_active;
   wire         in_frame = (ts == T_MARK) || (ts == T_PIX) || (ts == T_BLANK) || (ts == T_WAIT && line != 0);
-  wire         line_ok = (16'(f_count) + 16'(nl) >= need) || nxt_rdy;
+  wire         line_ok = (16'(f_count) + 16'(nl) >= need);   // words of this line in the FIFO and the group register
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin

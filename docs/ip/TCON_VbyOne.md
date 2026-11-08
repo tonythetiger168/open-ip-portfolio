@@ -42,7 +42,8 @@ Features:
 - Lane training (D10.2) until vbo_lockn_n is low; idle K28.5; K28.2 before line 0 and K28.0 before every other line.
 - 4-byte mode: pixel p of a line goes to lane p % LANES, byte j in symbol j; a new symbol every SYM_DIV clocks (0 counts as 1), vbo_sym on its first clock.
 - CMD.start scans out V_ACTIVE lines of H_ACTIVE pixels from FB_ADDR + k * STRIDE, HBLANK idle symbols between lines.
-- STATUS.underrun: the line FIFO ran empty inside a line (zeros sent); lock loss during a frame ends it (LOCK interrupt).
+- A line starts once min(H_ACTIVE, FIFO_DEPTH / 2) of its words are buffered; the group register loads one word per clock, so SYM_DIV must be at least 3 with 8 lanes.
+- STATUS.underrun: the next lane group was not ready inside a line (idle symbols sent); lock loss during a frame sets STATUS.lock_lost (LOCK interrupt); the frame goes on once lock returns.
 
 m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time.
 vbo_lane_d / vbo_lane_k / vbo_sym (out) and vbo_htpdn_n / vbo_lockn_n (in) are the link pins; serialisation and 8b/10b coding are in the PHY.

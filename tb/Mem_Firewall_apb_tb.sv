@@ -7,6 +7,7 @@
 // through the registers and its protocol pins. The bound checker
 // tb/cov/Mem_Firewall_apb_sva.sv checks every read and every core input on every clock.
 `timescale 1ns/1ps
+`include "apb/Mem_Firewall_apb_models.svh"
 module Mem_Firewall_apb_tb;
   logic        PCLK = 0, PRESETN = 0, PSEL = 0, PENABLE = 0, PWRITE = 0;
   logic [11:0] PADDR = 0;

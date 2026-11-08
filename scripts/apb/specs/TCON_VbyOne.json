@@ -16,7 +16,8 @@
     "Lane training (D10.2) until vbo_lockn_n is low; idle K28.5; K28.2 before line 0 and K28.0 before every other line.",
     "4-byte mode: pixel p of a line goes to lane p % LANES, byte j in symbol j; a new symbol every SYM_DIV clocks (0 counts as 1), vbo_sym on its first clock.",
     "CMD.start scans out V_ACTIVE lines of H_ACTIVE pixels from FB_ADDR + k * STRIDE, HBLANK idle symbols between lines.",
-    "STATUS.underrun: the line FIFO ran empty inside a line (zeros sent); lock loss during a frame ends it (LOCK interrupt)."
+    "A line starts once min(H_ACTIVE, FIFO_DEPTH / 2) of its words are buffered; the group register loads one word per clock, so SYM_DIV must be at least 3 with 8 lanes.",
+    "STATUS.underrun: the next lane group was not ready inside a line (idle symbols sent); lock loss during a frame sets STATUS.lock_lost (LOCK interrupt); the frame goes on once lock returns."
   ],
   "tb_clk_ns": 10,
   "regs": [

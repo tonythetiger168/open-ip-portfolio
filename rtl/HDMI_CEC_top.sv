@@ -295,7 +295,7 @@ module HDMI_CEC_top #(
           if (rx_ovf_cnt != 16'hFFFF) rx_ovf_cnt <= rx_ovf_cnt + 16'd1;
         end else begin
           r_pend <= 1'b1; r_len <= rlen + 5'd0; r_acked <= r_for_us && !r_bcast; r_bc <= r_bcast;
-          for (int i = 0; i < 16; i++) rmsg[i] <= rbuf[i];
+          for (int i = 0; i < 16; i++) rmsg[i] <= (5'(i) < rlen) ? rbuf[i] : 8'h00;   // unused bytes read 0
         end
       end
       if (r_err && rx_err_cnt != 16'hFFFF) rx_err_cnt <= rx_err_cnt + 16'd1;

@@ -126,6 +126,13 @@ module TCON_VbyOne_tb;
       frame(h, v, !mem.stall, $sformatf("frame %0d (%0dx%0d, div %0d)", k, h, v, sym_div));
     end
     // fast symbols: underrun, data still correct
+    // a line of at most FIFO_DEPTH / 2 pixels starts only when all of it is
+    // in the FIFO: no UNDERRUN even with a stalling memory
+    mem.stall = 1;
+    for (int k = 0; k < 6; k++) begin
+      sym_div = 4'(3 + $urandom % 3);              // the group loader takes LANES clocks
+      frame(LANES + $urandom % (32 - LANES + 1), 3, 1, $sformatf("whole-line prefetch %0d", k));
+    end
     mem.stall = 1; sym_div = 1;
     frame(64, 2, 0, "sym_div 1");
     if (!underrun) fail("no UNDERRUN at one symbol per clock with a stalling memory");
