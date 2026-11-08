@@ -256,6 +256,20 @@ setup_tools.sh           installs yosys and iverilog 13.0 if missing
 > implementation** — this repository contains no such license and no device
 > keys. See [Protocol licensing notice](#protocol-licensing-notice-important).
 
+### Set-top box (STB) subsystems (2)
+
+Conditional-access front ends of an STB SoC. Each has an AXI4 manager port
+built on the shared `rtl/soc_ss_axi_engine.sv` (default AXI IDs: smartcard
+10, CI host 11), an APB4 register wrapper, a self-checking core TB with a
+card / CAM model that prints one `LAT <master> dram R|W <cycles>` line per
+AXI burst, and a register-level wrapper test. Pages in
+[docs/ip](docs/ip/README.md).
+
+| IP | What it does | Build |
+|---|---|---|
+| Smartcard_7816 | ISO/IEC 7816-3 card reader: activation, ATR, T=0 (parity error signalling, repetition) and T=1 characters, waiting time; RX ring and TX buffer in memory | `make -f Makefile.Smartcard_7816 sim` |
+| CI_Plus_Host | DVB-CI / CI+ host (EN 50221 on an 8-bit PC Card bus): CAM power and reset, CIS read and COR write, command interface messages to and from memory, TS routed through the CAM | `make -f Makefile.CI_Plus_Host sim` |
+
 ## Phone SoC subsystems (13)
 
 Light, synthesizable models of the blocks around the memory system of a

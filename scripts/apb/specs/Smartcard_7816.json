@@ -1,0 +1,283 @@
+{
+  "title": "ISO/IEC 7816-3 smartcard interface (conditional-access card reader): T=0 / T=1 characters, RX ring and TX buffer over AXI4",
+  "code": "0x7C0A",
+  "version": "1.0",
+  "axi_master": {
+    "id": 10,
+    "reads": true,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "Card pins: sc_vcc_en, sc_rst_n, sc_clk (clk / (2 * (CLK_DIV + 1))), open-drain I/O (sc_io_in, sc_io_oe_low), sc_det (card present).",
+    "Activation (CMD.activate): VCC on, CLK running, RST low for RST_CLKS card clocks, then RST high (STATUS.active); deactivation (CMD.deactivate, card removal or ENABLE off): RST low, CLK stopped, VCC off.",
+    "Characters: start bit, 8 data bits, even parity; one ETU is ETU card clocks (F / D); direct or inverse convention (CTRL.inverse).",
+    "T=0: parity errors are signalled to the card (I/O low 10.5..12 ETU) and the character is not stored; a character the card rejects is sent again 2 ETU later, up to 4 times, then the TX fails (STATUS.tx_fail, PERR). T=1: no signalling, the parity flag is stored.",
+    "RX: every character goes as one word {23'b0, parity_err, data} through an 8-word FIFO to the ring at RING_BASE (RING_WORDS words, WR_IDX / RD_IDX); a full FIFO drops characters (OVF_CNT).",
+    "TX: CMD.tx_start sends TX_LEN bytes read from TX_ADDR (byte i in word i / 4, little-endian), start to start every 12 + GUARD ETU.",
+    "Waiting time: WT ETUs without a start bit after RST, the last character or a TX raise TIMEOUT."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Interface control",
+      "fields": [
+        {
+          "port": "enable",
+          "reset": "0",
+          "desc": "interface on; 0 deactivates the card and clears WR_IDX"
+        },
+        {
+          "port": "inverse",
+          "reset": "0",
+          "desc": "inverse convention (MSB first, low = 1)"
+        },
+        {
+          "port": "t1",
+          "reset": "0",
+          "desc": "protocol T=1 (no parity error signalling)"
+        },
+        {
+          "port": "clk_div",
+          "reset": "0",
+          "desc": "CLK toggles every CLK_DIV + 1 clocks"
+        }
+      ]
+    },
+    {
+      "name": "TIMING",
+      "kind": "rw",
+      "desc": "Character timing",
+      "fields": [
+        {
+          "port": "etu",
+          "reset": "0",
+          "desc": "card clocks per ETU (F / D; 0 counts as 1)"
+        },
+        {
+          "port": "guard",
+          "reset": "0",
+          "desc": "extra guard time N in ETU"
+        }
+      ]
+    },
+    {
+      "name": "WAITS",
+      "kind": "rw",
+      "desc": "Reset and waiting times",
+      "fields": [
+        {
+          "port": "wt",
+          "reset": "0",
+          "desc": "waiting time in ETU (0: off)"
+        },
+        {
+          "port": "rst_clks",
+          "reset": "0",
+          "desc": "card clocks of RST low at activation"
+        }
+      ]
+    },
+    {
+      "name": "RING_BASE",
+      "kind": "rw",
+      "desc": "RX ring address",
+      "fields": [
+        {
+          "port": "ring_base",
+          "reset": "0",
+          "desc": "word 0, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "RING_WORDS",
+      "kind": "rw",
+      "desc": "RX ring size",
+      "fields": [
+        {
+          "port": "ring_words",
+          "reset": "0",
+          "desc": "words (at least 2); move or resize the ring only while WR_IDX is below the new size, or with ENABLE 0 (which clears WR_IDX)"
+        }
+      ]
+    },
+    {
+      "name": "RD_IDX",
+      "kind": "rw",
+      "desc": "Software read index",
+      "fields": [
+        {
+          "port": "rd_idx",
+          "reset": "0",
+          "desc": "next ring word software reads"
+        }
+      ]
+    },
+    {
+      "name": "TX_ADDR",
+      "kind": "rw",
+      "desc": "TX buffer address",
+      "fields": [
+        {
+          "port": "tx_addr",
+          "reset": "0",
+          "desc": "byte 0, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "TX_LEN",
+      "kind": "rw",
+      "desc": "TX length",
+      "fields": [
+        {
+          "port": "tx_len",
+          "reset": "0",
+          "desc": "bytes to send"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "activate",
+          "desc": "power the card and reset it (card present, ENABLE)"
+        },
+        {
+          "port": "deactivate",
+          "desc": "deactivate the card"
+        },
+        {
+          "port": "tx_start",
+          "desc": "send TX_LEN bytes; ignored while a TX runs"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "State",
+      "fields": [
+        {
+          "port": "active",
+          "desc": "the card is powered and out of reset"
+        },
+        {
+          "port": "powered",
+          "desc": "VCC is on"
+        },
+        {
+          "port": "tx_busy",
+          "desc": "a TX is running"
+        },
+        {
+          "port": "tx_fail",
+          "desc": "the last TX failed (repetitions exhausted or deactivation)"
+        },
+        {
+          "port": "err",
+          "desc": "an AXI error response since the activation"
+        },
+        {
+          "port": "present",
+          "desc": "card detect (sc_det)"
+        }
+      ]
+    },
+    {
+      "name": "WR_IDX",
+      "kind": "ro",
+      "desc": "Hardware write index",
+      "fields": [
+        {
+          "port": "wr_idx",
+          "desc": "next ring word the core writes"
+        }
+      ]
+    },
+    {
+      "name": "RX_COUNTS",
+      "kind": "ro",
+      "desc": "RX counters",
+      "fields": [
+        {
+          "port": "rx_cnt",
+          "desc": "characters stored"
+        },
+        {
+          "port": "perr_cnt",
+          "desc": "characters received with a parity error"
+        }
+      ]
+    },
+    {
+      "name": "TX_COUNTS",
+      "kind": "ro",
+      "desc": "TX and overflow counters",
+      "fields": [
+        {
+          "port": "retx_cnt",
+          "desc": "characters sent again"
+        },
+        {
+          "port": "ovf_cnt",
+          "desc": "characters dropped (FIFO full)"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "RX",
+      "port": "rx",
+      "desc": "a character is in the ring"
+    },
+    {
+      "name": "TX_DONE",
+      "port": "tx_done",
+      "desc": "a TX ended"
+    },
+    {
+      "name": "PERR",
+      "port": "perr",
+      "desc": "an RX parity error, or a TX that failed after 4 repetitions"
+    },
+    {
+      "name": "DET",
+      "port": "det",
+      "desc": "card inserted or removed"
+    },
+    {
+      "name": "TIMEOUT",
+      "port": "timeout",
+      "desc": "the waiting time passed without a character"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "an RX ring write or a TX buffer read saw an AXI error response"
+    }
+  ],
+  "sequence": [
+    "Write CTRL (enable, clk_div), TIMING (ETU 372 at first), WAITS, RING_BASE, RING_WORDS, RD_IDX = 0 and IRQ_ENABLE.",
+    "On DET with STATUS.present = 1 write CMD.activate = 1; read the ATR from the ring on RX (set CTRL.inverse if TS is 0x3F).",
+    "Put a command in the TX buffer, write TX_ADDR, TX_LEN and CMD.tx_start = 1; on TX_DONE check STATUS.tx_fail, then read the card's answer from the ring.",
+    "Write CMD.deactivate = 1 to power the card down."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time.",
+    "RX ring writes use the write channel and TX buffer reads the read channel (two engines, one ID).",
+    "sc_vcc_en, sc_rst_n, sc_clk, sc_io_oe_low (out) and sc_io_in, sc_det (in) are the card pins; the I/O pad is open drain with a pull-up.",
+    "The core testbench prints one `LAT <master> dram R|W <cycles>` line per AXI burst (tb/tv_lat_mon.svh), the regression suite's latency format."
+  ]
+}
