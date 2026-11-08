@@ -68,9 +68,17 @@ endtask
 
 logic [3:0] cam_str_q = 4'h0;                      // {iowr, iord, we, oe} last clock
 int         cam_ce_n = 0, cam_s_n = 0, cam_wc = 0;
+bit         cam_live = 0;                          // host pins idle seen once
 always @(posedge `CAM_CLK) begin
   logic [3:0] st;
   st = {!ci_iowr_n, !ci_iord_n, !ci_we_n, !ci_oe_n};
+  // Before the host's reset has driven the pins idle (2-state simulators
+  // start them at 0, before the first clock edge applies the reset), the
+  // pins are not a bus cycle.
+  if (!cam_live) begin
+    if (st == 4'h0 && ci_ce_n === 1'b1) cam_live = 1;
+    else begin st = 4'h0; cam_ce_n = 0; end
+  end
   // power, reset, READY
   if (!ci_vcc_en) begin
     cam_io = 0; cam_rdy = 0; cam_fr = 1; cam_hc = 0; cam_sr = 0; cam_stolen = 0;
