@@ -1,0 +1,8 @@
+# CI_Plus_Host synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/CI_Plus_Host_top.sv ../rtl/soc_ss_axi_engine.sv
+hierarchy -check -top CI_Plus_Host_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json CI_Plus_Host_top.json
+write_verilog CI_Plus_Host_top_netlist.v
