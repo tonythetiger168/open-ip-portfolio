@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of SAS_apb_tb: the serial line is looped back so the built-in
 // initiator verifies its own traffic; bit flips and injected frames with
 // errors raise ERR.

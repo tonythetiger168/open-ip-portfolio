@@ -1,0 +1,128 @@
+{
+ "ip": "LPDDR5X_Lite",
+ "family": "line",
+ "bytes_per_op": 16,
+ "bank_entries": 8,
+ "timing_clk": {
+  "CL": 11,
+  "CWL": 8,
+  "TRCD": 6,
+  "TRP": 6,
+  "TRAS": 16,
+  "TRC": 24,
+  "TRRD": 3,
+  "TWR": 8,
+  "TWTR": 4,
+  "TRFC": 40,
+  "TRFC_PB": 20,
+  "TREFI": 3900
+ },
+ "impl": {
+  "library": "sky130_fd_sc_hd tt_025C_1v80 (pre-layout)",
+  "logic_path_ns": 2.23,
+  "fmax_mhz": 367,
+  "area_um2": 45555,
+  "cells": 3770,
+  "flip_flops": 1080,
+  "model_array_bits": 4194304
+ },
+ "latency_clk": {
+  "rd_hit": [
+   31,
+   31
+  ],
+  "rd_closed": [
+   37,
+   37
+  ],
+  "rd_conflict": [
+   46,
+   46
+  ],
+  "wr_hit": [
+   28,
+   28
+  ],
+  "wr_closed": [
+   34,
+   34
+  ],
+  "wr_conflict": [
+   43,
+   43
+  ]
+ },
+ "latency_rd_refresh_clk": 64,
+ "throughput": {
+  "seq_rd": {
+   "ops": 2048,
+   "clk": 63801,
+   "clk_per_op": 31.15,
+   "bytes_per_clk": 0.514,
+   "host_util_pct": 25.7,
+   "mbyte_s_at_fmax": 188.5
+  },
+  "seq_wr": {
+   "ops": 2048,
+   "clk": 57641,
+   "clk_per_op": 28.15,
+   "bytes_per_clk": 0.568,
+   "host_util_pct": 28.4,
+   "mbyte_s_at_fmax": 208.6
+  },
+  "seq_rw": {
+   "ops": 2048,
+   "clk": 61690,
+   "clk_per_op": 30.12,
+   "bytes_per_clk": 0.531,
+   "host_util_pct": 26.6,
+   "mbyte_s_at_fmax": 194.9
+  },
+  "ilv_rd": {
+   "ops": 2048,
+   "clk": 63981,
+   "clk_per_op": 31.24,
+   "bytes_per_clk": 0.512,
+   "host_util_pct": 25.6,
+   "mbyte_s_at_fmax": 188.0
+  },
+  "conf_rd": {
+   "ops": 2048,
+   "clk": 94623,
+   "clk_per_op": 46.2,
+   "bytes_per_clk": 0.346,
+   "host_util_pct": 17.3,
+   "mbyte_s_at_fmax": 127.1
+  },
+  "rnd_rd": {
+   "ops": 2048,
+   "clk": 94428,
+   "clk_per_op": 46.11,
+   "bytes_per_clk": 0.347,
+   "host_util_pct": 17.4,
+   "mbyte_s_at_fmax": 127.4
+  },
+  "rnd_wr": {
+   "ops": 2048,
+   "clk": 88432,
+   "clk_per_op": 43.18,
+   "bytes_per_clk": 0.371,
+   "host_util_pct": 18.5,
+   "mbyte_s_at_fmax": 136.0
+  },
+  "rnd_mix": {
+   "ops": 2048,
+   "clk": 92728,
+   "clk_per_op": 45.28,
+   "bytes_per_clk": 0.353,
+   "host_util_pct": 17.7,
+   "mbyte_s_at_fmax": 129.7
+  }
+ },
+ "refresh_idle": {
+  "busy_pct": 0.82,
+  "windows": 8,
+  "window_clk": 32,
+  "observed_clk": 31200
+ }
+}

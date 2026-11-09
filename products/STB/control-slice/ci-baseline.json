@@ -1,0 +1,27 @@
+{
+  "source_commit": "352f72a57ec60029b179ae1954e0fe064e2dd117",
+  "run_id": 41418710400,
+  "conclusion": "success",
+  "scope": "baseline routing fixture: six runs, 4448 cycles, nine mutations",
+  "artifact": {
+    "id": 13128204942,
+    "name": "stb-control-conformance-fe2459b55fd7fe96f3af148a56bf26aa2ac9f748",
+    "size_in_bytes": 117041,
+    "url": "https://api.github.com/repos/tonythetiger168/open-ip-portfolio/actions/artifacts/13128204942",
+    "archive_download_url": "https://api.github.com/repos/tonythetiger168/open-ip-portfolio/actions/artifacts/13128204942/zip",
+    "expired": false,
+    "created_at": "2026-11-02T09:12:25Z",
+    "expires_at": "2026-11-16T09:12:24Z",
+    "updated_at": "2026-11-02T09:12:25Z",
+    "digest": "sha256:1f7f49dd253f2913e669278d842642dfff716adebd96962bfab1f91efd7fb6d8",
+    "workflow_run": {
+      "id": 41418710400,
+      "repository_id": 1376137215,
+      "head_repository_id": 1376137215,
+      "head_branch": "codex/stb-control-conformance-20261102",
+      "head_sha": "352f72a57ec60029b179ae1954e0fe064e2dd117"
+    }
+  },
+  "native_metrics": "NOT_MEASURED",
+  "current_extension_requires_new_head_run": true
+}
