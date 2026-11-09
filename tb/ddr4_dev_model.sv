@@ -98,7 +98,29 @@ module ddr4_dev_model #(
   longint          faw [4];
   int              faw_p;
   logic [13:0]     mr [8];
-  logic [15:0]     mem [longint];
+  // sparse storage: open-addressing hash table (no associative arrays, so
+  // iverilog runs it too). HBITS sets the capacity (words written).
+  localparam int HBITS = 18;
+  localparam int HN    = 1 << HBITS;
+  longint          h_key [HN];
+  logic [15:0]     h_val [HN];
+  bit              h_use [HN];
+  function automatic int h_slot(input longint k);
+    int i;
+    i = int'((k ^ (k >> 17) ^ (k >> 31)) * 32'h9E37_79B1) & (HN - 1);
+    while (h_use[i] && h_key[i] != k) i = (i + 1) & (HN - 1);
+    h_slot = i;
+  endfunction
+  function automatic logic [15:0] mem_rd(input longint k, input logic [15:0] dflt);
+    int i;
+    i = h_slot(k);
+    mem_rd = h_use[i] ? h_val[i] : dflt;
+  endfunction
+  task automatic mem_wr(input longint k, input logic [15:0] v);
+    int i;
+    i = h_slot(k);
+    h_use[i] = 1'b1; h_key[i] = k; h_val[i] = v;
+  endtask
 
   function automatic logic [15:0] init_word(input int bank, input int row, input int col);
     logic [31:0] h;
@@ -176,7 +198,7 @@ module ddr4_dev_model #(
     for (int n = 0; n < 8; n++) begin
       longint k = key(bank, row, col + n);
       #(e0 + n * T2 - $time);
-      dq_o  = mem.exists(k) ? mem[k] : init_word(bank, row, col + n);
+      dq_o  = mem_rd(k, init_word(bank, row, col + n));
       dqs_o = (n % 2) == 0;
     end
     #(e0 + 4 * T - $time);
@@ -194,10 +216,10 @@ module ddr4_dev_model #(
       if (dqs_t[0] !== ((n % 2) == 0) || dqs_t[1] !== ((n % 2) == 0))
         err($sformatf("write beat %0d: DQS_t not toggling as expected", n));
       d = dq; m = dm_n;
-      o = mem.exists(k) ? mem[k] : init_word(bank, row, col + n);
+      o = mem_rd(k, init_word(bank, row, col + n));
       if (m[0]) o[7:0]  = d[7:0];
       if (m[1]) o[15:8] = d[15:8];
-      mem[k] = o;
+      mem_wr(k, o);
     end
   endtask
 
