@@ -63,5 +63,11 @@ echo "SYN: $pass_syn passed, $fail_syn failed"
 echo "APB: $pass_apb passed, $fail_apb failed"
 echo "FUNC: $pass_func passed, $fail_func failed"
 [ -n "$failed" ] && echo "FAILED:$failed"
+for t in $failed; do   # show why: the tail of each failed log, so the job log is enough
+  log="work/ci_${t%%:*}_${t#*:}.log"
+  [ -f "$log" ] || continue
+  echo "---- $log (last 40 lines, LAT lines left out) ----"
+  grep -v '^LAT ' "$log" | tail -n 40
+done
 echo "=================================================="
 [ "$fail_sim" -eq 0 ] && [ "$fail_syn" -eq 0 ] && [ "$fail_apb" -eq 0 ] && [ "$fail_func" -eq 0 ]
