@@ -340,7 +340,8 @@ module ddr4_jedec_ctrl #(
         end
         RUN: begin
           if (ref_due) begin
-            st <= any_open ? R_PREA : R_REF;
+            if (any_open) st <= R_PREA;    // no ?: of enum literals: iverilog 13 wants a cast
+            else          st <= R_REF;
           end else if (do_cas) begin
             // RD: 1 0 1, WR: 1 0 0 (with ACT_n high)
             cmd(1'b1, 1'b1, 1'b0, !u_write, bg2, ba2, col_a);
