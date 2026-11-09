@@ -1,0 +1,42 @@
+# STB control conformance slice
+
+2026-11-02. **Executable real-RTL bench and CI, limited control-plane verification.** Not an integrated STB SoC, UVM environment, native coverage report or physical signoff. No production missing IP is replaced with a stub. Draft PR28 publishes this self-contained package; PR23 is separately green and unchanged.
+
+Run from the product workspace: `python products/STB/control-slice/run.py`. Supports native Linux Python or Windows Python with Ubuntu WSL, with qualified Icarus12.0/vvp. Standard-library scoreboard; no network access or credentials needed for replay. Optimized Python is rejected so checker assertions cannot silently disappear. Original Apache-2.0 source headers are retained. `sources.json` pins Git blobs/commits, checked before every run; `evidence/result.json` records exact commands, Python/tool versions, source/harness hashes, seeds, hierarchy, parameters and hashed raw artifacts. The runner fails on compile/simulation errors, missing cycles, scoreboard mismatches, absent scenario witnesses or surviving mutants. Compiler constant-select warnings remain in build logs.
+
+CI publication: open-ip-portfolio, branch codex/stb-control-conformance-20261102, based on main46f6ec5cb03c33785a7c7d6f168d904c4e8d5b31. Only products/STB/control-slice/, a dedicated .github/workflows/stb-control-conformance.yml and docs/progress/stb-control-ci.md are added. The workflow runs Ubuntu24.04/Python3.12, rejects nonqualified Icarus versions, preserves warnings and uploads raw evidence even on failure. No native coverage thresholds or unrelated workflows change. Raw generated artifacts are uploaded, not committed. source-freshness.json records review against current main and PR22/27 path checks; source pins are frozen and the router remains an unmerged prototype.
+
+## Contract and real hierarchy
+
+| Instance | Source and scope |
+|---|---|
+| `control_slice_tb.u_router` | Unchanged `apb_window_router` prototype from open-ip-portfolio PR22 head c05c902f7eeaeb2587c447e08670203999741580, blob20b2e9ed9d437707130c0e6162a85a9e7b805b7c; proposed, not merged production fabric |
+| `u_reg0`, `u_reg1` | Unchanged `AXI4_Lite_apb` from main e6a39a36d131c916688735a9874dfafb30474203 |
+| `u_reg0.u_core`, `u_reg1.u_core` | Real `AXI4_Lite_top` memory-subordinate cores from the same main; routing fixture AXI requests tied idle, response ready high |
+| `irq_wait_tb.u_ep.u_core` | Separate real wrapper/core endpoint; actual AXI error requests and held B/R responses drive IRQ/wait checking without hierarchical force |
+
+Filelist: rtl/apb_window_router.sv, rtl/AXI4_Lite_top.sv, rtl/AXI4_Lite_apb.sv, control_slice_tb.sv. Single 10ns bench PCLK; active-low asynchronous reset asserted/released at negative edges. No CDC, power or SKU frequency claim. Test-only windows are [0x10000000,0x10001000) and [0x10001000,0x10002000); overlap configuration intentionally assigns both to the first interval. These are not frozen SoC physical addresses. Full32-bit upstream address must match exactly one interval and be word-aligned before forwarding the low12bits. Unmapped/misaligned/overlap accesses complete with error and select no child. PPROT forwards unchanged; this is not an authorization/firewall policy.
+
+Each real wrapper is zero-wait: offsets0/4/8/12/16 expose ID/pending IRQ/enable/flags/scratch; other aligned offsets return child error. ID=0x414c0200; flags/pending IRQ remain zero with idle AXI in the routing fixture. Scratch writes honor four independent PSTRB byte lanes; enable bit0 honors lane0. State belongs independently to each endpoint. Routing-fixture reset clears scratch/enable, suppresses router outputs and cancels a prepared, unaccepted write. Separate endpoint reset/IRQ/response tests are defined below. No SoC drain or reset-epoch claim.
+
+## Independent checking and actual result
+
+The stimulus file contains only driver controls. A separate passive monitor emits actual input/child/output wires at each rising edge before NBA register updates. Python independently checks an interval-based route oracle, byte-array CSR state, read values, forwarding, error responses, reset behavior and APB setup/access stability. The scoreboard imports no RTL/parser/reference model. A separate driver-consumption check compares monitor inputs with intended stimulus and requires exactly one observed row per cycle.
+
+Three fixed seeds (1,17,20261102), each in normal and overlapping-window configurations: **6/6 PASS,4448observed cycles**. Normal runs require witnesses for both endpoints, all16strobes/all8PPROT values, setup/idle/reset, high-address holes, child holes, misalignment and read comparisons. Back-to-back transfers, independent scratch state, rejected writes followed by readback and reset during setup are exercised. These counters are software campaign witnesses, not native functional coverage or a 100% claim.
+
+Nine sensitivity checks detected: seven altered-observation cases (wrong route/read byte/reset ready/strobe/write/protection and lost cycle), plus two genuinely compiled RTL mutants (ignore address bit31; forward unaligned requests). Mutant traces and first mismatch witnesses are separate from six passing baseline runs. Trace mutation proves checker sensitivity to observations; it does not prove all possible DUT faults are detectable.
+
+## Real endpoint IRQ and AXI wait extension
+
+After baseline packaging, dedicated CI run41418710400 passed on source head352f72a57ec60029b179ae1954e0fe064e2dd117. Its artifact13128204942 contains the6run/9mutation baseline evidence. The next commit adds irq_wait_tb.sv, irq_wait_scoreboard.py and irq_wait.py to the same dedicated CI, leaving frozen source RTL and workflow thresholds untouched.
+
+The selected source-defined endpoint contract is explicit: accepted out-of-range/misaligned AW/AR sets the core error IRQ, sticky until local reset. The APB wrapper samples that source one clock later; pending set wins over W1C, and enable masks only the outward IRQ. Software W1C cannot clear a still-high sticky core source. The three new seeds exercise actual accepted error requests, mask/unmask, lane0-disabled enable writes, W1C while source is high, and reset with pending IRQ/B/R. No internal IRQ force. Independent ledger predicts source/pending/enable from accepted bus traffic, not from DUT source values. It checks actual core-source and wrapper IRQ observations separately.
+
+B/R VALID, response codes and known read payloads are checked on every held-response cycle until READY. Memory is initialized with full-byte writes before valid reads and is deliberately retained across local reset; reset is not zeroization. Isolated transactions are used: no concurrent same-address overwrite, arbitrary AW/W reorder, production fabric drain/isolation or power verification. APB PREADY remains zero-wait; these waits are AXI response backpressure, not invented APB wait cycles. Independent W1C clear/strobe behavior with a deasserted error source is not observable for this sticky-source core and is not claimed.
+
+Local combined result: **9/9 runs,4681cycles PASS;16/16 mutations detected**. Added7checks are3observation faults (lost IRQ, wrong held B response, changed held R data) and4compiled RTL mutants (mask bypass, clear-over-set IRQ priority, BVALID gated by BREADY, RVALID gated by RREADY). Nested raw endpoint traces/logs/first-mismatch witnesses and exact commands are retained in evidence/irq-wait/ and indexed by the combined result. Software event/witness counters remain distinct from native metrics; all native totals stay null/NOT_MEASURED.
+
+Canonical requirement evidence is partial: STB-001 full-address routing for this two-window fixture; STB-002 APB strobe and bounded AXI B/R response waits, no arbitrary AW/W ordering; STB-003 source-defined endpoint IRQ/CSR/reset, no full codec RAL; STB-014 local reset only, no fabric drain; STB-022 bounded checker/replay qualification. The22-requirement SoC matrix remains PLANNED/NOT_RUN. Native line/FSM-state+arc/toggle-both-directions/branch/SVA-nonvacuity/functional measurements are all NOT_MEASURED for this slice. No exclusions or replacement coverage numbers.
+
+Next: review dedicated CI evidence, then extend concurrency/ordering under explicit endpoint guarantees; bind qualified UVM monitors/SVA to these exact hierarchies and qualify each native metric separately. Full SoC CPU/map/firmware/media/security/PHY dependencies remain blocked. PR22 consumer adoption and production map/timing are still proposals.

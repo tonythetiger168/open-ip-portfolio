@@ -1,0 +1,13 @@
+{
+  "checked_date": "2026-11-02",
+  "publication_repository": "tonythetiger168/open-ip-portfolio",
+  "publication_branch": "codex/stb-control-conformance-20261102",
+  "publication_base_commit": "46f6ec5cb03c33785a7c7d6f168d904c4e8d5b31",
+  "core_and_wrapper_match_current_main_blobs": true,
+  "router_pr": 22,
+  "router_pr_head": "c05c902f7eeaeb2587c447e08670203999741580",
+  "router_blob": "20b2e9ed9d437707130c0e6162a85a9e7b805b7c",
+  "router_adoption": "Unmerged prototype; frozen fixture evidence only",
+  "conflict_review": "PR22 and PR27 filename lists checked; no products/STB/control-slice or dedicated workflow collision",
+  "policy": "Source pins remain frozen; newer main metadata alone never changes adopted source"
+}

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of MIPI_SPMI_apb_tb: an SPMI master model with a shadow register
 // file predicting every read and every write response (register 0,
 // register, extended short and long accesses, broadcast and other slaves'

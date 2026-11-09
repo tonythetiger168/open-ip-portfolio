@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Compare RTL DDR trace port output vs gem5 DRAMCtrl trace (command sequences).
 RTL trace format (one per line):  <cmd:1=ACT,2=RD,3=WR> <hex addr>
 gem5 trace:  parse lines containing 'activate' / 'rd' / 'wr' with 0xADDR.
