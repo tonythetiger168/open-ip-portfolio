@@ -86,6 +86,9 @@ module DDR4_JEDEC_AXI_tb;
     .we_n_a14(we_n), .bg, .ba, .a, .dq(), .dqs_t(), .dqs_c(), .dm_n()
   );
 
+  longint cyc = 0;                       // CK cycle count (latency, reference timestamps)
+  always @(posedge clk) cyc++;
+
   // ---------------- reference model ----------------
   // byte reference model: open-addressing hash (iverilog has no associative arrays)
   localparam int RN = 1 << 19;
@@ -149,8 +152,6 @@ module DDR4_JEDEC_AXI_tb;
 
   // ---------------- latency log ----------------
   int lat_n[2], lat_sum[2], lat_min[2], lat_max[2];
-  longint cyc = 0;
-  always @(posedge clk) cyc++;
   task automatic lat(input int rw, input int c);
     $display("LAT axi ddr4 %s %0d", rw ? "W" : "R", c);
     lat_n[rw]++; lat_sum[rw] += c;
