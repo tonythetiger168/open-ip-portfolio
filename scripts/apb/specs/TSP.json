@@ -1,0 +1,393 @@
+{
+  "title": "Transport stream processor: DVB-CISSA (AES-128-CBC) descrambling with 4 PID slots, PCR capture, PES / section routing of TS packets over AXI4",
+  "code": "0x7C0C",
+  "version": "1.0",
+  "axi_master": {
+    "id": 12,
+    "reads": true,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "188-byte TS packets memory to memory: PKTS packets from SRC_ADDR, one at a time (read, descramble, write).",
+    "4 PID slots (PID, valid, route): route bit 0 writes the packet to buffer A, bit 1 to buffer B (OUTA / OUTB address and size in packets, A_CNT / B_CNT); unmatched PIDs are dropped (DROP_CNT), a full buffer skips the packet (OVF_CNT).",
+    "DVB-CISSA (ETSI TS 103 127): AES-128-CBC with the IV DVBTMCPTAESCISSA over the payload's 16-byte blocks, even / odd key per slot from transport_scrambling_control; the residue under 16 bytes stays clear; the control bits are cleared unless CTRL.keep_tsc.",
+    "Keys are write-only: KEY0..KEY3 and CMD.key_load expand the key to its last round key (10 clocks); the AES runs one round per clock with the round keys derived backwards.",
+    "PCR capture on PCR_PID for clock recovery: PCR_BASE, PCR_EXT and PCR_LOCAL (the clock counter when the packet was read).",
+    "Counters: PKT_CNT, DESC_CNT, NOKEY_CNT (scrambled without a key, passed unchanged), SYNC_CNT (sync byte not 0x47, dropped)."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Control",
+      "fields": [
+        {
+          "port": "keep_tsc",
+          "reset": "0",
+          "desc": "keep the scrambling control bits of descrambled packets"
+        },
+        {
+          "port": "pcr_en",
+          "reset": "0",
+          "desc": "capture the PCR of PCR_PID"
+        }
+      ]
+    },
+    {
+      "name": "PCR_PID",
+      "kind": "rw",
+      "desc": "PCR PID",
+      "fields": [
+        {
+          "port": "pcr_pid",
+          "reset": "0",
+          "desc": "PID that carries the PCR"
+        }
+      ]
+    },
+    {
+      "name": "SRC_ADDR",
+      "kind": "rw",
+      "desc": "Input packets",
+      "fields": [
+        {
+          "port": "src_addr",
+          "reset": "0",
+          "desc": "packet 0, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "PKTS",
+      "kind": "rw",
+      "desc": "Packets per job",
+      "fields": [
+        {
+          "port": "pkts",
+          "reset": "0",
+          "desc": "packets to process"
+        }
+      ]
+    },
+    {
+      "name": "OUTA_ADDR",
+      "kind": "rw",
+      "desc": "Buffer A",
+      "fields": [
+        {
+          "port": "outa_addr",
+          "reset": "0",
+          "desc": "packet 0 of buffer A, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "OUTA_MAX",
+      "kind": "rw",
+      "desc": "Buffer A size",
+      "fields": [
+        {
+          "port": "outa_max",
+          "reset": "0",
+          "desc": "packets"
+        }
+      ]
+    },
+    {
+      "name": "OUTB_ADDR",
+      "kind": "rw",
+      "desc": "Buffer B",
+      "fields": [
+        {
+          "port": "outb_addr",
+          "reset": "0",
+          "desc": "packet 0 of buffer B, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "OUTB_MAX",
+      "kind": "rw",
+      "desc": "Buffer B size",
+      "fields": [
+        {
+          "port": "outb_max",
+          "reset": "0",
+          "desc": "packets"
+        }
+      ]
+    },
+    {
+      "name": "SLOT_SEL",
+      "kind": "rw",
+      "desc": "Slot for key_load / slot_load",
+      "fields": [
+        {
+          "port": "slot",
+          "reset": "0",
+          "desc": "slot 0..3"
+        },
+        {
+          "port": "odd",
+          "reset": "0",
+          "desc": "key_load: 1 odd key, 0 even key"
+        }
+      ]
+    },
+    {
+      "name": "KEY0",
+      "kind": "rw",
+      "desc": "Key bytes 0..3 (byte 0 in bits 7:0), write-only",
+      "fields": [
+        {
+          "port": "key0",
+          "reset": "0",
+          "desc": "CMD.key_load copies it"
+        }
+      ],
+      "secret": true
+    },
+    {
+      "name": "KEY1",
+      "kind": "rw",
+      "desc": "Key bytes 4..7, write-only",
+      "fields": [
+        {
+          "port": "key1",
+          "reset": "0",
+          "desc": "CMD.key_load copies it"
+        }
+      ],
+      "secret": true
+    },
+    {
+      "name": "KEY2",
+      "kind": "rw",
+      "desc": "Key bytes 8..11, write-only",
+      "fields": [
+        {
+          "port": "key2",
+          "reset": "0",
+          "desc": "CMD.key_load copies it"
+        }
+      ],
+      "secret": true
+    },
+    {
+      "name": "KEY3",
+      "kind": "rw",
+      "desc": "Key bytes 12..15, write-only",
+      "fields": [
+        {
+          "port": "key3",
+          "reset": "0",
+          "desc": "CMD.key_load copies it"
+        }
+      ],
+      "secret": true
+    },
+    {
+      "name": "SLOT_CFG",
+      "kind": "rw",
+      "desc": "Slot configuration for slot_load",
+      "fields": [
+        {
+          "port": "slot_pid",
+          "reset": "0",
+          "desc": "PID"
+        },
+        {
+          "port": "slot_valid",
+          "reset": "0",
+          "desc": "slot in use"
+        },
+        {
+          "port": "slot_route",
+          "reset": "0",
+          "desc": "bit 0 buffer A, bit 1 buffer B"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "start",
+          "desc": "process PKTS packets (ignored while busy)"
+        },
+        {
+          "port": "key_load",
+          "desc": "load KEY0..3 into the selected slot and parity"
+        },
+        {
+          "port": "slot_load",
+          "desc": "load SLOT_CFG into the selected slot"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "State",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "a job runs"
+        },
+        {
+          "port": "key_busy",
+          "desc": "a key is being expanded"
+        },
+        {
+          "port": "err",
+          "desc": "the last job saw an AXI error response"
+        }
+      ]
+    },
+    {
+      "name": "OUT_CNT",
+      "kind": "ro",
+      "desc": "Packets written in this job",
+      "fields": [
+        {
+          "port": "a_cnt",
+          "desc": "buffer A"
+        },
+        {
+          "port": "b_cnt",
+          "desc": "buffer B"
+        }
+      ]
+    },
+    {
+      "name": "DESC_CNT",
+      "kind": "ro",
+      "desc": "Descrambling counters",
+      "fields": [
+        {
+          "port": "desc_cnt",
+          "desc": "packets descrambled"
+        },
+        {
+          "port": "nokey_cnt",
+          "desc": "scrambled packets without a key"
+        }
+      ]
+    },
+    {
+      "name": "ERR_CNT",
+      "kind": "ro",
+      "desc": "Error counters",
+      "fields": [
+        {
+          "port": "sync_cnt",
+          "desc": "bad sync bytes"
+        },
+        {
+          "port": "drop_cnt",
+          "desc": "unmatched PIDs"
+        }
+      ]
+    },
+    {
+      "name": "PKT_CNT",
+      "kind": "ro",
+      "desc": "Packet counters",
+      "fields": [
+        {
+          "port": "ovf_cnt",
+          "desc": "packets that found their buffer full"
+        },
+        {
+          "port": "pkt_cnt",
+          "desc": "packets read"
+        }
+      ]
+    },
+    {
+      "name": "PCR_BASE",
+      "kind": "ro",
+      "desc": "PCR base bits 31:0",
+      "fields": [
+        {
+          "port": "pcr_base",
+          "desc": ""
+        }
+      ]
+    },
+    {
+      "name": "PCR_EXT",
+      "kind": "ro",
+      "desc": "PCR base bit 32 and extension",
+      "fields": [
+        {
+          "port": "pcr_ext",
+          "desc": "{base[32], extension[8:0]}"
+        }
+      ]
+    },
+    {
+      "name": "PCR_LOCAL",
+      "kind": "ro",
+      "desc": "Clock counter at the PCR packet",
+      "fields": [
+        {
+          "port": "pcr_local",
+          "desc": "clocks"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DONE",
+      "port": "done",
+      "desc": "the job ended"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "the job saw an AXI error response (with DONE)"
+    },
+    {
+      "name": "NOKEY",
+      "port": "nokey",
+      "desc": "a scrambled packet had no key"
+    },
+    {
+      "name": "SYNC",
+      "port": "sync",
+      "desc": "a packet had a bad sync byte"
+    },
+    {
+      "name": "PCR",
+      "port": "pcr",
+      "desc": "a PCR was captured"
+    },
+    {
+      "name": "OVF",
+      "port": "ovf",
+      "desc": "a packet found its buffer full"
+    }
+  ],
+  "sequence": [
+    "For each service PID: write SLOT_SEL and SLOT_CFG, then CMD.slot_load.",
+    "For each control word: write SLOT_SEL (slot, odd), KEY0..KEY3, CMD.key_load; wait for STATUS.key_busy low before loading the next key.",
+    "Write CTRL, PCR_PID, OUTA / OUTB address and size, SRC_ADDR, PKTS and IRQ_ENABLE, then CMD.start; on DONE read OUT_CNT and the counters.",
+    "On PCR compare PCR_BASE / PCR_EXT with PCR_LOCAL against the previous capture to steer the system clock."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time.",
+    "One DMA job at a time on one engine: 47-word packet reads, then 47-word writes to A and / or B.",
+    "DVB-CSA is not implemented (licensed); CISSA is the open AES-based DVB scrambler.",
+    "The core testbench prints one `LAT <master> dram R|W <cycles>` line per AXI burst (tb/tv_lat_mon.svh), the regression suite's latency format."
+  ]
+}
