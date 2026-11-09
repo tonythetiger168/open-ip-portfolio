@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of eUSB2_apb_tb: the eUSB2 host model of the core TB (NRZI bit
 // cells with stuffing on edp / edm, control packets with CRC8, read
 // responses decoded from dp / dm, a retime monitor). Register writes and

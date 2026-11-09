@@ -396,6 +396,14 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
   Ethernet PCS, Root of Trust, SHA-3, AES-GCM, TRNG, PCIe / CXL IDE, SPDM so far): lint, mutation, formal (bounded proofs; exhaustive checks of the
   ML-KEM, ML-DSA and RS-FEC arithmetic and the PCS functions and gearboxes), area and logic depth, and the list of what a production
   sign-off would still need: [docs/SIGNOFF.md](docs/SIGNOFF.md).
+- **Memory controller performance (measured):** every DDR / LPDDR / GDDR /
+  HBM controller page (`docs/ip/<P>.md`, 24 cores) has a Performance section:
+  unloaded read / write latency (page hit, closed bank, row conflict, behind a
+  refresh), sustained throughput for eight traffic patterns, refresh cost, and
+  a pre-layout Fmax and area on the open SKY130 library. All of it comes from
+  `bash scripts/perf/run_perf.sh <P>` (the IP's own TB with `+define+MEM_PERF`,
+  then `scripts/perf/sta_sky130.sh`); side-by-side table:
+  [docs/MEMORY_PERFORMANCE.md](docs/MEMORY_PERFORMANCE.md).
 
 ### Earlier four-metric flow (v2.5.1)
 

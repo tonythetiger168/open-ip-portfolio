@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of MIPI_DPI__Display_Pixel_Interface__apb_tb: timing set through
 // the register window, every output checked position by position against a
 // shadow model over whole frames (24 and 18-bit colour, shutdown), refused
