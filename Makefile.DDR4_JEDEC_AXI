@@ -1,28 +1,30 @@
 # SPDX-License-Identifier: Apache-2.0
 # DDR4_JEDEC_AXI Open IP (AXI4 DDR4 controller on real JEDEC pins) -- sim & synthesis entry points
-# The testbench uses a behavioural PHY and device model with timed DQS (fork / #delay,
-# associative arrays), so it runs on Verilator 5 (--timing) rather than iverilog.
-# MICRON_DDR4_DIR: optional Micron DDR4 model (ddr4_model.sv, arch_package.sv, ...);
-# when set, `make -f Makefile.DDR4_JEDEC_AXI micron` compiles it next to the controller.
+# sim: iverilog (default) or SIM=verilator (5.x, --timing). The testbench uses a
+# behavioural PHY and device model with timed DQS (tb/ddr4_phy_beh.sv, tb/ddr4_dev_model.sv).
 S       := DDR4_JEDEC_AXI
 DEPS    := rtl/ddr4_jedec_ctrl.sv
 TBDEPS  := tb/ddr4_phy_beh.sv tb/ddr4_dev_model.sv
-VERILATOR ?= verilator
+SIM     ?= iverilog
+VFLAGS  := -g2012
 VLFLAGS := --binary --timing --timescale 1ps/1ps -j 0 -Wno-fatal -Wno-lint -Wno-style -Wno-ZERODLY -Wno-TIMESCALEMOD
 SYN     ?= yosys
 
 all: sim syn
 
+ifeq ($(SIM),verilator)
 sim:
-	$(VERILATOR) $(VLFLAGS) --top-module $(S)_tb -Mdir obj_$(S) rtl/$(S)_top.sv $(DEPS) $(TBDEPS) tb/$(S)_tb.sv
+	verilator $(VLFLAGS) --top-module $(S)_tb -Mdir obj_$(S) rtl/$(S)_top.sv $(DEPS) $(TBDEPS) tb/$(S)_tb.sv
 	./obj_$(S)/V$(S)_tb
-
-lint:
-	iverilog -g2012 -Wall -o /dev/null rtl/$(S)_top.sv $(DEPS)
+else
+sim:
+	$(SIM) $(VFLAGS) -o simv rtl/$(S)_top.sv $(DEPS) $(TBDEPS) tb/$(S)_tb.sv
+	vvp -n simv
+endif
 
 syn:
 	mkdir -p work && cd work && $(SYN) -p "read_verilog -sv ../rtl/ddr4_jedec_ctrl.sv ../rtl/$(S)_top.sv; synth -top $(S)_top; stat"
 
 clean:
-	rm -rf obj_$(S) work/*.json
-.PHONY: all sim lint syn clean
+	rm -rf simv obj_$(S) work/*.json
+.PHONY: all sim syn clean

@@ -87,13 +87,42 @@ module DDR4_JEDEC_AXI_tb;
   );
 
   // ---------------- reference model ----------------
-  byte unsigned ref_m [int unsigned];
+  // byte reference model: open-addressing hash (iverilog has no associative arrays)
+  localparam int RN = 1 << 19;
+  int unsigned  r_key [RN];
+  byte unsigned r_val [RN];
+  bit           r_use [RN];
+  longint       r_time [RN];             // cycle of the B that made the byte visible
+  // AXI orders nothing between a read and a concurrent write: a read skips the
+  // bytes of the write burst in flight while it runs and bytes whose write
+  // completed after its AR handshake
+  bit           wf_act = 0;
+  int unsigned  wf_lo, wf_hi;
+  function automatic int r_slot(input int unsigned ad);
+    int i;
+    i = int'(ad * 32'h9E37_79B1) & (RN - 1);
+    while (r_use[i] && r_key[i] != ad) i = (i + 1) & (RN - 1);
+    r_slot = i;
+  endfunction
+  task automatic ref_wr(input int unsigned ad, input byte unsigned v);
+    int i;
+    i = r_slot(ad);
+    r_use[i] = 1'b1; r_key[i] = ad; r_val[i] = v; r_time[i] = cyc;
+  endtask
+  function automatic bit ambiguous(input int unsigned ad, input longint t_ar,
+                                   input bit amb, input int unsigned lo, input int unsigned hi);
+    int i;
+    i = r_slot(ad);
+    ambiguous = (amb && ad >= lo && ad <= hi) || (r_use[i] && r_time[i] >= t_ar);
+  endfunction
   int errors = 0;
 
   function automatic byte unsigned predict(input int unsigned ad);
     int off, colhi, bgv, bav, row, beat, lane, dev, col, bank;
     logic [15:0] w;
-    if (ref_m.exists(ad)) return ref_m[ad];
+    int i;
+    i = r_slot(ad);
+    if (r_use[i]) return r_val[i];
     off   = ad % BB;
     colhi = (ad / BB) % 128;
     bgv   = (ad / (BB * 128)) % 2;
@@ -130,14 +159,21 @@ module DDR4_JEDEC_AXI_tb;
   endtask
 
   // ---------------- AXI master tasks ----------------
-  semaphore wsem = new(1), rsem = new(1);
+  bit wbusy = 0, rbusy = 0;               // one AW thread / one AR thread at a time
 
   task automatic axi_write(input int unsigned ad, input int len, input int sz, input int bt,
                            input bit bad_last = 0, input bit expect_err = 0);
     int unsigned x = ad;
     longint t0;
-    byte unsigned shadow [int unsigned];
-    wsem.get();
+    int unsigned  sh_a [1024];
+    byte unsigned sh_d [1024];
+    int           sh_n = 0;
+    while (wbusy) @(negedge clk);
+    wbusy = 1;
+    // byte span the burst can touch (a WRAP stays in its aligned window)
+    wf_lo = (bt == 2) ? (ad & ~(((len + 1) << sz) - 1)) : (ad & ~32'h3);
+    wf_hi = (bt == 2) ? wf_lo + ((len + 1) << sz) - 1 : (ad & ~32'h3) + ((len + 1) << sz) + 3;
+    wf_act = 1;
     // drive on the falling edge, look at READY there too: a handshake then
     // happens on the next rising edge (no race with the DUT's flops)
     @(negedge clk);
@@ -147,23 +183,23 @@ module DDR4_JEDEC_AXI_tb;
     t0 = cyc;
     @(negedge clk);
     awvalid = 0;
-    for (int i = 0; i <= len; i++) begin
-      logic [31:0] d = $urandom;
-      logic [3:0]  s = 0;
-      int unsigned base = x & ~32'h3;
+    for (int i = 0; i <= (bad_last ? len - 1 : len); i++) begin
+      logic [31:0] d;
+      logic [3:0]  s;
+      int unsigned base;
+      d = $urandom; s = 0; base = x & ~32'h3;
       for (int b = 0; b < 4; b++)
         if ((base + b) >= (x & ~((1 << sz) - 1)) && (base + b) < (x & ~((1 << sz) - 1)) + (1 << sz))
           s[b] = $urandom_range(0, 3) != 0;
       wdata = d; wstrb = s; wvalid = 1;
       wlast = bad_last ? (i == len - 1) : (i == len);
       if (sz <= 2 && !expect_err)
-        for (int b = 0; b < 4; b++) if (s[b]) shadow[base + b] = d[8*b +: 8];
+        for (int b = 0; b < 4; b++) if (s[b]) begin sh_a[sh_n] = base + b; sh_d[sh_n] = d[8*b +: 8]; sh_n++; end
       while (!wready) @(negedge clk);
       @(posedge clk);
       @(negedge clk);
       wvalid = 0; wlast = 0;
       x = nxt(x, sz, len, bt);
-      if (bad_last && i == len - 1) break;
     end
     while (!bvalid) @(negedge clk);
     if (bresp != (expect_err ? 2'b10 : 2'b00)) begin
@@ -172,10 +208,11 @@ module DDR4_JEDEC_AXI_tb;
     if (bid != 4'(ad)) begin errors++; $display("ERROR: BID"); end
     @(posedge clk);
     if (!expect_err) begin
-      foreach (shadow[k]) ref_m[k] = shadow[k];
+      for (int k = 0; k < sh_n; k++) ref_wr(sh_a[k], sh_d[k]);
       lat(1, int'(cyc - t0));
     end
-    wsem.put();
+    wf_act = 0;
+    wbusy = 0;
   endtask
 
   task automatic axi_read(input int unsigned ad, input int len, input int sz, input int bt,
@@ -183,8 +220,10 @@ module DDR4_JEDEC_AXI_tb;
     int unsigned x = ad;
     longint t0;
     int i = 0;
-    bit last;
-    rsem.get();
+    bit last, amb;
+    int unsigned alo, ahi;
+    while (rbusy) @(negedge clk);
+    rbusy = 1;
     @(negedge clk);
     arid = 4'(ad >> 4); araddr = ad; arlen = 8'(len); arsize = 3'(sz); arburst = 2'(bt); arvalid = 1;
     while (!arready) @(negedge clk);
@@ -192,17 +231,25 @@ module DDR4_JEDEC_AXI_tb;
     t0 = cyc;
     @(negedge clk);
     arvalid = 0;
-    forever begin
-      if (!rvalid) begin @(negedge clk); continue; end
+    amb = 0; alo = 32'hFFFF_FFFF; ahi = 0;
+    last = 0;
+    while (!last) begin
+      while (!rvalid) begin
+        if (wf_act) begin amb = 1; if (wf_lo < alo) alo = wf_lo; if (wf_hi > ahi) ahi = wf_hi; end
+        @(negedge clk);
+      end
+      if (wf_act) begin amb = 1; if (wf_lo < alo) alo = wf_lo; if (wf_hi > ahi) ahi = wf_hi; end
       if (rresp != (expect_err ? 2'b10 : 2'b00)) begin
         errors++; $display("ERROR: read @%h beat %0d RRESP %0d", ad, i, rresp);
       end
       if (rid != 4'(ad >> 4)) begin errors++; $display("ERROR: RID"); end
       if (rlast != (i == len)) begin errors++; $display("ERROR: RLAST beat %0d of %0d", i, len); end
       if (!expect_err) begin
-        int unsigned base = x & ~32'h3, lo = x & ~((1 << sz) - 1);
+        int unsigned base, lo;
+        base = x & ~32'h3; lo = x & ~((1 << sz) - 1);
         for (int b = 0; b < 4; b++)
-          if (base + b >= lo && base + b < lo + (1 << sz) && rdata[8*b +: 8] !== predict(base + b)) begin
+          if (base + b >= lo && base + b < lo + (1 << sz) && !ambiguous(base + b, t0, amb, alo, ahi) &&
+              rdata[8*b +: 8] !== predict(base + b)) begin
             errors++;
             $display("ERROR: read @%h byte %h: got %h exp %h", ad, base + b, rdata[8*b +: 8], predict(base + b));
           end
@@ -210,27 +257,42 @@ module DDR4_JEDEC_AXI_tb;
       x = nxt(x, sz, len, bt);
       last = rlast;
       @(posedge clk);
-      if (last) break;
-      @(negedge clk);
-      i++;
+      if (!last) begin
+        @(negedge clk);
+        i++;
+      end
     end
     if (!expect_err) lat(0, int'(cyc - t0));
-    rsem.put();
+    rbusy = 0;
   endtask
 
   // ---------------- test ----------------
-  int unsigned rows [4] = '{0, 1, 7, 300};
   function automatic int unsigned raddr();
-    // a few rows per bank so random traffic hits, misses and conflicts
-    int unsigned r = rows[$urandom_range(0, 3)];
-    int unsigned bk = $urandom_range(0, 7), c = $urandom_range(0, 127);
+    // a few rows per bank (0, 1, 7, 300) so random traffic hits, misses and conflicts
+    int unsigned r, bk, c;
+    case ($urandom_range(0, 3)) 0: r = 0; 1: r = 1; 2: r = 7; default: r = 300; endcase
+    bk = $urandom_range(0, 7); c = $urandom_range(0, 127);
     return (r * 1024 + bk * 128 + c) * BB + $urandom_range(0, BB - 1);
   endfunction
 
+  task automatic rand_writes();
+    int sz, len, bt;
+    for (int k = 0; k < NRAND; k++) begin
+      sz = $urandom_range(0, 2); len = $urandom_range(0, 15); bt = $urandom_range(0, 2);
+      if (bt == 2) len = (1 << $urandom_range(1, 4)) - 1;
+      axi_write(raddr() & ~((1 << sz) - 1), len, sz, bt == 0 ? 1 : bt);
+    end
+  endtask
+  task automatic rand_reads();
+    int sz, len, bt;
+    for (int k = 0; k < NRAND; k++) begin
+      sz = $urandom_range(0, 2); len = $urandom_range(0, 15); bt = $urandom_range(1, 2);
+      if (bt == 2) len = (1 << $urandom_range(1, 4)) - 1;
+      axi_read(raddr() & ~((1 << sz) - 1), len, sz, bt);
+    end
+  endtask
+
   initial begin
-    if (!$value$plusargs("seed=%d", errors)) errors = 0;
-    void'($urandom(errors));
-    errors = 0;
     repeat (4) @(posedge clk);
     rst_n <= 1;
     wait (init_done);
@@ -259,16 +321,8 @@ module DDR4_JEDEC_AXI_tb;
 
     // random, concurrent AW and AR
     fork
-      for (int k = 0; k < NRAND; k++) begin
-        int sz = $urandom_range(0, 2), len = $urandom_range(0, 15), bt = $urandom_range(0, 2);
-        if (bt == 2) begin len = (1 << $urandom_range(1, 4)) - 1; end
-        axi_write(raddr() & ~((1 << sz) - 1) & (bt == 2 ? ~32'h0 : ~32'h0), len, sz, bt == 0 ? 1 : bt);
-      end
-      for (int k = 0; k < NRAND; k++) begin
-        int sz = $urandom_range(0, 2), len = $urandom_range(0, 15), bt = $urandom_range(1, 2);
-        if (bt == 2) len = (1 << $urandom_range(1, 4)) - 1;
-        axi_read(raddr() & ~((1 << sz) - 1), len, sz, bt);
-      end
+      rand_writes();
+      rand_reads();
     join
     // read back everything written so far after the random phase settles
     for (int k = 0; k < 64; k++) axi_read(raddr() & ~32'h3, 15, 2, 1);

@@ -33,11 +33,11 @@ Protocol IP `DDR4_JEDEC_AXI`, version 0.1. Apache-2.0.
 
 ## Verification
 
-`make -f Makefile.DDR4_JEDEC_AXI sim` needs Verilator 5 with `--timing`, because the PHY and device model use timed DQS. It runs `tb/DDR4_JEDEC_AXI_tb.sv`:
+`make -f Makefile.DDR4_JEDEC_AXI sim` runs `tb/DDR4_JEDEC_AXI_tb.sv` on iverilog by default; add `SIM=verilator` (5.x, `--timing`) to use Verilator instead. Both pass.
 
 - **Init:** checks that the 7 MRS writes arrive and that `init_done` rises.
 - **Directed bursts:** aligned and unaligned INCR; narrow transfers with sparse strobes; WRAP 4, 8 and 16; FIXED; a 256-beat INCR; row misses.
-- **Random traffic:** 400 writes and 400 reads on concurrent AW and AR threads, over a few rows per bank. Results are checked against a byte reference model. Unwritten bytes are predicted from `ddr4_dev_model.init_word`.
+- **Random traffic:** 400 writes and 400 reads on concurrent AW and AR threads, over a few rows per bank. Results are checked against a byte reference model. A read skips only the bytes of a write burst that is in flight while the read runs, because AXI does not order them. Unwritten bytes are predicted from `ddr4_dev_model.init_word`.
 - **Negative checks:** AxSIZE 3 on read and write, and a misplaced WLAST, must each give SLVERR. A second device model that assumes tRCD + 4 must flag violations.
 - **Refresh during traffic:** tREFI is set to 3000 so refreshes happen while traffic runs.
 - **Latency:** each burst prints `LAT axi ddr4 R|W <cycles>`, the SoC TB's latency format.
