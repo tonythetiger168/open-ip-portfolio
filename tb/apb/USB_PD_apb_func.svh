@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of USB_PD_apb_tb: the source (DFP) model of the core TB, driving
 // BMC frames onto CC, with a monitor decoding every sink frame (preamble, SOP,
 // header, Request object, CRC-32, EOP). Negotiations (9 V and 5 V), Reject,
