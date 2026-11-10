@@ -126,7 +126,7 @@ module QSPI_XIP_sva (
               logic [21:0] wa;
               wa = f_addr_exp[23:2] + 22'(d_n / 4);
               d_word[8 * (d_n % 4) +: 8] = b;
-              if (d_n % 4 == 3) w_map[wa] <= d_word;
+              if (d_n % 4 == 3) w_map[wa] = d_word;
             end
           end else d_bits <= d_bits + 1;
         end
@@ -165,7 +165,7 @@ module QSPI_XIP_sva (
       { bins fixed[] = {0, 1, 2}; bins incr[] = {4, 5, 6}; bins wrap[] = {8, 9, 10}; }
     cp_next: coverpoint u_xip_path iff (rst_n && s_arvalid && s_arready)
       { bins word_at_hand = {0}; bins continue_ = {1}; bins close_reopen = {2}; bins open_ = {3}; }
-    cp_div: coverpoint div iff (rst_n && !csn && csn_q) { bins zero = {0}; bins small = {[1:3]}; bins big = {[4:255]}; }
+    cp_div: coverpoint div iff (rst_n && !csn && csn_q) { bins zero = {0}; bins small_ = {[1:3]}; bins big = {[4:255]}; }
   endgroup
   cg_qspi u_cg_qspi = new;
   wire [1:0] u_xip_path = (w_last_v && w_last_a == s_araddr[23:2]) ? 2'd0 : (s_open && s_next == s_araddr[23:2]) ? 2'd1

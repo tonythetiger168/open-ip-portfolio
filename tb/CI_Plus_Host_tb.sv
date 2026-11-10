@@ -121,6 +121,7 @@ module CI_Plus_Host_tb;
   task automatic do_rx(input logic [7:0] d [], input int store, input string what);
     int r0;
     for (int i = 0; i < 24; i++) mem.poke(rx_addr + 32'(4 * i), 32'h5A5A_5A5A);
+    mem.poke(rx_addr + 32'(4 * ((store + 3) / 4)), 32'h5A5A_5A5A);   // the word after the stored bytes
     r0 = n_rx;
     cam_send(d);
     `WAIT_CNT(n_rx, r0, 400000 + 200 * d.size(), what)
@@ -372,15 +373,15 @@ module CI_Plus_Host_tb;
     bl = new[3]; bl = '{8'h31, 8'h32, 8'h33};
     do_rx(bl, 0, "RX with RX_MAX 0");
     `PULSE(rx_arm)
-    rx_max = 16'hFFFF;
+    rx_max = 16'd65532;
     bl = new[65535];
     foreach (bl[i]) bl[i] = 8'($urandom);
-    do_rx(bl, 65535, "RX of 65535 bytes");          // 16384 words stored
+    do_rx(bl, 65532, "RX of 65535 bytes");          // 16383 words stored
     `PULSE(rx_arm)
     rx_max = 64; poll = 0;
     // the top of the address space, address bits 1:0 set (ignored): a CIS,
     // a TX and an RX; random BID / RID
-    cis_addr = 32'hFFFF_FFC3; tx_addr = 32'hFFFF_FFF3; rx_addr = 32'hFFFF_FF83; mem.rand_id = 1;
+    cis_addr = 32'hFFFF_FFCF; tx_addr = 32'hFFFF_FFF3; rx_addr = 32'hFFFF_FF83; mem.rand_id = 1;
     do_cis(8, "CIS at the top");
     bl = new[5]; bl = '{8'h11, 8'h22, 8'h33, 8'h44, 8'h55};
     do_tx(bl, 0, "TX at the top");

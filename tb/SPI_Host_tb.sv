@@ -142,8 +142,13 @@ module SPI_Host_tb;
     while (busy) @(negedge clk);
     cs = 2'b00;
     // the slowest SCLK (DIV 16'hFFFF), stopped by a reset after two edges
+    // (CPOL / CPHA changed during the frame: the frame keeps the mode it
+    // started with)
     @(negedge clk); cpol = 0; cpha = 0; clks(2); div = 16'hFFFF; start = 1; @(negedge clk); start = 0;
-    clks(140000);
+    clks(10); cpol = 1; cpha = 1; clks(100);
+    if (sclk !== 1'b0) fail("SCLK moved when CPOL changed during a frame");
+    cpol = 0; cpha = 0;
+    clks(139890);
     rst_n = 0; clks(2);
     if (busy) fail("busy in reset");
     rst_n = 1; div = 3; clks(5);

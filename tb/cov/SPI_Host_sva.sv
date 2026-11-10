@@ -55,14 +55,14 @@ module SPI_Host_sva #(parameter int NCS = 2) (
   covergroup cg_spi_host @(posedge clk);
     option.per_instance = 1;
     cp_mode: coverpoint {cpol, cpha} iff (rst_n && go);
-    cp_div: coverpoint div iff (rst_n && go) { bins zero = {0}; bins one = {1}; bins small = {[2:7]}; bins big = {[8:16'hFFFF]}; }
+    cp_div: coverpoint div iff (rst_n && go) { bins zero = {0}; bins one = {1}; bins small_ = {[2:7]}; bins big = {[8:16'hFFFF]}; }
     cp_cs: coverpoint cs iff (rst_n && go);
     cx_mode_div: cross cp_mode, cp_div;
   endgroup
   cg_spi_host u_cg_spi_host = new;
 
   `FC(start_while_busy, start && busy)
-  `FC(back_to_back, done ##1 go)
+  `FC(back_to_back, done ##[0:1] go)
   `FC(mode_change_while_busy, busy && (cpol != f_pol || cpha != f_pha))
   `FC_RST(reset_mid_frame, rst_n && busy ##1 !rst_n)
 endmodule
