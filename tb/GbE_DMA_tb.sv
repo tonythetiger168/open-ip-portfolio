@@ -110,14 +110,20 @@ module GbE_DMA_tb;
     pool_n += n;
     return n_fr++;
   endfunction
+  // buffer area, address bits 1:0 and descriptor word 1 bits 31:16 written
+  // into the descriptors (the DMA ignores both)
+  logic [31:0] tx_buf = 32'h0010_0000, rx_buf_base = 32'h0800_0000;
+  logic [1:0]  tx_lo = 0, rx_lo = 0;
+  logic [15:0] tx_w1hi = 0, rx_w1hi = 0;
+  bit          lite = 0;               // long runs: the checker module checks the data
   task automatic post_tx(input int f);
     logic [31:0] b, d;
     int idx;
     idx = tx_tail;
-    b = 32'h0010_0000 + 32'(idx) * 32'h800 + 32'(4 * ($urandom % 4));
+    b = tx_buf + 32'(idx) * 32'h800 + 32'(4 * ($urandom % 4));
     d = tx_base + 32'(8 * idx);
     for (int i = 0; i < fl[f]; i++) poke_byte(b + 32'(i), pool[fo[f] + i]);
-    mem.poke(d, b); mem.poke(d + 4, 32'(fl[f]));
+    mem.poke(d, b | 32'(tx_lo)); mem.poke(d + 4, {tx_w1hi, 16'(fl[f])});
     tx_q.push_back(f); tx_posted++;
     @(negedge clk); tx_tail = (tx_tail + 1 == tx_num) ? 0 : tx_tail + 1;
   endtask
@@ -134,6 +140,7 @@ module GbE_DMA_tb;
   int rx_q [$];                        // sent by the partner, accepted by the filter
   logic [3:0] rx_stq [$];              // their expected rx_stat
   int     rx_size [16];
+  logic [31:0] rx_buf [16];
   task automatic p_send(input int f);
     for (int i = 0; i < fl[f]; i++) begin
       p_tx_valid = 1; p_tx_data = pool[fo[f] + i]; p_tx_last = (i == fl[f] - 1);
@@ -144,14 +151,17 @@ module GbE_DMA_tb;
     @(posedge clk); while (!p_tx_done) @(posedge clk);
     @(negedge clk);
   endtask
-  task automatic post_rx(input int size);
-    logic [31:0] d;
-    int idx;
-    idx = rx_tail;
+  // an RX descriptor at idx (buffers 4 KB apart), RX_TAIL not moved
+  task automatic rx_desc(input int idx, input int size);
+    logic [31:0] d, b;
     d = rx_base + 32'(8 * idx);
-    mem.poke(d, 32'h0800_0000 + 32'(idx) * 32'h800); mem.poke(d + 4, 32'(size));
-    rx_size[idx] = size;
-    for (int i = 0; i < 2048; i += 4) mem.poke(32'h0800_0000 + 32'(idx) * 32'h800 + 32'(i), 32'hBAD0_0000);
+    b = rx_buf_base + 32'(idx) * 32'h1000;
+    mem.poke(d, b | 32'(rx_lo)); mem.poke(d + 4, {rx_w1hi, 16'(size)});
+    rx_size[idx] = size; rx_buf[idx] = b;
+    for (int i = 0; i < (size > 2048 ? size : 2048) + 16; i += 4) mem.poke(b + 32'(i), 32'hBAD0_0000);
+  endtask
+  task automatic post_rx(input int size);
+    rx_desc(rx_tail, size);
     @(negedge clk); rx_tail = (rx_tail + 1 == rx_num) ? 0 : rx_tail + 1;
   endtask
   int rx_chk = 0, rx_hw = 0;           // frames checked, hardware head mirror
@@ -160,7 +170,7 @@ module GbE_DMA_tb;
     int sz, n;
     bit tr;
     w = mem.peek(rx_base + 32'(8 * idx) + 4);
-    b = 32'h0800_0000 + 32'(idx) * 32'h800;
+    b = rx_buf[idx];
     sz = rx_size[idx]; tr = fl[f] > sz; n = tr ? sz : fl[f];
     if (w !== {1'b1, tr, 10'd0, rx_stq.size() ? rx_stq.pop_front() : 4'd0, 16'(fl[f])})
       fail($sformatf("RX descriptor %0d write-back %h, frame %0d bytes, buffer %0d", idx, w, fl[f], sz));
@@ -173,8 +183,9 @@ module GbE_DMA_tb;
   // the TB can post the entry again
   initial forever begin
     @(posedge clk); #2;
+    if (lite) rx_hw = rx_head;
     while (rst_n && rx_hw != rx_head) begin
-      if (rx_q.size() == 0) begin fail("RX descriptor completed with no frame sent"); rx_hw = rx_head; end
+      if (rx_q.size() == 0) begin fail("RX descriptor completed with no frame sent"); rx_hw = rx_head; break; end
       else check_rx(rx_hw, rx_q.pop_front());
       rx_hw = (rx_hw + 1 == rx_num) ? 0 : rx_hw + 1;
     end
@@ -188,7 +199,7 @@ module GbE_DMA_tb;
 
   int force_len = 0;                   // TX frame length (0: random)
   task automatic tx_burst(input int n);
-    int done0, t, h;
+    int done0;
     done0 = tx_seen;
     for (int k = 0; k < n; k++) begin
       int len;
@@ -197,6 +208,11 @@ module GbE_DMA_tb;
       post_tx(mk_frame(len, 48'h02_AA_BB_CC_DD_EE));
       tx_log.push_back(tx_q[tx_q.size() - 1]);
     end
+    tx_wait(done0, n);
+  endtask
+  // wait for n frames posted after tx_seen was done0; check the write-backs
+  task automatic tx_wait(input int done0, input int n);
+    int t;
     t = 0;
     while (tx_seen < done0 + n && t < 2000000) begin @(negedge clk); t++; end
     if (tx_seen < done0 + n) fail($sformatf("TX: %0d of %0d frames sent", tx_seen - done0, n));
@@ -235,9 +251,10 @@ module GbE_DMA_tb;
     for (int i = 0; i < 8; i++) c = (c[0] ^ d[i]) ? (c >> 1) ^ 32'hEDB88320 : c >> 1;
     return c;
   endfunction
+  bit raw_nopush = 0;                  // the frame is dropped: not expected in a buffer
   task automatic raw_frame(input int f, input bit bad_fcs, input int er_at, input logic [3:0] stat);
     logic [31:0] c;
-    rx_q.push_back(f); rx_stq.push_back(stat);
+    if (!raw_nopush) begin rx_q.push_back(f); rx_stq.push_back(stat); end
     raw = 1;
     for (int i = 0; i < 7; i++) raw_byte(8'h55, 1, 0);
     raw_byte(8'hD5, 1, 0);
@@ -247,6 +264,45 @@ module GbE_DMA_tb;
     for (int i = 0; i < 4; i++) raw_byte(c[8 * i +: 8], 1, 0);
     for (int i = 0; i < 12; i++) raw_byte(8'h00, 0, 0);
     raw = 0;
+  endtask
+
+  // a fragment: the line ends after 3 bytes
+  task automatic raw_frag;
+    raw = 1;
+    for (int i = 0; i < 7; i++) raw_byte(8'h55, 1, 0);
+    raw_byte(8'hD5, 1, 0);
+    for (int i = 0; i < 3; i++) raw_byte(8'(i), 1, 0);
+    for (int i = 0; i < 12; i++) raw_byte(8'h00, 0, 0);
+    raw = 0;
+  endtask
+  // the shortest frame the MAC passes on: the DA and 4 more bytes (6 bytes
+  // out, len_err); long runs only (lite)
+  task automatic raw_short;
+    raw = 1;
+    raw_byte(8'h55, 1, 0); raw_byte(8'hD5, 1, 0);
+    for (int i = 0; i < 6; i++) raw_byte(cfg_mac[47 - 8 * i -: 8], 1, 0);
+    for (int i = 0; i < 4; i++) raw_byte(8'(i), 1, 0);
+    raw_byte(8'h00, 0, 0); raw_byte(8'h00, 0, 0);
+    raw = 0;
+  endtask
+  function automatic int ring_used(input int head, input int tail, input int num);
+    return tail >= head ? tail - head : tail + num - head;
+  endfunction
+  // one round of 4 raw frames of n bytes (the 4 FIFO records), each into a
+  // buffer of sz[k] bytes, collected one at a time
+  task automatic rx_round(input int n, input bit bad_fcs, input int er_at, input logic [3:0] stat,
+                          input int sz [4], input logic [47:0] da);
+    for (int k = 0; k < 4; k++) begin
+      int f;
+      post_rx(sz[k]);
+      f = mk_frame(n, da);
+      if (stat[3]) begin
+        pool[fo[f] + 12] = 8'h88; pool[fo[f] + 13] = 8'h08; pool[fo[f] + 14] = 8'h00; pool[fo[f] + 15] = 8'h01;
+        pool[fo[f] + 16] = 8'h00; pool[fo[f] + 17] = 8'h01;
+      end else pool[fo[f] + 12] = 8'h08;              // not a PAUSE, not VLAN
+      raw_frame(f, bad_fcs, er_at, stat);
+      rx_collect(rx_chk + rx_q.size());
+    end
   endtask
 
   initial begin
@@ -377,6 +433,117 @@ module GbE_DMA_tb;
     end
     if (tx_q.size() != 0) fail("TX frames left over");
     if (rx_q.size() != 0) fail("RX frames left over");
+    // TX and RX both pending at the IDLE step: RX first (TX enabled on the
+    // clock the RX descriptor is posted)
+    begin
+      int f, d0;
+      tx_en = 0;
+      d0 = tx_seen;
+      post_tx(mk_frame(100, 48'h02_AA_BB_CC_DD_EE)); tx_log.push_back(tx_q[tx_q.size() - 1]);
+      f = mk_frame(200, cfg_mac); rx_q.push_back(f); rx_stq.push_back(4'd0); p_send(f);
+      clks(20);
+      rx_desc(rx_tail, 1600);
+      @(negedge clk); rx_tail = (rx_tail + 1 == rx_num) ? 0 : rx_tail + 1; tx_en = 1;
+      rx_collect(rx_chk + 1);
+      tx_wait(d0, 1);
+    end
+    // a TX status due while an RX frame waits: the status goes first (two
+    // frames wait for descriptors; they are posted as the TX frame's last
+    // byte goes to the MAC, so its status falls due in the first RX copy)
+    begin
+      int d0;
+      for (int k = 0; k < 2; k++) begin
+        int f;
+        f = mk_frame(1500, cfg_mac); rx_q.push_back(f); rx_stq.push_back(4'd0); p_send(f);
+      end
+      d0 = tx_seen;
+      post_tx(mk_frame(1, 48'h02_AA_BB_CC_DD_EE)); tx_log.push_back(tx_q[tx_q.size() - 1]);
+      while (!(dut.tx_valid && dut.tx_ready && dut.tx_last)) @(negedge clk);
+      rx_desc(rx_tail, 1600); rx_desc(rx_tail + 1 == rx_num ? 0 : rx_tail + 1, 1600);
+      @(negedge clk); rx_tail = (rx_tail + 2 >= rx_num) ? rx_tail + 2 - rx_num : rx_tail + 2;
+      rx_collect(rx_chk + rx_q.size());
+      tx_wait(d0, 1);
+    end
+    // a fragment (no frame for the DMA); a 40000-byte frame: dropped when
+    // the RX FIFO fills (RX byte count bits 15:11)
+    begin
+      int d0;
+      d0 = rx_drop;
+      raw_frag();
+      post_rx(1600);
+      raw_nopush = 1; raw_frame(mk_frame(40000, cfg_mac), 0, -1, 4'b0010); raw_nopush = 0;
+      clks(50);
+      if (rx_drop != d0 + 1) fail($sformatf("40000-byte frame: RX_DROP %0d, expected %0d", rx_drop, d0 + 1));
+      begin int f; f = mk_frame(80, cfg_mac); rx_q.push_back(f); rx_stq.push_back(4'd0); p_send(f); end
+      rx_collect(rx_chk + rx_q.size());
+    end
+    // descriptor rings and buffers at the top of the address space: address
+    // bits 1:0 set and descriptor word 1 bits 31:16 all ones (both ignored);
+    // RX frames of 601, 1100, 4095 and 4096 bytes and PAUSE frames, 4 of each
+    // (every FIFO record), with each error status, into buffers of 0, 64,
+    // 1600, 2048 and 4096 bytes
+    begin
+      clks(20);
+      tx_en = 0; rx_en = 0;
+      rst_n = 0; clks(2);
+      tx_tail = 0; rx_tail = 0; rx_hw = 0; tx_chk = 0; tx_posted = 0; tx_log.delete();
+      tx_base = 32'hFFFF_FFC7; tx_num = 7; rx_base = 32'hFFFF_FF67; rx_num = 6;
+      rst_n = 1; clks(2);
+      tx_buf = 32'hFFFF_C110; tx_lo = 2'b11; tx_w1hi = 16'hFFFF;
+      rx_buf_base = 32'hFFFE_0110; rx_lo = 2'b11; rx_w1hi = 16'hFFFF;
+      @(negedge clk); tx_en = 1; rx_en = 1;
+      tx_burst(4); tx_burst(4);                     // the 7-entry ring wraps
+      cfg_pause_en = 1;
+      rx_round(601, 1, -1, 4'b0001, '{0, 0, 64, 0}, cfg_mac);
+      rx_round(1100, 0, 30, 4'b0100, '{0, 1600, 2048, 0}, cfg_mac);
+      rx_round(4095, 0, -1, 4'b0010, '{0, 64, 1600, 4096}, cfg_mac);
+      rx_round(4096, 0, -1, 4'b0010, '{4096, 0, 0, 0}, cfg_mac);
+      rx_round(64, 0, -1, 4'b1000, '{64, 64, 64, 64}, 48'h01_80_C2_00_00_01);
+      cfg_pause_en = 0;
+      tx_burst(3);
+      tx_en = 0; rx_en = 0;
+      tx_buf = 32'h0010_0000; tx_lo = 0; tx_w1hi = 0; rx_buf_base = 32'h0800_0000; rx_lo = 0; rx_w1hi = 0;
+    end
+    if (tx_q.size() != 0) fail("TX frames left over");
+    if (rx_q.size() != 0) fail("RX frames left over");
+    // (long runs: +cov_long, the checker module checks the data) rings of
+    // 65535 descriptors: 65540 one-byte TX frames, 65540 6-byte RX frames,
+    // 65540 frames dropped with RX_EN off; byte time 1 clock. Heads wrap,
+    // the counts wrap.
+    if ($test$plusargs("cov_long")) begin
+      int n0;
+      lite = 1; p_ignore = 1; tx_en = 0; rx_en = 0;
+      rst_n = 0; clks(2);
+      cfg_div = 0; tx_base = 32'h0100_0000; rx_base = 32'h0200_0000; tx_num = 16'hFFFF; rx_num = 16'hFFFF;
+      tx_tail = 0; rx_tail = 0; rx_hw = 0; mem.stall = 0; mem.rand_id = 0;
+      rst_n = 1; clks(2);
+      tx_en = 1;
+      mem.poke(32'h0030_0000, 32'h0000_00A5);
+      n0 = n_tx_irq;
+      for (int i = 0; i < 65540; i++) begin
+        while (ring_used(tx_head, tx_tail, tx_num) >= 4) @(negedge clk);
+        mem.poke(tx_base + 32'(8 * tx_tail), 32'h0030_0000); mem.poke(tx_base + 32'(8 * tx_tail) + 4, 32'd1);
+        @(negedge clk); tx_tail = (tx_tail + 1 == tx_num) ? 0 : tx_tail + 1;
+      end
+      while (n_tx_irq < n0 + 65540) @(negedge clk);
+      tx_en = 0;
+      rx_en = 1;
+      n0 = n_rx_irq;
+      for (int i = 0; i < 65540; i++) begin
+        while (n_rx_irq < n0 + i - 2) @(negedge clk);
+        mem.poke(rx_base + 32'(8 * rx_tail), 32'h0040_0000); mem.poke(rx_base + 32'(8 * rx_tail) + 4, 32'd64);
+        @(negedge clk); rx_tail = (rx_tail + 1 == rx_num) ? 0 : rx_tail + 1;
+        raw_short();
+      end
+      while (n_rx_irq < n0 + 65540) @(negedge clk);
+      rx_en = 0;
+      n0 = rx_drop;
+      for (int i = 0; i < 65540; i++) raw_short();
+      clks(20);
+      if (rx_drop != 16'(n0 + 65540)) fail($sformatf("drop run: RX_DROP %0d", rx_drop));
+      if (tx_head != tx_tail || rx_head != rx_tail) fail("long runs: rings not drained");
+      lite = 0; p_ignore = 0; cfg_div = 1; mem.stall = 1;
+    end
     // every bit of the ring and MAC configuration pins, while disabled
     tx_en = 0; rx_en = 0;
     @(negedge clk);
@@ -390,7 +557,7 @@ module GbE_DMA_tb;
     @(negedge clk);
     cfg_div = 1; cfg_promisc = 0; cfg_mac = 48'h02_11_22_33_44_55;
     tx_base = 32'h0001_0000; rx_base = 32'h0002_0000; tx_num = 8; rx_num = 6;
-    rst_n = 0; clks(2); rst_n = 1; clks(2);
+    rst_n = 0; clks(2); rx_hw = 0; rst_n = 1; clks(2);
     tx_en = 1; rx_en = 1;
     mem.poke(tx_base, 32'h0010_0000); mem.poke(tx_base + 4, 32'd300);
     @(negedge clk); tx_tail = 1;

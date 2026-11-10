@@ -5,3 +5,29 @@ INCLUDE soc_ss_axi_manager
 # FIFO holds the rest of the frame whenever TX_VALID is high).
 TOGGLE _top\.(tx_underrun|tx_ur): # the MAC never underruns: store and forward
 LINE GbE_DMA_top\.sv:226:if: # the MAC never underruns: store and forward
+TOGGLE _top\.gtx_er: # GTX_ER is only sent on a TX underrun (store and forward: never)
+# The scheduler arms for S_TXD and S_RXD are one case item; a TX descriptor
+# always goes on to S_TXB or back to S_IDLE (st is checked by a_sched and the
+# job assertions), so the RX next states are never taken from S_TXD.
+FSM fsm_arc__st__S_TXD__S_RX(B|DRAIN)$ # shared S_TXD / S_RXD case item: RX next states only from S_RXD
+LINE GbE_DMA_top\.sv:291:case: # st holds the 8 encoded steps only
+TOGGLE _top\.st\[3\]: # st holds the 8 encoded steps only (0..7)
+# The MAC passes on no frame shorter than 2 bytes (a line frame that ends
+# before its sixth byte is a fragment), so a frame is never last on its first
+# byte and a dropped frame has always started.
+LINE GbE_DMA_top\.sv:334:cond_else: # no 1-byte frames from the MAC
+# rx_pk holds bytes 0..2 of a word; the fourth byte goes straight into the FIFO
+# word, so rx_pk[31:24] is only ever cleared.
+TOGGLE _top\.rx_pk\[(2[4-9]|3[01])\]: # byte 3 is never held in the packer
+# e_cyc: the engine's clock count, unused (collected by _unused).
+TOGGLE _top\.e_cyc\[ # the engine's job clock count, unused output (the engine closes it in its own run)
+# Size limits: TX frames are at most TXF_BYTES (2048) bytes, RX frames at
+# most RXF_BYTES (4096, the RX FIFO), so engine jobs are at most 1024 words
+# and byte counts / indexes at most 4096.
+TOGGLE _top\.e_len\[1[1-5]\]: # engine jobs are at most 1024 words (4096-byte RX FIFO)
+TOGGLE _top\.tx_bi\[1[2-5]\]: # TX byte index at most 2048 (TXF_BYTES)
+TOGGLE _top\.rx_drain\[1[1-5]\]: # words left to drain at most 1024 (RX FIFO)
+TOGGLE _top\.(ri_len|rx_take)\[1[3-5]\]: # an accepted RX frame is at most 4096 bytes (RX FIFO)
+TOGGLE _top\.rinfo\[[0-3]\]\[1[3-5]\]: # an accepted RX frame is at most 4096 bytes (RX FIFO)
+TOGGLE _top\.rxs_word\[(1[3-5]|2[0-9])\]: # RX status: length at most 4096; bits 29:20 are constant 0
+TOGGLE _top\.txs_word\[(1[6-9]|2[0-79]|30)\]: # TX status: bits 27:16 and 30 constant 0, bit 29 (underrun) never set
