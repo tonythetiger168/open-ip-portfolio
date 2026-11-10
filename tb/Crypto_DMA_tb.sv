@@ -74,7 +74,8 @@ module Crypto_DMA_tb;
     @(negedge clk);
     key256 = v_k256[v]; decrypt = v_dec[v]; tag_len = v_tlen[v]; key = v_key[v]; iv = v_iv[v];
     tag_in = v_tag[v]; key_sel = (inject == 3); sl_valid = 0; sl_key = $urandom;
-    src_addr = s; dst_addr = d; aad_len = 16'(al); txt_len = 16'(pl);
+    src_addr = s | 32'($urandom % 4); dst_addr = d | 32'($urandom % 4);   // bits 1:0 ignored
+    aad_len = 16'(al); txt_len = 16'(pl);
     nd0 = n_done; ne0 = n_err_irq;
     start = 1; @(negedge clk); start = 0;
     if (!busy) fail("busy low after start");
@@ -103,6 +104,27 @@ module Crypto_DMA_tb;
     if (cycles == 0) fail("CYCLES = 0");
   endtask
 
+  // a job of random data (no reference): word counts and no error; with
+  // b2b the next job starts the clock after DONE
+  task automatic raw(input int al, input int pl, input bit dec, input bit b2b);
+    int rb0, wb0, t;
+    @(negedge clk);
+    rb0 = mem.n_rd_beats; wb0 = mem.n_wr_beats;
+    src_addr = 32'h0080_0000 | 32'($urandom % 4); dst_addr = 32'h00C0_0000; aad_len = 16'(al); txt_len = 16'(pl);
+    key_sel = 0; decrypt = dec; key256 = $urandom; key = {$urandom, $urandom, $urandom, $urandom, $urandom, $urandom, $urandom, $urandom};
+    start = 1; @(negedge clk); start = 0;
+    t = 0;
+    while (!done && t < 2000000) begin @(negedge clk); t++; end
+    if (b2b) begin start = 1; @(negedge clk); start = 0; end
+    while (busy && t < 2000000) begin @(negedge clk); t++; end
+    if (busy) fail("random job timed out");
+    if (err || gcm_err) fail($sformatf("random job %0d / %0d: ERR %b GCM_ERR %b", al, pl, err, gcm_err));
+    if (!b2b && mem.n_rd_beats - rb0 != (up16(al) + up16(pl)) / 4)
+      fail($sformatf("random job %0d / %0d: %0d words read", al, pl, mem.n_rd_beats - rb0));
+    if (!b2b && mem.n_wr_beats - wb0 != up16(pl) / 4)
+      fail($sformatf("random job %0d / %0d: %0d words written", al, pl, mem.n_wr_beats - wb0));
+  endtask
+
   initial begin
     load_vecs();
     clks(3);
@@ -117,6 +139,14 @@ module Crypto_DMA_tb;
     run(8, 2, 0);
     run(9, 3, 0);
     run(10, 0, 0);
+    // every non-OKAY response code on reads and on writes; random BID / RID
+    for (int k = 0; k < 6; k++) begin mem.err_resp = 2'(1 + k % 3); run(7 + k % 2, 1 + k % 2, 0); end
+    mem.err_resp = 2'b10;
+    mem.rand_id = 1;
+    // every text length class, AAD only, nothing, decrypt with any tag;
+    // back-to-back jobs
+    raw(0, 1, 0, 0); raw(3, 5, 1, 0); raw(16, 16, 0, 0); raw(17, 500, 1, 0); raw(0, 2000, 0, 0);
+    raw(20, 0, 0, 0); raw(32, 0, 1, 0); raw(0, 0, 0, 0); raw(5, 33, 0, 1); raw(1, 1, 1, 1);
     // the largest message (65535 AAD bytes, 65535 text bytes: 8192 blocks
     // read, 4096 written)
     begin

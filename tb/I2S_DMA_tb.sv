@@ -91,7 +91,8 @@ module I2S_DMA_tb;
     // start two BCLK periods after the start of frame f0 (F in the header)
     f0 = cur_frame() + 1;
     while (fall_n != 32 * f0 + 2) @(negedge clk);
-    src_addr = s; dst_addr = d; xfer_len = 16'(n); tx_en = tx; rx_en = rx;
+    src_addr = s | 32'($urandom % 4); dst_addr = d | 32'($urandom % 4);   // bits 1:0 ignored
+    xfer_len = 16'(n); tx_en = tx; rx_en = rx;
     nd0 = n_done; ne0 = n_err_irq;
     start = 1; @(negedge clk); start = 0;
     // the memory model only answers a request it sees, so hiding ARVALID /
@@ -164,6 +165,37 @@ module I2S_DMA_tb;
     run(20, 1, 0, 0, 1);      // AXI errors
     run(20, 0, 1, 0, 2);
     run(8, 1, 1, 0, 0);
+    // every non-OKAY response code, on reads and on writes
+    for (int k = 0; k < 6; k++) begin
+      mem.err_resp = 2'(1 + k % 3);
+      run(6, k < 3, k >= 3, 0, k < 3 ? 1 : 2);
+    end
+    mem.err_resp = 2'b10;
+    // long jobs, random BID / RID
+    mem.rand_id = 1;
+    run(200, 0, 1, 0, 0);
+    run(1100, 1, 1, 0, 0);
+    // START with neither TX_EN nor RX_EN is ignored; START while busy is
+    // ignored; a job started the clock after DONE
+    @(negedge clk); tx_en = 0; rx_en = 0; xfer_len = 4; start = 1; @(negedge clk); start = 0;
+    clks(3);
+    if (busy) fail("job started with neither TX_EN nor RX_EN");
+    @(negedge clk); src_addr = pick_addr(4); tx_en = 1; xfer_len = 2; start = 1; @(negedge clk); start = 0;
+    clks(5); start = 1; @(negedge clk); start = 0;
+    while (!done) @(negedge clk);
+    start = 1; @(negedge clk); start = 0;
+    if (!busy) fail("no job after a START the clock after DONE");
+    while (busy) @(negedge clk);
+    // a job of 0 words ends at once
+    @(negedge clk); xfer_len = 0; rx_en = 1; start = 1; @(negedge clk); start = 0;
+    while (busy) @(negedge clk);
+    // a 65535-word job, stopped by a reset
+    @(negedge clk); xfer_len = 16'hFFFF; tx_en = 1; rx_en = 1; dst_addr = 32'h0010_0000; start = 1;
+    @(negedge clk); start = 0;
+    wait_frame(cur_frame() + 4);
+    rst_n = 0; clks(3);
+    if (busy || frames != 0) fail("not idle in reset");
+    rst_n = 1; tx_en = 0; rx_en = 0; clks(5);
     $display("max AXI latency: R %0d W %0d cycles", lat_r_max, lat_w_max);
     finish("I2S_DMA");
   end

@@ -121,6 +121,32 @@ module SPI_Host_tb;
       end
       cs = 2'b00; clks(4);
     end
+    // every mode at DIV 0, 1 and a slow DIV; frames back to back
+    for (int k = 0; k < 12; k++) begin
+      div = (k / 4 == 0) ? 0 : (k / 4 == 1) ? 1 : 12; cpol = k % 2; cpha = (k / 2) % 2;
+      clks(3);
+      m_tx = $urandom;
+      cs = 2'b10; clks(2);
+      begin
+        logic [7:0] d;
+        d = $urandom;
+        frame(d, m_tx);
+        if (m_rx !== d) fail($sformatf("mode %0d%0d div %0d: target got %h, sent %h", cpol, cpha, div, m_rx, d));
+      end
+      cs = 2'b00; clks(4);
+    end
+    cs = 2'b11; div = 2;
+    @(negedge clk); tx_data = 8'hFF; start = 1; @(negedge clk); start = 0;
+    while (!done) @(negedge clk);
+    tx_data = 8'h00; start = 1; @(negedge clk); start = 0;
+    while (busy) @(negedge clk);
+    cs = 2'b00;
+    // the slowest SCLK (DIV 16'hFFFF), stopped by a reset after two edges
+    @(negedge clk); cpol = 0; cpha = 0; clks(2); div = 16'hFFFF; start = 1; @(negedge clk); start = 0;
+    clks(140000);
+    rst_n = 0; clks(2);
+    if (busy) fail("busy in reset");
+    rst_n = 1; div = 3; clks(5);
     if (errors == 0) $display("TEST PASSED: SPI_Host");
     else $display("TEST FAILED: SPI_Host (%0d errors)", errors);
     $finish;
