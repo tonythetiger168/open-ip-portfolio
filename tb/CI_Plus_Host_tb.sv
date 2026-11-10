@@ -154,6 +154,21 @@ module CI_Plus_Host_tb;
     clks(3);
     rst_n = 1;
     clks(2);
+    // every configuration pin both ways (no card)
+    begin
+      logic [31:0] k_cis, k_tx, k_rx;
+      logic [14:0] k_cor;
+      logic [7:0]  k_cv;
+      k_cis = cis_addr; k_tx = tx_addr; k_rx = rx_addr; k_cor = cor_addr; k_cv = cor_val;
+      wait_max = '1; rst_clks = '1; poll_div = '1; fr_max = '1; cis_addr = '1; cis_len = '1; cor_addr = '1; cor_val = '1;
+      tx_addr = '1; tx_len = '1; rx_addr = '1; rx_max = '1; ts_route = 1; poll = 1; setup = '1; hold = '1; strobe = '1;
+      clks(3);
+      wait_max = '0; rst_clks = '0; poll_div = '0; fr_max = '0; cis_addr = '0; cis_len = '0; cor_addr = '0; cor_val = '0;
+      tx_addr = '0; tx_len = '0; rx_addr = '0; rx_max = '0; ts_route = 0; poll = 0; setup = '0; hold = '0; strobe = '0;
+      clks(3);
+      wait_max = 0; rst_clks = 50; poll_div = 20; fr_max = 0; cis_addr = k_cis; tx_addr = k_tx; rx_addr = k_rx;
+      cor_addr = k_cor; cor_val = k_cv; rx_max = 64; setup = 1; hold = 1; strobe = 3;
+    end
     // no card: power-on ignored
     enable = 1;
     `PULSE(power_on)
@@ -280,6 +295,145 @@ module CI_Plus_Host_tb;
     ts_route = 0;
     ts_packet(188);
     if (ts_got.size() != 188 || ts_got[5] !== 8'(5 * 13)) fail("TS bypass");
+    // ---------------- corner cases ----------------
+    // polling while the CAM has nothing (STATUS without DA), with the
+    // reserved STATUS bits set
+    cam_st_x = 6'h3F;
+    poll = 1; clks(300); poll = 0; clks(50);
+    cam_st_x = 6'h00;
+    // a CIS read of 0 bytes ends at once
+    begin
+      int c0;
+      c0 = n_cfg; cis_len = 0;
+      `PULSE(cis_read)
+      `WAIT_CNT(n_cfg, c0, 1000, "CIS of 0 bytes")
+    end
+    // an interface reset that never sees FR gives up after FR_MAX polls
+    begin
+      int c0;
+      c0 = n_cfg; cam_fr_off = 1; fr_max = 3;
+      `PULSE(if_reset)
+      `WAIT_CNT(n_cfg, c0, 20000, "interface reset without FR")
+      cam_fr_off = 0; fr_max = 0;
+      c0 = n_cfg;
+      `PULSE(if_reset)
+      `WAIT_CNT(n_cfg, c0, 20000, "interface reset")
+    end
+    // the slowest bus cycle: SETUP 15, STROBE 255, HOLD 15
+    setup = 15; strobe = 255; hold = 15;
+    do_cis(2, "CIS, slowest cycles");
+    setup = 1; strobe = 3; hold = 1;
+    // a TX whose buffer reads are held off: the DATA writes wait
+    fork
+      begin
+        bl = new[9];
+        foreach (bl[i]) bl[i] = 8'(i * 3 + 7);
+        do_tx(bl, 0, "TX with reads held");
+      end
+      begin force m_arvalid = 1'b0; clks(800); release m_arvalid; end
+    join
+    // a CIS and an RX message with the writes held off: the engine's FIFO
+    // fills and the bus waits for it
+    fork
+      do_cis(200, "CIS with writes held");
+      begin force m_awvalid = 1'b0; clks(3000); release m_awvalid; end
+    join
+    rx_max = 255; poll = 1;
+    fork
+      begin
+        bl = new[200];
+        foreach (bl[i]) bl[i] = 8'(i * 7 + 2);
+        do_rx(bl, 200, "RX with writes held");
+      end
+      begin force m_awvalid = 1'b0; clks(3000); release m_awvalid; end
+    join
+    `PULSE(rx_arm)
+    // RX_MAX 0: nothing stored; then a 65535-byte message (RX_LEN all ones)
+    rx_max = 0;
+    bl = new[3]; bl = '{8'h31, 8'h32, 8'h33};
+    do_rx(bl, 0, "RX with RX_MAX 0");
+    `PULSE(rx_arm)
+    rx_max = 8;
+    bl = new[65535];
+    foreach (bl[i]) bl[i] = 8'($urandom);
+    do_rx(bl, 8, "RX of 65535 bytes");
+    `PULSE(rx_arm)
+    rx_max = 64; poll = 0;
+    // the top of the address space: a CIS, a TX and an RX
+    cis_addr = 32'hFFFF_F000; tx_addr = 32'hFFFF_E000; rx_addr = 32'hFFFF_D000;
+    do_cis(8, "CIS at the top");
+    bl = new[5]; bl = '{8'h11, 8'h22, 8'h33, 8'h44, 8'h55};
+    do_tx(bl, 0, "TX at the top");
+    poll = 1;
+    do_rx(bl, 64, "RX at the top");
+    `PULSE(rx_arm)
+    poll = 0;
+    cis_addr = 32'h0010_0000; tx_addr = 32'h0020_0000; rx_addr = 32'h0030_0000;
+    // power off during a CIS read that saw an AXI error: the job is flushed,
+    // ERR set; then during an RX message
+    begin
+      mem.err_lo = cis_addr; mem.err_hi = cis_addr + 4;
+      cis_len = 100;
+      `PULSE(cis_read)
+      clks(400);
+      `PULSE(power_off)
+      clks(400);
+      if (busy || !err || ci_vcc_en) fail("power-off during a CIS read");
+      mem.err_lo = '1; mem.err_hi = '1;
+      power_up("power-up after the CIS abort");
+      begin
+        int c0;
+        c0 = n_cfg;
+        `PULSE(cor_write)
+        `WAIT_CNT(n_cfg, c0, 1000, "COR write")
+        c0 = n_cfg;
+        `PULSE(if_reset)
+        `WAIT_CNT(n_cfg, c0, 20000, "interface reset")
+      end
+      bl = new[120];
+      foreach (bl[i]) bl[i] = 8'(i);
+      cam_send(bl);
+      poll = 1;
+      clks(400);
+      `PULSE(power_off)
+      clks(400);
+      poll = 0;
+      if (busy || ci_vcc_en) fail("power-off during an RX message");
+      cam_out_q.delete(); cam_pend.delete(); cam_pend_n.delete();
+      power_up("power-up after the RX abort");
+      begin
+        int c0;
+        c0 = n_cfg;
+        `PULSE(cor_write)
+        `WAIT_CNT(n_cfg, c0, 1000, "COR write")
+        c0 = n_cfg;
+        `PULSE(if_reset)
+        `WAIT_CNT(n_cfg, c0, 20000, "interface reset")
+      end
+    end
+    // (long runs: +cov_long, coverage only) 65540 one-byte TX and RX
+    // messages, 65540 bus timeouts and 65540 TS packets through the CAM:
+    // every count saturates; the reset at the end clears them
+    if ($test$plusargs("cov_long")) begin
+      poll_div = 0;
+      bl = new[1];
+      for (int i = 0; i < 65540; i++) begin bl[0] = 8'($urandom); do_tx(bl, 0, "TX run"); end
+      poll = 1;
+      for (int i = 0; i < 65540; i++) begin bl[0] = 8'($urandom); do_rx(bl, 64, "RX run"); `PULSE(rx_arm) end
+      poll = 0;
+      cam_wait = 100; wait_max = 1; cis_chk = 0;
+      do_cis(65535, "timeout run"); do_cis(8, "timeout run");
+      cam_wait = 0; wait_max = 0; cis_chk = 1;
+      ts_route = 1;
+      for (int i = 0; i < 65540; i++) begin
+        @(negedge clk); ts_in_valid = 1; ts_in_sop = 1; ts_in_data = 8'($urandom);
+      end
+      @(negedge clk); ts_in_valid = 0; ts_in_sop = 0;
+      clks(6);
+      ts_route = 0; poll_div = 20;
+      if (tx_cnt != 16'hFFFF || rx_cnt != 16'hFFFF || to_cnt != 16'hFFFF || ts_cnt != 16'hFFFF)
+        fail($sformatf("counter runs: TX %0d RX %0d TO %0d TS %0d", tx_cnt, rx_cnt, to_cnt, ts_cnt));
+    end
     // card removal during a TX: the DMA is flushed, tx_fail
     begin
       int t0;
@@ -321,7 +475,7 @@ module CI_Plus_Host_tb;
     finish("CI_Plus_Host");
   end
   initial begin
-    #50ms;
+    #2s;
     $display("TEST FAILED: CI_Plus_Host (timeout)");
     $finish;
   end

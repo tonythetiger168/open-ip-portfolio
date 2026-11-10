@@ -331,13 +331,15 @@ module SMMU_tb;
     join
     clks(2);
     enable = 1;
-    // HITS and MISSES saturate at 16'hFFFF
-    mem.stall = 0;
-    for (int k = 0; k < 65540; k++) rd_burst({20'h00321, 12'h0}, 1, 4'd1);   // a page that is not valid: never cached
-    check_rd(vp[0], 1);
-    for (int k = 0; k < 65540; k++) rd_burst({vp[0], 12'h0}, 1, 4'd1);
-    if (hits !== 16'hFFFF || misses !== 16'hFFFF) fail($sformatf("HITS %h MISSES %h not saturated", hits, misses));
-    mem.stall = 1;
+    // HITS and MISSES saturate at 16'hFFFF (long run: +cov_long, coverage only)
+    if ($test$plusargs("cov_long")) begin
+      mem.stall = 0;
+      for (int k = 0; k < 65540; k++) rd_burst({20'h00321, 12'h0}, 1, 4'd1);   // a page that is not valid: never cached
+      check_rd(vp[0], 1);
+      for (int k = 0; k < 65540; k++) rd_burst({vp[0], 12'h0}, 1, 4'd1);
+      if (hits !== 16'hFFFF || misses !== 16'hFFFF) fail($sformatf("HITS %h MISSES %h not saturated", hits, misses));
+      mem.stall = 1;
+    end
     // reset in the middle of a walk
     inv();
     fork : walk_mid

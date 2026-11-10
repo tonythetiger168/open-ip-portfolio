@@ -189,15 +189,58 @@ module I2S_DMA_tb;
     // a job of 0 words ends at once
     @(negedge clk); xfer_len = 0; rx_en = 1; start = 1; @(negedge clk); start = 0;
     while (busy) @(negedge clk);
-    // a 65535-word job, stopped by a reset
-    @(negedge clk); xfer_len = 16'hFFFF; tx_en = 1; rx_en = 1; dst_addr = 32'h0010_0000; start = 1;
-    @(negedge clk); start = 0;
-    wait_frame(cur_frame() + 4);
-    rst_n = 0; clks(3);
-    if (busy || frames != 0) fail("not idle in reset");
-    rst_n = 1; tx_en = 0; rx_en = 0; clks(5);
+    // an RX word loaded in the very clock the engine takes the one before it:
+    // AWVALID hidden from the memory until the engine's write FIFO and the waiting word are
+    // full, then released at a sweep of offsets after a frame start until the
+    // FIFO frees a slot exactly at the load (no memory stalls: fixed delays)
+    begin
+      bit hit;
+      hit = 0;
+      mem.stall = 0; mem.rand_id = 0;
+      @(negedge clk); xfer_len = 16'hFFFF; tx_en = 0; rx_en = 1; dst_addr = 32'h0020_0000; start = 1;
+      @(negedge clk); start = 0;
+      fork : watch
+        forever begin
+          @(posedge clk);
+          if (dut.rd_step == 2'd2 && dut.rx_on && dut.rx_full && dut.ws_ready) hit = 1;
+        end
+      join_none
+      for (int off = 0; off < 64 && !hit; off++) begin
+        force m_awvalid = 1'b0;
+        wait_frame(cur_frame() + 40);
+        clks(off % 32);
+        release m_awvalid;
+        wait_frame(cur_frame() + 2);
+      end
+      disable watch;
+      if (!hit) fail("no RX load in the clock the engine took the previous word");
+      rst_n = 0; clks(3); rst_n = 1; mem.stall = 1; clks(5);
+    end
+    // (long run: +cov_long, coverage only)
+    if ($test$plusargs("cov_long")) begin
+      // a 65535-word TX + RX job run for 32800 frames (FRAMES and the word
+      // counts past 2^15), stopped by a reset; then one with both AXI channels
+      // held off for 32800 frames (TX_UNDERRUN and RX_OVERRUN past 2^15),
+      // stopped by a reset too. The checker compares every count each clock.
+      @(negedge clk); xfer_len = 16'hFFFF; tx_en = 1; rx_en = 1; src_addr = 32'h0040_0000; dst_addr = 32'h0010_0000; start = 1;
+      @(negedge clk); start = 0;
+      wait_frame(cur_frame() + 32800);
+      if (frames < 16'd32768) fail($sformatf("FRAMES %0d after 32800 frames", frames));
+      rst_n = 0; clks(3);
+      if (busy || frames != 0) fail("not idle in reset");
+      rst_n = 1; clks(5);
+      @(negedge clk); start = 1; force m_arvalid = 1'b0; force m_awvalid = 1'b0;
+      @(negedge clk); start = 0;
+      wait_frame(cur_frame() + 32810);
+      if (tx_underrun < 16'd32768 || rx_overrun < 16'd32768)
+        fail($sformatf("TX_UNDERRUN %0d RX_OVERRUN %0d after 32810 held frames", tx_underrun, rx_overrun));
+      rst_n = 0; clks(3);
+      release m_arvalid; release m_awvalid;
+      if (busy || tx_underrun != 0 || rx_overrun != 0) fail("not idle in reset");
+      rst_n = 1; tx_en = 0; rx_en = 0; xfer_len = 0; clks(5);
+    end
     $display("max AXI latency: R %0d W %0d cycles", lat_r_max, lat_w_max);
     finish("I2S_DMA");
   end
-  initial begin #200ms; fail("timeout"); $display("TEST FAILED: timeout"); $finish; end
+  initial begin #1s; fail("timeout"); $display("TEST FAILED: timeout"); $finish; end
 endmodule

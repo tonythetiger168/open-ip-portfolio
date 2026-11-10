@@ -225,6 +225,20 @@
     if (n_err != 16'(exp_err)) fail($sformatf("N_ERR %0d, expected %0d", n_err, exp_err));
     if (n_rmw == 0) fail("no read-modify-write was exercised");
     if (n_irq != exp_err) fail($sformatf("ERR_IRQ pulsed %0d times, expected %0d", n_irq, exp_err));
+    // counter MSBs: 32768 erroring single-beat reads and writes (AxSIZE 3: no
+    // host operation) take N_RD, N_WR and N_ERR past 2^15, and byte bursts
+    // (one strobe per halfword: a read-modify-write each) take N_RMW past
+    // 2^15; the reset below clears them all. A 256-beat AxSIZE 7 read sets
+    // every bit of the WRAP window mask.
+    // (long run: +cov_long, coverage only)
+    rd(32'h0000_0080, 255, 7, 1);
+    if ($test$plusargs("cov_long")) begin
+      for (int k = 0; k < 32768; k++) begin wr(32'h0000_0080, 0, 3, 1, 0); rd(32'h0000_0080, 0, 3, 1); end
+      while (n_rmw < 16'd32800) wr(32'h0000_0180 + 32'(16 * ($urandom % 4)), 15, 0, 1, 0);
+    end
+    repeat (5) @(negedge clk);
+    if (n_rd != 16'(exp_rd) || n_wr != 16'(exp_wr) || n_err != 16'(exp_err) || n_irq != exp_err)
+      fail($sformatf("after the counter run: N_RD %0d N_WR %0d N_ERR %0d IRQ %0d", n_rd, n_wr, n_err, n_irq));
     // reset in the middle of a read and of a write burst: idle, counters 0,
     // then a write and its read-back work
     for (int k = 0; k < 2; k++) begin
@@ -250,4 +264,4 @@
     else $display("TEST FAILED: %s (%0d errors)", `DDR_AXI_NAME, errors);
     $finish;
   end
-  initial begin #50ms; fail("timeout"); $display("TEST FAILED: timeout"); $finish; end
+  initial begin #300ms; fail("timeout"); $display("TEST FAILED: timeout"); $finish; end

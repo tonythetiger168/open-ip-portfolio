@@ -1,0 +1,11 @@
+# CI_Plus_Host core: constants of the AXI4 manager (soc_ss_axi_engine, closed
+# by its own run) and FSM points of registers that are not state machines.
+INCLUDE soc_ss_axi_manager
+# q_ret and q_after hold the state the sequencer returns to after a bus cycle
+# (q_ret) or after FR is seen (q_after); they are only ever loaded with the
+# states listed in the RTL, so the generated "visit every state" points of
+# the other states cannot be reached.
+FSM fsm_st__q_ret__Q_(BUS|CIS|GAP|TX_HC|TX_SL|RX_ST|RX_SR|RX_D|FLUSH)$ # q_ret is never loaded with this state
+FSM fsm_st__q_after__Q_(BUS|CIS|CIS_GOT|COR_END|RS0|FR|FR_CHK|GAP|TX_FR2|TX_CHK2|TX_SL|TX_SM|TX_D|TX_END|RX_ST|RX_CHK|RX_SR|RX_SL|RX_SM|RX_SR0|RX_GO|RX_D|RX_GOT|FLUSH)$ # q_after is only loaded with Q_TX_HC and Q_EWAIT
+# Q_RX_SR is an encoding of the state enum that no transition uses.
+FSM fsm_(st__qs__Q_RX_SR|arc__qs__Q_RX_SR__Q_IDLE)$ # unused enum value

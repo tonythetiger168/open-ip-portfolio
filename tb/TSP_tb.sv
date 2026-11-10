@@ -169,6 +169,99 @@ module TSP_tb;
       if (n_err != e0 + 2) fail("no ERR for a read error");
       mem.err_lo = '1; mem.err_hi = '1;
     end
+    // ---------------- corner cases ----------------
+    // a job of 0 packets ends at once
+    begin
+      int d0;
+      d0 = n_done; pkts = 0;
+      `PULSE(start)
+      while (n_done == d0) clks(1);
+      if (pkt_cnt != 0 && a_cnt != 0) fail("0-packet job");
+    end
+    // START while a key is being expanded: the read waits for the key
+    begin_job();
+    mk(13'h100, 2'b00, 2'b01, 0, 0, 0, 0, 8'h47); put(src_addr);
+    pkts = 1;
+    {key0, key1, key2, key3} = {$urandom, $urandom, $urandom, $urandom};
+    slot = 3; odd = 0;
+    @(negedge clk); key_load = 1; start = 1; @(negedge clk); key_load = 0; start = 0;
+    wait (!key_busy); clks(1);
+    kev[3] = kbytes(key0, key1, key2, key3); kev_ok[3] = 1;
+    while (busy) clks(1);
+    clks(2);
+    if (a_cnt != 1) fail("job started during a key expansion");
+    // (long runs: +cov_long, coverage only) the AXI read data forced to one
+    // header word, 65545 packets per job: a bad sync byte, an unmatched PID,
+    // slot 3 with its odd key never loaded (NOKEY) routed to a full buffer A
+    // (OVF), slot 3 with its even key and no route, adaptation field only
+    // (DESC): every counter saturates. Then 44700 clear packets written to A
+    // and B at the top of the address space (A_CNT / B_CNT past 2^15, their
+    // offsets past 2^23), read from there too.
+    if ($test$plusargs("cov_long")) begin
+      logic [31:0] hw [5];
+      logic [1:0]  rt [5];
+      hw = '{32'h1000_0146, 32'h10FF_1F47, 32'hD000_0447, 32'hA000_0447, 32'h1000_0147};
+      rt = '{2'b00, 2'b00, 2'b01, 2'b00, 2'b11};
+      mem.stall = 0;
+      for (int r = 0; r < 5; r++) begin
+        int d0;
+        load_slot(3, 13'h0400, 1, rt[r]);
+        if (r == 4) begin load_slot(0, 13'h100, 1, 2'b11); outa_max = '1; outb_max = '1; end
+        else begin outa_max = 0; outb_max = 0; end
+        src_addr = 32'hFF00_0000; outa_addr = 32'hFE00_0000; outb_addr = 32'hFD00_0000;
+        force m_rdata = hw[r];
+        pkts = (r == 4) ? 16'd44700 : 16'hFFFF;
+        for (int j = 0; j < ((r == 4) ? 1 : 2); j++) begin
+          d0 = n_done;
+          `PULSE(start)
+          while (n_done == d0) clks(1);
+          pkts = 10;
+        end
+        release m_rdata;
+      end
+      if (sync_cnt != 16'hFFFF || drop_cnt != 16'hFFFF || nokey_cnt != 16'hFFFF || desc_cnt < 16'd65535
+          || ovf_cnt != 16'hFFFF || pkt_cnt != 16'hFFFF || a_cnt != 16'd44700 || b_cnt != 16'd44700)
+        fail($sformatf("counter runs: sync %0d drop %0d nokey %0d desc %0d ovf %0d pkt %0d A %0d B %0d",
+                       sync_cnt, drop_cnt, nokey_cnt, desc_cnt, ovf_cnt, pkt_cnt, a_cnt, b_cnt));
+      src_addr = 32'h0000_0000; outa_addr = 32'h0001_0000; outb_addr = 32'h0002_0000; outa_max = 64; outb_max = 64;
+      mem.stall = 1;
+      load_slot(0, 13'h100, 1, 2'b01); load_slot(3, 13'h0000, 0, 2'b00);
+    end
+    // sync bytes, an adaptation field of 255 bytes, PCRs of several values
+    begin_job();
+    mk(13'h100, 2'b00, 2'b01, 0, 0, 0, 0, 8'hB8); put(src_addr);
+    mk(13'h100, 2'b10, 2'b11, 255, 0, 0, 0, 8'h47); put(src_addr);
+    for (int i = 0; i < 6; i++) begin
+      mk(13'h100, 2'b00, 2'b11, 7 + i, 1, {$urandom, 1'($urandom)}, 9'($urandom), 8'h47); put(src_addr);
+    end
+    run_job("sync bytes, AF 255, PCRs", 1);
+    // every slot and key: PIDs, valid and route bits both ways, even and odd
+    // keys of random values loaded (and reloaded) into all four slots
+    for (int s = 0; s < 4; s++) begin load_slot(s, 13'h1FFF, 1, 2'b11); load_slot(s, 13'h0000, 0, 2'b00); end
+    for (int k = 0; k < 3; k++)
+      for (int s = 0; s < 4; s++) begin
+        load_key(s, 0, {$urandom, $urandom, $urandom, $urandom});
+        load_key(s, 1, {$urandom, $urandom, $urandom, $urandom});
+      end
+    load_key(1, 0, 128'h0); load_key(1, 1, '1);
+    load_slot(0, 13'h100, 1, 2'b01); load_slot(1, 13'h200, 1, 2'b10); load_slot(2, 13'h300, 1, 2'b11);
+    begin_job();
+    for (int i = 0; i < 12; i++) begin
+      logic [12:0] p;
+      p = (i % 3 == 0) ? 13'h100 : (i % 3 == 1) ? 13'h200 : 13'h300;
+      mk(p, {1'b1, 1'(i / 3)}, 2'b01, 0, 0, 0, 0, 8'h47); put(src_addr);
+    end
+    run_job("every key", 1);
+    // every configuration pin both ways while idle
+    begin
+      logic [31:0] k_src, k_oa, k_ob;
+      k_src = src_addr; k_oa = outa_addr; k_ob = outb_addr;
+      pcr_en = '1; pcr_pid = '1; src_addr = '1; outa_addr = '1; outb_addr = '1; outa_max = '1; outb_max = '1; pkts = '1;
+      keep_tsc = 1; clks(3);
+      pcr_en = '0; pcr_pid = '0; src_addr = '0; outa_addr = '0; outb_addr = '0; outa_max = '0; outb_max = '0; pkts = '0;
+      keep_tsc = 0; clks(3);
+      src_addr = k_src; outa_addr = k_oa; outb_addr = k_ob; outa_max = 64; outb_max = 64;
+    end
     // reset during a job
     begin_job();
     for (int i = 0; i < 4; i++) begin mk(13'h100, 2'b10, 2'b01, 0, 0, 0, 0, 8'h47); put(src_addr); end
@@ -185,7 +278,7 @@ module TSP_tb;
     finish("TSP");
   end
   initial begin
-    #20ms;
+    #2s;
     $display("TEST FAILED: TSP (timeout)");
     $finish;
   end

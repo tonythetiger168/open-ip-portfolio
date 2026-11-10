@@ -72,6 +72,10 @@ verilator --cc --exe --build --timing --assert \
   -o "${TB}_cov" --Mdir "$BUILD/obj" > "$BUILD/build.log" 2>&1 \
   || { echo "BUILD_FAIL $P (see $BUILD/build.log)"; grep -m5 '%Error' "$BUILD/build.log"; exit 1; }
 
-( cd "$BUILD/obj" && rm -f coverage.dat && "./${TB}_cov" +verilator+seed+$SEED ) > "$BUILD/run.log" 2>&1 || true
+# +cov_long turns on the long runs of a testbench (counters driven past 2^15
+# and to saturation, ...) that only coverage needs; the iverilog regression
+# and the mutation flow (COV_QUICK=1) leave them out.
+LONG="+cov_long"; [ "${COV_QUICK:-0}" = 1 ] && LONG=""
+( cd "$BUILD/obj" && rm -f coverage.dat && "./${TB}_cov" +verilator+seed+$SEED $LONG ) > "$BUILD/run.log" 2>&1 || true
 [ -f "$BUILD/obj/coverage.dat" ] || { echo "NO_COVERAGE_DAT $P"; tail -5 "$BUILD/run.log"; exit 1; }
 python3 scripts/cov/score.py "$BUILD/obj/coverage.dat" "$BUILD/run.log" "$P" $SCORED --json "$BUILD/score.json"

@@ -310,7 +310,7 @@ module Smartcard_7816_top #(
   typedef enum logic [2:0] {T_IDLE, T_LOAD, T_CHAR, T_FLUSH, T_END} tst_t;
   tst_t        ts;
   logic [15:0] t_left, tc;
-  logic [7:0]  tb;                                 // ETU index in the character frame
+  logic [8:0]  tb;                                 // ETU index in the character frame (9 bits: a frame is up to 12 + 255 + 2 ETU)
   logic [1:0]  bi;                                 // byte of the word
   logic [2:0]  tries;
   logic [31:0] tw;
@@ -322,14 +322,14 @@ module Smartcard_7816_top #(
   // line level of frame bit k (0 start, 1..8 data, 9 parity)
   logic        t_lvl;
   always_comb begin
-    if (tb == 8'd0) t_lvl = 1'b0;
-    else if (tb <= 8'd8) t_lvl = inverse ? !tbyte[8 - tb[3:0]] : tbyte[tb[3:0] - 4'd1];
-    else if (tb == 8'd9) t_lvl = inverse ? !tpar : tpar;
+    if (tb == 9'd0) t_lvl = 1'b0;
+    else if (tb <= 9'd8) t_lvl = inverse ? !tbyte[8 - tb[3:0]] : tbyte[tb[3:0] - 4'd1];
+    else if (tb == 9'd9) t_lvl = inverse ? !tpar : tpar;
     else t_lvl = 1'b1;
   end
   assign t_idle = (ts == T_IDLE);
   assign tx_busy = !t_idle;
-  wire [15:0] t_words = (tx_len + 16'd3) >> 2;
+  wire [15:0] t_words = 16'((17'(tx_len) + 17'd3) >> 2);
   // ETU start to start: 12 + GUARD, 2 more before a repetition
   wire [8:0]  t_frame = 9'd12 + {1'b0, guard} + (t_nak ? 9'd2 : 9'd0);
   always_ff @(posedge clk or negedge rst_n) begin
@@ -352,10 +352,10 @@ module Smartcard_7816_top #(
         T_CHAR: if (!active) begin
           t_fail_q <= 1'b1; ts <= T_FLUSH;
         end else if (ce) begin
-          if (tb == 8'd11 && tc == quart && !t1 && !io) t_nak <= 1'b1;
+          if (tb == 9'd11 && tc == quart && !t1 && !io) t_nak <= 1'b1;
           if (tc + 16'd1 >= etu_n) begin
             tc <= '0;
-            if ({1'b0, tb} + 9'd1 >= t_frame) begin       // end of the frame
+            if (tb + 9'd1 >= t_frame) begin       // end of the frame
               tb <= '0;
               if (t_nak) begin
                 t_nak <= 1'b0;
@@ -369,7 +369,7 @@ module Smartcard_7816_top #(
                   if (bi == 2'd3) ts <= T_LOAD;
                 end
               end
-            end else tb <= tb + 8'd1;
+            end else tb <= tb + 9'd1;
           end else tc <= tc + 16'd1;
         end
         T_FLUSH: if (!te_busy || te_done) ts <= T_END;   // the rest of the words drained
@@ -381,11 +381,11 @@ module Smartcard_7816_top #(
   end
   // a word is consumed when its last byte is sent (or while flushing)
   assign t_rs_ready = (ts == T_FLUSH) ||
-                      (ts == T_CHAR && ce && tc + 16'd1 >= etu_n && {1'b0, tb} + 9'd1 >= t_frame && !t_nak
+                      (ts == T_CHAR && ce && tc + 16'd1 >= etu_n && tb + 9'd1 >= t_frame && !t_nak
                        && (bi == 2'd3 || t_left == 16'd1));
   assign tx_fail = t_fail_q;
-  wire t_retx = ts == T_CHAR && ce && tc + 16'd1 >= etu_n && {1'b0, tb} + 9'd1 >= t_frame && t_nak && tries != 3'd4;
-  wire t_failp = ts == T_CHAR && active && ce && tc + 16'd1 >= etu_n && {1'b0, tb} + 9'd1 >= t_frame && t_nak && tries == 3'd4;
+  wire t_retx = ts == T_CHAR && ce && tc + 16'd1 >= etu_n && tb + 9'd1 >= t_frame && t_nak && tries != 3'd4;
+  wire t_failp = ts == T_CHAR && active && ce && tc + 16'd1 >= etu_n && tb + 9'd1 >= t_frame && t_nak && tries == 3'd4;
 
   assign sc_io_oe_low = (ts == T_CHAR && active && !t_lvl) || r_sig;
 

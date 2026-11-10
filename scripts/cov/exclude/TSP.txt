@@ -1,0 +1,12 @@
+# TSP core: constants of the AXI4 manager (soc_ss_axi_engine, closed by its
+# own run), constant address bits, unreachable defaults, and the high bits of
+# the free-running clock counter.
+INCLUDE soc_ss_axi_manager
+LINE tsp_aes128_dec\.sv:(59|96|198):case: # unreachable: the S-box / inverse S-box case lists all 256 byte values
+TOGGLE TSP_top\.(e_addr|pkt_off|a_off|b_off)\[[01]\] # constant 0: packets are 188 bytes (47 words), so every offset and address is word aligned
+TOGGLE TSP_top\.(pkt_off|a_off|b_off)\[(2[4-9]|3[01])\] # constant 0: 188 * 65535 < 2^24
+TOGGLE TSP_top\.nblk\[[4-7]\] # constant 0: at most 11 blocks of 16 bytes in a 188-byte packet
+# CLK_CNT is a 32-bit free-running clock counter; PCR_LOCAL (and RD_TIME)
+# hold its value when a packet is read. The bench runs under 2^25 clocks;
+# a_pcr_local checks PCR_LOCAL against the model's clock count.
+TOGGLE TSP_top\.(clk_cnt|rd_time|pcr_local)\[(2[5-9]|3[01])\] # free-running clock counter: needs more than 2^25 clocks

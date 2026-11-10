@@ -1,0 +1,19 @@
+# Smartcard_7816 core: constants of the AXI4 manager ports (two
+# soc_ss_axi_engine instances, closed by their own run), the 9-bit ring word,
+# the engines' unused outputs, and the FIFO's tied clear.
+INCLUDE soc_ss_axi_manager
+# A ring word is {23'b0, parity_err, data[7:0]}: bits 31:9 of the FIFO and
+# of the AXI write data are always 0 (a_ring_word checks every word).
+TOGGLE Smartcard_7816_top\.(m_wdata|f_rdata)\[(9|1[0-9]|2[0-9]|3[01])\] # constant 0: a ring word has 9 bits
+TOGGLE tv_fifo\.(wdata|rdata|mem\[\d\])\[(9|1[0-9]|2[0-9]|3[01])\] # constant 0: a ring word has 9 bits
+TOGGLE tv_fifo\.clr # tied 1'b0 in this instance
+LINE tv_fifo\.sv:33:if: # clr is tied 1'b0 in this instance
+# The RX engine only writes and the TX engine only reads: the RX engine's
+# read stream and both engines' CYCLES outputs are left unconnected.
+TOGGLE Smartcard_7816_top\.r_rs_(valid|data) # write-only engine: its read stream never moves
+TOGGLE Smartcard_7816_top\.re_cycles\[([5-9]|[12][0-9]|3[01])\] # unused output: an RX job is one word, a few clocks
+TOGGLE Smartcard_7816_top\.te_cycles\[(2[1-9]|3[01])\] # unused output: needs a TX job longer than 2^21 clocks
+# HALF = ETU >> 1 and QUART = ETU >> 2 of a 16-bit ETU.
+TOGGLE Smartcard_7816_top\.half\[15\] # constant 0: ETU >> 1
+TOGGLE Smartcard_7816_top\.quart\[1[45]\] # constant 0: ETU >> 2
+TOGGLE Smartcard_7816_top\.t_words\[15\] # constant 0: (TX_LEN + 3) / 4 <= 16384

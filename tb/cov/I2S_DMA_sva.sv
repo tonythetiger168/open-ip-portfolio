@@ -88,7 +88,8 @@ module I2S_DMA_sva (
   `FC(start_ignored_no_mode, start && !busy && !tx_en && !rx_en)
   `FC(rx_frame_skipped_at_start, r_on && !r_armed && to_left)
   `FC(tx_right_after_last_word, !t_on && t_have && to_left)
-  `FC(tx_and_rx_same_frame, t_take && r_load)
+  // (a TX take and an RX load never fall on the same clock: the take is at
+  // the mid-frame LRCK change, the load one BCLK rise after the frame start)
 endmodule
 
 bind I2S_DMA_top I2S_DMA_sva u_sva (.*);
