@@ -141,18 +141,20 @@ module TSP_sva (
           end
           if (!h_hit) c_drop <= sat(c_drop);
           else begin
-            logic [15:0] a, b;
+            logic [15:0] a, b, o;
+            int          no;                       // overflows of this packet: A and B can both overflow
             if (h_nokey) begin c_nokey <= sat(c_nokey); n_nokey_e <= n_nokey_e + 1; end
             if (h_desc) c_desc <= sat(c_desc);
-            a = j_a; b = j_b;
+            a = j_a; b = j_b; o = c_ovf; no = 0;
             if (t_rt[h_slot][0]) begin
               if (a < outa_max) begin queue_write(outa_addr + 32'(a) * 188); j_a <= a + 1; end
-              else begin c_ovf <= sat(c_ovf); n_ovf_e <= n_ovf_e + 1; end
+              else begin o = sat(o); no++; end
             end
             if (t_rt[h_slot][1]) begin
               if (b < outb_max) begin queue_write(outb_addr + 32'(b) * 188); j_b <= b + 1; end
-              else begin c_ovf <= sat(c_ovf); n_ovf_e <= n_ovf_e + 1; end
+              else begin o = sat(o); no++; end
             end
+            c_ovf <= o; n_ovf_e <= n_ovf_e + no;
           end
         end
         j_pi <= j_pi + 1;
