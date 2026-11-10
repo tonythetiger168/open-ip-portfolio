@@ -34,6 +34,8 @@ RTL="rtl/${S}_top.sv $DEPS"
 COVLIB=$(grep -E '^COVLIB\s*:?=' "Makefile.$BASE" | head -1 | sed 's/.*= *//')
 SCORED="rtl/${S}_top.sv"
 for f in $DEPS; do case " $COVLIB " in *" $f "*) ;; *) SCORED="$SCORED $f" ;; esac; done
+# TBDEPS: testbench-only files (behavioural PHYs, device models): compiled, not scored
+TBDEPS=$(grep -E '^TBDEPS\s*:?=' "Makefile.$BASE" | head -1 | sed 's/.*= *//')
 [ -f "tb/$TB.sv" ] || { echo "NO_TB $P"; exit 2; }
 if [ "$BASE" != "$P" ]; then
   # APB wrapper: the core is compiled but only the wrapper is scored, and only
@@ -55,7 +57,7 @@ verilator --cc --exe --build --timing --assert \
   --coverage-line --coverage-toggle --coverage-user \
   -j 4 -Wno-fatal -Wno-lint -Wno-style -Wno-UNOPTFLAT -Wno-COVERIGN \
   +incdir+tb/cov +incdir+tb --top-module "$TB" --prefix Vtop ${XFLAGS} ${VFLAGS:-} \
-  $RTL "tb/$TB.sv" $COV "$BUILD/sim_main.cpp" \
+  $RTL $TBDEPS "tb/$TB.sv" $COV "$BUILD/sim_main.cpp" \
   -o "${TB}_cov" --Mdir "$BUILD/obj" > "$BUILD/build.log" 2>&1 \
   || { echo "BUILD_FAIL $P (see $BUILD/build.log)"; grep -m5 '%Error' "$BUILD/build.log"; exit 1; }
 

@@ -9,14 +9,15 @@
 //  - AXI4: 32-bit data, IDW-bit ID, INCR / FIXED / WRAP, 1..256 beats,
 //    AxSIZE 0..2. One write burst and one read burst in service at a time
 //    (AW and AR independent). SLVERR for AxSIZE > 2 (no DRAM access) and for
-//    a WLAST on the wrong beat.
+//    a WLAST on the wrong beat (the burst sends nothing more: its buffered
+//    block is dropped; blocks it already sent stay written).
 //  - Beats are gathered into DRAM bursts (BL8 x 16*NDEV bits = BB bytes):
 //    a write burst is issued when the next beat leaves the BB-byte block or
 //    after the last beat; WSTRB becomes DM_n (no read-modify-write). Reads
 //    issue one DRAM burst per BB-byte block and keep up to 4 in flight.
 //  - The host port takes a read or a write burst per grant; a request keeps
-//    the grant until the controller accepts it, then the other side gets
-//    the next turn.
+//    the grant until the controller accepts it (or a write error withdraws
+//    it), then the other side gets the next turn.
 // ============================================================================
 module DDR4_JEDEC_AXI_top #(
   parameter int NDEV     = 1,
@@ -112,7 +113,9 @@ module DDR4_JEDEC_AXI_top #(
 );
   localparam int OFF = $clog2(BB);
   localparam int NW  = BB / 4;                // 32-bit words per DRAM burst
-  localparam int WB  = (NW > 1) ? $clog2(NW) : 1;
+  localparam int WB  = $clog2(NW);           // NW >= 4 (BB >= 16)
+  localparam int RAW = OFF + COLB - 3 + BGB + BAB + ROWB;   // DRAM byte address bits; above them the
+                                                            // 4 GB AXI space aliases the device
 
   function automatic logic [31:0] next_addr(input logic [31:0] a, input logic [2:0] sz,
                                             input logic [7:0] len, input logic [1:0] bt);
@@ -129,7 +132,7 @@ module DDR4_JEDEC_AXI_top #(
     endcase
   endfunction
   function automatic logic [WB-1:0] word_of(input logic [31:0] a);
-    word_of = (NW > 1) ? WB'(a[OFF-1:2]) : '0;
+    word_of = a[OFF-1:2];
   endfunction
 
   // ======================= write side =======================
@@ -149,7 +152,8 @@ module DDR4_JEDEC_AXI_top #(
   wire  w_other = c_valid && (w_addr[31:OFF] != c_addr[31:OFF]);
   // a beat can be merged unless the chunk holds another block or is flushing
   assign s_wready = w_busy && !w_done && !w_other && !(wq && c_valid);
-  assign wq       = c_valid && (w_other || w_done);
+  // an erroring burst sends nothing more: its buffered block is dropped
+  assign wq       = c_valid && !w_err && (w_other || w_done);
   wire  w_beat    = s_wvalid && s_wready;
   assign s_awready = !w_busy && !w_resp;
   assign s_bvalid  = w_resp;
@@ -193,12 +197,15 @@ module DDR4_JEDEC_AXI_top #(
 
   // ======================= host port arbitration =======================
   logic        u_valid, u_ready, u_write;
-  logic [31:0] u_addr;
+  logic [RAW-OFF-1:0] u_addr;               // DRAM burst number
   logic        lock_q, lock_w, prio_w;
-  wire         sel_w = lock_q ? lock_w : (wq && (!rq || prio_w));
+  // the grant stays with the side that asked until the controller takes the
+  // request, unless that side withdrew it (a write burst that errored)
+  wire         lock_on = lock_q && (lock_w && wq || !lock_w && rq);
+  wire         sel_w = lock_on && lock_w || !lock_on && wq && (!rq || prio_w);
   assign u_valid = wq || rq;
   assign u_write = sel_w;
-  assign u_addr  = sel_w ? {c_addr[31:OFF], {OFF{1'b0}}} : {ri_addr[31:OFF], {OFF{1'b0}}};
+  assign u_addr  = sel_w ? c_addr[RAW-1:OFF] : ri_addr[RAW-1:OFF];
   wire   u_acc   = u_valid && u_ready;
   wire   w_acc   = u_acc && sel_w;
   wire   r_acc   = u_acc && !sel_w;
@@ -207,7 +214,7 @@ module DDR4_JEDEC_AXI_top #(
   logic [BB*8-1:0] u_rdata;
 
   ddr4_jedec_ctrl #(
-    .NDEV(NDEV), .ROWB(ROWB), .COLB(COLB), .BGB(BGB), .BAB(BAB), .AW(32),
+    .NDEV(NDEV), .ROWB(ROWB), .COLB(COLB), .BGB(BGB), .BAB(BAB),
     .CL(CL), .CWL(CWL), .T_RCD(T_RCD), .T_RP(T_RP), .T_RAS(T_RAS), .T_RC(T_RC),
     .T_RRD_S(T_RRD_S), .T_RRD_L(T_RRD_L), .T_FAW(T_FAW), .T_CCD_S(T_CCD_S), .T_CCD_L(T_CCD_L),
     .T_WTR_S(T_WTR_S), .T_WTR_L(T_WTR_L), .T_WR(T_WR), .T_RTP(T_RTP), .T_RFC(T_RFC),
