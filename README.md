@@ -130,7 +130,7 @@ setup_tools.sh           installs yosys and iverilog 13.0 if missing
 | ONFI | `make -f Makefile.ONFI sim` | [open_ip_ONFI.zip](releases/open_ip_ONFI.zip) |
 | Toggle Mode NAND | `make -f Makefile.Toggle_Mode_NAND sim` | [open_ip_Toggle_Mode_NAND.zip](releases/open_ip_Toggle_Mode_NAND.zip) |
 
-### Storage & storage hosts (9)
+### Storage & storage hosts (10)
 
 | Protocol | Build | Standalone package |
 |---|---|---|
@@ -138,6 +138,7 @@ setup_tools.sh           installs yosys and iverilog 13.0 if missing
 | NVMe | `make -f Makefile.NVMe sim` | [open_ip_NVMe.zip](releases/open_ip_NVMe.zip) |
 | SAS | `make -f Makefile.SAS sim` | [open_ip_SAS.zip](releases/open_ip_SAS.zip) |
 | SAS-4 (Serial Attached SCSI) | `make -f Makefile.SAS_4__Serial_Attached_SCSI_ sim` | [open_ip_SAS_4__Serial_Attached_SCSI_.zip](releases/open_ip_SAS_4__Serial_Attached_SCSI_.zip) |
+| SCM dual-mode SSD (NVMe 2.1 multi-queue + FDP, CXL.mem byte port) | `make -f Makefile.SCM_SSD sim` | [open_ip_SCM_SSD.zip](releases/open_ip_SCM_SSD.zip) |
 | SATA | `make -f Makefile.SATA sim` | [open_ip_SATA.zip](releases/open_ip_SATA.zip) |
 | SD | `make -f Makefile.SD sim` | [open_ip_SD.zip](releases/open_ip_SD.zip) |
 | SDIO | `make -f Makefile.SDIO sim` | [open_ip_SDIO.zip](releases/open_ip_SDIO.zip) |
