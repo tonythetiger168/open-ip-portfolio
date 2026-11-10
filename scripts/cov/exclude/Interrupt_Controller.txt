@@ -1,0 +1,9 @@
+INCLUDE soc_ss_axi_manager
+INCLUDE soc_ss_write_only
+# CLAIM is {valid, 26'd0, id[4:0]}: bits 30:5 are constant 0 by definition.
+TOGGLE Interrupt_Controller_top\.claim\[([5-9]|[12][0-9]|30)\] # constant 0: CLAIM = {valid, 26'd0, id}
+# A log record is {timestamp[23:0], 3'b000, id[4:0]}: bits 7:5 are constant 0.
+TOGGLE Interrupt_Controller_top\.(ws_data|m_wdata)\[[5-7]\] # constant 0: the reserved field of a log record
+# The engine's CYCLES output is not used (lint sink): each record is a
+# single-beat job of a few clocks, so its upper bits never move.
+TOGGLE Interrupt_Controller_top\.e_cycles\[([5-9]|[12][0-9]|3[01])\] # unused engine output: a one-word record job lasts a few clocks
