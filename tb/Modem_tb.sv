@@ -20,6 +20,8 @@ module Modem_tb;
   logic        crc_sel = 0, bypass = 0;
   wire  [31:0] crc;
   logic [31:0] exp_crc;
+  int force_byp = -1;   // >= 0: BYPASS of the next jobs
+  int short_lens[5] = '{0, 1, 7, 16, 40};
   Modem_top dut (.*);
 
   int n_done = 0, n_err_irq = 0;
@@ -58,7 +60,13 @@ module Modem_tb;
     for (int i = 0; i < n; i++) mem.poke(d + 32'(4 * i), 32'hBAD0_0000 ^ i);
     @(negedge clk);
     src_addr = s | 32'($urandom % 4); dst_addr = d | 32'($urandom % 4); xfer_len = 16'(n);   // address bits 1:0 are ignored
-    seed = ($urandom % 8 == 0) ? 32'd0 : 32'($urandom); crc_sel = $urandom; bypass = ($urandom % 6 == 0);
+    case ($urandom % 8)
+      0: seed = 32'd0;           // replaced by 1
+      1: seed = 32'd1;
+      2: seed = 32'hFFFF_FFFF;
+      default: seed = 32'($urandom);
+    endcase
+    crc_sel = $urandom; bypass = force_byp >= 0 ? force_byp[0] : ($urandom % 6 == 0);
     rd = 1; wr = 1;
     if (inject == 1 && !rd) inject = 2;
     if (inject == 2 && !wr) inject = 1;
@@ -109,6 +117,12 @@ module Modem_tb;
     run(1, 0, 0);
     run(16, 0, 0);
     run(17, 0, 1);
+    // scrambled and bypassed jobs at the short lengths
+    for (int b = 0; b < 2; b++) begin
+      force_byp = b;
+      foreach (short_lens[i]) run(short_lens[i], 0, 0);
+    end
+    force_byp = -1;
     for (int k = 0; k < 40; k++) begin
       mem.stall = (k % 4) != 3;
       run(1 + $urandom % 80, 0, k % 7 == 0);

@@ -1,0 +1,2 @@
+INCLUDE soc_ss_axi_manager
+INCLUDE soc_ss_read_only

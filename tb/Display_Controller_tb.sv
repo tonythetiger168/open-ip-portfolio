@@ -36,6 +36,10 @@ module Display_Controller_tb;
     if (rst_n && busy && pix_ready && !pix_valid && got.size() < xfer_len) exp_under++;
     #1 pix_ready = ($urandom % 100) < ready_pct;
   end
+  bit starve = 0;      // 1: the panel is always ready
+  int lw_force = -1;   // >= 0: LINE_WORDS of the next frames
+  int short_lens[5] = '{0, 1, 7, 16, 40};
+  int lw_cls[4] = '{0, 1, 5, 20};
   Display_Controller_top dut (.*);
 
   int n_done = 0, n_err_irq = 0;
@@ -67,7 +71,14 @@ module Display_Controller_tb;
     for (int i = 0; i < n; i++) mem.poke(d + 32'(4 * i), 32'hBAD0_0000 ^ i);
     @(negedge clk);
     src_addr = s | 32'($urandom % 4); dst_addr = d | 32'($urandom % 4); xfer_len = 16'(n);   // address bits 1:0 are ignored
-    line_words = 16'($urandom % 20); ready_pct = ($urandom % 2) ? 100 : 30 + $urandom % 70;
+    case ($urandom % 4)
+      0: line_words = 16'd0;                  // one line: hsync on the last pixel only
+      1: line_words = 16'd1;
+      2: line_words = 16'(2 + $urandom % 14);
+      default: line_words = 16'(16 + $urandom % 40);
+    endcase
+    if (lw_force >= 0) line_words = 16'(lw_force);
+    ready_pct = (starve || $urandom % 2) ? 100 : 30 + $urandom % 70;
     got.delete(); exp_under = 0;
     rd = 1; wr = 0;
     if (inject == 1 && !rd) inject = 2;
@@ -109,7 +120,7 @@ module Display_Controller_tb;
     if (got.size() != n) fail($sformatf("%0d pixels sent, expected %0d", got.size(), n));
     else for (int i = 0; i < n; i++) if (got[i] !== expw[i]) begin fail($sformatf("pixel %0d: %h, expected %h", i, got[i], expw[i])); break; end
     if (frame_crc !== exp_crc) fail($sformatf("FRAME_CRC %h, expected %h", frame_crc, exp_crc));
-    if (underruns !== 16'(exp_under)) fail($sformatf("UNDERRUNS %0d, expected %0d", underruns, exp_under));
+    if (underruns !== 16'(exp_under > 65535 ? 65535 : exp_under)) fail($sformatf("UNDERRUNS %0d, expected %0d", underruns, exp_under));   // saturating count
     if (n == 2 && mem.peek(s) == 32'h3433_3231 && mem.peek(s + 4) == 32'h3837_3635 && frame_crc !== 32'h9AE0_DAAF)
       fail("CRC-32 check value");
   endtask
@@ -123,6 +134,12 @@ module Display_Controller_tb;
     run(1, 0, 0);
     run(16, 0, 0);
     run(17, 0, 1);
+    // every line length class at the short frame lengths
+    foreach (lw_cls[j]) begin
+      lw_force = lw_cls[j];
+      foreach (short_lens[i]) run(short_lens[i], 0, 0);
+    end
+    lw_force = -1;
     for (int k = 0; k < 40; k++) begin
       mem.stall = (k % 4) != 3;
       run(1 + $urandom % 80, 0, k % 7 == 0);
@@ -143,7 +160,15 @@ module Display_Controller_tb;
     // long jobs: the upper bits of the length and of the counters
     mem.stall = 0;
     run(1500, 0, 0);
+    lw_force = 65535;   // one line: the column count climbs to 65534
     run(65535, 0, 0);
+    lw_force = -1;
+    // the read path blocked for 70000 clocks with the panel ready: UNDERRUNS
+    // saturates at 16'hFFFF
+    fork begin clks(5); mem.ar_hold = 1; clks(70000); mem.ar_hold = 0; end join_none
+    starve = 1;
+    run(64, 0, 0);
+    starve = 0;
     mem.stall = 1;
     run(33, 0, 0);
     // reset in the middle of a job: the core and the bus go idle

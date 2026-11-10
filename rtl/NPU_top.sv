@@ -144,7 +144,7 @@ module NPU_top #(
       hist <= '0; saturations <= '0;
     end else if (rs_valid && rs_ready) begin
       hist <= rs_data[31:8];          // samples 1, 2, 3 of this word
-      saturations <= (saturations > 16'hFFFB) ? 16'hFFFF : saturations + 16'(nsat);
+      saturations <= (17'(saturations) + 17'(nsat) > 17'h0FFFF) ? 16'hFFFF : saturations + 16'(nsat);   // saturating add
     end
   end
   assign done    = e_done;
