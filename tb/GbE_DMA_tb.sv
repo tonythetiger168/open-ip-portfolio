@@ -291,7 +291,10 @@ module GbE_DMA_tb;
   // one round of 4 raw frames of n bytes (the 4 FIFO records), each into a
   // buffer of sz[k] bytes, collected one at a time
   task automatic rx_round(input int n, input bit bad_fcs, input int er_at, input logic [3:0] stat,
-                          input int sz [4], input logic [47:0] da);
+                          input int s0, input int s1, input int s2, input int s3,
+                          input logic [47:0] da);
+    int sz [4];
+    sz[0] = s0; sz[1] = s1; sz[2] = s2; sz[3] = s3;
     for (int k = 0; k < 4; k++) begin
       int f;
       post_rx(sz[k]);
@@ -494,11 +497,11 @@ module GbE_DMA_tb;
       @(negedge clk); tx_en = 1; rx_en = 1;
       tx_burst(4); tx_burst(4);                     // the 7-entry ring wraps
       cfg_pause_en = 1;
-      rx_round(601, 1, -1, 4'b0001, '{0, 0, 64, 0}, cfg_mac);
-      rx_round(1100, 0, 30, 4'b0100, '{0, 1600, 2048, 0}, cfg_mac);
-      rx_round(4095, 0, -1, 4'b0010, '{0, 64, 1600, 4096}, cfg_mac);
-      rx_round(4096, 0, -1, 4'b0010, '{4096, 0, 0, 0}, cfg_mac);
-      rx_round(64, 0, -1, 4'b1000, '{64, 64, 64, 64}, 48'h01_80_C2_00_00_01);
+      rx_round(601, 1, -1, 4'b0001, 0, 0, 64, 0, cfg_mac);
+      rx_round(1100, 0, 30, 4'b0100, 0, 1600, 2048, 0, cfg_mac);
+      rx_round(4095, 0, -1, 4'b0010, 0, 64, 1600, 4096, cfg_mac);
+      rx_round(4096, 0, -1, 4'b0010, 4096, 0, 0, 0, cfg_mac);
+      rx_round(64, 0, -1, 4'b1000, 64, 64, 64, 64, 48'h01_80_C2_00_00_01);
       cfg_pause_en = 0;
       tx_burst(3);
       tx_en = 0; rx_en = 0;
