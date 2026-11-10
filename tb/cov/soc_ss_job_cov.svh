@@ -10,8 +10,8 @@
 // Provides: go (a START that is taken), dcls() (data class: zero, all ones,
 // 0x55 / 0xAA, other), lcls() (length class), the assertions a_err_irq and
 // a_busy_after_start, covergroup cg_soc_ss_job and the cover properties
-// fc_back_to_back_jobs, fc_start_while_busy, fc_rs_stall, fc_ws_stall and
-// fc_reset_mid_job.
+// fc_back_to_back_jobs, fc_start_while_busy, fc_rs_stall, fc_ws_stall (not
+// for a read-only IP: `define SOC_SS_READ_ONLY) and fc_reset_mid_job.
   wire s_start = start;      // (start is also a covergroup method name)
   wire go = start && !busy;
   logic j_err_q;             // ERR of the job that just ended
@@ -42,5 +42,7 @@
   `FC(back_to_back_jobs, done ##[1:8] go)
   `FC(start_while_busy, start && busy)
   `FC(rs_stall, rs_valid && !rs_ready)
+`ifndef SOC_SS_READ_ONLY   // define it before the include for an IP that never writes
   `FC(ws_stall, ws_valid && !ws_ready)
+`endif
   `FC_RST(reset_mid_job, rst_n && busy ##1 !rst_n)
