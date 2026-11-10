@@ -131,14 +131,19 @@ module soc_ss_axi_mem #(parameter logic [31:0] RESET_WORD = 32'h0) (
     while (!bready) @(posedge clk);
     #1 bvalid = 0;
   endtask
+  logic wr_fin = 0, rd_fin = 0;               // burst ended (ends its reset waiter)
   initial begin
     awready = 0; wready = 0; bvalid = 0; bid = 0; bresp = 0;
     forever begin
       @(posedge clk);
       if (!rst_n || !awvalid || aw_hold) continue;
+      // the reset waiter also ends with the burst: a disabled process that
+      // still waits on an event lives on in Verilator until that event, so
+      // waiting on the reset edge alone piles one up per burst
+      wr_fin = 0;
       fork
-        wr_burst();
-        @(negedge rst_n);
+        begin wr_burst(); wr_fin = 1; end
+        wait (!rst_n || wr_fin);
       join_any
       disable fork;
       if (!rst_n) begin awready = 0; wready = 0; bvalid = 0; end
@@ -172,9 +177,10 @@ module soc_ss_axi_mem #(parameter logic [31:0] RESET_WORD = 32'h0) (
     forever begin
       @(posedge clk);
       if (!rst_n || !arvalid || ar_hold) continue;
+      rd_fin = 0;                               // (as on the write channel)
       fork
-        rd_burst();
-        @(negedge rst_n);
+        begin rd_burst(); rd_fin = 1; end
+        wait (!rst_n || rd_fin);
       join_any
       disable fork;
       if (!rst_n) begin arready = 0; rvalid = 0; rlast = 0; end
