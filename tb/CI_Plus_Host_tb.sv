@@ -238,11 +238,12 @@ module CI_Plus_Host_tb;
       for (int i = 0; i < 5; i++) if (mbyte(rx_addr, i) !== bl[i]) fail("second RX message");
       `PULSE(rx_arm)
     end
-    // longer than RX_MAX: the first 8 bytes stored, all of it read
-    rx_max = 8;
+    // longer than RX_MAX: the first 6 bytes stored (half a word at the
+    // end), all of it read
+    rx_max = 6;
     bl = new[21];
     foreach (bl[i]) bl[i] = 8'(i * 5 + 1);
-    do_rx(bl, 8, "RX over RX_MAX");
+    do_rx(bl, 6, "RX over RX_MAX");
     `PULSE(rx_arm)
     rx_max = 64;
     poll = 0;
