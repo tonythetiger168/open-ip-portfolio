@@ -169,8 +169,9 @@ def run_one(flow, P, rtl_rel, text, timeout):
         else:
             cmd = ["bash", os.path.join(tmp, "scripts", "cov", "run_cov.sh"), P]
         # own process group, so a hung simulator is killed with its make / shell
+        # COV_QUICK: no +cov_long runs (they only add coverage, not checks)
         pr = subprocess.Popen(cmd, cwd=tmp, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                              text=True, start_new_session=True)
+                              text=True, start_new_session=True, env=dict(os.environ, COV_QUICK="1"))
         try:
             out, _ = pr.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
