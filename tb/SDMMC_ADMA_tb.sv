@@ -499,5 +499,8 @@ module SDMMC_ADMA_tb;
              n_xfer, card.n_cmds, card.n_rd_blk, card.n_wr_blk);
     finish("SDMMC_ADMA");
   end
-  initial begin #400ms; fail("timeout"); $display("TEST FAILED: timeout"); $finish; end
+  initial begin                       // +cov_long runs two timeouts of 2^24 SD_CLK periods (about 0.34 s each)
+    if ($test$plusargs("cov_long")) #2s; else #400ms;
+    fail("timeout"); $display("TEST FAILED: timeout"); $finish;
+  end
 endmodule
