@@ -149,9 +149,10 @@ module QSPI_XIP_sva (
   `SVA_IMP(a_xip_rdata, s_rvalid, w_map.exists(a_q[23:2]) && s_rdata == w_map[a_q[23:2]] && s_rresp == 2'b00
                                   && s_rlast == (b_n == b_len))
   `SVA_IMP(a_half_period, sclk != sclk_q, m_hc >= div)
-  `SVA_INV(a_mode0, (csn != csn_q) -> !sclk && !sclk_q)
+  `SVA_INV(a_mode0, (csn != csn_q) -> !sclk)       // (CS rises with the last SCLK fall at the earliest)
   `SVA_INV(a_wp_hold_high, !in_quad -> io[3:2] == 2'b11)
-  `SVA_INV(a_counters, xip_cmds == m_cmds && xip_beats == m_beats)
+  // XIP_CMDS counts on the clock CSN falls (the model a clock later)
+  `SVA_INV(a_counters, $past(xip_cmds) == m_cmds && xip_beats == m_beats)
   `SVA_INV(a_pc_busy, pc_busy -> !(s_arready))
   `SVA_IMP(a_axi_write, s_bvalid, s_bresp == 2'b10)
 

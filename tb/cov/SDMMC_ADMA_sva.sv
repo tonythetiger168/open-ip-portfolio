@@ -70,6 +70,7 @@ module SDMMC_ADMA_sva (
   logic [3:0]   m_cerr;
   logic [127:0] m_rsp;
   logic         m_rsp_long, m_rsp_v;
+  logic         m_done;            // the model has decoded a response or timed out
   logic         chk_cmd;           // the host's command has just been decoded
   wire  [39:0]  c_body = {2'b01, c_idx, c_arg};
   logic [6:0]   c_body_crc;
@@ -81,9 +82,9 @@ module SDMMC_ADMA_sva (
     if (!rst_n) begin
       sclk_q <= 0; cmd_q <= 1; dat_q <= 8'hFF; cm <= 0; cn <= 0; c_exp <= 0; c_got <= 0; c_rt <= 0;
       c_cc <= 0; c_ic <= 0; c_long <= 0; c_ix <= 0; r_got <= 0; r_crc <= 0; m_cerr <= 0; m_rsp <= 0;
-      m_rsp_long <= 0; m_rsp_v <= 0; chk_cmd <= 0;
+      m_rsp_long <= 0; m_rsp_v <= 0; chk_cmd <= 0; m_done <= 0;
     end else begin
-      sclk_q <= sd_clk; cmd_q <= cmd; dat_q <= dat; chk_cmd <= 0;
+      sclk_q <= sd_clk; cmd_q <= cmd; dat_q <= dat; chk_cmd <= 0; m_done <= 0;
       if (c_go) begin
         cm <= 1; c_exp <= {c_body, c_body_crc, 1'b1}; c_rt <= c_rsp; c_cc <= c_crc_chk; c_ic <= c_idx_chk;
         c_ix <= c_idx; c_long <= c_rsp == 2; m_cerr <= 0; m_rsp_v <= 0;
@@ -97,7 +98,7 @@ module SDMMC_ADMA_sva (
           3: begin
             cn <= cn + 1;
             if (cn != 0 && !cb) begin cm <= 4; cn <= 1; r_got <= 0; r_crc <= c7(7'd0, 1'b0); end
-            else if (cn == 80) begin cm <= 0; m_cerr <= 4'b0001; end
+            else if (cn == 80) begin cm <= 0; m_cerr <= 4'b0001; m_done <= 1; end
           end
           4: begin
             logic [134:0] r;
@@ -112,7 +113,7 @@ module SDMMC_ADMA_sva (
               if (c_cc && r[7:1] != r_crc) e[1] = 1;
               if (c_ic && !c_long && r[45:40] != c_ix) e[2] = 1;
               if (!r[0] || (c_long ? r[134] : r[46])) e[3] = 1;
-              m_cerr <= e; m_rsp <= c_long ? r[127:0] : {96'd0, r[39:8]}; m_rsp_long <= c_long; m_rsp_v <= 1; cm <= 0;
+              m_cerr <= e; m_rsp <= c_long ? r[127:0] : {96'd0, r[39:8]}; m_rsp_long <= c_long; m_rsp_v <= 1; cm <= 0; m_done <= 1;
             end
           end
           default: ;
@@ -121,8 +122,8 @@ module SDMMC_ADMA_sva (
     end
   end
   `SVA_IMP(a_cmd_frame, chk_cmd, c_got == c_exp)
-  `SVA_IMP(a_cmd_errors, cmd_done, c_err[3:0] == m_cerr)
-  `SVA_IMP(a_rsp, cmd_done && m_rsp_v, m_rsp_long ? {rsp3, rsp2, rsp1, rsp0} == m_rsp : rsp0 == m_rsp[31:0])
+  `SVA_IMP(a_cmd_errors, m_done, c_err[3:0] == m_cerr)   // the model samples the lines one SD_CLK late: check when it ends
+  `SVA_IMP(a_rsp, m_done && m_rsp_v, m_rsp_long ? {rsp3, rsp2, rsp1, rsp0} == m_rsp : rsp0 == m_rsp[31:0])
 
   // ---------------------------------------------------------------- DAT
   logic [2:0]   dm;               // 0 idle, 1 hunt block, 2 data, 3 crc, 4 end bit, 5 token hunt, 6 token, 7 busy
@@ -156,7 +157,7 @@ module SDMMC_ADMA_sva (
       if (dgo) begin
         dm <= 1; w <= bus_w; rd <= c_data == 1; bwords <= int'(blksz[9:2]); q_mem.delete();
         m_rd_crc_err <= 0; m_rd_end_err <= 0;
-      end else if (xfer_done) dm <= 0;
+      end else if (xfer_done || dat_reset) dm <= 0;      // DAT_RESET aborts the block
       else if (sr) begin
         case (dm)
           1: if (!db[0]) begin

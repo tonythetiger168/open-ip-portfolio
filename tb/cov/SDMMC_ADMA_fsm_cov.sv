@@ -63,13 +63,12 @@ module SDMMC_ADMA_top__fsm_cov (
   fsm_arc__ds__D_WRDY__D_WDATA: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_ds == 4'd7 ##1 s_ds == 4'd8);
   fsm_arc__ds__D_WDATA__D_WCRC: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_ds == 4'd8 ##1 s_ds == 4'd9);
   fsm_arc__ds__D_WCRC__D_WEND: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_ds == 4'd9 ##1 s_ds == 4'd10);
-  // ---- FSM SDMMC_ADMA_top.as_q: 6 states, 11 arcs ----
+  // ---- FSM SDMMC_ADMA_top.as_q: 5 states, 11 arcs ----
   fsm_st__as_q__A_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q == 3'd0);
   fsm_st__as_q__A_FETCH: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q == 3'd1);
   fsm_st__as_q__A_FWAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q == 3'd2);
   fsm_st__as_q__A_DEC: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q == 3'd3);
-  fsm_st__as_q__A_XFER: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q == 3'd4);
-  fsm_st__as_q__A_XWAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q == 3'd5);
+  fsm_st__as_q__A_XWAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q == 3'd4);
   fsm_arc__as_q__ANY__A_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q != 3'd0 ##1 s_as_q == 3'd0);
   fsm_arc__as_q__ANY__A_FETCH: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q != 3'd1 ##1 s_as_q == 3'd1);
   fsm_arc__as_q__A_FETCH__A_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q == 3'd1 ##1 s_as_q == 3'd0);
@@ -78,9 +77,9 @@ module SDMMC_ADMA_top__fsm_cov (
   fsm_arc__as_q__A_FWAIT__A_DEC: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q == 3'd2 ##1 s_as_q == 3'd3);
   fsm_arc__as_q__A_DEC__A_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q == 3'd3 ##1 s_as_q == 3'd0);
   fsm_arc__as_q__A_DEC__A_FETCH: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q == 3'd3 ##1 s_as_q == 3'd1);
-  fsm_arc__as_q__A_DEC__A_XWAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q == 3'd3 ##1 s_as_q == 3'd5);
-  fsm_arc__as_q__A_XWAIT__A_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q == 3'd5 ##1 s_as_q == 3'd0);
-  fsm_arc__as_q__A_XWAIT__A_FETCH: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q == 3'd5 ##1 s_as_q == 3'd1);
+  fsm_arc__as_q__A_DEC__A_XWAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q == 3'd3 ##1 s_as_q == 3'd4);
+  fsm_arc__as_q__A_XWAIT__A_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q == 3'd4 ##1 s_as_q == 3'd0);
+  fsm_arc__as_q__A_XWAIT__A_FETCH: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_as_q == 3'd4 ##1 s_as_q == 3'd1);
 endmodule
 
 bind SDMMC_ADMA_top SDMMC_ADMA_top__fsm_cov u_fsm_cov (.c_clk(clk), .r_rst_n(rst_n), .s_cs(cs), .s_ds(ds), .s_as_q(as_q));
