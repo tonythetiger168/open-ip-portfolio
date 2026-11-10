@@ -1,0 +1,5 @@
+INCLUDE soc_ss_axi_manager
+# MISMATCHES saturates at 16'hFFFF, but a job is at most 65535 words, so it
+# can never be at 16'hFFFF when another bad word arrives: the else of the
+# guard is dead. fc_mismatch_saturated covers the climb to 16'hFFFF.
+LINE CPU_Cluster_top\.sv:.*:else:.*\| if \(mismatches != 16'hFFFF\) # at most 65535 mismatches per job: the saturation guard never holds it back

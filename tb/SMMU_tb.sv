@@ -168,7 +168,10 @@ module SMMU_tb;
       if ($urandom % 2 && pte[vp[k % 12]][1]) check_wr(vp[$urandom % 12] == vp[5] ? vp[6] : vp[k % 12], 1 + $urandom % 16);
       else check_rd(vp[$urandom % 12], 1 + $urandom % 16);
     end
-    // four pages fit the TLB: no new walks
+    // four pages fit the TLB: no new walks (emptied first: with round-robin
+    // refill, loading them into a TLB that already holds one of them can
+    // evict another)
+    inv();
     for (int i = 0; i < 4; i++) check_rd(vp[i], 2);
     w0 = n_walks;
     for (int k = 0; k < 12; k++) check_rd(vp[k % 4], 2);

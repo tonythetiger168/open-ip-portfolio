@@ -57,7 +57,7 @@ module Modem_tb;
     fill_rand(s, n);
     for (int i = 0; i < n; i++) mem.poke(d + 32'(4 * i), 32'hBAD0_0000 ^ i);
     @(negedge clk);
-    src_addr = s; dst_addr = d; xfer_len = 16'(n);
+    src_addr = s | 32'($urandom % 4); dst_addr = d | 32'($urandom % 4); xfer_len = 16'(n);   // address bits 1:0 are ignored
     seed = ($urandom % 8 == 0) ? 32'd0 : 32'($urandom); crc_sel = $urandom; bypass = ($urandom % 6 == 0);
     rd = 1; wr = 1;
     if (inject == 1 && !rd) inject = 2;
@@ -79,7 +79,7 @@ module Modem_tb;
       start = 0;
     end
     t = 0;
-    while (busy && t < 100000) begin @(negedge clk); t++; end
+    while (busy && t < 2000000) begin @(negedge clk); t++; end
     if (busy) fail($sformatf("job of %0d words timed out (rstate %0d wstate %0d)", n, dut.u_eng.rstate, dut.u_eng.wstate));
     clks(2);
     if (n_done != nd0 + 1) fail($sformatf("%0d DONE pulses for one job", n_done - nd0));
@@ -104,6 +104,7 @@ module Modem_tb;
     clks(3);
     rst_n = 1;
     clks(2);
+    mem.rand_id = 1;   // the core ignores BID / RID
     run(0, 0, 0);
     run(1, 0, 0);
     run(16, 0, 0);
@@ -113,11 +114,23 @@ module Modem_tb;
       run(1 + $urandom % 80, 0, k % 7 == 0);
     end
     mem.stall = 1;
+    // the write path blocked for a while: the write FIFO fills up and the
+    // datapath stalls the read stream
+    fork begin clks(30); mem.aw_hold = 1; clks(150); mem.aw_hold = 0; end join_none
     run(600, 0, 0);
     mem.stall = 0;
     run(300, 0, 0);
     mem.stall = 1;
-    for (int k = 0; k < 6; k++) run(5 + $urandom % 40, 1 + k % 2, 0);
+    for (int k = 0; k < 6; k++) begin   // read / write side x EXOKAY, SLVERR, DECERR
+      mem.err_resp = 2'(1 + k % 3);
+      run(5 + $urandom % 40, 1 + k % 2, 0);
+    end
+    mem.err_resp = 2'b10;
+    // long jobs: the upper bits of the length and of the counters
+    mem.stall = 0;
+    run(1500, 0, 0);
+    run(65535, 0, 0);
+    mem.stall = 1;
     run(33, 0, 0);
     // reset in the middle of a job: the core and the bus go idle
     @(negedge clk);

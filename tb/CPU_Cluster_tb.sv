@@ -22,6 +22,10 @@ module CPU_Cluster_tb;
   wire         mis_irq;
   int          exp_mis, exp_ff, n_mis_irq = 0;
   always @(posedge clk) if (rst_n) n_mis_irq += mis_irq;
+  int force_mode = -1;   // >= 0: the mode of the next jobs
+  int flip_pct = 12;     // CHECK: % of source words corrupted
+  int flip_at = -1;      // >= 0: CHECK: only this word corrupted
+  int short_lens[5] = '{0, 1, 7, 16, 40};
   CPU_Cluster_top dut (.*);
 
   int n_done = 0, n_err_irq = 0;
@@ -50,11 +54,12 @@ module CPU_Cluster_tb;
     fill_rand(s, n);
     for (int i = 0; i < n; i++) mem.poke(d + 32'(4 * i), 32'hBAD0_0000 ^ i);
     @(negedge clk);
-    src_addr = s; dst_addr = d; xfer_len = 16'(n);
-    mode = $urandom; seed = $urandom;
+    src_addr = s | 32'($urandom % 4); dst_addr = d | 32'($urandom % 4); xfer_len = 16'(n);   // address bits 1:0 are ignored
+    mode = force_mode >= 0 ? 2'(force_mode) : 2'($urandom); seed = rand_word();
     // CHECK: the source holds the pattern, with a few words corrupted
     if (mode == 1) for (int i = 0; i < n; i++)
-      mem.poke(s + 32'(4 * i), (seed ^ {~16'(i), 16'(i)}) ^ (($urandom % 8 == 0) ? 32'(1 << ($urandom % 32)) : 32'd0));
+      mem.poke(s + 32'(4 * i), (seed ^ {~16'(i), 16'(i)}) ^
+               ((flip_at >= 0 ? i == flip_at : ($urandom % 100) < flip_pct) ? 32'(1 << ($urandom % 32)) : 32'd0));
     rd = mode != 0; wr = mode != 1;
     if (inject == 1 && !rd) inject = 2;
     if (inject == 2 && !wr) inject = 1;
@@ -75,7 +80,7 @@ module CPU_Cluster_tb;
       start = 0;
     end
     t = 0;
-    while (busy && t < 100000) begin @(negedge clk); t++; end
+    while (busy && t < 2000000) begin @(negedge clk); t++; end
     if (busy) fail($sformatf("job of %0d words timed out (rstate %0d wstate %0d)", n, dut.u_eng.rstate, dut.u_eng.wstate));
     clks(2);
     if (n_done != nd0 + 1) fail($sformatf("%0d DONE pulses for one job", n_done - nd0));
@@ -101,20 +106,49 @@ module CPU_Cluster_tb;
     clks(3);
     rst_n = 1;
     clks(2);
+    mem.rand_id = 1;   // the core ignores BID / RID
     run(0, 0, 0);
     run(1, 0, 0);
     run(16, 0, 0);
     run(17, 0, 1);
+    // every mode at the short lengths
+    for (int m = 0; m < 4; m++) begin
+      force_mode = m;
+      foreach (short_lens[i]) run(short_lens[i], 0, 0);
+    end
+    force_mode = -1;
     for (int k = 0; k < 40; k++) begin
       mem.stall = (k % 4) != 3;
       run(1 + $urandom % 80, 0, k % 7 == 0);
     end
     mem.stall = 1;
+    // the write path blocked for a while: the write FIFO fills up and the
+    // datapath stalls the read stream
+    fork begin clks(30); mem.aw_hold = 1; clks(150); mem.aw_hold = 0; end join_none
+    force_mode = 2;
     run(600, 0, 0);
+    force_mode = -1;
     mem.stall = 0;
     run(300, 0, 0);
     mem.stall = 1;
-    for (int k = 0; k < 6; k++) run(5 + $urandom % 40, 1 + k % 2, 0);
+    for (int k = 0; k < 6; k++) begin   // read / write side x EXOKAY, SLVERR, DECERR
+      mem.err_resp = 2'(1 + k % 3);
+      run(5 + $urandom % 40, 1 + k % 2, 0);
+    end
+    mem.err_resp = 2'b10;
+    // long jobs: the upper bits of the length and of the counters
+    mem.stall = 0;
+    run(1500, 0, 0);
+    run(65535, 0, 0);
+    // CHECK of 65535 words: every word bad (MISMATCHES reaches 16'hFFFF),
+    // then only the last one (FIRST_FAIL = 65534)
+    force_mode = 1;
+    flip_pct = 100;
+    run(65535, 0, 0);
+    flip_at = 65534;
+    run(65535, 0, 0);
+    flip_at = -1; flip_pct = 12; force_mode = -1;
+    mem.stall = 1;
     run(33, 0, 0);
     // reset in the middle of a job: the core and the bus go idle
     @(negedge clk);
