@@ -2,6 +2,7 @@
 # I2S_DMA Open IP (I2S port with an AXI4 DMA, IP camera SoC) -- sim & synthesis entry points
 S      := I2S_DMA
 DEPS   := rtl/soc_ss_axi_engine.sv rtl/I2S_top.sv
+COVLIB := rtl/soc_ss_axi_engine.sv rtl/I2S_top.sv   # closed by their own coverage runs
 TBDEPS := tb/soc_ss_axi_mem.svh   # after the TB: it takes the TB's timescale
 SIM    ?= iverilog
 VFLAGS := -g2012 -Wall

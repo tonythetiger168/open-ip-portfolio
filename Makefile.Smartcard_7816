@@ -2,6 +2,7 @@
 # Smartcard_7816 Open IP (STB, AXI4 manager) -- sim & synthesis entry points
 S      := Smartcard_7816
 DEPS   := rtl/soc_ss_axi_engine.sv rtl/tv_fifo.sv
+COVLIB := rtl/soc_ss_axi_engine.sv   # closed by their own coverage runs
 SIM    ?= iverilog
 VFLAGS := -g2012 -Wall
 SYN    ?= yosys
