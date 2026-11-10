@@ -98,12 +98,14 @@ module CI_Plus_Host_sva (
       end
       if (s_rise) begin in_strb <= 0; after_strb <= 1; c_hold <= 1; end
       else if (after_strb && !ci_ce_n) c_hold <= c_hold + 1;
-      if (!ready) begin in_strb <= 0; after_strb <= 0; end
+      if (!ready) begin in_strb <= 0; after_strb <= 0; w_left <= 0; wbq.delete(); end   // power lost: the job is flushed
       // a cycle ends: the byte moved
       if (s_rise && ready) begin
         case (c_kind)
           4'b0001: begin                           // attribute read: CIS
-            if (c_a == 0) begin w_left <= cis_len; wbq.delete(); end
+            // a CIS starts at address 0 (the address wraps every 16384
+            // bytes of a longer CIS: no restart while bytes are due)
+            if (c_a == 0 && w_left == 0) begin w_left <= cis_len; wbq.delete(); end
             wbq.push_back(rd_byte);
           end
           4'b0100: begin                           // I/O read
@@ -136,7 +138,7 @@ module CI_Plus_Host_sva (
       end
       if (m_rvalid && m_rready) for (int i = 0; i < 4; i++) tq.push_back(m_rdata[8 * i +: 8]);
       if ((m_rvalid && m_rready && m_rresp != 0) || (m_bvalid && m_bready && m_bresp != 0)) j_err <= 1;
-      if (cfg || tx_done || rx) begin j_err <= 0; end
+      if (cfg || tx_done || rx || (power_on && !powered)) j_err <= 0;   // (an aborted job ends without a pulse)
       if (tx_done) begin tq.delete(); tx_dw <= 0; if (!tx_fail) m_tx <= sat(m_tx); end
       if (rx) m_rx <= sat(m_rx);
       if (bus_to) m_to <= sat(m_to);
@@ -148,7 +150,7 @@ module CI_Plus_Host_sva (
                                  && !ci_d_oe && !busy && !io_mode && tx_cnt == 0 && rx_cnt == 0 && !m_awvalid && !m_arvalid)
   // power
   `SVA_NXT(a_power_up, !powered && power_on && present && enable, ci_vcc_en && ci_reset)
-  `SVA_IMP(a_reset_len, !ci_reset && $past(ci_reset) && ci_vcc_en, $past(rh) == rst_n_clks)
+  `SVA_IMP(a_reset_len, !ci_reset && $past(ci_reset) && ci_vcc_en, $past(rh) + 16'd1 == rst_n_clks)   // rh: clocks before the last
   `SVA_NXT(a_power_off, powered && go_off, !ci_vcc_en && !ci_reset)
   `SVA_INV(a_status, present == !cd_s[1] && det == (cd_s[1] != cd_q) && powered == ci_vcc_en && (!ready || ci_vcc_en))
   `SVA_IMP(a_ready, ready && !$past(ready), $past(rdy) && iq_s[1] && $past(rh) == 0)
@@ -169,10 +171,12 @@ module CI_Plus_Host_sva (
   `SVA_IMP(a_tx_done, tx_done && !tx_fail, tx_dw == tx_len)
   `SVA_IMP(a_rx, rx, rx_len == r_size && rx_ovf == (r_size > rx_max) && r_got == r_size && rx_full)
   // status
-  `SVA_INV(a_counters, tx_cnt == m_tx && rx_cnt == m_rx && to_cnt == m_to && ts_cnt == m_ts)
+  // TX_CNT / RX_CNT count on the clock of TX_DONE / RX (the model a clock later)
+  `SVA_INV(a_counters, $past(tx_cnt) == m_tx && $past(rx_cnt) == m_rx && to_cnt == m_to && ts_cnt == m_ts)
   `SVA_INV(a_err_irq, !err_irq || j_err)
   `SVA_IMP(a_err_end, (cfg || tx_done || rx) && j_err && $past(ready), ##1 err)
-  `SVA_INV(a_ts, ci_mo_val == ($past(route) && $past(ts_in_valid)) && ci_mo_data == ($past(route) ? $past(ts_in_data) : 8'h00)
+  // (not on the first clock after a reset: the outputs still hold their reset value)
+  `SVA_INV(a_ts, !$past(rst_n) || ci_mo_val == ($past(route) && $past(ts_in_valid)) && ci_mo_data == ($past(route) ? $past(ts_in_data) : 8'h00)
                  && ts_out_valid == ($past(route) ? $past(ci_mi_val) : $past(ts_in_valid))
                  && ts_out_data == ($past(route) ? $past(ci_mi_data) : $past(ts_in_data)))
 
@@ -181,7 +185,7 @@ module CI_Plus_Host_sva (
     cp_cycle: coverpoint c_kind iff (rst_n && s_rise && ready)
       { bins attr_rd = {4'b0001}; bins attr_wr = {4'b0010}; bins io_rd = {4'b0100}; bins io_wr = {4'b1000}; }
     cp_io_addr: coverpoint c_a[1:0] iff (rst_n && s_rise && ready && c_kind[3:2] != 0);
-    cp_waited: coverpoint (c_wait == 0 ? 2'd0 : (wait_max != 0 && c_wait >= wait_max) ? 2'd2 : 2'd1) iff (rst_n && s_rise && ready)
+    cp_waited: coverpoint (bus_to ? 2'd2 : c_wait == 0 ? 2'd0 : 2'd1) iff (rst_n && s_rise && ready)
       { bins none = {0}; bins waited = {1}; bins timed_out = {2}; }
     cp_setup: coverpoint setup iff (rst_n && s_fall) { bins zero = {0}; bins mid = {[1:14]}; bins max = {15}; }
     cp_hold: coverpoint hold iff (rst_n && s_fall) { bins zero = {0}; bins mid = {[1:14]}; bins max = {15}; }
@@ -199,7 +203,7 @@ module CI_Plus_Host_sva (
   `FC(tx_failed, tx_done && tx_fail)
   `FC(abort_during_cis, $fell(ready) && busy && w_left > 0)
   `FC(job_axi_error, err_irq)
-  `FC(poll_without_data, s_rise && ready && c_kind == 4'b0100 && c_a[1:0] == 2'd1 && !rd_byte[7] && poll && !busy)
+  `FC(poll_without_data, s_rise && ready && c_kind == 4'b0100 && c_a[1:0] == 2'd1 && !rd_byte[7] && poll)
   `FC(ts_routed_packet, route && ci_mi_val && ci_mi_strt)
   `FC(command_while_busy, busy && (cis_read || cor_write || tx_start))
   `FC(counter_saturated, tx_done && tx_cnt == 16'hFFFF)

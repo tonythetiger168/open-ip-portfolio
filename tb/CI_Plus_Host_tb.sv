@@ -86,7 +86,7 @@ module CI_Plus_Host_tb;
     cis_len = 16'(n);
     c0 = n_cfg;
     `PULSE(cis_read)
-    `WAIT_CNT(n_cfg, c0, 200000, what)
+    `WAIT_CNT(n_cfg, c0, 200000 + 40 * n, what)
     if (cis_chk) for (int i = 0; i < n; i++)
       if (mbyte(cis_addr, i) !== cam_attr[2 * i]) begin
         fail($sformatf("%s: byte %0d = %h, CIS %h", what, i, mbyte(cis_addr, i), cam_attr[2 * i])); break;
@@ -100,7 +100,7 @@ module CI_Plus_Host_tb;
     tx_len = 16'(d.size());
     t0 = n_txd; m0 = cam_in_n.size();
     `PULSE(tx_start)
-    `WAIT_CNT(n_txd, t0, 400000, what)
+    `WAIT_CNT(n_txd, t0, 3000000, what)
     clks(2);
     if (tx_fail !== exp_fail) fail($sformatf("%s: tx_fail %b", what, tx_fail));
     if (!exp_fail) begin
@@ -123,7 +123,7 @@ module CI_Plus_Host_tb;
     for (int i = 0; i < 24; i++) mem.poke(rx_addr + 32'(4 * i), 32'h5A5A_5A5A);
     r0 = n_rx;
     cam_send(d);
-    `WAIT_CNT(n_rx, r0, 400000, what)
+    `WAIT_CNT(n_rx, r0, 400000 + 200 * d.size(), what)
     clks(2);
     if (rx_len != d.size()) fail($sformatf("%s: RX_LEN %0d, sent %0d", what, rx_len, d.size()));
     if (rx_ovf !== (d.size() > store)) fail($sformatf("%s: rx_ovf %b", what, rx_ovf));
@@ -301,6 +301,25 @@ module CI_Plus_Host_tb;
     cam_st_x = 6'h3F;
     poll = 1; clks(300); poll = 0; clks(50);
     cam_st_x = 6'h00;
+    // a command while a job runs waits for it (a CIS read during a TX)
+    begin
+      int c0;
+      bl = new[40];
+      foreach (bl[i]) bl[i] = 8'(i + 3);
+      c0 = n_cfg;
+      fork
+        do_tx(bl, 0, "TX with a CIS queued");
+        begin clks(40); cis_len = 4; `PULSE(cis_read) end
+      join
+      `WAIT_CNT(n_cfg, c0, 20000, "queued CIS")
+    end
+    // the shortest strobe (STROBE 0: one clock)
+    begin
+      logic [7:0] sv;
+      sv = strobe; strobe = 0;
+      do_cis(4, "CIS with STROBE 0");
+      strobe = sv;
+    end
     // a CIS read of 0 bytes ends at once
     begin
       int c0;
@@ -353,14 +372,15 @@ module CI_Plus_Host_tb;
     bl = new[3]; bl = '{8'h31, 8'h32, 8'h33};
     do_rx(bl, 0, "RX with RX_MAX 0");
     `PULSE(rx_arm)
-    rx_max = 8;
+    rx_max = 16'hFFFF;
     bl = new[65535];
     foreach (bl[i]) bl[i] = 8'($urandom);
-    do_rx(bl, 8, "RX of 65535 bytes");
+    do_rx(bl, 65535, "RX of 65535 bytes");          // 16384 words stored
     `PULSE(rx_arm)
     rx_max = 64; poll = 0;
-    // the top of the address space: a CIS, a TX and an RX
-    cis_addr = 32'hFFFF_F000; tx_addr = 32'hFFFF_E000; rx_addr = 32'hFFFF_D000;
+    // the top of the address space, address bits 1:0 set (ignored): a CIS,
+    // a TX and an RX; random BID / RID
+    cis_addr = 32'hFFFF_FFC3; tx_addr = 32'hFFFF_FFF3; rx_addr = 32'hFFFF_FF83; mem.rand_id = 1;
     do_cis(8, "CIS at the top");
     bl = new[5]; bl = '{8'h11, 8'h22, 8'h33, 8'h44, 8'h55};
     do_tx(bl, 0, "TX at the top");
@@ -369,6 +389,25 @@ module CI_Plus_Host_tb;
     `PULSE(rx_arm)
     poll = 0;
     cis_addr = 32'h0010_0000; tx_addr = 32'h0020_0000; rx_addr = 32'h0030_0000;
+    // EXOKAY and DECERR responses: a CIS write and a TX read that see one
+    // end with ERR (the data is not checked)
+    for (int k = 0; k < 2; k++) begin
+      mem.err_resp = k ? 2'b11 : 2'b01;
+      mem.err_lo = cis_addr; mem.err_hi = cis_addr + 4; cis_chk = 0;
+      do_cis(4, "CIS with an error response");
+      if (!err) fail($sformatf("response %b on a CIS write: ERR low", mem.err_resp));
+      mem.err_lo = tx_addr; mem.err_hi = tx_addr + 4; cis_chk = 1;
+      begin
+        int t0;
+        bl = new[4]; bl = '{8'h01, 8'h02, 8'h03, 8'h04};
+        put_bytes(tx_addr, bl); tx_len = 4; t0 = n_txd;
+        `PULSE(tx_start)
+        `WAIT_CNT(n_txd, t0, 20000, "TX with an error response")
+        clks(100);
+      end
+      mem.err_lo = '1; mem.err_hi = '1;
+    end
+    mem.err_resp = 2'b10;
     // power off during a CIS read that saw an AXI error: the job is flushed,
     // ERR set; then during an RX message
     begin
@@ -431,6 +470,32 @@ module CI_Plus_Host_tb;
       @(negedge clk); ts_in_valid = 0; ts_in_sop = 0;
       clks(6);
       ts_route = 0; poll_div = 20;
+      // 65535 FR polls (TX gives up), a WAIT# of 40000 clocks, RESET held
+      // 65535 clocks, a poll gap / RX poll timer of 65535 clocks
+      cam_fr_off = 1; fr_max = 16'hFFFF; poll_div = 0;
+      bl = new[1]; bl[0] = 8'h5A;
+      do_tx(bl, 1, "TX with 65535 FR polls");
+      cam_fr_off = 0; fr_max = 0;
+      cam_wait = 40000; wait_max = 0;
+      do_cis(1, "CIS with a long WAIT#");
+      cam_wait = 0;
+      cam_fr_off = 1; fr_max = 2; poll_div = 16'hFFFF;
+      bl[0] = 8'hA5;
+      do_tx(bl, 1, "TX with long poll gaps");
+      cam_fr_off = 0; fr_max = 0; poll_div = 20;
+      `PULSE(power_off) clks(4);
+      rst_clks = 16'hFFFF;
+      power_up("RESET of 65535 clocks");
+      rst_clks = 50;
+      begin
+        int c0;
+        c0 = n_cfg;
+        `PULSE(cor_write)
+        `WAIT_CNT(n_cfg, c0, 1000, "COR write")
+        c0 = n_cfg;
+        `PULSE(if_reset)
+        `WAIT_CNT(n_cfg, c0, 20000, "interface reset")
+      end
       if (tx_cnt != 16'hFFFF || rx_cnt != 16'hFFFF || to_cnt != 16'hFFFF || ts_cnt != 16'hFFFF)
         fail($sformatf("counter runs: TX %0d RX %0d TO %0d TS %0d", tx_cnt, rx_cnt, to_cnt, ts_cnt));
     end
@@ -458,6 +523,11 @@ module CI_Plus_Host_tb;
     `PULSE(power_off)
     clks(2);
     if (ci_vcc_en || ready) fail("power-off");
+    // ENABLE off powers the card down too
+    power_up("power-up before ENABLE off");
+    enable = 0; clks(2);
+    if (ci_vcc_en || ready) fail("ENABLE off");
+    enable = 1; clks(2);
     // reset during a CIS read
     power_up("power-up before reset");
     cis_len = 40;

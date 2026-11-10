@@ -330,6 +330,8 @@ module Smartcard_7816_tb;
       clks(4);
       guard = 8'hF0; tx_len = 16'hFFF0;            // the frame length and word count wires
       clks(4);
+      guard = 8'd4;                                 // t_frame 16: bit 3 falls
+      clks(4);
       guard = 0; tx_len = 0;
       clks(4);
       clk_div = k_div; guard = k_g; etu = k_etu; rst_clks = 40; ring_words = k_rw; ring_base = k_rb; tx_addr = k_ta;
@@ -385,6 +387,10 @@ module Smartcard_7816_tb;
     atr = new[2]; atr = '{8'hC1, 8'hC2};
     do_tx(atr, "GUARD 255", 0);
     guard = 0; c_nak = 0;
+    // a TX buffer at an odd 16-byte line (read address bit 4)
+    tx_addr = 32'h0010_0010;
+    do_tx(atr, "TX at +16", 0);
+    tx_addr = 32'h0010_0000;
     // inverse convention with T=1, ETU 64
     inverse = 1; c_inv = 1; t1 = 1; etu = 64;
     exp_rx(8'h3B, 1);

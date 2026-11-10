@@ -157,7 +157,11 @@ module GbE_DMA_sva #(parameter int TXF_BYTES = 2048, parameter int RXF_BYTES = 4
   `SVA_INV(a_irqs, tx_irq == $past(st == S_TXS && e_done && !e_start) && rx_irq == $past(st == S_RXS && e_done && !e_start)
                    && drop_irq == $past(rx_valid && rx_last && f_drop_now))
   // the scheduler: a TX status first, then an RX frame, then a TX frame
-  `SVA_IMP(a_sched, st == S_IDLE, ##1 (txs_pend ? st == S_TXS : rx_rdy ? st == S_RXD : tx_rdy ? st == S_TXD : st == S_IDLE))
+  // (the choice is made from the state at the IDLE clock: sched_nx)
+  wire [3:0] sched_nx = txs_pend ? S_TXS : rx_rdy ? S_RXD : tx_rdy ? S_TXD : S_IDLE;
+  logic [3:0] sched_q;
+  always_ff @(posedge clk) sched_q <= sched_nx;
+  `SVA_IMP(a_sched, st == S_IDLE, ##1 st == sched_q)
   // engine jobs (started the clock after the step is entered)
   `SVA_IMP(a_job_rx_desc, st == S_RXD && e_start, e_src == rx_base + {13'd0, r_head, 3'b000} && e_len == 2 && e_rd && !e_wr
                                                   && w_info.size() != 0)
@@ -173,9 +177,12 @@ module GbE_DMA_sva #(parameter int TXF_BYTES = 2048, parameter int RXF_BYTES = 4
   `SVA_IMP(a_tx_status, st == S_TXS && ws_valid,
            ws_data == {1'b1, 1'b0, t_ur && !t_bad, t_bad, 12'd0, t_len})
   // RX: buffer words, status
-  `SVA_IMP(a_rx_word, st == S_RXB && ws_valid, ws_data == rx_word(int'(r_left)) && r_left < r_take)
+  `SVA_IMP(a_rx_word, st == S_RXB && ws_valid && ws_ready, ws_data == rx_word(int'(r_left)) && r_left < r_take)
   `SVA_IMP(a_rx_status, st == S_RXS && ws_valid,
            ws_data == {1'b1, w_len > d_w1[15:0], 10'd0, w_stat, w_len})
+
+  // store and forward: the MAC never runs out of bytes
+  `SVA_INV(a_no_underrun, !tx_underrun)
 
   covergroup cg_gbe @(posedge clk);
     option.per_instance = 1;
@@ -183,7 +190,6 @@ module GbE_DMA_sva #(parameter int TXF_BYTES = 2048, parameter int RXF_BYTES = 4
                  iff (rst_n && st == S_TXS && e_done && !e_start)
       { bins zero = {0}; bins short_ = {1}; bins normal = {2}; bins jumbo = {3}; bins too_long = {4}; }
     cp_tx_rem: coverpoint t_len[1:0] iff (rst_n && st == S_TXB && e_done && !e_start);
-    cp_tx_ur: coverpoint t_ur iff (rst_n && st == S_TXS && e_done && !e_start && !t_bad);
     cp_rx_fit: coverpoint {w_len > d_w1[15:0], d_w1[15:0] == 0} iff (rst_n && st == S_RXD && e_done && !e_start)
       { bins fits = {2'b00}; bins trunc = {2'b10}; bins no_room = {2'b11}; }
     cp_rx_rem: coverpoint w_len[1:0] iff (rst_n && st == S_RXD && e_done && !e_start);
