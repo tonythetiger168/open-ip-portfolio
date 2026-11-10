@@ -26,13 +26,26 @@ case "$P" in
   *_apb) BASE="${P%_apb}" ;;
   *)     BASE="$P" ;;
 esac
-S=$(grep -E '^S\s*:?=' "Makefile.$BASE" | head -1 | sed 's/.*= *//')
-DEPS=$(grep -E '^DEPS\s*:?=' "Makefile.$BASE" | head -1 | sed 's/.*= *//')
-RTL="rtl/${S}_top.sv $DEPS"
+# MK: the IP's Makefile, or scripts/cov/units/<P>.mk for a shared block that
+# is closed on its own (no release package, no APB wrapper), e.g. the AXI
+# engine of the SoC subsystem IPs
+MK="Makefile.$BASE"
+[ -f "$MK" ] || MK="scripts/cov/units/$BASE.mk"
+[ -f "$MK" ] || { echo "NO_MAKEFILE $P"; exit 2; }
+mkvar() { grep -E "^$1\s*:?=" "$MK" | head -1 | sed 's/^[^=]*= *//; s/ *#.*//'; }
+S=$(mkvar S)
+DEPS=$(mkvar DEPS)
+# TBDEPS: testbench-side RTL (e.g. the far-end device of the bus), compiled
+# but never scored; .svh entries are included by the TB itself
+TBDEPS=""
+for f in $(mkvar TBDEPS); do case "$f" in *.sv) TBDEPS="$TBDEPS $f" ;; esac; done
+TOPF="rtl/${S}_top.sv"
+[ -f "$TOPF" ] || TOPF="rtl/${S}.sv"
+RTL="$TOPF $DEPS"
 # COVLIB: DEPS files that are IPs of their own (closed by their own run):
 # compiled, not scored
-COVLIB=$(grep -E '^COVLIB\s*:?=' "Makefile.$BASE" | head -1 | sed 's/.*= *//')
-SCORED="rtl/${S}_top.sv"
+COVLIB=$(mkvar COVLIB)
+SCORED="$TOPF"
 for f in $DEPS; do case " $COVLIB " in *" $f "*) ;; *) SCORED="$SCORED $f" ;; esac; done
 [ -f "tb/$TB.sv" ] || { echo "NO_TB $P"; exit 2; }
 if [ "$BASE" != "$P" ]; then
@@ -55,7 +68,7 @@ verilator --cc --exe --build --timing --assert \
   --coverage-line --coverage-toggle --coverage-user \
   -j 4 -Wno-fatal -Wno-lint -Wno-style -Wno-UNOPTFLAT -Wno-COVERIGN \
   +incdir+tb/cov +incdir+tb --top-module "$TB" --prefix Vtop ${XFLAGS} ${VFLAGS:-} \
-  $RTL "tb/$TB.sv" $COV "$BUILD/sim_main.cpp" \
+  $RTL "tb/$TB.sv" $TBDEPS $COV "$BUILD/sim_main.cpp" \
   -o "${TB}_cov" --Mdir "$BUILD/obj" > "$BUILD/build.log" 2>&1 \
   || { echo "BUILD_FAIL $P (see $BUILD/build.log)"; grep -m5 '%Error' "$BUILD/build.log"; exit 1; }
 
