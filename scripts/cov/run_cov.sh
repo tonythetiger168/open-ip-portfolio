@@ -35,7 +35,7 @@ COVLIB=$(grep -E '^COVLIB\s*:?=' "Makefile.$BASE" | head -1 | sed 's/.*= *//')
 SCORED="rtl/${S}_top.sv"
 for f in $DEPS; do case " $COVLIB " in *" $f "*) ;; *) SCORED="$SCORED $f" ;; esac; done
 # TBDEPS: testbench-only files (behavioural PHYs, device models): compiled, not scored
-TBDEPS=$(grep -E '^TBDEPS\s*:?=' "Makefile.$BASE" | head -1 | sed 's/.*= *//')
+TBDEPS=$(grep -E '^TBDEPS\s*:?=' "Makefile.$BASE" | head -1 | sed -e 's/#.*//' -e 's/.*= *//')
 [ -f "tb/$TB.sv" ] || { echo "NO_TB $P"; exit 2; }
 if [ "$BASE" != "$P" ]; then
   # APB wrapper: the core is compiled but only the wrapper is scored, and only
