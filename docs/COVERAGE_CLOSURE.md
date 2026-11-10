@@ -130,12 +130,12 @@ wrapper) re-run on 2026-10-28 after their v3.0 / v1.0 changes, ML_KEM
 again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
 2026-10-29, and SHA3, AES_GCM and ML_DSA added on 2026-10-30, and TRNG
 (from the CI coverage job) and PCIe_CXL_IDE on 2026-10-31, and SPDM (Verilator 5.052)
-on 2026-11-01, and DDR4_JEDEC_AXI (core and wrapper, Verilator 5.052) on 2026-11-10. The tables come from
+on 2026-11-01, and DDR4_JEDEC_AXI and AXI_Async_Bridge (cores and wrappers, Verilator 5.052) on 2026-11-10. The tables come from
 `python3 scripts/cov/report.py`.
 
 ### Cores
 
-132/132 closed.
+133/133 closed.
 
 | IP | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
@@ -152,6 +152,7 @@ on 2026-11-01, and DDR4_JEDEC_AXI (core and wrapper, Verilator 5.052) on 2026-11
 | AXI | 59/60 (+1 excl.) | 650/650 | 10/10 | 16/16 | 120/120 | pass |
 | AXI4 | 58/59 (+1 excl.) | 690/690 | 10/10 | 16/16 | 123/123 | pass |
 | AXI4_Lite | 38/39 (+1 excl.) | 506/510 (+4 excl.) | 10/10 | 13/13 | 56/56 | pass |
+| AXI_Async_Bridge | 14/14 | 1286/1286 | n/a | 18/18 | 96/96 | pass |
 | AXI_Stream | 5/5 | 172/172 | n/a | 6/6 | 61/61 | pass |
 | Avalon_MM | 50/51 (+1 excl.) | 338/338 | 7/7 | 15/15 | 59/59 | pass |
 | Avalon_ST | 4/4 | 170/170 | n/a | 6/6 | 61/61 | pass |
@@ -285,7 +286,7 @@ The wrapper's coverage scope is the wrapper alone (`u_core` is excluded),
 because the core is closed by its own run above. The wrapper has no state
 machine, so FSM is n/a.
 
-132/132 closed.
+133/133 closed.
 
 | APB wrapper | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
@@ -301,6 +302,7 @@ machine, so FSM is n/a.
 | AVSBus__Adaptive_Voltage_Scaling__apb | 20/20 | 450/450 | n/a | 7/7 | 25/25 | pass |
 | AXI4_Lite_apb | 19/19 | 680/684 (+4 excl.) | n/a | 7/7 | 23/23 | pass |
 | AXI4_apb | 19/19 | 772/772 | n/a | 7/7 | 23/23 | pass |
+| AXI_Async_Bridge_apb | 19/19 | 1220/1220 | n/a | 7/7 | 23/23 | pass |
 | AXI_Stream_apb | 36/36 | 572/572 | n/a | 9/9 | 57/57 | pass |
 | AXI_apb | 19/19 | 764/764 | n/a | 7/7 | 23/23 | pass |
 | Avalon_MM_apb | 19/19 | 616/616 | n/a | 7/7 | 23/23 | pass |
