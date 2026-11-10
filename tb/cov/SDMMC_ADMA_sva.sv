@@ -270,9 +270,9 @@ module SDMMC_ADMA_sva (
       { bins dto = {8'h01}; bins rcrc = {8'h02}; bins wtok = {8'h08}; bins desc = {8'h10}; bins axi = {8'h20}; bins table_end = {8'h40};
         bins cmd_fail = {[8'h80:8'hFF]}; bins reset = {0}; }
     cp_desc: coverpoint a_w0[5:4] iff (rst_n && a_on && a_fetch && e_done && !e_err && a_w0[0])
-      { bins nop = {0}; bins reserved = {1}; bins tran = {2}; bins link = {3}; }
+      { bins nop = {0}; bins reserved = {1}; bins tran_ = {2}; bins link = {3}; }
     cp_int: coverpoint a_w0[2] iff (rst_n && a_on && a_fetch && e_done && !e_err && a_w0[0]);
-    cp_div: coverpoint clk_div iff (rst_n && c_go) { bins zero = {0}; bins small = {[1:7]}; bins big = {[8:1023]}; }
+    cp_div: coverpoint clk_div iff (rst_n && c_go) { bins zero = {0}; bins small_ = {[1:7]}; bins big = {[8:1023]}; }
   endgroup
   cg_sdmmc u_cg_sdmmc = new;
 
