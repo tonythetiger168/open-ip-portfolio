@@ -9,9 +9,16 @@
 //  - Random: NRAND write and read bursts on concurrent AW / AR threads over
 //    a few rows per bank (hits, misses, conflicts), checked against a byte
 //    reference model; unwritten bytes predicted from ddr4_dev_model.init_word.
-//  - Negative: AxSIZE = 3 read and write -> SLVERR, no DRAM access;
-//    WLAST on the wrong beat -> SLVERR. A second device model with a tighter
-//    tRCD must flag tRCD errors (the checker works).
+//  - Data classes (zeros, ones, 0x55 / 0xAA), the top row and last column of
+//    every bank, and the AXI space above 1 GB, which aliases the device.
+//  - Negative: AxSIZE 3..7 read and write -> SLVERR, no DRAM access;
+//    WLAST one beat early or missing -> SLVERR. A second device model with a
+//    tighter tRCD must flag tRCD errors (the checker works). 1024 more short
+//    error bursts each way run the status counters past 1024.
+//  - B / R backpressure in the random phase, with long R stalls that fill
+//    the read FIFO. An idle stretch makes a refresh come due with every bank
+//    closed. Last, a reset while running: the IP must power the device up
+//    again and carry traffic.
 //  - The short tREFI here makes refreshes (and PREA) happen during traffic.
 //  - The device model must end with ERRORS == 0.
 //  - Prints per-burst latency in the SoC TB's LAT format
@@ -101,8 +108,12 @@ module DDR4_JEDEC_AXI_tb;
   // completed after its AR handshake
   bit           wf_act = 0;
   int unsigned  wf_lo, wf_hi;
-  function automatic int r_slot(input int unsigned ad);
+  // the 1 GB device decodes address bits 29:0; the AXI space above aliases it
+  localparam int unsigned AMASK = 32'h3FFF_FFFF;
+  function automatic int r_slot(input int unsigned a);
     int i;
+    int unsigned ad;
+    ad = a & AMASK;
     i = int'(ad * 32'h9E37_79B1) & (RN - 1);
     while (r_use[i] && r_key[i] != ad) i = (i + 1) & (RN - 1);
     r_slot = i;
@@ -110,7 +121,7 @@ module DDR4_JEDEC_AXI_tb;
   task automatic ref_wr(input int unsigned ad, input byte unsigned v);
     int i;
     i = r_slot(ad);
-    r_use[i] = 1'b1; r_key[i] = ad; r_val[i] = v; r_time[i] = cyc;
+    r_use[i] = 1'b1; r_key[i] = ad & AMASK; r_val[i] = v; r_time[i] = cyc;
   endtask
   function automatic bit ambiguous(input int unsigned ad, input longint t_ar,
                                    input bit amb, input int unsigned lo, input int unsigned hi);
@@ -161,9 +172,12 @@ module DDR4_JEDEC_AXI_tb;
 
   // ---------------- AXI master tasks ----------------
   bit wbusy = 0, rbusy = 0;               // one AW thread / one AR thread at a time
+  bit bp_en = 0;                          // random B / R backpressure
 
+  // bad_last: 0 WLAST on the last beat, 1 one beat early, 2 missing (one beat late)
+  // pat: -1 random data and strobes, 0 zeros, 1 ones, 2 0x55.. / 0xAA.. (full strobes)
   task automatic axi_write(input int unsigned ad, input int len, input int sz, input int bt,
-                           input bit bad_last = 0, input bit expect_err = 0);
+                           input int bad_last = 0, input bit expect_err = 0, input int pat = -1);
     int unsigned x = ad;
     longint t0;
     int unsigned  sh_a [1024];
@@ -184,16 +198,19 @@ module DDR4_JEDEC_AXI_tb;
     t0 = cyc;
     @(negedge clk);
     awvalid = 0;
-    for (int i = 0; i <= (bad_last ? len - 1 : len); i++) begin
+    for (int i = 0; i <= (bad_last == 1 ? len - 1 : bad_last == 2 ? len + 1 : len); i++) begin
       logic [31:0] d;
       logic [3:0]  s;
       int unsigned base;
       d = $urandom; s = 0; base = x & ~32'h3;
+      if (pat == 0) d = 32'h0;
+      if (pat == 1) d = 32'hFFFF_FFFF;
+      if (pat == 2) d = i[0] ? 32'hAAAA_AAAA : 32'h5555_5555;
       for (int b = 0; b < 4; b++)
         if ((base + b) >= (x & ~((1 << sz) - 1)) && (base + b) < (x & ~((1 << sz) - 1)) + (1 << sz))
-          s[b] = $urandom_range(0, 3) != 0;
+          s[b] = pat >= 0 || $urandom_range(0, 3) != 0;
       wdata = d; wstrb = s; wvalid = 1;
-      wlast = bad_last ? (i == len - 1) : (i == len);
+      wlast = bad_last == 1 ? (i == len - 1) : bad_last == 2 ? (i == len + 1) : (i == len);
       if (sz <= 2 && !expect_err)
         for (int b = 0; b < 4; b++) if (s[b]) begin sh_a[sh_n] = base + b; sh_d[sh_n] = d[8*b +: 8]; sh_n++; end
       while (!wready) @(negedge clk);
@@ -202,7 +219,11 @@ module DDR4_JEDEC_AXI_tb;
       wvalid = 0; wlast = 0;
       x = nxt(x, sz, len, bt);
     end
-    while (!bvalid) @(negedge clk);
+    bready = bp_en ? $urandom_range(0, 1) : 1'b1;
+    while (!(bvalid && bready)) begin
+      @(negedge clk);
+      bready = bp_en ? $urandom_range(0, 1) : 1'b1;
+    end
     if (bresp != (expect_err ? 2'b10 : 2'b00)) begin
       errors++; $display("ERROR: write @%h BRESP %0d", ad, bresp);
     end
@@ -220,7 +241,7 @@ module DDR4_JEDEC_AXI_tb;
                           input bit expect_err = 0);
     int unsigned x = ad;
     longint t0;
-    int i = 0;
+    int i = 0, hold;
     bit last, amb;
     int unsigned alo, ahi;
     while (rbusy) @(negedge clk);
@@ -234,10 +255,15 @@ module DDR4_JEDEC_AXI_tb;
     arvalid = 0;
     amb = 0; alo = 32'hFFFF_FFFF; ahi = 0;
     last = 0;
+    // backpressure: random R ready, and now and then a long stall that fills the read FIFO
+    hold = (bp_en && $urandom_range(0, 3) == 0) ? 80 : 0;
     while (!last) begin
-      while (!rvalid) begin
+      rready = hold > 0 ? 1'b0 : bp_en ? $urandom_range(0, 1) : 1'b1;
+      while (!(rvalid && rready)) begin
         if (wf_act) begin amb = 1; if (wf_lo < alo) alo = wf_lo; if (wf_hi > ahi) ahi = wf_hi; end
         @(negedge clk);
+        if (hold > 0) hold--;
+        rready = hold > 0 ? 1'b0 : bp_en ? $urandom_range(0, 1) : 1'b1;
       end
       if (wf_act) begin amb = 1; if (wf_lo < alo) alo = wf_lo; if (wf_hi > ahi) ahi = wf_hi; end
       if (rresp != (expect_err ? 2'b10 : 2'b00)) begin
@@ -309,24 +335,62 @@ module DDR4_JEDEC_AXI_tb;
     axi_write(32'h0000_0538, 7, 2, 2); axi_read(32'h0000_0524, 15, 2, 2);
     axi_write(32'h0000_0604, 3, 2, 0); axi_read(32'h0000_0604, 2, 2, 0);
     axi_write(32'h0001_0000, 255, 2, 1); axi_read(32'h0001_0000, 255, 2, 1);
+    axi_write(32'h0002_0004, 40, 2, 1); axi_read(32'h0002_0004, 40, 2, 1);
+    // FIXED: one beat, and narrow (bytes and halfwords) on one address
+    axi_write(32'h0000_0700, 0, 2, 0); axi_read(32'h0000_0700, 0, 2, 0);
+    axi_write(32'h0000_0743, 3, 0, 0); axi_read(32'h0000_0743, 3, 0, 0);
+    axi_write(32'h0000_0786, 3, 1, 0); axi_read(32'h0000_0786, 3, 1, 0);
     // row misses in one bank (bank 0, rows 0, 1, 2)
     for (int r = 0; r < 3; r++) begin
       axi_write(r * 1024 * BB + 32'h40, 1, 2, 1);
       axi_read (r * 1024 * BB + 32'h40, 1, 2, 1);
     end
-    // negative
-    axi_write(32'h0000_0800, 1, 3, 1, 0, 1);
-    axi_read (32'h0000_0800, 1, 3, 1, 1);
+    // data classes: zeros, ones, alternating 0x55 / 0xAA (full strobes)
+    for (int p = 0; p < 3; p++) begin
+      axi_write(32'h0000_1000 + p * 32'h40, 7, 2, 1, 0, 0, p);
+      axi_read (32'h0000_1000 + p * 32'h40, 7, 2, 1);
+    end
+    // every bank: the top row and the last column (all address bits 1), then row 0
+    for (int bk = 0; bk < 8; bk++) begin
+      axi_write(((65535 * 1024 + bk * 128 + 127) * BB) + BB - 1, 0, 0, 1);
+      axi_read (((65535 * 1024 + bk * 128 + 127) * BB) + BB - 1, 0, 0, 1);
+      axi_write((bk * 128) * BB, 0, 2, 1);
+      axi_read ((bk * 128) * BB, 0, 2, 1);
+    end
+    // the AXI space above 1 GB aliases the device
+    axi_write(32'hFFFF_FFF0, 3, 2, 1);
+    axi_read (32'h3FFF_FFF0, 3, 2, 1);
+    axi_read (32'hBFFF_FFF0, 3, 2, 1);
+    axi_read (32'hFFFF_FFF0, 3, 2, 1);
+    axi_read (32'h7FFF_FFF0, 3, 2, 1);
+    axi_write(32'h4000_2000, 3, 2, 1);
+    axi_read (32'h0000_2000, 3, 2, 1);
+
+    // negative: AxSIZE 3..7 (no DRAM access), WLAST one beat early, WLAST missing
+    for (int sz = 3; sz < 8; sz++) begin
+      axi_write(32'h0000_0800, 1, sz, 1, 0, 1);
+      axi_read (32'h0000_0800, 1, sz, 1, 1);
+    end
     axi_write(32'h0000_0900, 3, 2, 1, 1, 1);
     axi_read (32'h0000_0900, 3, 2, 1);          // nothing was written there
+    axi_write(32'h0000_0A00, 3, 2, 1, 2, 1);
 
-    // random, concurrent AW and AR
+    // random, concurrent AW and AR, with B / R backpressure
+    bp_en = 1;
     fork
       rand_writes();
       rand_reads();
     join
     // read back everything written so far after the random phase settles
     for (int k = 0; k < 64; k++) axi_read(raddr() & ~32'h3, 15, 2, 1);
+    bp_en = 0;
+    // many short error bursts: the status counters run past 1024
+    for (int k = 0; k < 1024; k++) begin
+      axi_write(32'h0000_0800, 0, 3 + k % 5, 1, 0, 1);
+      axi_read (32'h0000_0800, 0, 3 + k % 5, 1, 1);
+    end
+    // idle for over two tREFI: a refresh comes due with every bank closed
+    repeat (5 * T_REFI / 2) @(posedge clk);
 
     repeat (200) @(posedge clk);
     $display("ctrl: n_rd %0d n_wr %0d n_err %0d n_act %0d n_hit %0d n_ref %0d",
@@ -336,13 +400,26 @@ module DDR4_JEDEC_AXI_tb;
     for (int rw = 0; rw < 2; rw++)
       $display("latency %s: n %0d min %0d avg %0d max %0d cycles", rw ? "W" : "R",
                lat_n[rw], lat_min[rw], lat_sum[rw] / (lat_n[rw] ? lat_n[rw] : 1), lat_max[rw]);
-    if (dram.ERRORS != 0) begin errors++; $display("ERROR: device model saw %0d violations", dram.ERRORS); end
     if (strict.ERRORS == 0) begin errors++; $display("ERROR: strict model missed the tRCD violation"); end
     else $display("negative check: strict model flagged %0d errors (expected)", strict.ERRORS);
-    if (n_err != 3) begin errors++; $display("ERROR: n_err %0d, expected 3", n_err); end
+    if (n_err != 12 + 2048) begin errors++; $display("ERROR: n_err %0d, expected %0d", n_err, 12 + 2048); end
     if (n_ref == 0) begin errors++; $display("ERROR: no refresh"); end
     if (dram.n_cmd[4] != n_ref) begin errors++; $display("ERROR: REF count mismatch"); end
     if (n_hit == 0 || n_act == 0) begin errors++; $display("ERROR: no page hits or no ACT"); end
+
+    // reset while running: the controller must power the device up again
+    @(negedge clk);
+    rst_n = 0;
+    repeat (4) @(negedge clk);
+    if (init_done || n_rd != 0 || n_ref != 0) begin errors++; $display("ERROR: reset did not clear the IP"); end
+    rst_n = 1;
+    wait (init_done);
+    $display("init done again at %0t, %0d MRS seen in all", $time, dram.n_cmd[5]);
+    if (dram.n_cmd[5] != 14) begin errors++; $display("ERROR: expected 7 more MRS"); end
+    axi_write(32'h0000_3000, 7, 2, 1);
+    axi_read (32'h0000_3000, 7, 2, 1);
+    repeat (100) @(posedge clk);
+    if (dram.ERRORS != 0) begin errors++; $display("ERROR: device model saw %0d violations", dram.ERRORS); end
     if (errors == 0) $display("TEST PASSED: DDR4_JEDEC_AXI");
     else             $display("TEST FAILED: %0d errors", errors);
     $finish;

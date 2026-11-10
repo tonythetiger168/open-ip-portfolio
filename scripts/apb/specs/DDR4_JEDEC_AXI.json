@@ -1,0 +1,72 @@
+{
+  "title": "DDR4 controller on JEDEC pins with an AXI4 subordinate port (for vendor device models such as Micron's)",
+  "code": "0x5D4A",
+  "version": "0.1",
+  "tb_clk_ns": 10,
+  "tb_timeout": "1s",
+  "regs": [
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Controller state",
+      "fields": [{"port": "init_done", "desc": "1: power-up, mode registers and ZQ calibration are done; the AXI port is served"}]
+    },
+    {
+      "name": "N_RD",
+      "kind": "ro",
+      "desc": "AXI read bursts completed",
+      "fields": [{"port": "n_rd", "desc": "wraps at 0xFFFF"}]
+    },
+    {
+      "name": "N_WR",
+      "kind": "ro",
+      "desc": "AXI write bursts completed (B sent)",
+      "fields": [{"port": "n_wr", "desc": "wraps at 0xFFFF"}]
+    },
+    {
+      "name": "N_ERR",
+      "kind": "ro",
+      "desc": "SLVERR responses (AxSIZE above 2, misplaced WLAST)",
+      "fields": [{"port": "n_err", "desc": "wraps at 0xFFFF"}]
+    },
+    {
+      "name": "N_ACT",
+      "kind": "ro",
+      "desc": "ACT commands issued",
+      "fields": [{"port": "n_act", "desc": "wraps at 0xFFFF"}]
+    },
+    {
+      "name": "N_HIT",
+      "kind": "ro",
+      "desc": "RD / WR commands to an already open row (page hits)",
+      "fields": [{"port": "n_hit", "desc": "wraps at 0xFFFF"}]
+    },
+    {
+      "name": "N_REF",
+      "kind": "ro",
+      "desc": "REF commands issued",
+      "fields": [{"port": "n_ref", "desc": "wraps at 0xFFFF"}]
+    }
+  ],
+  "irqs": [
+    {"name": "ERR", "port": "err_irq", "desc": "an AXI burst ended with SLVERR"}
+  ],
+  "features": [
+    "Drives real JESD79-4 command pins (RESET_n, CKE, CS_n, ACT_n, RAS_n/A16, CAS_n/A15, WE_n/A14, BG, BA, A[13:0], ODT), so a vendor device model such as Micron's ddr4_model can sit behind the PHY. tb/ddr4_dev_model is the portfolio's stand-in and checks the same timings.",
+    "Power-up per JESD79-4: RESET_n low, CKE low then high, tXPR, MRS MR3 MR6 MR5 MR4 MR2 MR1 MR0 (tMRD apart, tMOD after MR0), ZQCL, tZQinit, then STATUS.init_done. MR0 sets BL8, CL, WR and DLL reset; MR2 CWL; MR5 A10 enables DM_n; MR6 tCCD_L.",
+    "Open-page policy. Per bank tRCD, tRP, tRAS, tRC, tRTP, tWR; across bank groups tRRD_S/L, tCCD_S/L, tWTR_S/L; tFAW; read-to-write turnaround. Every constraint is a down counter just wide enough for its largest load.",
+    "All-bank REF every tREFI, with PREA first when a bank is open, then tRFC.",
+    "Address map from the bottom bit: byte in the BL8 burst, column[9:3], BG, BA, row. Bank groups next to the column bits give a linear stream tCCD_S. The 1 GB device (8 Gb x16, 2 BG x 4 BA, 64K rows, 1K columns) aliases through the 4 GB AXI space.",
+    "AXI4: 32-bit data, IDW-bit ID, INCR / FIXED / WRAP, 1..256 beats, AxSIZE 0..2. One write and one read burst in service at a time. Beats are gathered into DRAM bursts of 16*NDEV bytes; WSTRB becomes DM_n (no read-modify-write). Up to 4 DRAM read bursts in flight. SLVERR on AxSIZE > 2 (the DRAM is not accessed) and on a WLAST on the wrong beat (the burst's buffered block is dropped)."
+  ],
+  "notes": [
+    "The AXI4 subordinate port (s_*) and the controller-to-PHY pins (p_*) pass through the wrapper unchanged; the registers only read the controller's status.",
+    "Simulation PHY: tb/ddr4_phy_beh.sv, behavioural (DQS, DQ, DM_n, CL / CWL), timed in ps. In silicon the controller would sit behind a DFI PHY.",
+    "Limits (v0.1): one request in service at a time, in order; no lookahead ACT or reordering, so latency under load is pessimistic. No auto-precharge, BC4, write leveling, read training, CRC, parity, DBI, gear-down or power-down.",
+    "Micron model: ddr4_dev_model has the pins of Micron's DDR4 model by signal name. The SoC testbench (SoC-tb-regress-builder vip/micron/) connects the Micron model instead when its files are present. Micron's license does not allow the model in this repository."
+  ],
+  "verification": [
+    "Core TB (tb/DDR4_JEDEC_AXI_tb.sv, iverilog by default, SIM=verilator for Verilator 5.x): init (7 MRS), directed INCR / WRAP / FIXED / narrow / 256-beat bursts, data classes, the top row and last column of every bank, the aliased AXI space, AxSIZE 3..7 and WLAST errors, 400 + 400 random concurrent bursts with B / R backpressure checked against a byte reference model, a refresh with every bank closed, and a reset while running. A second device model that assumes tRCD + 4 must flag violations. Every burst prints LAT axi ddr4 R|W <cycles>.",
+    "Coverage checker tb/cov/DDR4_JEDEC_AXI_sva.sv: an independent AXI model (walkers, responses, a shadow memory checking every read byte whose write finished before the read), the status counters, and a DDR4 pin model with every JESD79-4 spacing, the power-up order, the mode register values and the refresh interval."
+  ]
+}

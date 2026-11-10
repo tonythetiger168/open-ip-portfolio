@@ -25,6 +25,11 @@ endif
 syn:
 	mkdir -p work && cd work && $(SYN) -p "read_verilog -sv ../rtl/ddr4_jedec_ctrl.sv ../rtl/$(S)_top.sv; synth -top $(S)_top; stat"
 
+apb:
+	$(SIM) $(VFLAGS) -I tb -o simv_apb rtl/$(S)_top.sv $(DEPS) rtl/$(S)_apb.sv $(TBDEPS) tb/$(S)_apb_tb.sv
+	vvp -n simv_apb
+	mkdir -p work && cd work && $(SYN) ../syn/$(S)_apb_yosys.ys
+
 clean:
-	rm -rf simv obj_$(S) work/*.json
-.PHONY: all sim syn clean
+	rm -rf simv simv_apb obj_$(S) work/*.json
+.PHONY: all sim syn apb clean

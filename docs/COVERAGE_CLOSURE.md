@@ -130,12 +130,12 @@ wrapper) re-run on 2026-10-28 after their v3.0 / v1.0 changes, ML_KEM
 again on 2026-10-29 for v1.1, Root_of_Trust and Ethernet_PCS added on
 2026-10-29, and SHA3, AES_GCM and ML_DSA added on 2026-10-30, and TRNG
 (from the CI coverage job) and PCIe_CXL_IDE on 2026-10-31, and SPDM (Verilator 5.052)
-on 2026-11-01. The tables come from
+on 2026-11-01, and DDR4_JEDEC_AXI (core and wrapper, Verilator 5.052) on 2026-11-10. The tables come from
 `python3 scripts/cov/report.py`.
 
 ### Cores
 
-131/131 closed.
+132/132 closed.
 
 | IP | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
@@ -168,6 +168,7 @@ on 2026-11-01. The tables come from
 | Crypto___Security_Engine | 111/112 (+1 excl.) | 2982/2982 | 11/11 | 8/8 | 82/82 | pass |
 | DDR | 88/91 (+3 excl.) | 576/602 (+26 excl.) | 24/24 | 24/24 | 65/65 | pass |
 | DDR4 | 93/97 (+4 excl.) | 740/858 (+118 excl.) | 24/24 | 24/24 | 66/66 | pass |
+| DDR4_JEDEC_AXI | 150/150 | 4608/4736 (+128 excl.) | 19/19 | 55/55 | 174/174 | pass |
 | DDR4_Lite | 158/161 (+3 excl.) | 2272/2330 (+58 excl.) | 43/43 | 31/31 | 98/98 | pass |
 | DDR5 | 105/108 (+3 excl.) | 1134/1346 (+212 excl.) | 24/24 | 25/25 | 68/68 | pass |
 | DDR6 | 88/91 (+3 excl.) | 1064/1236 (+172 excl.) | 21/21 | 24/24 | 67/67 | pass |
@@ -284,7 +285,7 @@ The wrapper's coverage scope is the wrapper alone (`u_core` is excluded),
 because the core is closed by its own run above. The wrapper has no state
 machine, so FSM is n/a.
 
-131/131 closed.
+132/132 closed.
 
 | APB wrapper | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
@@ -315,6 +316,7 @@ machine, so FSM is n/a.
 | CXS_CCIX_Stream_Interface_apb | 38/38 | 1334/1334 | n/a | 14/14 | 59/59 | pass |
 | C_PHY_apb | 33/33 | 616/616 | n/a | 11/11 | 64/64 | pass |
 | Crypto___Security_Engine_apb | 57/57 | 2036/2036 | n/a | 22/22 | 68/68 | pass |
+| DDR4_JEDEC_AXI_apb | 26/26 | 1560/1580 (+20 excl.) | n/a | 7/7 | 37/37 | pass |
 | DDR4_Lite_apb | 37/37 | 1030/1084 (+54 excl.) | n/a | 11/11 | 54/54 | pass |
 | DDR4_apb | 33/33 | 798/810 (+12 excl.) | n/a | 11/11 | 42/42 | pass |
 | DDR5_apb | 33/33 | 830/842 (+12 excl.) | n/a | 11/11 | 42/42 | pass |
