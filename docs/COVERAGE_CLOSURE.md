@@ -53,9 +53,10 @@ design. Each one is listed in `scripts/cov/exclude/<P>.txt` (and
 `<P>_apb.txt` for the wrappers) with its reason. Typical reasons are the
 `default:` item of a partially-encoded enum, a tie-off that is constant by
 construction, and the upper bits of a counter whose largest load is below
-the next power of two. SVA and functional coverage have no exclusions. The
-only FSM exclusions are two arcs in IO_LINK (S_IDLE to S_TA, and S_SUM to
-S_IDLE) and one in RAPIDIO (E_RX to E_TX).
+the next power of two. SVA and functional coverage have no exclusions. Among
+the 142 IPs below, the only FSM exclusions are two arcs in IO_LINK (S_IDLE to
+S_TA, and S_SUM to S_IDLE) and one in RAPIDIO (E_RX to E_TX); the SoC
+subsystem IPs have their own list (see that section).
 
 Totals, summed from the 284 `score.json` files cited below: 129 line points
 out of 16122, 4867 toggle points out of 234282, and 3 FSM points out of 3074
@@ -458,3 +459,131 @@ machine, so FSM is n/a.
 | xSPI_apb | 20/20 | 472/472 | n/a | 7/7 | 33/33 | pass |
 
 Totals: line 4957/4957, toggle 138881/139404 (+523 excluded), fsm 0/0, sva 1833/1833, functional 7610/7610.
+
+## SoC subsystem IPs
+
+The phone, 8K TV, IP camera and STB SoC benches use 26 more cores: the
+subsystem cores (CPU_Cluster, GPU, NPU, ISP, Modem, Video_Codec, Audio_DSP,
+Display_Controller, Sensor_Hub, DMA, SMMU, Interrupt_Controller,
+Timer_WDT), the DDR ports (DDR4_AXI, LPDDR4_AXI), the IP camera and STB
+peripherals (I2S_DMA, Crypto_DMA, GbE_DMA, I2C_Host, SPI_Host, QSPI_XIP,
+SDMMC_ADMA, Smartcard_7816, CI_Plus_Host, TSP) and their shared AXI4
+manager, `soc_ss_axi_engine`, closed as its own unit. Each core except the
+engine has an APB wrapper. They are closed the same way as the IPs above,
+measured locally with Verilator 5.052 on 2026-11-10, seed 1
+(`python3 scripts/cov/report.py` cell format).
+
+### Long runs (`+cov_long`)
+
+Some points need millions of clocks: 16-bit event counters driven to
+saturation, 24-bit timeouts run to their end, 65535-entry descriptor rings
+wrapped, clock counters past bit 22. `run_cov.sh` passes `+cov_long`, which
+turns on those phases of the testbench; `COV_QUICK=1` leaves them out, and
+so do the iverilog regression and the mutation flow. The phases check their
+results like the rest of the test. The longest (SDMMC_ADMA, TSP, GbE_DMA)
+run a few minutes each.
+
+The shared AXI memory model, `tb/soc_ss_axi_mem.svh`, ends each burst's
+reset waiter when the burst ends. A disabled process still waiting on an
+event stays alive in Verilator until that event, so a waiter on the reset
+edge alone piled up one per burst and slowed the long runs down
+quadratically.
+
+### Exclusions
+
+Each IP's list is `scripts/cov/exclude/<P>.txt`, with its reason on every
+line. Most of them pull in `scripts/cov/exclude/common/soc_ss_axi_manager.txt`:
+the AXI4 manager pins the engine ties to constants (IDs, PROT, SIZE, BURST,
+WSTRB, the top LEN bits, address bits 1:0), checked by the engine's own
+run. The rest are constant address and offset bits (word-aligned buffers,
+packet and block sizes), the high bits of length and count registers whose
+largest value is below the next power of two, unused engine clock counts
+(`e_cycles`), the `default:` items of fully-decoded case statements, and
+32-bit free-running clock counters above bit 24. The FSM exclusions
+are points the generator derives from the enum type rather than from the
+logic: CI_Plus_Host (35) has return-state registers (`q_ret`, `q_after`)
+of the state enum that only a few states are ever loaded into, and one
+unused enum value; QSPI_XIP (9) has phase arcs that the fixed phase order of
+each job type never takes; GbE_DMA (2) has a case item shared by S_TXD and
+S_RXD whose RX next states are only reachable from S_RXD.
+
+### RTL fixes found by the checkers
+
+* Smartcard_7816: a guard time of 245 or more broke the character frame.
+* CI_Plus_Host: TX, CIS and RX lengths of 0xFFFD to 0xFFFF overflowed the
+  word count.
+* I2C_Host: a WR or RD with the bus free now sends a START first (SCL idles
+  high, so the first data bit had no SCL rise).
+* Video_Codec ZEROS, NPU SATURATIONS and Audio_DSP CLIPS jumped to 0xFFFF
+  near the top of the range; they are now exact saturating adds.
+* QSPI_XIP: the unused `go` and `last_pref` signals are removed.
+* SDMMC_ADMA: the unreachable A_XFER state is removed.
+
+### Cores
+
+26/26 closed.
+
+| IP | Line | Toggle | FSM | SVA | Functional | Test + assertions |
+|---|---|---|---|---|---|---|
+| Audio_DSP | 23/23 | 842/938 (+96 excl.) | n/a | 7/7 | 57/57 | pass |
+| CI_Plus_Host | 180/180 | 2074/2168 (+94 excl.) | 125/160 (+35 excl.) | 24/24 | 40/40 | pass |
+| CPU_Cluster | 20/21 (+1 excl.) | 874/972 (+98 excl.) | n/a | 8/8 | 60/60 | pass |
+| Crypto_DMA | 45/45 | 3778/4278 (+500 excl.) | n/a | 12/12 | 40/40 | pass |
+| DDR4_AXI | 76/77 (+1 excl.) | 1984/2148 (+164 excl.) | 34/34 | 14/14 | 60/60 | pass |
+| DMA | 16/16 | 2438/2530 (+92 excl.) | n/a | 8/8 | 63/63 | pass |
+| Display_Controller | 13/13 | 715/1036 (+321 excl.) | n/a | 10/10 | 56/56 | pass |
+| GPU | 16/16 | 878/974 (+96 excl.) | n/a | 7/7 | 80/80 | pass |
+| GbE_DMA | 99/102 (+3 excl.) | 2426/2672 (+246 excl.) | 20/22 (+2 excl.) | 20/20 | 40/40 | pass |
+| I2C_Host | 61/62 (+1 excl.) | 172/172 | 15/15 | 9/9 | 61/61 | pass |
+| I2S_DMA | 42/45 (+3 excl.) | 1062/1156 (+94 excl.) | n/a | 9/9 | 29/29 | pass |
+| ISP | 17/17 | 809/1136 (+327 excl.) | n/a | 8/8 | 63/63 | pass |
+| Interrupt_Controller | 21/21 | 919/1322 (+403 excl.) | n/a | 8/8 | 89/89 | pass |
+| LPDDR4_AXI | 76/77 (+1 excl.) | 1996/2154 (+158 excl.) | 34/34 | 14/14 | 60/60 | pass |
+| Modem | 15/15 | 1068/1162 (+94 excl.) | n/a | 6/6 | 51/51 | pass |
+| NPU | 16/16 | 978/1074 (+96 excl.) | n/a | 6/6 | 63/63 | pass |
+| QSPI_XIP | 125/129 (+4 excl.) | 1744/1896 (+152 excl.) | 50/59 (+9 excl.) | 13/13 | 45/45 | pass |
+| SDMMC_ADMA | 224/224 | 3820/3946 (+126 excl.) | 67/67 | 9/9 | 43/43 | pass |
+| SMMU | 84/85 (+1 excl.) | 1586/1596 (+10 excl.) | 27/27 | 22/22 | 64/64 | pass |
+| SPI_Host | 16/16 | 170/170 | n/a | 10/10 | 32/32 | pass |
+| Sensor_Hub | 13/13 | 783/1098 (+315 excl.) | n/a | 9/9 | 55/55 | pass |
+| Smartcard_7816 | 175/176 (+1 excl.) | 1850/2618 (+768 excl.) | 29/29 | 24/24 | 50/50 | pass |
+| TSP | 234/237 (+3 excl.) | 7610/7830 (+220 excl.) | 26/26 | 11/11 | 57/57 | pass |
+| Timer_WDT | 30/30 | 845/1298 (+453 excl.) | n/a | 10/10 | 34/34 | pass |
+| Video_Codec | 19/19 | 928/1022 (+94 excl.) | n/a | 7/7 | 58/58 | pass |
+| soc_ss_axi_engine | 66/68 (+2 excl.) | 1032/1132 (+100 excl.) | 14/14 | 22/22 | 162/162 | pass |
+
+Totals: line 1722/1743 (+21 excluded), toggle 43381/48498 (+5117 excluded), fsm 441/487 (+46 excluded), sva 307/307, functional 1512/1512.
+
+### APB register wrappers
+
+25/25 closed.
+
+| APB wrapper | Line | Toggle | FSM | SVA | Functional | Test + assertions |
+|---|---|---|---|---|---|---|
+| Audio_DSP_apb | 39/39 | 1288/1402 (+114 excl.) | n/a | 15/15 | 46/46 | pass |
+| CI_Plus_Host_apb | 59/59 | 2052/2262 (+210 excl.) | n/a | 32/32 | 92/92 | pass |
+| CPU_Cluster_apb | 39/39 | 1294/1410 (+116 excl.) | n/a | 13/13 | 50/50 | pass |
+| Crypto_DMA_apb | 76/76 | 3914/4028 (+114 excl.) | n/a | 31/31 | 80/80 | pass |
+| DDR4_AXI_apb | 23/23 | 1032/1062 (+30 excl.) | n/a | 7/7 | 31/31 | pass |
+| DMA_apb | 75/75 | 2720/2826 (+106 excl.) | n/a | 31/31 | 85/85 | pass |
+| Display_Controller_apb | 34/34 | 1046/1304 (+258 excl.) | n/a | 11/11 | 44/44 | pass |
+| GPU_apb | 39/39 | 1292/1406 (+114 excl.) | n/a | 14/14 | 46/46 | pass |
+| GbE_DMA_apb | 52/52 | 1686/1784 (+98 excl.) | n/a | 21/21 | 64/64 | pass |
+| I2C_Host_apb | 29/29 | 548/548 | n/a | 15/15 | 39/39 | pass |
+| I2S_DMA_apb | 37/37 | 1214/1314 (+100 excl.) | n/a | 13/13 | 46/46 | pass |
+| ISP_apb | 36/36 | 1103/1368 (+265 excl.) | n/a | 15/15 | 44/44 | pass |
+| Interrupt_Controller_apb | 34/34 | 1195/1484 (+289 excl.) | n/a | 12/12 | 41/41 | pass |
+| LPDDR4_AXI_apb | 23/23 | 1044/1068 (+24 excl.) | n/a | 7/7 | 31/31 | pass |
+| Modem_apb | 39/39 | 1292/1402 (+110 excl.) | n/a | 14/14 | 46/46 | pass |
+| NPU_apb | 39/39 | 1332/1446 (+114 excl.) | n/a | 18/18 | 46/46 | pass |
+| QSPI_XIP_apb | 37/37 | 1249/1256 (+7 excl.) | n/a | 16/16 | 42/42 | pass |
+| SDMMC_ADMA_apb | 46/46 | 1738/1818 (+80 excl.) | n/a | 22/22 | 69/69 | pass |
+| SMMU_apb | 31/31 | 1408/1464 (+56 excl.) | n/a | 10/10 | 38/38 | pass |
+| SPI_Host_apb | 32/32 | 548/548 | n/a | 13/13 | 36/36 | pass |
+| Sensor_Hub_apb | 33/33 | 1007/1256 (+249 excl.) | n/a | 13/13 | 46/46 | pass |
+| Smartcard_7816_apb | 49/49 | 1506/1762 (+256 excl.) | n/a | 23/23 | 72/72 | pass |
+| TSP_apb | 67/67 | 2186/2516 (+330 excl.) | n/a | 28/28 | 92/92 | pass |
+| Timer_WDT_apb | 40/40 | 1276/1544 (+268 excl.) | n/a | 16/16 | 52/52 | pass |
+| Video_Codec_apb | 40/40 | 1258/1368 (+110 excl.) | n/a | 13/13 | 48/48 | pass |
+
+Totals: line 1048/1048, toggle 36228/39646 (+3418 excluded), fsm 0/0, sva 423/423, functional 1326/1326.
