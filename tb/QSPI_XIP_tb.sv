@@ -170,6 +170,48 @@ module QSPI_XIP_tb;
     if (s_bresp !== 2'b10) fail("AXI write not SLVERR");
     @(negedge clk); s_bready = 0;
     rnd_burst();
+    // command shapes: 1 to 3 write bytes, an address with a read, PC_NRD
+    // above 4 (4 bytes read)
+    pc(8'h06, 0, 0, 0, 0, 0);
+    pc(8'h02, 1, 24'h00_7000, 1, $urandom, 0);
+    pc(8'h06, 0, 0, 0, 0, 0);
+    pc(8'h02, 1, 24'h00_7010, 2, $urandom, 0);
+    pc(8'h06, 0, 0, 0, 0, 0);
+    pc(8'h02, 1, 24'hFF_7020, 3, $urandom, 0);
+    pc(8'h03, 1, 24'h00_7010, 0, 0, 4);
+    if (pc_rdata !== fword(32'h0000_7010)) fail($sformatf("read command: %h, expected %h", pc_rdata, fword(32'h0000_7010)));
+    for (int n = 5; n < 8; n++) begin
+      pc(8'h9F, 0, 0, 0, 0, n);
+      if (pc_rdata[23:0] !== 24'h18_40EF) fail($sformatf("JEDEC ID with PC_NRD %0d: %h", n, pc_rdata));
+    end
+    // every bit of DIV (slowest SCLK), and DIV 0
+    div = 255; pc(8'h05, 0, 0, 0, 0, 1);
+    div = 0;  rd(32'hFFFF_0040, 3, 2, 1); pc(8'h05, 0, 0, 0, 0, 1);
+    div = 2;
+    // the word at hand: a burst inside the last word read
+    rd(32'h0000_0400, 0, 0, 1); rd(32'h0000_0401, 0, 0, 1); rd(32'h0000_0402, 1, 0, 1);
+    // upper address bits are ignored (the window is 16 MB)
+    for (int k = 0; k < 8; k++) rd(($urandom & 32'hFFFF_0000) | 32'h0000_0800 | 32'(k * 64), 3, 2, 1);
+    // a command while an XIP burst runs waits for it; a burst while a
+    // command runs waits for it
+    fork
+      rd(32'h0000_0900, 15, 2, 1);
+      begin clks(30); pc(8'h05, 0, 0, 0, 0, 1); end
+    join
+    fork
+      pc(8'h9F, 0, 0, 0, 0, 3);
+      begin clks(5); rd(32'h0000_0A00, 3, 2, 1); end
+    join
+    // reset in the middle of a frame
+    @(negedge clk);
+    s_arid = 1; s_araddr = 32'h0000_0B00; s_arlen = 7; s_arsize = 2; s_arburst = 1; s_arvalid = 1;
+    @(posedge clk); while (!s_arready) @(posedge clk);
+    @(negedge clk); s_arvalid = 0;
+    clks(60);
+    rst_n = 0; clks(3);
+    if (!csn || s_rvalid || xip_cmds != 0) fail("not idle in reset");
+    rst_n = 1; clks(5);
+    rd(32'h0000_0C00, 3, 2, 1);
     clks(20);
     errors += flash.errors;
     $display("QSPI_XIP: %0d beats, %0d XIP read commands, %0d flash commands", n_beats, xip_cmds, flash.n_cmds);

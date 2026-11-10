@@ -7,14 +7,18 @@
 // connects to the IP's ports and to its internal stream signals (rs_*, ws_*:
 // the engine's read and write streams) by name through the bind.
 //
-// Provides: go (a START that is taken), dcls() (data class: zero, all ones,
+// Provides: go (a START that is taken: SOC_SS_GO, default START && !BUSY), dcls() (data class: zero, all ones,
 // 0x55 / 0xAA, other), lcls() (length class), the assertions a_err_irq and
 // a_busy_after_start, covergroup cg_soc_ss_job and the cover properties
 // fc_back_to_back_jobs, fc_start_while_busy, fc_rs_stall (not for a
 // write-only IP: `define SOC_SS_WRITE_ONLY), fc_ws_stall (not
 // for a read-only IP: `define SOC_SS_READ_ONLY) and fc_reset_mid_job.
   wire s_start = start;      // (start is also a covergroup method name)
-  wire go = start && !busy;
+`ifndef SOC_SS_GO            // define it before the include when a START can be ignored
+`define SOC_SS_GO (start && !busy)
+`endif
+  wire go = `SOC_SS_GO;
+`undef SOC_SS_GO
   logic j_err_q;             // ERR of the job that just ended
   always_ff @(posedge clk) j_err_q <= err;
 
@@ -27,7 +31,11 @@
            (n < 1024) ? 3'd4 : (n != 16'hFFFF) ? 3'd5 : 3'd6;
   endfunction
 
-  `SVA_INV(a_err_irq, err_irq == (done && err))
+`ifndef SOC_SS_ERR_IRQ        // define it before the include when other errors raise ERR_IRQ too
+`define SOC_SS_ERR_IRQ (done && err)
+`endif
+  `SVA_INV(a_err_irq, err_irq == `SOC_SS_ERR_IRQ)
+`undef SOC_SS_ERR_IRQ
   `SVA_NXT(a_busy_after_start, go, busy)
 
   covergroup cg_soc_ss_job @(posedge clk);

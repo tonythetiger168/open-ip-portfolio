@@ -195,6 +195,7 @@ module SDMMC_ADMA_tb;
     cmd_ok(3, 0, R48); rca = rsp0[31:16];
     if (rca !== 16'hB37A) fail($sformatf("RCA %h", rca));
     cmd_ok(7, {rca, 16'h0}, R1B);
+    xfer(0, 5, 1, 512); xfer(1, 5, 1, 512);                  // 1-bit write and read
     cmd_ok(55, {rca, 16'h0}, R48); cmd_ok(6, 2, R48);
     bus_w = 1; clk_div = 0;
     for (int k = 0; k < ($test$plusargs("quick") ? 2 : 14); k++) begin
@@ -291,6 +292,80 @@ module SDMMC_ADMA_tb;
     card.f_rd_crc = 1; xfer(1, 1, 2, 512, 0);
     if (!d_err[1]) fail($sformatf("eMMC read CRC: D_ERR %b", d_err));
     for (int k = 0; k < 2; k++) rnd_xfer();
+    // ------------------------------------------------ more corners (eMMC, 8-bit)
+    mem.rand_id = 1;
+    // a reserved descriptor (skipped), then one tran of length 0 (65536
+    // bytes) capped at the transfer; BLKCNT 0 counts as 1
+    for (int c = 0; c < 2; c++) begin
+      logic [31:0] p;
+      p = DT0;
+      desc(p, {16'd0, 10'd0, 2'b01, 4'b0001}, 32'h0);
+      desc(p, {16'd0, 10'd0, 2'b10, 4'b0011}, 32'h0810_0000);
+      adma_addr = DT0; blksz = 512; blkcnt = c ? 16'd0 : 16'd2;
+      sdcmd(c ? 6'd17 : 6'd18, 0, R48, 1, 2'd1, e);
+      wait_xfer();
+      if (!c) cmd_ok(12, 0, R1B);
+      if (d_err != 0 || blk_done != (c ? 16'd1 : 16'd2)) fail($sformatf("65536-byte descriptor: D_ERR %b BLK_DONE %0d", d_err, blk_done));
+    end
+    // response with the wrong index, response end bit 0
+    card.f_ridx = 1; sdcmd(13, {rca, 16'h0}, R48, 1, 0, e); if (e !== 5'b00100) fail($sformatf("index: C_ERR %b", e));
+    card.f_rend = 1; sdcmd(13, {rca, 16'h0}, R48, 1, 0, e); if (!e[3]) fail($sformatf("end bit: C_ERR %b", e));
+    clks(50);
+    // read block end bit 0; data timeout (a command with no data); the
+    // data command failing
+    build(128); blksz = 512; blkcnt = 1;
+    card.f_rd_end = 1; sdcmd(17, 0, R48, 1, 2'd1, e); wait_xfer();
+    if (!d_err[2]) fail($sformatf("read end bit: D_ERR %b", d_err));
+    dto = 300;
+    build(128); sdcmd(13, {rca, 16'h0}, R48, 1, 2'd1, e); wait_xfer();
+    if (!d_err[0]) fail($sformatf("data timeout: D_ERR %b", d_err));
+    dto = 24'd20000;
+    build(128); card.f_mute = 1; sdcmd(17, 0, R48, 1, 2'd1, e); wait_xfer();
+    if (!d_err[7]) fail($sformatf("data command failed: D_ERR %b", d_err));
+    clks(200);
+    // EXOKAY and DECERR from memory
+    for (int c = 0; c < 2; c++) begin
+      build(128); blksz = 512; blkcnt = 1;
+      mem.err_resp = c ? 2'b11 : 2'b01; mem.err_lo = seg_a[0]; mem.err_hi = seg_a[0] + 4;
+      sdcmd(17, 0, R48, 1, 2'd1, e); wait_xfer();
+      mem.err_lo = 32'hFFFF_FFFF; mem.err_hi = 32'hFFFF_FFFF; mem.err_resp = 2'b10;
+      if (!d_err[5]) fail($sformatf("response %0d: D_ERR %b", c ? 3 : 1, d_err));
+      clks(200);
+    end
+    // DAT_RESET during a write; SD_CLK gated during a read; a command and
+    // an ignored data command while a read runs
+    build(4 * 128); blksz = 512; blkcnt = 4;
+    for (int i = 0; i < 4 * 128; i++) mem.poke(seg_word(i), $urandom);
+    begin
+      int ce;
+      ce = card.errors;
+      sdcmd(25, 8, R48, 1, 2'd2, e);
+      clks(400); @(negedge clk); dat_reset = 1; @(negedge clk); dat_reset = 0;
+      wait_xfer(); cmd_ok(12, 0, R1B);
+      clks(100);
+      card.errors = ce;   // the host stops in the middle of a block on purpose: the card sees a broken block
+    end
+    if (!xfer_err_seen) fail("DAT_RESET during a write: no XFER_ERR");
+    clks(200);
+    build(8 * 128); blksz = 512; blkcnt = 8;
+    sdcmd(18, 16, R48, 1, 2'd1, e);
+    clks(300); @(negedge clk); clk_en = 0; clks(100); clk_en = 1;
+    clks(300);
+    @(negedge clk); c_idx = 17; c_data = 2'd1; c_start = 1; @(negedge clk); c_start = 0; c_data = 0;
+    cmd_ok(13, {rca, 16'h0}, R48);
+    wait_xfer(); cmd_ok(12, 0, R1B);
+    if (d_err != 0) fail($sformatf("gated / overlapped read: D_ERR %b", d_err));
+    // the slowest and a mid SD_CLK
+    clk_div = 10'h3FF; cmd_ok(13, {rca, 16'h0}, R48);
+    clk_div = 12; xfer(1, 2, 1, 64);
+    clk_div = 0;
+    // reset in the middle of a transfer
+    build(4 * 128); blksz = 512; blkcnt = 4;
+    sdcmd(18, 0, R48, 1, 2'd1, e);
+    clks(500);
+    rst_n = 0; clks(3);
+    if (dat_busy || cmd_busy) fail("not idle in reset");
+    rst_n = 1; clks(10);
     errors += card.errors;
     $display("SDMMC_ADMA: %0d transfers, card %0d commands, %0d blocks read, %0d written",
              n_xfer, card.n_cmds, card.n_rd_blk, card.n_wr_blk);

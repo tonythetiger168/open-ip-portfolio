@@ -1,0 +1,7 @@
+INCLUDE soc_ss_axi_manager
+# Store and forward: a TX frame is handed to the MAC only once it is whole in
+# the TX FIFO, and the MAC takes a byte per byte time while the FIFO always
+# has the next one, so the MAC never underruns (a_tx_store_fwd checks the
+# FIFO holds the rest of the frame whenever TX_VALID is high).
+TOGGLE _top\.(tx_underrun|tx_ur): # the MAC never underruns: store and forward
+LINE GbE_DMA_top\.sv:226:if: # the MAC never underruns: store and forward
