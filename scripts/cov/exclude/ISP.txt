@@ -1,0 +1,5 @@
+INCLUDE soc_ss_axi_manager
+INCLUDE soc_ss_write_only
+# STAT_SUM of a frame is at most 65535 words x 4 pixels x 255 < 2^26, so
+# bits 26-31 can never be set (a_stat_sum checks the whole register).
+TOGGLE ISP_top\.stat_sum\[(2[6-9]|3[01])\] # a frame sums at most 65535 x 4 x 255 < 2^26
