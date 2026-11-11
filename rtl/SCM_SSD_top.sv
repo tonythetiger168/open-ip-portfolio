@@ -330,7 +330,8 @@ module SCM_SSD_top #(
             if (op_bad || fld_bad || op == 2'd0 || !(ns1 || ns2) || fdp_bad || prp_bad ||
                 !(slba_hi0 && (ns2 ? ns2_rng : ns1_rng)) || !prp_in) begin
               st <= S_CPL; rn <= CW'(4);
-            end else st <= op == 2'd2 ? S_MEDIA : S_XFER;
+            end else if (op == 2'd2) st <= S_MEDIA;
+            else st <= S_XFER;
           end
           S_MEDIA:                       // Read: media access time
             if (lat == 8'd1) st <= S_XFER;
