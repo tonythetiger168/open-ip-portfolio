@@ -33,6 +33,7 @@ scripts/package_releases.py  rebuilds releases/ from the current tree
 scripts/gen_filelists.py     rebuilds sim/filelist_<P>.f from the Makefiles
 scripts/mut/run_mut.py       mutation testing of the testbenches (Icarus or the Verilator flow)
 docs/ip/                 one page per IP: ports, register map, coverage
+docs/spec/               design specs (issue #41): cycle-level timing + TB check map per IP
 docs/                    coverage closure, portfolio review, methodology notes
 gen_framework.py         original v1 generator (frozen: out of sync with rtl/ and tb/)
 setup_tools.sh           installs yosys and iverilog 13.0 if missing
