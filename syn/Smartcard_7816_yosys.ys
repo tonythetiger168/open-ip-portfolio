@@ -1,0 +1,8 @@
+# Smartcard_7816 synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/Smartcard_7816_top.sv ../rtl/soc_ss_axi_engine.sv ../rtl/tv_fifo.sv
+hierarchy -check -top Smartcard_7816_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json Smartcard_7816_top.json
+write_verilog Smartcard_7816_top_netlist.v

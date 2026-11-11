@@ -1,0 +1,7 @@
+# DDR4_AXI_apb coverage exclusions: constants of the AXI4 subordinate front end
+# (rtl/ddr_axi_slv.sv) and core pin bits that are constant (see scripts/cov/exclude/DDR4_apb.txt).
+TOGGLE \.s_[br]resp\[0\] # constant 0: the front end answers OKAY (00) or SLVERR (10) only
+TOGGLE \.trace_addr\[1[1-7]\]: # constant 0: the front end maps halfword h to {h[24:11], 7'b0, h[10:0]}
+TOGGLE \.trace_cmd\[2\]: # constant 0: trace codes are 1 ACT, 2 RD, 3 WR
+TOGGLE \.dqs\[[01]\]: # tied Hi-Z: the model has no strobe
+TOGGLE \.addr\[1[4-6]\]: # always 0: rows are 14 bits, columns 8 bits

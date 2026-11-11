@@ -276,6 +276,21 @@ wrapper test. Pages in [docs/ip](docs/ip/README.md).
 > implementation** — this repository contains no such license and no device
 > keys. See [Protocol licensing notice](#protocol-licensing-notice-important).
 
+### Set-top box (STB) subsystems (3)
+
+Conditional-access and transport stream blocks of an STB SoC. Each has an AXI4 manager port
+built on the shared `rtl/soc_ss_axi_engine.sv` (default AXI IDs: smartcard
+10, CI host 11, TSP 12), an APB4 register wrapper, a self-checking core TB with a
+card / CAM model that prints one `LAT <master> dram R|W <cycles>` line per
+AXI burst, and a register-level wrapper test. Pages in
+[docs/ip](docs/ip/README.md).
+
+| IP | What it does | Build |
+|---|---|---|
+| Smartcard_7816 | ISO/IEC 7816-3 card reader: activation, ATR, T=0 (parity error signalling, repetition) and T=1 characters, waiting time; RX ring and TX buffer in memory | `make -f Makefile.Smartcard_7816 sim` |
+| CI_Plus_Host | DVB-CI / CI+ host (EN 50221 on an 8-bit PC Card bus): CAM power and reset, CIS read and COR write, command interface messages to and from memory, TS routed through the CAM | `make -f Makefile.CI_Plus_Host sim` |
+| TSP | Transport stream processor: DVB-CISSA (AES-128-CBC) descrambling with even / odd keys on 4 PID slots, PCR capture for clock recovery, PES / section routing to two buffers | `make -f Makefile.TSP sim` |
+
 ## Phone SoC subsystems (13)
 
 Light, synthesizable models of the blocks around the memory system of a
@@ -416,6 +431,14 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
   Ethernet PCS, Root of Trust, SHA-3, AES-GCM, TRNG, PCIe / CXL IDE, SPDM so far): lint, mutation, formal (bounded proofs; exhaustive checks of the
   ML-KEM, ML-DSA and RS-FEC arithmetic and the PCS functions and gearboxes), area and logic depth, and the list of what a production
   sign-off would still need: [docs/SIGNOFF.md](docs/SIGNOFF.md).
+- **Memory controller performance (measured):** every DDR / LPDDR / GDDR /
+  HBM controller page (`docs/ip/<P>.md`, 24 cores) has a Performance section:
+  unloaded read / write latency (page hit, closed bank, row conflict, behind a
+  refresh), sustained throughput for eight traffic patterns, refresh cost, and
+  a pre-layout Fmax and area on the open SKY130 library. All of it comes from
+  `bash scripts/perf/run_perf.sh <P>` (the IP's own TB with `+define+MEM_PERF`,
+  then `scripts/perf/sta_sky130.sh`); side-by-side table:
+  [docs/MEMORY_PERFORMANCE.md](docs/MEMORY_PERFORMANCE.md).
 
 ### Earlier four-metric flow (v2.5.1)
 
