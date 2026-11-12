@@ -1,0 +1,20 @@
+# SPDIF_eARC_apb coverage exclusions. Structural constants of the AXI4 manager
+# (rtl/soc_ss_axi_engine.sv): fixed ID, 32-bit beats (size 2, addresses
+# word aligned, all strobes set), INCR bursts, fixed AxPROT, at most 16 beats.
+TOGGLE \.m_(aw|ar)id\[ # constant: the manager drives its fixed AXI_ID parameter
+TOGGLE \.m_[br]id\[ # tied to the manager's single AXI_ID by the subordinate echo; never varies
+TOGGLE \.m_(aw|ar)addr\[[01]\] # constant 0: every access is a word-aligned 32-bit beat
+TOGGLE \.m_(aw|ar)len\[[567]\] # constant 0: bursts are at most 16 beats (AxLEN <= 15)
+TOGGLE \.m_(aw|ar)size\[ # constant 3'b010: 4-byte beats only
+TOGGLE \.m_(aw|ar)burst\[ # constant 2'b01: INCR bursts only
+TOGGLE \.m_(aw|ar)prot\[ # constant: the PROT parameter
+TOGGLE \.m_wstrb\[ # constant 4'hF: full-word writes only
+TOGGLE \.m_[br]resp\[0\] # constant 0: the test memory answers OKAY (00) or SLVERR (10); EXOKAY / DECERR not used
+TOGGLE \.m_(ar\w+|r\w+)(\[|:) # read channel unused: SPDIF_eARC only writes (the engine's rd_en is tied 0)
+TOGGLE \.m_wdata\[(24|25)\] # constant 0: a sample word is {chan_b, block_start, V, U, C, parity_err, 2'b00, sample[23:0]} (rtl/SPDIF_eARC_top.sv)
+TOGGLE \.c_wr_idx\[(0|1|2|3)\] # constant 0: WR_IDX moves in whole 16-word chunks
+TOGGLE \.c_wr_idx\[(6|7|8|9|10|11|12|13|14|15)\] # WR_IDX bits 6-15: the register-level ring has 64 words (RING_WORDS is 16 bits); the index wrap logic is the same for every size
+TOGGLE \.c_perr_cnt\[(1|2|3|4|5|6|7|8|9|10|11|12|13|14|15)\] # PERR_CNT bits 1-15: the register-level test reaches 1 parity errors; bit k needs 2^k of them, and the saturating +1 counter's low bits toggle here
+TOGGLE \.c_code_err_cnt\[(1|2|3|4|5|6|7|8|9|10|11|12|13|14|15)\] # CODE_ERR_CNT bits 1-15: the register-level test reaches 1 coding errors (lock losses); bit k needs 2^k of them, and the saturating +1 counter's low bits toggle here
+TOGGLE \.c_ovf_cnt\[(7|8|9|10|11|12|13|14|15)\] # OVF_CNT bits 7-15: the register-level test reaches under 128 dropped samples; bit k needs 2^k of them, and the saturating +1 counter's low bits toggle here
+TOGGLE \.c_samples\[(10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27|28|29|30|31)\] # SAMPLES bits 10-31: the register-level test reaches under 1024 subframes; bit k needs 2^k of them, and the saturating +1 counter's low bits toggle here

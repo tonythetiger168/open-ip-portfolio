@@ -1,0 +1,229 @@
+{
+  "title": "Memory firewall: 4 address regions with read / write / secure-only permission on an AXI4 path",
+  "code": "0x7C07",
+  "version": "1.0",
+  "features": [
+    "Sits between an AXI4 manager (s_*) and memory (m_*); each burst is checked against 4 regions [RGNn_BASE, RGNn_LIMIT] with RGNn_ATTR {secure_only, write, read, enable}.",
+    "A burst is allowed when its whole footprint (WRAP: the wrap container) lies in one enabled region that allows the access; secure_only regions need AxPROT[1] = 0.",
+    "Denied bursts never reach m_*: writes get a DECERR B after their data, reads DECERR beats with zero data. The first fault is held in FAULT_INFO / FAULT_ADDR until FAULT_CLR.",
+    "CTRL.enable 0: everything passes."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Enable",
+      "fields": [
+        {
+          "port": "enable",
+          "reset": "0",
+          "desc": "check bursts"
+        }
+      ]
+    },
+    {
+      "name": "RGN0_BASE",
+      "kind": "rw",
+      "desc": "Region 0 base",
+      "fields": [
+        {
+          "port": "rgn0_base",
+          "reset": "0",
+          "desc": "first byte"
+        }
+      ]
+    },
+    {
+      "name": "RGN0_LIMIT",
+      "kind": "rw",
+      "desc": "Region 0 limit",
+      "fields": [
+        {
+          "port": "rgn0_limit",
+          "reset": "0",
+          "desc": "last byte"
+        }
+      ]
+    },
+    {
+      "name": "RGN0_ATTR",
+      "kind": "rw",
+      "desc": "Region 0 permissions",
+      "fields": [
+        {
+          "port": "rgn0_attr",
+          "reset": "0",
+          "desc": "{secure_only, write, read, enable}"
+        }
+      ]
+    },
+    {
+      "name": "RGN1_BASE",
+      "kind": "rw",
+      "desc": "Region 1 base",
+      "fields": [
+        {
+          "port": "rgn1_base",
+          "reset": "0",
+          "desc": "first byte"
+        }
+      ]
+    },
+    {
+      "name": "RGN1_LIMIT",
+      "kind": "rw",
+      "desc": "Region 1 limit",
+      "fields": [
+        {
+          "port": "rgn1_limit",
+          "reset": "0",
+          "desc": "last byte"
+        }
+      ]
+    },
+    {
+      "name": "RGN1_ATTR",
+      "kind": "rw",
+      "desc": "Region 1 permissions",
+      "fields": [
+        {
+          "port": "rgn1_attr",
+          "reset": "0",
+          "desc": "{secure_only, write, read, enable}"
+        }
+      ]
+    },
+    {
+      "name": "RGN2_BASE",
+      "kind": "rw",
+      "desc": "Region 2 base",
+      "fields": [
+        {
+          "port": "rgn2_base",
+          "reset": "0",
+          "desc": "first byte"
+        }
+      ]
+    },
+    {
+      "name": "RGN2_LIMIT",
+      "kind": "rw",
+      "desc": "Region 2 limit",
+      "fields": [
+        {
+          "port": "rgn2_limit",
+          "reset": "0",
+          "desc": "last byte"
+        }
+      ]
+    },
+    {
+      "name": "RGN2_ATTR",
+      "kind": "rw",
+      "desc": "Region 2 permissions",
+      "fields": [
+        {
+          "port": "rgn2_attr",
+          "reset": "0",
+          "desc": "{secure_only, write, read, enable}"
+        }
+      ]
+    },
+    {
+      "name": "RGN3_BASE",
+      "kind": "rw",
+      "desc": "Region 3 base",
+      "fields": [
+        {
+          "port": "rgn3_base",
+          "reset": "0",
+          "desc": "first byte"
+        }
+      ]
+    },
+    {
+      "name": "RGN3_LIMIT",
+      "kind": "rw",
+      "desc": "Region 3 limit",
+      "fields": [
+        {
+          "port": "rgn3_limit",
+          "reset": "0",
+          "desc": "last byte"
+        }
+      ]
+    },
+    {
+      "name": "RGN3_ATTR",
+      "kind": "rw",
+      "desc": "Region 3 permissions",
+      "fields": [
+        {
+          "port": "rgn3_attr",
+          "reset": "0",
+          "desc": "{secure_only, write, read, enable}"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "fault_clr",
+          "desc": "clear the held fault"
+        }
+      ]
+    },
+    {
+      "name": "FAULT_INFO",
+      "kind": "ro",
+      "desc": "First fault",
+      "fields": [
+        {
+          "port": "fault_info",
+          "desc": "{id[3:0], non-secure, permission, write, valid}"
+        }
+      ]
+    },
+    {
+      "name": "FAULT_ADDR",
+      "kind": "ro",
+      "desc": "First fault address",
+      "fields": [
+        {
+          "port": "fault_addr",
+          "desc": "AxADDR of the first denied burst"
+        }
+      ]
+    },
+    {
+      "name": "DENIED",
+      "kind": "ro",
+      "desc": "Denied bursts",
+      "fields": [
+        {
+          "port": "denied_cnt",
+          "desc": "bursts denied since reset"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "FAULT",
+      "port": "fault",
+      "desc": "a burst was denied"
+    }
+  ],
+  "sequence": [
+    "Write RGNn_BASE / RGNn_LIMIT / RGNn_ATTR for the regions in use.",
+    "Write CTRL.enable = 1 and IRQ_ENABLE with FAULT.",
+    "On FAULT read FAULT_INFO / FAULT_ADDR, then CMD.fault_clr and IRQ_STATUS."
+  ],
+  "notes": [
+    "s_* is an AXI4 subordinate port and m_* an AXI4 manager port (32-bit address and data, 4-bit ID); both pass through the wrapper unchanged. Allowed bursts are forwarded unchanged, one read and one write at a time."
+  ]
+}

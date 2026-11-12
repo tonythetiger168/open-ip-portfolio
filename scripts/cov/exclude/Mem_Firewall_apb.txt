@@ -1,0 +1,7 @@
+# Mem_Firewall_apb coverage exclusions. The firewall passes allowed
+# bursts through unchanged, so its AXI4 manager pins m_* carry whatever the
+# initiator sends on s_*; the register test drives every field value the
+# 32-bit bus allows.
+TOGGLE \.[sm]_(aw|ar)size\[2\] # constant 0: a 32-bit data bus carries beats of at most 4 bytes (AxSIZE <= 2)
+TOGGLE \.m_[br]resp\[0\] # constant 0: the test memory answers OKAY (00) or SLVERR (10); DECERR (11) on s_* comes from the firewall itself
+TOGGLE \.c_denied_cnt\[(3|4|5|6|7|8|9|10|11|12|13|14|15)\] # DENIED_CNT bits 3-15: the register-level test reaches 6 denied bursts; bit k needs 2^k of them, and the saturating +1 counter's low bits toggle here
