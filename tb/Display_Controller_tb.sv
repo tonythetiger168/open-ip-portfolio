@@ -173,6 +173,7 @@ module Display_Controller_tb;
     run(33, 0, 0);
     // reset in the middle of a job: the core and the bus go idle
     @(negedge clk);
+    got.delete(); line_words = 0;   // no stale pixels from the previous job
     src_addr = 32'h0000_2000; dst_addr = 32'h4000_2000; xfer_len = 200;
     got.delete();   // the panel model counts this job's pixels from 0
     start = 1; @(negedge clk); start = 0;
