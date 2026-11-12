@@ -32,7 +32,7 @@ module irq_wait_tb;
   initial begin
     if(!$value$plusargs("stim=%s",stim)||!$value$plusargs("trace=%s",trace)) $fatal(1,"paths required");
     inf=$fopen(stim,"r");outf=$fopen(trace,"w");
-    if(!inf||!outf) $fatal(1,"file open");
+    if(inf==0||outf==0) $fatal(1,"file open");
     @(negedge clk);
     while(!$feof(inf)) begin
       n=$fscanf(inf,"%h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %h\n",
