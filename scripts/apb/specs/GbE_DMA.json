@@ -1,0 +1,242 @@
+{
+  "title": "Gigabit Ethernet MAC with TX and RX descriptor-ring DMA over AXI4 (store-and-forward TX, 4 KB RX FIFO)",
+  "code": "0x5C41",
+  "version": "1.0",
+  "axi_master": {
+    "id": 10,
+    "reads": true,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "The unchanged Ethernet_top MAC (GMII-style byte interface, address filter, PAUSE).",
+    "Descriptors of 8 bytes: word 0 buffer address, word 1 length (TX) or buffer size (RX); entry i at BASE + 8 i.",
+    "Software owns TAIL, the hardware HEAD; entries HEAD .. TAIL - 1 belong to the hardware.",
+    "TX write-back: word 1 = {1 done, 0, underrun, bad_len, 12'd0, len}; frames of 1..2048 bytes, sent store-and-forward.",
+    "RX write-back: word 1 = {1 done, trunc, 10'd0, rx_stat {pause, phy_err, len_err, crc_err}, len}; frames wait in a 4 KB FIFO (4 frames) when no descriptor is free.",
+    "A frame that does not fit in the RX FIFO, arrives with 4 frames waiting, or arrives with RX_EN off is dropped (RX_DROP)."
+  ],
+  "tb_clk_ns": 10,
+  "tb_timeout": "1s",
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Enables and MAC options",
+      "fields": [
+        {
+          "port": "tx_en",
+          "reset": "0",
+          "desc": "process TX descriptors"
+        },
+        {
+          "port": "rx_en",
+          "reset": "0",
+          "desc": "accept frames"
+        },
+        {
+          "port": "cfg_promisc",
+          "reset": "0",
+          "desc": "accept every destination address"
+        },
+        {
+          "port": "cfg_pause_en",
+          "reset": "0",
+          "desc": "honour received PAUSE frames"
+        },
+        {
+          "port": "cfg_div",
+          "reset": "0",
+          "desc": "byte time = cfg_div + 1 clocks"
+        }
+      ]
+    },
+    {
+      "name": "MAC",
+      "kind": "rw",
+      "desc": "Station address over two words (MAC1 holds bits 47:32, the first address bytes)",
+      "fields": [
+        {
+          "port": "cfg_mac",
+          "reset": "0",
+          "desc": "accepted destination address"
+        }
+      ]
+    },
+    {
+      "name": "TX_BASE",
+      "kind": "rw",
+      "desc": "TX ring base (byte address, word aligned)",
+      "fields": [
+        {
+          "port": "tx_base",
+          "reset": "0",
+          "desc": "descriptor 0"
+        }
+      ]
+    },
+    {
+      "name": "TX_NUM",
+      "kind": "rw",
+      "desc": "TX ring entries",
+      "fields": [
+        {
+          "port": "tx_num",
+          "reset": "0",
+          "desc": "1..65535"
+        }
+      ]
+    },
+    {
+      "name": "TX_TAIL",
+      "kind": "rw",
+      "desc": "TX tail (software)",
+      "fields": [
+        {
+          "port": "tx_tail",
+          "reset": "0",
+          "desc": "next entry software will fill"
+        }
+      ]
+    },
+    {
+      "name": "RX_BASE",
+      "kind": "rw",
+      "desc": "RX ring base (byte address, word aligned)",
+      "fields": [
+        {
+          "port": "rx_base",
+          "reset": "0",
+          "desc": "descriptor 0"
+        }
+      ]
+    },
+    {
+      "name": "RX_NUM",
+      "kind": "rw",
+      "desc": "RX ring entries",
+      "fields": [
+        {
+          "port": "rx_num",
+          "reset": "0",
+          "desc": "1..65535"
+        }
+      ]
+    },
+    {
+      "name": "RX_TAIL",
+      "kind": "rw",
+      "desc": "RX tail (software)",
+      "fields": [
+        {
+          "port": "rx_tail",
+          "reset": "0",
+          "desc": "next entry software will post"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "clr_err",
+          "desc": "clear STATUS.err"
+        }
+      ]
+    },
+    {
+      "name": "HEAD",
+      "kind": "ro",
+      "desc": "Hardware heads",
+      "fields": [
+        {
+          "port": "tx_head",
+          "desc": "next TX entry the hardware will use"
+        },
+        {
+          "port": "rx_head",
+          "desc": "next RX entry the hardware will use"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "State",
+      "fields": [
+        {
+          "port": "err",
+          "desc": "an AXI error response was seen (until CMD.clr_err)"
+        },
+        {
+          "port": "tx_paused",
+          "desc": "the transmitter is held by a PAUSE"
+        }
+      ]
+    },
+    {
+      "name": "FRAMES",
+      "kind": "ro",
+      "desc": "Frame counters",
+      "fields": [
+        {
+          "port": "tx_frames",
+          "desc": "frames sent"
+        },
+        {
+          "port": "rx_frames",
+          "desc": "frames written to memory"
+        }
+      ]
+    },
+    {
+      "name": "RX_DROP",
+      "kind": "ro",
+      "desc": "Dropped frames",
+      "fields": [
+        {
+          "port": "rx_drop",
+          "desc": "frames dropped"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "TX",
+      "port": "tx_irq",
+      "desc": "a TX descriptor was written back"
+    },
+    {
+      "name": "RX",
+      "port": "rx_irq",
+      "desc": "an RX descriptor was written back"
+    },
+    {
+      "name": "DROP",
+      "port": "drop_irq",
+      "desc": "a received frame was dropped"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "an AXI error response"
+    }
+  ],
+  "sequence": [
+    "Write MAC, CTRL.cfg_div, TX_BASE / TX_NUM, RX_BASE / RX_NUM, then CTRL.tx_en / rx_en.",
+    "RX: fill descriptors with buffer address and size, advance RX_TAIL.",
+    "TX: fill descriptors with buffer address and frame length, advance TX_TAIL.",
+    "On TX / RX interrupts read HEAD and the written-back descriptors."
+  ],
+  "notes": [
+    "gtxd / gtx_en / gtx_er and grxd / grx_dv / grx_er are the GMII pins; they pass through unchanged.",
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time. A read burst is issued only when its data has room, a write burst only when all its data is ready."
+  ]
+}

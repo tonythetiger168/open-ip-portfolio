@@ -1,0 +1,141 @@
+{
+  "title": "Display controller: frame scan-out over AXI4 to a pixel stream with sync markers and a frame CRC",
+  "code": "0x5C05",
+  "version": "1.0",
+  "axi_master": {
+    "id": 4,
+    "reads": true,
+    "writes": false,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "Reads LEN RGBA8888 pixels (one per word) at SRC and sends them on pix_valid / pix_data / pix_ready.",
+    "pix_hsync is high with the last pixel of each line (LINE_WORDS pixels; LINE_WORDS 0: every pixel) and with the last pixel of the frame; pix_vsync with the last pixel of the frame.",
+    "FRAME_CRC = CRC-32 (IEEE 802.3: reflected, polynomial 0xEDB88320, init 0xFFFFFFFF, final XOR 0xFFFFFFFF) of the pixels sent, bytes in little-endian order.",
+    "UNDERRUNS counts clocks in which pix_ready was high, the frame was not finished and no pixel was available."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "SRC_ADDR",
+      "kind": "rw",
+      "desc": "Source address (byte address, word aligned)",
+      "fields": [
+        {
+          "port": "src_addr",
+          "reset": "0",
+          "desc": "first word read by the job"
+        }
+      ]
+    },
+    {
+      "name": "LEN",
+      "kind": "rw",
+      "desc": "Job length",
+      "fields": [
+        {
+          "port": "xfer_len",
+          "reset": "0",
+          "desc": "32-bit words (0: the job ends at once)"
+        }
+      ]
+    },
+    {
+      "name": "LINE",
+      "kind": "rw",
+      "desc": "Panel geometry",
+      "fields": [
+        {
+          "port": "line_words",
+          "reset": "0",
+          "desc": "pixels per line"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "start",
+          "desc": "start a job with the current registers; ignored while busy"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Job state",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "a job is running"
+        },
+        {
+          "port": "err",
+          "desc": "the current / last job saw an AXI error response (cleared by start)"
+        }
+      ]
+    },
+    {
+      "name": "FRAME_CRC",
+      "kind": "ro",
+      "desc": "Frame signature",
+      "fields": [
+        {
+          "port": "frame_crc",
+          "desc": "CRC-32 of the pixels sent"
+        }
+      ]
+    },
+    {
+      "name": "UNDERRUNS",
+      "kind": "ro",
+      "desc": "Starved clocks",
+      "fields": [
+        {
+          "port": "underruns",
+          "desc": "clocks the panel waited for a pixel"
+        }
+      ]
+    },
+    {
+      "name": "CYCLES",
+      "kind": "ro",
+      "desc": "Job length in clocks",
+      "fields": [
+        {
+          "port": "cycles",
+          "desc": "clocks from start to DONE of the current / last job"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DONE",
+      "port": "done",
+      "desc": "a job ended"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "a job ended that saw an AXI error response"
+    }
+  ],
+  "sequence": [
+    "Write SRC_ADDR, DST_ADDR (word aligned) and LEN (32-bit words).",
+    "Write CTRL with the job's options and IRQ_ENABLE with DONE (and ERR).",
+    "Write CMD.start = 1 (ignored while STATUS.busy is 1).",
+    "Wait for irq (or poll STATUS.busy = 0), read the result registers, write 1s to IRQ_STATUS to clear it."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time. A read burst is issued only when its data has room, a write burst only when all its data is ready.",
+    "pix_valid / pix_data / pix_hsync / pix_vsync / pix_ready (the panel interface) pass through unchanged."
+  ]
+}

@@ -1,0 +1,450 @@
+{
+  "status": "PASS",
+  "executed_at_utc": "2026-11-02T11:06:33.012208+00:00",
+  "runs": [
+    {
+      "configuration": "normal",
+      "seed": 1,
+      "cycles": 744,
+      "bins": {
+        "reset": 4,
+        "idle": 31,
+        "setup": 355,
+        "accepted": 354,
+        "endpoint_0": 155,
+        "read_compare": 183,
+        "prot_0": 92,
+        "strobe_0": 9,
+        "strobe_1": 5,
+        "prot_1": 33,
+        "strobe_2": 9,
+        "prot_2": 35,
+        "strobe_3": 12,
+        "prot_3": 40,
+        "strobe_4": 8,
+        "prot_4": 37,
+        "strobe_5": 7,
+        "prot_5": 38,
+        "strobe_6": 14,
+        "prot_6": 43,
+        "strobe_7": 16,
+        "prot_7": 36,
+        "strobe_8": 12,
+        "strobe_9": 12,
+        "strobe_10": 7,
+        "strobe_11": 5,
+        "strobe_12": 10,
+        "strobe_13": 6,
+        "strobe_14": 11,
+        "strobe_15": 9,
+        "child_hole": 2,
+        "misaligned": 6,
+        "unmapped": 3,
+        "endpoint_1": 190
+      },
+      "status": "PASS"
+    },
+    {
+      "configuration": "normal",
+      "seed": 17,
+      "cycles": 741,
+      "bins": {
+        "reset": 4,
+        "idle": 28,
+        "setup": 355,
+        "accepted": 354,
+        "endpoint_0": 165,
+        "read_compare": 183,
+        "prot_0": 90,
+        "strobe_0": 6,
+        "strobe_1": 11,
+        "prot_1": 35,
+        "strobe_2": 7,
+        "prot_2": 38,
+        "strobe_3": 10,
+        "prot_3": 45,
+        "strobe_4": 6,
+        "prot_4": 42,
+        "strobe_5": 9,
+        "prot_5": 43,
+        "strobe_6": 11,
+        "prot_6": 34,
+        "strobe_7": 9,
+        "prot_7": 27,
+        "strobe_8": 15,
+        "strobe_9": 8,
+        "strobe_10": 11,
+        "strobe_11": 4,
+        "strobe_12": 7,
+        "strobe_13": 7,
+        "strobe_14": 16,
+        "strobe_15": 15,
+        "child_hole": 2,
+        "misaligned": 6,
+        "unmapped": 3,
+        "endpoint_1": 180
+      },
+      "status": "PASS"
+    },
+    {
+      "configuration": "normal",
+      "seed": 20261102,
+      "cycles": 739,
+      "bins": {
+        "reset": 4,
+        "idle": 26,
+        "setup": 355,
+        "accepted": 354,
+        "endpoint_0": 171,
+        "read_compare": 183,
+        "prot_0": 80,
+        "strobe_0": 8,
+        "strobe_1": 7,
+        "prot_1": 40,
+        "strobe_2": 8,
+        "prot_2": 45,
+        "strobe_3": 6,
+        "prot_3": 38,
+        "strobe_4": 7,
+        "prot_4": 30,
+        "strobe_5": 9,
+        "prot_5": 40,
+        "strobe_6": 7,
+        "prot_6": 39,
+        "strobe_7": 13,
+        "prot_7": 42,
+        "strobe_8": 10,
+        "strobe_9": 8,
+        "strobe_10": 8,
+        "strobe_11": 11,
+        "strobe_12": 12,
+        "strobe_13": 12,
+        "strobe_14": 12,
+        "strobe_15": 14,
+        "child_hole": 2,
+        "misaligned": 6,
+        "unmapped": 3,
+        "endpoint_1": 174
+      },
+      "status": "PASS"
+    },
+    {
+      "configuration": "overlap",
+      "seed": 1,
+      "cycles": 744,
+      "bins": {
+        "reset": 4,
+        "idle": 31,
+        "setup": 355,
+        "accepted": 354,
+        "overlap": 158,
+        "prot_0": 92,
+        "prot_1": 33,
+        "prot_2": 35,
+        "prot_3": 40,
+        "prot_4": 37,
+        "prot_5": 38,
+        "prot_6": 43,
+        "prot_7": 36,
+        "unmapped": 193,
+        "misaligned": 3
+      },
+      "status": "PASS"
+    },
+    {
+      "configuration": "overlap",
+      "seed": 17,
+      "cycles": 741,
+      "bins": {
+        "reset": 4,
+        "idle": 28,
+        "setup": 355,
+        "accepted": 354,
+        "overlap": 168,
+        "prot_0": 90,
+        "prot_1": 35,
+        "prot_2": 38,
+        "prot_3": 45,
+        "prot_4": 42,
+        "prot_5": 43,
+        "prot_6": 34,
+        "prot_7": 27,
+        "unmapped": 183,
+        "misaligned": 3
+      },
+      "status": "PASS"
+    },
+    {
+      "configuration": "overlap",
+      "seed": 20261102,
+      "cycles": 739,
+      "bins": {
+        "reset": 4,
+        "idle": 26,
+        "setup": 355,
+        "accepted": 354,
+        "overlap": 174,
+        "prot_0": 80,
+        "prot_1": 40,
+        "prot_2": 45,
+        "prot_3": 38,
+        "prot_4": 30,
+        "prot_5": 40,
+        "prot_6": 39,
+        "prot_7": 42,
+        "unmapped": 177,
+        "misaligned": 3
+      },
+      "status": "PASS"
+    },
+    {
+      "configuration": "real-endpoint-irq-axi-wait",
+      "seed": 1,
+      "cycles": 80,
+      "bins": {
+        "aw_accept": 2,
+        "b_wait": 27,
+        "b_complete": 1,
+        "ar_accept": 3,
+        "r_wait": 22,
+        "r_complete": 2,
+        "irq_masked": 25,
+        "b_error": 25,
+        "csr_read_compare": 11,
+        "irq_unmasked": 14,
+        "w1c_set_wins": 2,
+        "reset_pending_irq": 2,
+        "reset_pending_b": 1,
+        "r_error": 13,
+        "reset_pending_r": 1
+      },
+      "status": "PASS"
+    },
+    {
+      "configuration": "real-endpoint-irq-axi-wait",
+      "seed": 17,
+      "cycles": 77,
+      "bins": {
+        "aw_accept": 2,
+        "b_wait": 29,
+        "b_complete": 1,
+        "ar_accept": 3,
+        "r_wait": 17,
+        "r_complete": 2,
+        "irq_masked": 21,
+        "b_error": 24,
+        "csr_read_compare": 11,
+        "irq_unmasked": 14,
+        "w1c_set_wins": 2,
+        "reset_pending_irq": 2,
+        "reset_pending_b": 1,
+        "r_error": 10,
+        "reset_pending_r": 1
+      },
+      "status": "PASS"
+    },
+    {
+      "configuration": "real-endpoint-irq-axi-wait",
+      "seed": 20261102,
+      "cycles": 76,
+      "bins": {
+        "aw_accept": 2,
+        "b_wait": 24,
+        "b_complete": 1,
+        "ar_accept": 3,
+        "r_wait": 21,
+        "r_complete": 2,
+        "irq_masked": 20,
+        "b_error": 22,
+        "csr_read_compare": 11,
+        "irq_unmasked": 14,
+        "w1c_set_wins": 2,
+        "reset_pending_irq": 2,
+        "reset_pending_b": 1,
+        "r_error": 11,
+        "reset_pending_r": 1
+      },
+      "status": "PASS"
+    }
+  ],
+  "mutations": [
+    {
+      "name": "wrong_route",
+      "status": "DETECTED",
+      "witness": "cycle 3: route got 2, expected 1"
+    },
+    {
+      "name": "wrong_read_byte",
+      "status": "DETECTED",
+      "witness": "cycle 12: rd got 1, expected 0"
+    },
+    {
+      "name": "reset_ready",
+      "status": "DETECTED",
+      "witness": "cycle 0: ready got 1, expected 0"
+    },
+    {
+      "name": "wrong_strobe_forward",
+      "status": "DETECTED",
+      "witness": "cycle 3: child_strb got e, expected f"
+    },
+    {
+      "name": "wrong_write_forward",
+      "status": "DETECTED",
+      "witness": "cycle 3: child_wr got 1, expected 0"
+    },
+    {
+      "name": "wrong_protection_forward",
+      "status": "DETECTED",
+      "witness": "cycle 3: child_prot got 1, expected 0"
+    },
+    {
+      "name": "lost_cycle",
+      "status": "DETECTED",
+      "witness": "lost/duplicate cycle"
+    },
+    {
+      "name": "high_address_alias",
+      "status": "DETECTED",
+      "witness": "cycle 109: route got 1, expected 0",
+      "kind": "actual RTL mutant"
+    },
+    {
+      "name": "unaligned_forward",
+      "status": "DETECTED",
+      "witness": "cycle 97: route got 1, expected 0",
+      "kind": "actual RTL mutant"
+    },
+    {
+      "name": "lost_irq",
+      "status": "DETECTED",
+      "witness": "IRQ cycle27: irq got0, expected1",
+      "kind": "observation mutation"
+    },
+    {
+      "name": "wrong_bresp",
+      "status": "DETECTED",
+      "witness": "IRQ cycle5: bresp got1, expected0",
+      "kind": "observation mutation"
+    },
+    {
+      "name": "changed_stalled_rdata",
+      "status": "DETECTED",
+      "witness": "IRQ cycle10: rdata got2265b1f4, expected2265b1f5",
+      "kind": "observation mutation"
+    },
+    {
+      "name": "irq_mask_bypass",
+      "status": "DETECTED",
+      "witness": "IRQ cycle18: irq got1, expected0",
+      "kind": "actual RTL mutant"
+    },
+    {
+      "name": "w1c_clear_wins",
+      "status": "DETECTED",
+      "witness": "IRQ cycle31: irq got0, expected1",
+      "kind": "actual RTL mutant"
+    },
+    {
+      "name": "bvalid_requires_ready",
+      "status": "DETECTED",
+      "witness": "IRQ cycle5: bvalid got0, expected1",
+      "kind": "actual RTL mutant"
+    },
+    {
+      "name": "rvalid_requires_ready",
+      "status": "DETECTED",
+      "witness": "IRQ cycle10: rvalid got0, expected1",
+      "kind": "actual RTL mutant"
+    }
+  ],
+  "source_pins": [
+    {
+      "path": "rtl/AXI4_Lite_top.sv",
+      "commit": "e6a39a36d131c916688735a9874dfafb30474203",
+      "repository": "tonythetiger168/open-ip-portfolio",
+      "git_blob": "c5f14531042b631237cf26b9b9be30a7b363f903"
+    },
+    {
+      "path": "rtl/AXI4_Lite_apb.sv",
+      "commit": "e6a39a36d131c916688735a9874dfafb30474203",
+      "repository": "tonythetiger168/open-ip-portfolio",
+      "git_blob": "1b940ac8d239fa80876493f703284477f21ad5af",
+      "upstream_git_blob": "018a440709cd5a062011f6f43f884ebd3cea836d",
+      "adoption": "Scoped width-explicit copy proposal; upstream generator and root RTL unchanged"
+    },
+    {
+      "path": "rtl/apb_window_router.sv",
+      "commit": "c05c902f7eeaeb2587c447e08670203999741580",
+      "repository": "tonythetiger168/open-ip-portfolio",
+      "git_blob": "20b2e9ed9d437707130c0e6162a85a9e7b805b7c",
+      "adoption": "unmerged PR22 prototype"
+    }
+  ],
+  "harness_sha256": {
+    "run.py": "59e6eb028e7a0fe2d497d211e73cef37c7a505cac992e21a4adebcf29ec2621f",
+    "scoreboard.py": "9e48d51082230fdf45877ad60f98b9651130812ce0dbbb67484b7550aaf37ba3",
+    "control_slice_tb.sv": "080fce0f398bf9ed51bf6ca40116b03e046d66fb36fd9bebb5ecd872430f2263",
+    "sources.json": "d3138e57be8dcc65ec427eb89eed13faa0744d075da4a48ece4866c7c4f0fdd4",
+    "ci-workflow.yml": "9f51244ac2efad588a8cf70be52546526b8e0edeb36b134c2e5abaf0b3eaeec3",
+    "irq_wait.py": "1c06752b129de3891e1dac494a6bc1b820b63bec68830abd97e716ca9ea1a40b",
+    "irq_wait_scoreboard.py": "c364b1af8f4db4f2f0fd660c585d7de7879096e9497c589bd6086d8c59a865d1",
+    "irq_wait_tb.sv": "ec150fa6fb34295ff54f631de7f668f010b87ecfe9f0b580d8b3541d15d83760"
+  },
+  "native_metrics": {
+    "line": {
+      "status": "NOT_MEASURED",
+      "raw_hit": null,
+      "raw_total": null,
+      "exclusions": []
+    },
+    "fsm_states": {
+      "status": "NOT_MEASURED",
+      "raw_hit": null,
+      "raw_total": null,
+      "exclusions": []
+    },
+    "fsm_arcs": {
+      "status": "NOT_MEASURED",
+      "raw_hit": null,
+      "raw_total": null,
+      "exclusions": []
+    },
+    "toggle_01": {
+      "status": "NOT_MEASURED",
+      "raw_hit": null,
+      "raw_total": null,
+      "exclusions": []
+    },
+    "toggle_10": {
+      "status": "NOT_MEASURED",
+      "raw_hit": null,
+      "raw_total": null,
+      "exclusions": []
+    },
+    "branch_true": {
+      "status": "NOT_MEASURED",
+      "raw_hit": null,
+      "raw_total": null,
+      "exclusions": []
+    },
+    "branch_false": {
+      "status": "NOT_MEASURED",
+      "raw_hit": null,
+      "raw_total": null,
+      "exclusions": []
+    },
+    "sva": {
+      "status": "NOT_MEASURED",
+      "raw_hit": null,
+      "raw_total": null,
+      "exclusions": []
+    },
+    "functional": {
+      "status": "NOT_MEASURED",
+      "raw_hit": null,
+      "raw_total": null,
+      "exclusions": []
+    }
+  }
+}

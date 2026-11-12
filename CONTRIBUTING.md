@@ -27,7 +27,10 @@ new protocol IPs, deeper testbench coverage, and documentation.
   using only the open toolchain (Icarus Verilog 13.0, yosys 0.33; see
   README, Setup). Ubuntu's iverilog 12 is too loose: it accepts a net used
   above its declaration (issue #25)
-- CI (`scripts/ci_regression.sh`) runs all 142 protocols on every push
+- Every core and APB wrapper must pass `python3 scripts/lint/yosys_strict.py <P>`:
+  full Yosys synth + ABC, no inferred latches, and `check -assert` clean (no
+  multiply driven or undriven-but-read nets, no combinational loops)
+- CI (`scripts/ci_regression.sh`) runs every protocol on every push
 - A core or wrapper change must keep `bash scripts/cov/run_cov.sh <P>` and
   `<P>_apb` at `RESULT: CLOSED` (Verilator 5.052)
 

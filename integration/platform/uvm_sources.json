@@ -1,0 +1,73 @@
+{
+  "version": "platform-uvm-candidate-0.1",
+  "sources": [
+    {
+      "repository": "open-ip-portfolio",
+      "path": "rtl/APB_top.sv",
+      "sha256": "bb960519d6b2f5c2e3e40e81a469fd804bd6f8d809659c605a82535823b19bec",
+      "git_blob": "5b55a2c5aa7331cf3c40a4c204aa88955d42fa85"
+    },
+    {
+      "repository": "open-ip-portfolio",
+      "path": "rtl/platform/apb_window_router.sv",
+      "sha256": "8bec3dfeccfb0ce3e0bd65f508adb9d238e85a0cf830f809820a6ae03f725554",
+      "git_blob": "20b2e9ed9d437707130c0e6162a85a9e7b805b7c"
+    },
+    {
+      "repository": "open-ip-portfolio",
+      "path": "rtl/platform/platform_apb_slice.sv",
+      "sha256": "cd4f0e3910bbba4ed7d7e67adbddb8de5fc3ddacf1af810ee07edca2eb201b9a",
+      "git_blob": "d14fe450d20a467ca915f941d8174f1941f0d059"
+    },
+    {
+      "repository": "open-vip-portfolio",
+      "path": "ipcheck/platform/uvm/elaborate_uvm.py",
+      "sha256": "e16ba103621b1a748c14d87f76195733657f954ff5a8d37276a427e83d71f697",
+      "git_blob": "252041f52a3eb01346d6d38cfdbda4f3b7817b5c"
+    },
+    {
+      "repository": "open-vip-portfolio",
+      "path": "ipcheck/platform/uvm/platform_apb_if.sv",
+      "sha256": "16c0af352a79bab1136f5b82012b2da00446e1e3a632f24b9287ac6d5bc3d6de",
+      "git_blob": "6a6f137f1e63cb106c47536e0a5ccf315ce9b1f2"
+    },
+    {
+      "repository": "open-vip-portfolio",
+      "path": "ipcheck/platform/uvm/platform_apb_pkg.sv",
+      "sha256": "2316f96bf377d74ff323996effd7c8dfc4950e43732e2de5216ca33e448b0ae0",
+      "git_blob": "7e2bee2fb7571784d3f2ec8b0a294e990dccb443"
+    },
+    {
+      "repository": "open-vip-portfolio",
+      "path": "ipcheck/platform/uvm/platform_uvm_tb.sv",
+      "sha256": "3df0eaccbb836b34e8bbef20860e12f4ab50a8e0600ec469f8f7fd4d4e410e3a",
+      "git_blob": "b3a1965a7b369c924ee3cf5e7eb823eacc3c18db"
+    },
+    {
+      "repository": "open-vip-portfolio",
+      "path": "ipcheck/platform/uvm/run_uvm_slice.py",
+      "sha256": "f560b6a7619b1c2925286dda2b9b7e4733b970625698f0d1994688b122d95944",
+      "git_blob": "e9d05326052a42f157a8866b3d961e7d369682ee"
+    },
+    {
+      "repository": "open-vip-portfolio",
+      "path": "ipcheck/platform/uvm/test_run_uvm_slice.py",
+      "sha256": "2b746ef8f5c26dfcf5397952e570f3772fe1639e30613c01acfd50ed189b37f7",
+      "git_blob": "a1a18831814ebaba236efc3a793b4d7d06edddf4"
+    },
+    {
+      "repository": "open-vip-portfolio",
+      "path": "ipcheck/platform/uvm/uvm_source_lock.py",
+      "sha256": "c8b3fa9e5b1d36e075d1f306e91913683b8e779017026940106257c389deb14a",
+      "git_blob": "f52966cc1a619e9ca0a0ce0c7edb59ed0cfbb6b4"
+    }
+  ],
+  "source_set_sha256": "408f5855d1d0b34598eb7b1dc93e572a84ead7cfb8f912c0e735d051d5beca78",
+  "uvm_commits": [
+    "78c06547a2a0a29b3dc9dcafae62b75b2ff61544",
+    "39dfb0077ae25d69d1e66bf7d6a56861e244150f"
+  ],
+  "scope": "APB fixture UVM assets; not a product SoC or coverage baseline",
+  "runtime_simulation": "BLOCKED",
+  "raw_coverage_db": null
+}

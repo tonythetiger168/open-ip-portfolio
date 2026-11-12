@@ -1,0 +1,346 @@
+{
+  "title": "System DMA: 4 channels of copy and fill jobs served round robin over AXI4",
+  "code": "0x5C09",
+  "version": "1.0",
+  "axi_master": {
+    "id": 7,
+    "reads": true,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "Per channel n: SRCn, DSTn, LENn (32-bit words), MODE.moden (0 COPY, 1 FILL with FILLn), CMD.startn queues the channel.",
+    "Queued channels are served one job at a time in round-robin order (the first queued channel after the last one served).",
+    "COPY: DST word i = SRC word i. FILL: DST word i = FILLn (no reads).",
+    "CHECKSUM: 32-bit sum of the words written by the last job; STATUS.active_ch the channel being (last) served."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "SRC0",
+      "kind": "rw",
+      "desc": "Channel 0 source address",
+      "fields": [
+        {
+          "port": "src0",
+          "reset": "0",
+          "desc": "byte address, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "DST0",
+      "kind": "rw",
+      "desc": "Channel 0 destination address",
+      "fields": [
+        {
+          "port": "dst0",
+          "reset": "0",
+          "desc": "byte address, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "LEN0",
+      "kind": "rw",
+      "desc": "Channel 0 length",
+      "fields": [
+        {
+          "port": "len0",
+          "reset": "0",
+          "desc": "32-bit words"
+        }
+      ]
+    },
+    {
+      "name": "FILL0",
+      "kind": "rw",
+      "desc": "Channel 0 fill word",
+      "fields": [
+        {
+          "port": "fill0",
+          "reset": "0",
+          "desc": "FILL mode data"
+        }
+      ]
+    },
+    {
+      "name": "SRC1",
+      "kind": "rw",
+      "desc": "Channel 1 source address",
+      "fields": [
+        {
+          "port": "src1",
+          "reset": "0",
+          "desc": "byte address, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "DST1",
+      "kind": "rw",
+      "desc": "Channel 1 destination address",
+      "fields": [
+        {
+          "port": "dst1",
+          "reset": "0",
+          "desc": "byte address, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "LEN1",
+      "kind": "rw",
+      "desc": "Channel 1 length",
+      "fields": [
+        {
+          "port": "len1",
+          "reset": "0",
+          "desc": "32-bit words"
+        }
+      ]
+    },
+    {
+      "name": "FILL1",
+      "kind": "rw",
+      "desc": "Channel 1 fill word",
+      "fields": [
+        {
+          "port": "fill1",
+          "reset": "0",
+          "desc": "FILL mode data"
+        }
+      ]
+    },
+    {
+      "name": "SRC2",
+      "kind": "rw",
+      "desc": "Channel 2 source address",
+      "fields": [
+        {
+          "port": "src2",
+          "reset": "0",
+          "desc": "byte address, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "DST2",
+      "kind": "rw",
+      "desc": "Channel 2 destination address",
+      "fields": [
+        {
+          "port": "dst2",
+          "reset": "0",
+          "desc": "byte address, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "LEN2",
+      "kind": "rw",
+      "desc": "Channel 2 length",
+      "fields": [
+        {
+          "port": "len2",
+          "reset": "0",
+          "desc": "32-bit words"
+        }
+      ]
+    },
+    {
+      "name": "FILL2",
+      "kind": "rw",
+      "desc": "Channel 2 fill word",
+      "fields": [
+        {
+          "port": "fill2",
+          "reset": "0",
+          "desc": "FILL mode data"
+        }
+      ]
+    },
+    {
+      "name": "SRC3",
+      "kind": "rw",
+      "desc": "Channel 3 source address",
+      "fields": [
+        {
+          "port": "src3",
+          "reset": "0",
+          "desc": "byte address, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "DST3",
+      "kind": "rw",
+      "desc": "Channel 3 destination address",
+      "fields": [
+        {
+          "port": "dst3",
+          "reset": "0",
+          "desc": "byte address, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "LEN3",
+      "kind": "rw",
+      "desc": "Channel 3 length",
+      "fields": [
+        {
+          "port": "len3",
+          "reset": "0",
+          "desc": "32-bit words"
+        }
+      ]
+    },
+    {
+      "name": "FILL3",
+      "kind": "rw",
+      "desc": "Channel 3 fill word",
+      "fields": [
+        {
+          "port": "fill3",
+          "reset": "0",
+          "desc": "FILL mode data"
+        }
+      ]
+    },
+    {
+      "name": "MODE",
+      "kind": "rw",
+      "desc": "Channel modes",
+      "fields": [
+        {
+          "port": "mode0",
+          "reset": "0",
+          "desc": "channel 0: 0 COPY, 1 FILL"
+        },
+        {
+          "port": "mode1",
+          "reset": "0",
+          "desc": "channel 1: 0 COPY, 1 FILL"
+        },
+        {
+          "port": "mode2",
+          "reset": "0",
+          "desc": "channel 2: 0 COPY, 1 FILL"
+        },
+        {
+          "port": "mode3",
+          "reset": "0",
+          "desc": "channel 3: 0 COPY, 1 FILL"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "start0",
+          "desc": "queue channel 0"
+        },
+        {
+          "port": "start1",
+          "desc": "queue channel 1"
+        },
+        {
+          "port": "start2",
+          "desc": "queue channel 2"
+        },
+        {
+          "port": "start3",
+          "desc": "queue channel 3"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Scheduler state",
+      "fields": [
+        {
+          "port": "pending",
+          "desc": "queued channels"
+        },
+        {
+          "port": "busy",
+          "desc": "a job is running"
+        },
+        {
+          "port": "active_ch",
+          "desc": "channel of the current / last job"
+        },
+        {
+          "port": "err",
+          "desc": "the current / last job saw an AXI error response"
+        }
+      ]
+    },
+    {
+      "name": "CHECKSUM",
+      "kind": "ro",
+      "desc": "Data checksum",
+      "fields": [
+        {
+          "port": "checksum",
+          "desc": "sum of the words written by the current / last job"
+        }
+      ]
+    },
+    {
+      "name": "CYCLES",
+      "kind": "ro",
+      "desc": "Job length in clocks",
+      "fields": [
+        {
+          "port": "cycles",
+          "desc": "clocks from start to DONE of the current / last job"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DONE0",
+      "port": "done0",
+      "desc": "a channel 0 job ended"
+    },
+    {
+      "name": "DONE1",
+      "port": "done1",
+      "desc": "a channel 1 job ended"
+    },
+    {
+      "name": "DONE2",
+      "port": "done2",
+      "desc": "a channel 2 job ended"
+    },
+    {
+      "name": "DONE3",
+      "port": "done3",
+      "desc": "a channel 3 job ended"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "a job ended that saw an AXI error response"
+    }
+  ],
+  "sequence": [
+    "Write SRCn, DSTn, LENn (and FILLn), MODE and IRQ_ENABLE.",
+    "Write CMD with startn = 1 for each channel to run; channels may be queued while one runs.",
+    "On irq read IRQ_STATUS to see which DONEn are set, then write them back to clear."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time. A read burst is issued only when its data has room, a write burst only when all its data is ready."
+  ]
+}

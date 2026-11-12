@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of USB2_apb_tb: the host model of the core TB (tokens, data and
 // handshakes on dp/dm at bit level with NRZI, bit stuffing, CRC5 / CRC16 and
 // EOP; device packets decoded and checked). Enumeration, the EP1 counter with

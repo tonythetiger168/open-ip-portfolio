@@ -1,0 +1,379 @@
+{
+  "title": "DVB Common Interface / CI+ host (EN 50221 on an 8-bit PC Card bus): CAM power, CIS / COR, command interface messages over AXI4, TS routing",
+  "code": "0x7C0B",
+  "version": "1.0",
+  "axi_master": {
+    "id": 11,
+    "reads": true,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "Card pins: ci_vcc_en, ci_reset, ci_cd_n, ci_a[14:0], ci_d_o / ci_d_oe / ci_d_i, CE#, REG#, OE#, WE#, IORD#, IOWR#, WAIT#, IREQ# (READY before I/O mode).",
+    "Power-up (CMD.power_on): VCC on, RESET high for RST_CLKS clocks, then READY awaited (STATUS.ready, READY interrupt); power-off by command, card removal or ENABLE off.",
+    "Bus cycles with programmable SETUP, STROBE and HOLD clocks, stretched by WAIT#; WAIT_MAX ends a stuck cycle (reads 0xFF, BUS_TO, TO_CNT).",
+    "CMD.cis_read copies CIS_LEN bytes of attribute memory (even addresses) to memory at CIS_ADDR; CMD.cor_write writes COR_VAL to COR_ADDR and enters I/O mode.",
+    "EN 50221 command interface: interface reset (RS, wait for FR); host-to-module messages of TX_LEN bytes from TX_ADDR (FR / HC handshake, size, data; FR_MAX polls before giving up); module-to-host messages polled (DA), sized (SR) and stored at RX_ADDR (up to RX_MAX bytes, RX_LEN, STATUS.rx_ovf), the buffer held until CMD.rx_arm.",
+    "Transport stream routed through the CAM (ci_mo_* out, ci_mi_* back, TS_CNT packets) with CTRL.ts_route in I/O mode, bypassed otherwise.",
+    "One AXI4 DMA engine: write bursts for CIS and RX data, read bursts for TX data (bytes packed 4 per word, little-endian)."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Control",
+      "fields": [
+        {
+          "port": "enable",
+          "reset": "0",
+          "desc": "controller on; 0 powers the card off"
+        },
+        {
+          "port": "ts_route",
+          "reset": "0",
+          "desc": "route the transport stream through the CAM (in I/O mode)"
+        },
+        {
+          "port": "poll",
+          "reset": "0",
+          "desc": "poll the command interface for module-to-host messages"
+        }
+      ]
+    },
+    {
+      "name": "TIMING",
+      "kind": "rw",
+      "desc": "Bus cycle timing (clocks)",
+      "fields": [
+        {
+          "port": "setup",
+          "reset": "0",
+          "desc": "address to strobe: SETUP + 1"
+        },
+        {
+          "port": "strobe",
+          "reset": "0",
+          "desc": "strobe low at least STROBE + 1 (>= 3 for cards that use WAIT#)"
+        },
+        {
+          "port": "hold",
+          "reset": "0",
+          "desc": "strobe end to CE# high: HOLD + 1"
+        }
+      ]
+    },
+    {
+      "name": "WAITS",
+      "kind": "rw",
+      "desc": "Wait and reset times (clocks)",
+      "fields": [
+        {
+          "port": "wait_max",
+          "reset": "0",
+          "desc": "longest WAIT# before the cycle is ended (0: no limit)"
+        },
+        {
+          "port": "rst_clks",
+          "reset": "0",
+          "desc": "RESET high at power-up"
+        }
+      ]
+    },
+    {
+      "name": "POLL",
+      "kind": "rw",
+      "desc": "Command interface polling",
+      "fields": [
+        {
+          "port": "poll_div",
+          "reset": "0",
+          "desc": "clocks between STATUS polls: POLL_DIV + 1"
+        },
+        {
+          "port": "fr_max",
+          "reset": "0",
+          "desc": "STATUS polls without FR before a TX or interface reset gives up (0: no limit)"
+        }
+      ]
+    },
+    {
+      "name": "CIS_ADDR",
+      "kind": "rw",
+      "desc": "CIS copy address",
+      "fields": [
+        {
+          "port": "cis_addr",
+          "reset": "0",
+          "desc": "word aligned"
+        }
+      ]
+    },
+    {
+      "name": "CIS_LEN",
+      "kind": "rw",
+      "desc": "CIS bytes",
+      "fields": [
+        {
+          "port": "cis_len",
+          "reset": "0",
+          "desc": "bytes to copy (attribute addresses 0, 2, 4 ...)"
+        }
+      ]
+    },
+    {
+      "name": "COR",
+      "kind": "rw",
+      "desc": "Configuration option register",
+      "fields": [
+        {
+          "port": "cor_addr",
+          "reset": "0",
+          "desc": "attribute address of the COR"
+        },
+        {
+          "port": "cor_val",
+          "reset": "0",
+          "desc": "value written (configuration index)"
+        }
+      ]
+    },
+    {
+      "name": "TX_ADDR",
+      "kind": "rw",
+      "desc": "TX buffer address",
+      "fields": [
+        {
+          "port": "tx_addr",
+          "reset": "0",
+          "desc": "byte 0, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "TX_LEN",
+      "kind": "rw",
+      "desc": "TX message size",
+      "fields": [
+        {
+          "port": "tx_len",
+          "reset": "0",
+          "desc": "bytes"
+        }
+      ]
+    },
+    {
+      "name": "RX_ADDR",
+      "kind": "rw",
+      "desc": "RX buffer address",
+      "fields": [
+        {
+          "port": "rx_addr",
+          "reset": "0",
+          "desc": "byte 0, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "RX_MAX",
+      "kind": "rw",
+      "desc": "RX buffer size",
+      "fields": [
+        {
+          "port": "rx_max",
+          "reset": "0",
+          "desc": "bytes stored at most"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "power_on",
+          "desc": "power the card up (card present, ENABLE)"
+        },
+        {
+          "port": "power_off",
+          "desc": "power the card off"
+        },
+        {
+          "port": "cis_read",
+          "desc": "copy the CIS"
+        },
+        {
+          "port": "cor_write",
+          "desc": "write the COR, enter I/O mode"
+        },
+        {
+          "port": "if_reset",
+          "desc": "reset the command interface (I/O mode)"
+        },
+        {
+          "port": "tx_start",
+          "desc": "send a message (I/O mode, TX_LEN > 0)"
+        },
+        {
+          "port": "rx_arm",
+          "desc": "free the RX buffer for the next message"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "State",
+      "fields": [
+        {
+          "port": "powered",
+          "desc": "VCC is on"
+        },
+        {
+          "port": "ready",
+          "desc": "the card is powered and ready"
+        },
+        {
+          "port": "io_mode",
+          "desc": "the COR is written"
+        },
+        {
+          "port": "busy",
+          "desc": "an operation runs or waits"
+        },
+        {
+          "port": "rx_full",
+          "desc": "the RX buffer holds a message"
+        },
+        {
+          "port": "rx_ovf",
+          "desc": "the last message was longer than RX_MAX"
+        },
+        {
+          "port": "tx_fail",
+          "desc": "the last TX gave up (FR_MAX) or lost the card"
+        },
+        {
+          "port": "err",
+          "desc": "an AXI error response since power-up"
+        },
+        {
+          "port": "present",
+          "desc": "card detect"
+        }
+      ]
+    },
+    {
+      "name": "LAST_ST",
+      "kind": "ro",
+      "desc": "Last command interface status byte",
+      "fields": [
+        {
+          "port": "last_st",
+          "desc": "DA bit 7, FR bit 6"
+        }
+      ]
+    },
+    {
+      "name": "RX_LEN",
+      "kind": "ro",
+      "desc": "Size of the last message received",
+      "fields": [
+        {
+          "port": "rx_len",
+          "desc": "bytes (only RX_MAX stored)"
+        }
+      ]
+    },
+    {
+      "name": "COUNTS",
+      "kind": "ro",
+      "desc": "Message counters",
+      "fields": [
+        {
+          "port": "tx_cnt",
+          "desc": "messages sent"
+        },
+        {
+          "port": "rx_cnt",
+          "desc": "messages received"
+        }
+      ]
+    },
+    {
+      "name": "TS_TO",
+      "kind": "ro",
+      "desc": "Stream and timeout counters",
+      "fields": [
+        {
+          "port": "ts_cnt",
+          "desc": "TS packets returned by the CAM"
+        },
+        {
+          "port": "to_cnt",
+          "desc": "bus cycles ended by WAIT_MAX"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DET",
+      "port": "det",
+      "desc": "card inserted or removed"
+    },
+    {
+      "name": "READY",
+      "port": "rdy",
+      "desc": "the card is ready after power-up"
+    },
+    {
+      "name": "CFG",
+      "port": "cfg",
+      "desc": "a CIS read, COR write or interface reset ended"
+    },
+    {
+      "name": "TX_DONE",
+      "port": "tx_done",
+      "desc": "a host-to-module message ended (see STATUS.tx_fail)"
+    },
+    {
+      "name": "RX",
+      "port": "rx",
+      "desc": "a module-to-host message is in the RX buffer"
+    },
+    {
+      "name": "IREQ",
+      "port": "ireq",
+      "desc": "the CAM requested an interrupt (I/O mode)"
+    },
+    {
+      "name": "BUS_TO",
+      "port": "bus_to",
+      "desc": "a bus cycle was ended by WAIT_MAX"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "an AXI error response in a CIS write, TX read or RX write (with CFG, TX_DONE or RX)"
+    }
+  ],
+  "sequence": [
+    "Write TIMING, WAITS, POLL, CIS_ADDR, CIS_LEN, COR, TX / RX buffer registers and IRQ_ENABLE, then CTRL.enable.",
+    "On DET with STATUS.present write CMD.power_on; on READY write CMD.cis_read and parse the CIS in memory on CFG (it gives the COR address and value).",
+    "Write COR and CMD.cor_write (CFG), CMD.if_reset (CFG), then CTRL.poll and CTRL.ts_route.",
+    "Send a message: fill the TX buffer, write TX_LEN and CMD.tx_start; TX_DONE ends it (check STATUS.tx_fail).",
+    "On RX read RX_LEN bytes from the RX buffer, then write CMD.rx_arm."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time.",
+    "One DMA job at a time on one engine: CIS and RX data use the write channel, TX data the read channel.",
+    "The card bus runs on the core clock; the I/O mode command interface sits at I/O addresses 0..3. ci_d_oe enables the host's data drivers.",
+    "The core testbench prints one `LAT <master> dram R|W <cycles>` line per AXI burst (tb/tv_lat_mon.svh), the regression suite's latency format."
+  ]
+}
