@@ -206,7 +206,7 @@ module GbE_DMA_top #(
     if (!rst_n) begin
       st <= S_IDLE; e_start <= 1'b0; e_rd <= 1'b0; e_wr <= 1'b0;
       e_src <= '0; e_dst <= '0; e_len <= '0; d_addr <= '0; td_addr <= '0; tx_ur <= 1'b0; d_w0 <= '0; d_w1 <= '0; d_i <= 1'b0;
-      tx_head <= '0; rx_head <= '0; txf_w <= '0; txf_r <= '0; tx_len <= '0; tx_bi <= '0;
+      tx_head <= '0; rx_head <= '0; txf_r <= '0; tx_len <= '0; tx_bi <= '0;
       tx_go <= 1'b0; txs_pend <= 1'b0; txs_word <= '0; rxs_word <= '0; tx_busy <= 1'b0;
       rx_drain <= '0; rxf_r <= '0; ri_r <= '0; err <= 1'b0;
       tx_frames <= '0; rx_frames <= '0; tx_irq <= 1'b0; rx_irq <= 1'b0; err_irq <= 1'b0;
