@@ -225,9 +225,9 @@ returns to 1 and the command ends.
 In IDLE, `cmd_valid` is checked every clock; an accepted command raises `cmd_busy` in the next
 clock and the first SoT bit appears on `tx_bit` one clock later. `cmd_valid` while busy is
 ignored. `pkt_cnt` increments as each packet's last bit is sent (16-bit wrap). After a packet
-`tx_valid` is low for 2 clocks before the next packet (or the trigger) starts; `cmd_busy`after the last packet of a
-command  is low from the second of these clocks (after a BTA, from the clock after it
-ends).
+`tx_valid` is low for 2 clocks before the next packet (or the trigger) starts. After the last
+packet of a command `cmd_busy` is low from the second of these clocks (after a BTA, from the clock
+after it ends).
 
 ### 3.5 Reset
 
