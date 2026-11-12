@@ -79,7 +79,7 @@ module I2C_Host_tb;
     cmd_valid = 1; nd0 = n_done;
     @(negedge clk); cmd_valid = 0;
     if (!busy && (sta || wr || rd || (sto && bh0))) fail("busy low after a command");
-    if ($urandom % 3 == 0) begin                 // a command while busy is ignored
+    if (busy && $urandom % 3 == 0) begin        // a command while busy is ignored
       clks(2); cmd_sta = 1; cmd_sto = 1; cmd_valid = 1; @(negedge clk); cmd_valid = 0;
     end
     t = 0;
