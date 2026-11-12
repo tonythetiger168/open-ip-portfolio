@@ -13,7 +13,7 @@ core TB and every assertion of its checker, with the spec section that defines i
 `python3 scripts/spec/gen_spec.py --check` (run in CI) fails when a port, parameter,
 assertion or TB message is not covered.
 
-Progress: 155 of 167 IPs.
+Progress: 156 of 167 IPs.
 
 | IP |
 |---|
@@ -141,6 +141,7 @@ Progress: 155 of 167 IPs.
 | [SAS](SAS.md) |
 | [SAS_4__Serial_Attached_SCSI_](SAS_4__Serial_Attached_SCSI_.md) |
 | [SATA](SATA.md) |
+| [SD](SD.md) |
 | [SDIO](SDIO.md) |
 | [SDMMC_ADMA](SDMMC_ADMA.md) |
 | [SENT](SENT.md) |
