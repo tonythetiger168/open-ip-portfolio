@@ -290,9 +290,10 @@ module USB2_0_tb;
       for (int i = 0; i < l; i++) txp[i] = $urandom;
       good(4'($urandom), l);
     end
-    if (n_tail_stuff == 0) begin errors++; $display("ERROR: no echo ended with a stuff bit"); end
     // every first payload byte value
     for (int v = 0; v < 256; v++) begin txp[0] = 8'(v); good(4'h3, 1); end
+    // checked after the sweep: random frames alone end in a stuff bit only by luck
+    if (n_tail_stuff == 0) begin errors++; $display("ERROR: no echo ended with a stuff bit"); end
 
     if (errors == 0) $display("TEST PASSED: USB2.0");
     else             $display("TEST FAILED: %0d errors", errors);
