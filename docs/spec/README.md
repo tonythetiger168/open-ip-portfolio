@@ -13,7 +13,7 @@ core TB and every assertion of its checker, with the spec section that defines i
 `python3 scripts/spec/gen_spec.py --check` (run in CI) fails when a port, parameter,
 assertion or TB message is not covered.
 
-Progress: 65 of 167 IPs.
+Progress: 69 of 167 IPs.
 
 | IP |
 |---|
@@ -30,6 +30,7 @@ Progress: 65 of 167 IPs.
 | [DDR](DDR.md) |
 | [DDR4](DDR4.md) |
 | [DDR4_AXI](DDR4_AXI.md) |
+| [DDR4_Lite](DDR4_Lite.md) |
 | [DDR5](DDR5.md) |
 | [DDR6](DDR6.md) |
 | [DDR7](DDR7.md) |
@@ -38,6 +39,7 @@ Progress: 65 of 167 IPs.
 | [GDDR5](GDDR5.md) |
 | [GDDR6](GDDR6.md) |
 | [GDDR7](GDDR7.md) |
+| [GDDR7_Lite](GDDR7_Lite.md) |
 | [GMII](GMII.md) |
 | [GPIO](GPIO.md) |
 | [GPU](GPU.md) |
@@ -46,6 +48,7 @@ Progress: 65 of 167 IPs.
 | [HBM2](HBM2.md) |
 | [HBM3](HBM3.md) |
 | [HBM3E](HBM3E.md) |
+| [HBM3E_Lite](HBM3E_Lite.md) |
 | [HBM4](HBM4.md) |
 | [HBM5](HBM5.md) |
 | [I2C](I2C.md) |
@@ -61,6 +64,7 @@ Progress: 65 of 167 IPs.
 | [LPDDR4_AXI](LPDDR4_AXI.md) |
 | [LPDDR5](LPDDR5.md) |
 | [LPDDR5X](LPDDR5X.md) |
+| [LPDDR5X_Lite](LPDDR5X_Lite.md) |
 | [LPDDR6](LPDDR6.md) |
 | [LPDDR7](LPDDR7.md) |
 | [MDIO](MDIO.md) |
