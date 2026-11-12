@@ -71,7 +71,7 @@ def tb_messages(P):
         msgs.append(m.group(1))
     for m in re.finditer(r'\$display\s*\(\s*(?:\$sformatf\s*\(\s*)?"\s*ERROR:\s*([^"]*)"', src):
         msgs.append(m.group(1))
-    for m in re.finditer(r'\bsva_check\s*\((?:[^;]*?),\s*"([^"]*)"\s*\)\s*;', src, flags=re.S):
+    for m in re.finditer(r'\b(?:sva_check|chk|check)\s*\((?:[^;]*?),\s*"([^"]*)"\s*\)\s*;', src, flags=re.S):
         msgs.append(m.group(1))
     out = []
     for s in msgs:
