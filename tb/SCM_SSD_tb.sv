@@ -258,7 +258,7 @@ module SCM_SSD_tb;
   bit stop = 0;
   // kind: 0 valid, 1 any (errors too)
   task automatic submit(input int q, input int kind, input int batch, input int f_op = -1, input int f_ns = -1,
-                         input int f_dspec = -1);
+                         input int f_dspec = -1, input int f_r = -1);
     logic [31:0] e [0:15];
     int          op, fuse, dtype, dspec, ns, r, nb, half;
     logic [31:0] nsid, prp, phi, slo, shi, c12, c13;
@@ -284,15 +284,17 @@ module SCM_SSD_tb;
     if (f_dspec >= 0) begin dtype = 2; dspec = f_dspec; end
     prp = {14'd0, 16'(bfa(q, slot_n[q])), 2'b00};
     phi = 0;
-    if (kind == 1 && $urandom % 3 == 0) begin
+    if (kind == 1 && ($urandom % 3 == 0 || f_r >= 0)) begin
       int r2;
-      r = $urandom % 100;
+      r = f_r >= 0 ? f_r : $urandom % 100;
       r2 = $urandom % 4;
       if (r < 8) op = 3 + $urandom % 253;
       else if (r < 14) fuse = 1 + $urandom % 3;
       else if (r < 24) nsid = r2 == 0 ? 32'd0 : r2 == 1 ? 32'd3 : r2 == 2 ? $urandom | 32'h100 : 32'hFFFFFFFF;
       else if (r < 34) begin dtype = r2 == 0 ? 1 : r2 == 1 ? 3 + $urandom % 13 : 2; dspec = r2 == 3 ? NRUH + $urandom % 100 : $urandom % NRUH; if (r2 == 3) begin op = 1; nsid = 2; end end
-      else if (r < 44) begin dtype = 2; dspec = $urandom % NRUH; nsid = 1; end      // FDP on the SCM namespace
+      else if (r < 44) begin op = 1; dtype = 2; dspec = $urandom % NRUH; nsid = 1; end   // FDP Write on the SCM namespace
+      // (a Write: a Read ignores DTYPE, and with the LBA range drawn for
+      // namespace 2 it could reach the half the byte port is writing)
       else if (r < 54) prp[1:0] = 1 + $urandom % 3;
       else if (r < 66) slo = r2 < 2 ? nb + $urandom % 4 : $urandom;
       else if (r < 72) shi = 32'd1 << ($urandom % 32);
@@ -303,6 +305,12 @@ module SCM_SSD_tb;
     c12[23:20] = dtype;
     c13[31:16] = dtype == 2 ? dspec : $urandom;   // DSPEC is ignored without DTYPE 2
     c_sc = status(op, fuse, nsid, dtype, dspec, prp, phi, slo, shi, c12[15:0]);
+    // an injected field can still leave a valid command; while the byte port
+    // owns the upper SCM half, push one that reaches it out of range instead
+    if (c_sc == 0 && op != 0 && nsid == 1 && lo_only && slo + c12[15:0] >= NBS / 2) begin
+      c12[15:0] = 16'(NBS - slo);
+      c_sc = status(op, fuse, nsid, dtype, dspec, prp, phi, slo, shi, c12[15:0]);
+    end
     c_cid = e[0][31:16]; c_op = op; c_ns = nsid; c_slba = slo; c_nlb = c12[15:0];
     c_ruh = dtype == 2 ? dspec : 0; c_slot = slot_n[q];
     c_sqhd = (sq_t[q] + 1) % QD;
@@ -425,6 +433,10 @@ module SCM_SSD_tb;
     end
   endtask
   bit b_run = 0;
+  // injection selectors for: opcode, fused, NSID, FDP on SCM, PRP offset, LBA range, PRP2/high PRP bits
+  function automatic int dir_r(input int i);
+    case (i) 0: return 5; 1: return 10; 2: return 20; 3: return 38; 4: return 50; 5: return 60; default: return 85; endcase
+  endfunction
   initial forever begin
     @(negedge clk);
     if (b_run) begin
@@ -569,6 +581,9 @@ module SCM_SSD_tb;
     c_hold = 6;
     for (int k = 0; k < 40; k++) submit($urandom % NQ, 1, 2);
     drain("after re-enable");
+    // every error status once more, directed (the random mix can miss one)
+    for (int i = 0; i < 7; i++) submit(i % NQ, 1, 1, 1, 1, -1, dir_r(i));
+    drain("directed errors");
     disable_ctl("end");
 
     // ---- summary
@@ -576,7 +591,7 @@ module SCM_SSD_tb;
     for (int q = 0; q < NQ; q++) if (q_seen[q] == 0) fail($sformatf("pair %0d never served", q));
     if (sc_seen[8'h00] == 0 || sc_seen[8'h01] == 0 || sc_seen[8'h02] == 0 || sc_seen[8'h0B] == 0 ||
         sc_seen[8'h13] == 0 || sc_seen[8'h80] == 0 || sc_seen[8'h04] == 0)
-      fail("not every status code was produced");
+      fail($sformatf("not every status code was produced: 00:%0d 01:%0d 02:%0d 0B:%0d 13:%0d 80:%0d 04:%0d", sc_seen[0], sc_seen[1], sc_seen[2], sc_seen[11], sc_seen[19], sc_seen[128], sc_seen[4]));
     if (x_ru == 0 || n_fdp == 0) fail("no FDP reclaim unit filled");
     if (n_bld == 0 || n_bst == 0 || n_berr == 0) fail("byte port loads, stores or errors not exercised");
     $display("SCM_SSD: %0d commands, %0d completions (%0d errors), %0d FDP writes, %0d RU fills, nand %0d scm %0d blocks, byte port %0d loads %0d stores %0d errors",
