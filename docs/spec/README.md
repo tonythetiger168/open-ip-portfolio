@@ -13,7 +13,7 @@ core TB and every assertion of its checker, with the spec section that defines i
 `python3 scripts/spec/gen_spec.py --check` (run in CI) fails when a port, parameter,
 assertion or TB message is not covered.
 
-Progress: 156 of 167 IPs.
+Progress: 157 of 167 IPs.
 
 | IP |
 |---|
@@ -149,6 +149,7 @@ Progress: 156 of 167 IPs.
 | [SHA3](SHA3.md) |
 | [SMBus](SMBus.md) |
 | [SMMU](SMMU.md) |
+| [SPDM](SPDM.md) |
 | [SPI](SPI.md) |
 | [SPI_Host](SPI_Host.md) |
 | [SPMI](SPMI.md) |
