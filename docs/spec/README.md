@@ -13,7 +13,7 @@ core TB and every assertion of its checker, with the spec section that defines i
 `python3 scripts/spec/gen_spec.py --check` (run in CI) fails when a port, parameter,
 assertion or TB message is not covered.
 
-Progress: 15 of 167 IPs.
+Progress: 17 of 167 IPs.
 
 | IP |
 |---|
@@ -22,9 +22,11 @@ Progress: 15 of 167 IPs.
 | [ATB](ATB.md) |
 | [AXI_Stream](AXI_Stream.md) |
 | [Avalon_ST](Avalon_ST.md) |
+| [GMII](GMII.md) |
 | [GPIO](GPIO.md) |
 | [I2C](I2C.md) |
 | [I2C_Host](I2C_Host.md) |
+| [I2S](I2S.md) |
 | [MDIO](MDIO.md) |
 | [PWM](PWM.md) |
 | [QSPI](QSPI.md) |
