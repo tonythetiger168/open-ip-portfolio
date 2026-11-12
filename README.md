@@ -378,6 +378,10 @@ bash scripts/ci_regression.sh   # logs in work/ci_*.log
 # some illegal code, e.g. a net used above its declaration)
 python3 scripts/lint/strict_elab.py   # -> strict elaboration: 155/155 IPs clean
 
+# strict Yosys gate (CI): every core and APB wrapper script must synthesize to gates
+# (full synth + ABC) with no latches, no multiple / missing drivers, no comb loops
+python3 scripts/lint/yosys_strict.py  # -> yosys strict: 334/334 scripts clean
+
 # five-metric coverage (Verilator)
 bash scripts/cov/run_cov.sh I2C        # one core  -> RESULT: CLOSED
 bash scripts/cov/run_cov.sh I2C_apb    # its wrapper
@@ -399,7 +403,9 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
   self-checking testbenches but have no core coverage checker yet. Results,
   exclusions and how to run: [docs/COVERAGE_CLOSURE.md](docs/COVERAGE_CLOSURE.md).
   CI runs both: `.github/workflows/regression.yml` (iverilog / yosys
-  sim + syn + apb, plus a check that generated files are up to date) and
+  sim + syn + apb, a check that generated files are up to date, and the
+  strict Yosys gate `scripts/lint/yosys_strict.py` on every core and
+  wrapper) and
   `.github/workflows/coverage.yml` (this five-metric flow over all 297
   runs, in 8 shards; any IP that is not CLOSED fails the build).
   `.github/workflows/mutation.yml` runs `scripts/mut/run_mut.py --flow cov`
