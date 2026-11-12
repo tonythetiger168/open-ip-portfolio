@@ -1,0 +1,105 @@
+{
+  "scope": "platform_apb_slice fixture, not product SoC or UVM coverage",
+  "source_sha256": {
+    "APB_top.sv": "bb960519d6b2f5c2e3e40e81a469fd804bd6f8d809659c605a82535823b19bec",
+    "apb_window_router.sv": "8bec3dfeccfb0ce3e0bd65f508adb9d238e85a0cf830f809820a6ae03f725554",
+    "platform_apb_slice.sv": "cd4f0e3910bbba4ed7d7e67adbddb8de5fc3ddacf1af810ee07edca2eb201b9a",
+    "platform_apb_crv_tb.sv": "0ae69ef1969d34660e5555db0bd17b38ef0796f8824ac940d783e3500be6468c"
+  },
+  "baseline_source_set_sha256": "06f4a6738d3fae07df6ac194c98bcae0255e0329f785cbd3342dd691998f87e3",
+  "config_sha256": {
+    "TV": "368fbb56485d4f53317550aee116c85700175ad223f3727adce4150a82806418",
+    "STB": "ef75c16e2618716a1e19c441dd67798da73ddaa768c313a5134b426fdf1553f8",
+    "IPCAM": "16a0d133d02867e9da572e984ed52026aa0b689ae9bc70c3c3a0a5269f536a0b"
+  },
+  "invocation": [
+    "python3",
+    "/mnt/c/Users/chien/Documents/Codex/2026-10-26/soc-design-platform/outputs/platform-update/open-vip-portfolio/ipcheck/platform/run_slice.py",
+    "--ip-dir",
+    "/mnt/c/Users/chien/Documents/Codex/2026-10-26/soc-design-platform/outputs/platform-update/open-ip-portfolio",
+    "--upstream-apb",
+    "/mnt/c/Users/chien/Documents/Codex/2026-10-26/soc-design-platform/work/platform-slice-source/APB_top.sv",
+    "--evidence-dir",
+    "/mnt/c/Users/chien/Documents/Codex/2026-10-26/soc-design-platform/outputs/platform-update/open-vip-portfolio/reports/platform_slice"
+  ],
+  "runs": [
+    {
+      "profile_label": "TV",
+      "config": "apb-memory-fixture-v1",
+      "seed": 1,
+      "transactions": 209,
+      "checks": 739,
+      "result": "bounded RTL checks passed; not SoC/UVM closure"
+    },
+    {
+      "profile_label": "TV",
+      "config": "apb-memory-fixture-v1",
+      "seed": 7,
+      "transactions": 209,
+      "checks": 741,
+      "result": "bounded RTL checks passed; not SoC/UVM closure"
+    },
+    {
+      "profile_label": "TV",
+      "config": "apb-memory-fixture-v1",
+      "seed": 42,
+      "transactions": 209,
+      "checks": 739,
+      "result": "bounded RTL checks passed; not SoC/UVM closure"
+    },
+    {
+      "profile_label": "STB",
+      "config": "apb-memory-fixture-v1",
+      "seed": 1,
+      "transactions": 209,
+      "checks": 739,
+      "result": "bounded RTL checks passed; not SoC/UVM closure"
+    },
+    {
+      "profile_label": "STB",
+      "config": "apb-memory-fixture-v1",
+      "seed": 7,
+      "transactions": 209,
+      "checks": 741,
+      "result": "bounded RTL checks passed; not SoC/UVM closure"
+    },
+    {
+      "profile_label": "STB",
+      "config": "apb-memory-fixture-v1",
+      "seed": 42,
+      "transactions": 209,
+      "checks": 739,
+      "result": "bounded RTL checks passed; not SoC/UVM closure"
+    },
+    {
+      "profile_label": "IPCAM",
+      "config": "apb-memory-fixture-v1",
+      "seed": 1,
+      "transactions": 209,
+      "checks": 739,
+      "result": "bounded RTL checks passed; not SoC/UVM closure"
+    },
+    {
+      "profile_label": "IPCAM",
+      "config": "apb-memory-fixture-v1",
+      "seed": 7,
+      "transactions": 209,
+      "checks": 741,
+      "result": "bounded RTL checks passed; not SoC/UVM closure"
+    },
+    {
+      "profile_label": "IPCAM",
+      "config": "apb-memory-fixture-v1",
+      "seed": 42,
+      "transactions": 209,
+      "checks": 739,
+      "result": "bounded RTL checks passed; not SoC/UVM closure"
+    }
+  ],
+  "coverage_db": null,
+  "six_metric_closure": "BLOCKED: no supported coverage export; full product RTL absent",
+  "seed_replay": "TV seed7 exact log match",
+  "mutation": "removed partial-write rejection detected by response and memory scoreboard",
+  "tool": "Icarus Verilog version 12.0 (stable) ()",
+  "command": "python3 ipcheck/platform/run_slice.py --ip-dir <checkout> --evidence-dir <evidence>"
+}

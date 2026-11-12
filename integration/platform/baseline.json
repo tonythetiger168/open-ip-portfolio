@@ -1,0 +1,164 @@
+{
+  "version": "platform-slice-0.1-proposed",
+  "date": "2026-11-01",
+  "build_kind": "rtl-fixture-not-SoC",
+  "source_set_sha256": "06f4a6738d3fae07df6ac194c98bcae0255e0329f785cbd3342dd691998f87e3",
+  "sources": [
+    {
+      "repository": "tonythetiger168/open-ip-portfolio",
+      "path": "rtl/APB_top.sv",
+      "ref": "be8c1755a4a16a05e4830c12366334792a1ba9fb",
+      "git_blob": "5b55a2c5aa7331cf3c40a4c204aa88955d42fa85",
+      "sha256": "bb960519d6b2f5c2e3e40e81a469fd804bd6f8d809659c605a82535823b19bec"
+    },
+    {
+      "repository": "tonythetiger168/open-ip-portfolio",
+      "path": "rtl/platform/apb_window_router.sv",
+      "ref": "be8c1755a4a16a05e4830c12366334792a1ba9fb",
+      "git_blob": "20b2e9ed9d437707130c0e6162a85a9e7b805b7c",
+      "sha256": "8bec3dfeccfb0ce3e0bd65f508adb9d238e85a0cf830f809820a6ae03f725554"
+    },
+    {
+      "repository": "tonythetiger168/open-ip-portfolio",
+      "path": "rtl/platform/platform_apb_slice.sv",
+      "ref": "content-addressed new RTL in this draft",
+      "git_blob": "d14fe450d20a467ca915f941d8174f1941f0d059",
+      "sha256": "cd4f0e3910bbba4ed7d7e67adbddb8de5fc3ddacf1af810ee07edca2eb201b9a"
+    }
+  ],
+  "verification_sources": [
+    {
+      "repository": "tonythetiger168/open-vip-portfolio",
+      "path": "ipcheck/platform/platform_apb_crv_tb.sv",
+      "git_blob": "90916731f29b316801fc970899754d52fc86c9c9",
+      "sha256": "0ae69ef1969d34660e5555db0bd17b38ef0796f8824ac940d783e3500be6468c"
+    },
+    {
+      "repository": "tonythetiger168/open-vip-portfolio",
+      "path": "ipcheck/platform/run_slice.py",
+      "git_blob": "772d0b074b436d3ddfbede672b76b3b026ec9be1",
+      "sha256": "2035b0e934f434f4d47b5c52430136cad1d03ada51ac0295ce33753994803477"
+    },
+    {
+      "repository": "tonythetiger168/open-vip-portfolio",
+      "path": "ipcheck/platform/coverage/check_export.py",
+      "git_blob": "61cb054dc34c96b660e6ad6ef84134b626281b69",
+      "sha256": "769bbb7263e2dfa66635bc938f3b4e0b4065cce87f8b1d560a5449863ecf4096"
+    },
+    {
+      "repository": "tonythetiger168/open-vip-portfolio",
+      "path": "ipcheck/platform/coverage/test_check_export.py",
+      "git_blob": "54defe0462dae9be22a111df890e346c804f056c",
+      "sha256": "0cce78ff0bac97746dcd08e7ff4aecaee522afd7258711293e4164bc56393a6f"
+    }
+  ],
+  "filelist": "integration/platform/slice.f",
+  "filelist_sha256": "0e70b1a4422f33d77174c7748521d0ab115b0bc1f5e2fb798cd4ff996819e316",
+  "bench": {
+    "repository": "tonythetiger168/open-vip-portfolio",
+    "path": "ipcheck/platform/platform_apb_crv_tb.sv",
+    "git_blob": "90916731f29b316801fc970899754d52fc86c9c9",
+    "sha256": "0ae69ef1969d34660e5555db0bd17b38ef0796f8824ac940d783e3500be6468c"
+  },
+  "hierarchy": {
+    "platform_apb_slice": [
+      "router:apb_window_router",
+      "memory0:APB_top",
+      "memory1:APB_top"
+    ]
+  },
+  "seeds": [
+    1,
+    7,
+    42
+  ],
+  "profiles": [
+    {
+      "config": {
+        "product": "TV",
+        "scope": "platform_apb_slice",
+        "parameters": {
+          "DW": 32,
+          "AW": 32,
+          "DEPTH": 256
+        },
+        "defines": [],
+        "pclk_period_ns_assumed": 10,
+        "reset": "common active-low; quiescent campaign only",
+        "page0": "0x10000000",
+        "page1": "0x10001000",
+        "partial_write": "reject",
+        "pprot": "not enforced"
+      },
+      "config_sha256": "368fbb56485d4f53317550aee116c85700175ad223f3727adce4150a82806418",
+      "fixture_elaboration": "PASS bounded RTL only",
+      "full_soc_elaboration": "BLOCKED",
+      "uvm_elaboration": "BLOCKED",
+      "blocked_dependencies": [
+        "product SoC top/hierarchy/filelist not imported",
+        "CPU/AXI-Lite bridge/AXI fabric not integrated",
+        "DMA/stream/frame ownership/QoS/security not integrated",
+        "UVM library/env compile not established",
+        "six-metric raw coverage export not available"
+      ]
+    },
+    {
+      "config": {
+        "product": "STB",
+        "scope": "platform_apb_slice",
+        "parameters": {
+          "DW": 32,
+          "AW": 32,
+          "DEPTH": 256
+        },
+        "defines": [],
+        "pclk_period_ns_assumed": 10,
+        "reset": "common active-low; quiescent campaign only",
+        "page0": "0x10000000",
+        "page1": "0x10001000",
+        "partial_write": "reject",
+        "pprot": "not enforced"
+      },
+      "config_sha256": "ef75c16e2618716a1e19c441dd67798da73ddaa768c313a5134b426fdf1553f8",
+      "fixture_elaboration": "PASS bounded RTL only",
+      "full_soc_elaboration": "BLOCKED",
+      "uvm_elaboration": "BLOCKED",
+      "blocked_dependencies": [
+        "product SoC top/hierarchy/filelist not imported",
+        "CPU/AXI-Lite bridge/AXI fabric not integrated",
+        "DMA/stream/frame ownership/QoS/security not integrated",
+        "UVM library/env compile not established",
+        "six-metric raw coverage export not available"
+      ]
+    },
+    {
+      "config": {
+        "product": "IPCAM",
+        "scope": "platform_apb_slice",
+        "parameters": {
+          "DW": 32,
+          "AW": 32,
+          "DEPTH": 256
+        },
+        "defines": [],
+        "pclk_period_ns_assumed": 10,
+        "reset": "common active-low; quiescent campaign only",
+        "page0": "0x10000000",
+        "page1": "0x10001000",
+        "partial_write": "reject",
+        "pprot": "not enforced"
+      },
+      "config_sha256": "16a0d133d02867e9da572e984ed52026aa0b689ae9bc70c3c3a0a5269f536a0b",
+      "fixture_elaboration": "PASS bounded RTL only",
+      "full_soc_elaboration": "BLOCKED",
+      "uvm_elaboration": "BLOCKED",
+      "blocked_dependencies": [
+        "product SoC top/hierarchy/filelist not imported",
+        "CPU/AXI-Lite bridge/AXI fabric not integrated",
+        "DMA/stream/frame ownership/QoS/security not integrated",
+        "UVM library/env compile not established",
+        "six-metric raw coverage export not available"
+      ]
+    }
+  ]
+}
