@@ -55,7 +55,7 @@ module control_slice_tb;
     if (!$value$plusargs("stim=%s",stimulus_path) || !$value$plusargs("trace=%s",trace_path))
       $fatal(1,"stim/trace paths required");
     input_fd=$fopen(stimulus_path,"r"); trace_fd=$fopen(trace_path,"w");
-    if (!input_fd || !trace_fd) $fatal(1,"file open failed");
+    if (input_fd == 0 || trace_fd == 0) $fatal(1,"file open failed");
     @(negedge clk);
     while (!$feof(input_fd)) begin
       n=$fscanf(input_fd,"%h %h %h %h %h %h %h %h\n",rst_n,psel,penable,pwrite,paddr,pwdata,pstrb,pprot);

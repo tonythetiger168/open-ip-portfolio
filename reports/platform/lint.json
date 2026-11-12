@@ -1,0 +1,6 @@
+{
+  "tool": "Verilator 5.032 2025-01-01 rev (Debian 5.032-1)",
+  "command": "verilator --lint-only --top-module apb_window_router ../open-ip-portfolio/rtl/platform/apb_window_router.sv",
+  "exit_code": 0,
+  "scope": "new APB router source only; no lint of other portfolio RTL, no coverage flow"
+}
