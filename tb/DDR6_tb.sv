@@ -35,7 +35,11 @@ module DDR6_tb;
   `include "mem_tb_common.svh"
 
   initial begin
+`ifdef MEM_PERF
+    repeat (20000) #10000;   // performance run (tb/perf)
+`else
     repeat (400) #10000;
+`endif
     $display("TIMEOUT"); $finish;
   end
 endmodule

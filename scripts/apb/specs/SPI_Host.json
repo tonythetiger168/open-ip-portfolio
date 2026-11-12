@@ -1,0 +1,108 @@
+{
+  "title": "SPI controller (master): modes 0..3, 8-bit frames MSB first, programmable SCLK, two chip selects",
+  "code": "0x5C52",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "features": [
+    "The controller role that the SPI_top target does not cover: sensor, panel, PMIC and flash control.",
+    "CMD.start sends TX_DATA and receives RX_DATA in one frame; DONE when it ends.",
+    "CPOL is the SCLK idle level; CPHA 0 samples on the leading edge, CPHA 1 on the trailing edge.",
+    "Half an SCLK period is DIV + 1 clocks; CS[i] drives csn[i] low, held by software across the frames of a transaction."
+  ],
+  "regs": [
+    {
+      "name": "CFG",
+      "kind": "rw",
+      "desc": "Mode and chip selects",
+      "fields": [
+        {
+          "port": "cpol",
+          "reset": "0",
+          "desc": "SCLK idle level"
+        },
+        {
+          "port": "cpha",
+          "reset": "0",
+          "desc": "0 sample on the leading edge, 1 on the trailing edge"
+        },
+        {
+          "port": "cs",
+          "reset": "0",
+          "desc": "csn[i] = !cs[i]"
+        }
+      ]
+    },
+    {
+      "name": "DIV",
+      "kind": "rw",
+      "desc": "SCLK timing",
+      "fields": [
+        {
+          "port": "div",
+          "reset": "0x9",
+          "desc": "half SCLK period - 1, in clocks"
+        }
+      ]
+    },
+    {
+      "name": "TX_DATA",
+      "kind": "rw",
+      "desc": "Byte sent by the next frame",
+      "fields": [
+        {
+          "port": "tx_data",
+          "reset": "0",
+          "desc": "MSB first"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "start",
+          "desc": "send one frame; ignored while busy"
+        }
+      ]
+    },
+    {
+      "name": "RX_DATA",
+      "kind": "ro",
+      "desc": "Byte received by the last frame",
+      "fields": [
+        {
+          "port": "rx_data",
+          "desc": "MSB first"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "State",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "a frame is running"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DONE",
+      "port": "done",
+      "desc": "a frame ended"
+    }
+  ],
+  "sequence": [
+    "Write DIV and CFG (mode, then CS to select the target).",
+    "For each byte: TX_DATA, CMD.start, wait for DONE, read RX_DATA.",
+    "Write CFG.cs = 0 to end the transaction."
+  ],
+  "notes": [
+    "sclk, mosi, miso and csn are the SPI pins; they pass through unchanged."
+  ]
+}

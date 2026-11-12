@@ -1,0 +1,8 @@
+# LPDDR4_AXI synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/LPDDR4_AXI_top.sv ../rtl/ddr_axi_slv.sv ../rtl/LPDDR4_top.sv
+hierarchy -check -top LPDDR4_AXI_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json LPDDR4_AXI_top.json
+write_verilog LPDDR4_AXI_top_netlist.v

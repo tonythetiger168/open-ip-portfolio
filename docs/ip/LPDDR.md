@@ -210,3 +210,69 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 |---|---|---|---|---|---|---|
 | core `rtl/LPDDR_top.sv` | pass | 93/93 (+2 excl.) | 612/612 (+34 excl.) | 30/30 | 28/28 | 69/69 |
 | wrapper `rtl/LPDDR_apb.sv` | pass | 33/33 | 810/810 (+12 excl.) | n/a | 11/11 | 42/42 |
+
+## Performance
+
+Measured, not estimated: `bash scripts/perf/run_perf.sh LPDDR` runs the core's own testbench with `+define+MEM_PERF` (`tb/perf/mem_perf.svh`), which drives the host port as fast as `hready` allows and times every command at the core's ports, then synthesizes the core on the open SkyWater SKY130 library (`scripts/perf/sta_sky130.sh`). Raw data: [`docs/perf/LPDDR.json`](../perf/LPDDR.json). One host operation moves one 16-bit word (2 bytes); the host port peaks at 2 bytes per clock. Clock-based figures hold at any frequency; ns and MB/s are at the estimated Fmax below. Family comparison: [MEMORY_PERFORMANCE.md](../MEMORY_PERFORMANCE.md).
+
+### Implementation (pre-layout estimate)
+
+| Item | Value |
+|---|---|
+| Library | SKY130 `sky130_fd_sc_hd`, typical corner (tt, 25 C, 1.80 V) |
+| Longest logic path | 2.74 ns |
+| Estimated Fmax | 308 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
+| Area | 0.030 mm2 (29816 um2), 4011 cells, 182 flip-flops |
+| Not counted | the in-model DRAM array, 4096 bits (512 bytes): a real controller has the DRAM off chip |
+
+No wire load, placement, clock skew or on-chip variation: these rank the designs and give the order of magnitude; they are not a timing sign-off.
+
+### DRAM timing used (clocks)
+
+| CL | TRCD | TRP | TRAS | TRC | TRFC | TREFI |
+|---|---|---|---|---|---|---|
+| 3 | 3 | 3 | 8 | 11 | 90 | 3900 |
+
+### Latency, unloaded
+
+From the first clock the host presents the command to the clock `hrdata` is valid (read) or the core can take the next command (write). Min and max over 8 samples in different banks, away from refresh, with the bank's timers (tRAS, tRC) already run out.
+
+| Command | Clocks | ns at Fmax |
+|---|---|---|
+| Read, page hit | 5 | 16 |
+| Read, bank closed (ACT first) | 12 | 39 |
+| Read, row conflict (PRE + ACT first) | 5 | 16 |
+| Write, page hit | 6 | 19 |
+| Write, bank closed | 13 | 42 |
+| Write, row conflict | 6 | 19 |
+| Read, page hit, requested as a refresh falls due (worst case seen) | 109 | 354 |
+
+### Sustained throughput
+
+2048 back-to-back commands per pattern, refreshes included. Host utilization = bytes per clock over the port's 2-byte peak.
+
+| Pattern | Clocks / op | Bytes / clock | Host utilization | MB/s at Fmax |
+|---|---|---|---|---|
+| Sequential reads, one open row (page hits) | 6.15 | 0.325 | 16.3% | 100 |
+| Sequential writes, one open row (page hits) | 6.15 | 0.325 | 16.3% | 100 |
+| Alternating write / read, one open row | 6.15 | 0.325 | 16.3% | 100 |
+| Reads interleaved over every bank, rows open | 6.16 | 0.325 | 16.2% | 100 |
+| Reads alternating two rows of one bank (row conflicts) | 6.20 | 0.322 | 16.1% | 99 |
+| Random reads (bank, row, column uniform) | 6.17 | 0.324 | 16.2% | 100 |
+| Random writes | 6.16 | 0.325 | 16.2% | 100 |
+| Random mix, 2 reads : 1 write | 6.16 | 0.325 | 16.2% | 100 |
+
+### Refresh cost
+
+With no host traffic for 31200 clocks, `hready` is low (the core cannot take a command) 2.49% of the time, in 8 windows of at most 97 clocks (315 ns).
+
+### Reading the figures for this IP
+
+* RD / WR use the bank's open row, as in DDR, so a "row conflict" costs the same as a page hit and random traffic runs at the page-hit rate.
+* The unloaded latencies are taken after more than 32 idle clocks, so they include the one-clock exit from active power-down.
+
+### Limits of these figures
+
+* One command in flight: the core finishes a command before it takes the next, so throughput is set by the per-command latency, not by the DRAM data bus. A production controller queues and reorders many commands and keeps the data bus busy.
+* The host port is 16 bits wide; the figures are bytes through that port, not DRAM pin bandwidth.
+* Timing parameters are in controller clocks as listed above, not tied to a JEDEC speed bin.

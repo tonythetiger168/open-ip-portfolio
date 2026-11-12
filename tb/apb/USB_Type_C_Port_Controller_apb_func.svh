@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // IP part of USB_Type_C_Port_Controller_apb_tb: the port partner drives
 // cc1 / cc2 through attach on either pin (orientation), debounce glitches,
 // pin swaps, Ra and Rd-on-both (no attach), detach with and without

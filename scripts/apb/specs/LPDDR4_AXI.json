@@ -1,0 +1,40 @@
+{
+  "title": "LPDDR4 memory controller with an AXI4 subordinate port: INCR / FIXED / WRAP bursts, narrow transfers, byte strobes by read-modify-write",
+  "code": "0x5D14",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "tb_timeout": "1s",
+  "regs": [
+    {
+      "name": "N_RD",
+      "kind": "ro",
+      "desc": "AXI read bursts completed",
+      "fields": [{"port": "n_rd", "desc": "wraps at 0xFFFF"}]
+    },
+    {
+      "name": "N_WR",
+      "kind": "ro",
+      "desc": "AXI write bursts completed (B sent)",
+      "fields": [{"port": "n_wr", "desc": "wraps at 0xFFFF"}]
+    },
+    {
+      "name": "N_RMW",
+      "kind": "ro",
+      "desc": "Halfword read-modify-writes (one byte strobe of two)",
+      "fields": [{"port": "n_rmw", "desc": "wraps at 0xFFFF"}]
+    },
+    {
+      "name": "N_ERR",
+      "kind": "ro",
+      "desc": "SLVERR responses (AxSIZE above 2, misplaced WLAST)",
+      "fields": [{"port": "n_err", "desc": "wraps at 0xFFFF"}]
+    }
+  ],
+  "irqs": [
+    {"name": "ERR", "port": "err_irq", "desc": "an AXI burst ended with SLVERR"}
+  ],
+  "notes": [
+    "The AXI4 subordinate port (s_*) and the DRAM pins pass through the wrapper unchanged; the registers only read the front end's counters.",
+    "Halfword h = addr[31:1] reaches the core as haddr = {h[24:11], 7'b0, h[10:0]}: channel h[8], column h[7:0], bank h[10:9], row h[24:11]. The core keeps 256 columns of 16 bits, so the AXI space aliases above 1 KB. A write to column 0xF0 is the core's MR7 frequency-set write and leaves the array unchanged."
+  ]
+}

@@ -1,0 +1,8 @@
+# I2S_DMA synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/I2S_DMA_top.sv ../rtl/soc_ss_axi_engine.sv ../rtl/I2S_top.sv
+hierarchy -check -top I2S_DMA_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json I2S_DMA_top.json
+write_verilog I2S_DMA_top_netlist.v

@@ -1,0 +1,11 @@
+# Width-explicit control-slice proposal
+
+Stacked on draft PR28 commit a25670a9692d5d704cfe0037c693815e36b9dbbd. Only three executable lines change: guarded APB hit index [11:2] to [4:2], and two integer file-handle logical-not expressions to explicit zero comparisons. The full-width address guard is preserved, so high address bits cannot alias. This modifies the scoped frozen copy, not root RTL or its generator; source pins preserve upstream provenance separately from proposed blob identity. No warning suppression, exclusions, threshold changes, or functional expansion.
+
+## Validation
+
+Icarus 12: original nine runs / 4681 cycles PASS with all 16 sensitivity mutants detected. Additional actual original/proposed endpoint simulation: all 4096 twelve-bit addresses, writes/reads and sentinel readback; 33028 cycles, exact parsed wire-trace equality and independent oracle PASS. A separate SystemVerilog probe checks all 4096 decoder inputs and eight signed integer-handle boundary values. Removing high address bits from the guard produces 635 aliases and is detected. Register byte strobes and 32-bit data boundaries are included. Address width is twelve bits; values beyond it are not claimed as legal bus inputs. Four-state X/Z equivalence is not qualified.
+
+Replay in Linux/WSL: `python3 width_boundary.py /path/to/unchanged-PR28-control-slice`; then `python3 run.py`. The original directory must contain the pinned a25670a9 control-slice. Reports and logs are in width-evidence. Large raw traces/stimuli/executables remain in the local evidence delivery, indexed by result.json hashes; they are not all committed here.
+
+The prior Verilator 5.032 diagnostic builds used exactly these three changed lines: nine runs / 4681 cycles matched original Icarus wire traces and independent oracle. This proposal is not adopted PR28 native coverage. Baseline native line 21/22, if/else subset 26/28, combined-direction toggle 419/8789 after prior T-CSR; these are not full branch/directional coverage. An additional 900-cycle CSR data/strobe campaign passed the oracle and added zero native points (denominators unchanged, no exclusions). Unsupported full branch, directional toggle, FSM, SVA inventory and functional cross remain NOT_MEASURED. Six-metric closure remains NOT_CLOSED.
