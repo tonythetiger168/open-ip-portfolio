@@ -126,14 +126,14 @@ A bit is set while its source is active, stays set until written with 1, and a s
 A command is taken at an edge where `hvalid` = 1 and `hready` = 1; `hcmd`, `haddr` and `hwdata`
 are read at that edge only. `hvalid` while `hready` = 0 is ignored (not queued). Codes 0, 5, 6, 7
 are taken and do nothing. `hready` drops at the edge after a real command is taken and returns
-only when that command's work is complete on the pins:
+only when that command's work is complete on the pins (an engine may wait longer, see §3.4):
 
 | Command | Complete when |
 |---|---|
-| ACT | the row is open in the bank (ACT issued, or it was already open) and tRCD has passed |
+| ACT | the row is open in the bank (ACT issued, or it was already open) |
 | RD | `hdone` has pulsed (the read word is in `hrdata` from the next clock) |
 | WR | the WR pin command has been issued with the write word on `dq` |
-| PRE | the bank is closed (PRE issued, or it was already closed) and tRP has passed |
+| PRE | the bank is closed (PRE issued, or it was already closed) |
 
 `hready` is also 0 while a refresh is due or running (§3.6), so a refresh never drops a host
 command. `hready` is never low for more than BUSY_MAX clocks in a row (§3.5).
