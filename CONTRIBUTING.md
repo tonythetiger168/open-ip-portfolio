@@ -25,6 +25,9 @@ new protocol IPs, deeper testbench coverage, and documentation.
 ### Build
 - Every protocol must pass `make -f Makefile.<P> sim`, `syn` and `apb`
   using only the open toolchain (iverilog 12, yosys 0.33; see README, Setup)
+- Every core and APB wrapper must pass `python3 scripts/lint/yosys_strict.py <P>`:
+  full Yosys synth + ABC, no inferred latches, and `check -assert` clean (no
+  multiply driven or undriven-but-read nets, no combinational loops)
 - CI (`scripts/ci_regression.sh`) runs all 121 protocols on every push
 - A core or wrapper change must keep `bash scripts/cov/run_cov.sh <P>` and
   `<P>_apb` at `RESULT: CLOSED` (Verilator 5.052)
