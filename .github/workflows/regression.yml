@@ -50,6 +50,9 @@ jobs:
           git status --short
           git diff --exit-code --stat
 
+      - name: Design specs cover every port, parameter, internal probe and TB check (docs/spec)
+        run: python3 scripts/spec/gen_spec.py --check
+
       - name: Strict IEEE 1800 elaboration of all RTL (slang; catches what iverilog accepts)
         run: python3 scripts/lint/strict_elab.py
 
