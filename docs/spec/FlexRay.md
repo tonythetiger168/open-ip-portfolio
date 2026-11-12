@@ -40,7 +40,7 @@ bit.
 | `rx_id` | output | 6 | frame ID[5:0] (registered every clock from the last header) | - | `clk` | 0 |
 | `rx_cycle` | output | 6 | cycle count of the frame | - | `clk` | 0 |
 | `rx_len` | output | 7 | payload length, words | - | `clk` | 0 |
-| `rx_null` | output | 1 | null frame (indicator 0) | high | `clk` | 1 |
+| `rx_null` | output | 1 | null frame (indicator 0); 1 from the first clock after reset | high | `clk` | 0 |
 | `rx_sync` | output | 1 | sync frame indicator | high | `clk` | 0 |
 | `rx_startup` | output | 1 | startup frame indicator | high | `clk` | 0 |
 | `rx_data` | output | 128 | first 16 payload bytes, byte 0 in bits 7:0 | - | `clk` | 0 |
