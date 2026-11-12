@@ -454,3 +454,45 @@ Messages built from a step name (e.g. "power-up: not ready", "CIS: byte ...", "T
 | "not idle in reset" | in reset: power off, `ci_ce_n` = 1, no AXI request | §3.11 |
 
 The TB also prints `LAT` lines (performance report, not a check).
+
+### Coverage-closure assertions
+
+From `tb/cov/CI_Plus_Host_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_reset_idle | while `!rst_n` (reset): `!ci_vcc_en && !ci_reset && ci_ce_n && ci_oe_n && ci_we_n && ci_iord_n && ci_iowr_n && !ci_d_oe && !busy && !io_mode && tx_cnt == 0 && rx_cnt == 0 && !m_awvalid && !m_arvalid` | §3 |
+| a_power_up | whenever `!powered && power_on && present && enable`, on the next clock: `ci_vcc_en && ci_reset` | §3 |
+| a_reset_len | whenever `!ci_reset && $past(ci_reset) && ci_vcc_en`: `$past(rh) + 16'd1 == rst_n_clks` | §3 |
+| a_power_off | whenever `powered && go_off`, on the next clock: `!ci_vcc_en && !ci_reset` | §3 |
+| a_status | always holds: `present == !cd_s[1] && det == (cd_s[1] != cd_q) && powered == ci_vcc_en && (!ready \|\| ci_vcc_en)` | §3 |
+| a_ready | whenever `ready && !$past(ready)`: `$past(rdy) && iq_s[1] && $past(rh) == 0` | §3 |
+| a_ireq | always holds: `ireq == (io_mode && ready && iq_q && !iq_s[1])` | §3 |
+| a_one_strobe | always holds: `$countones(strb) <= 1 && (strb == 0 \|\| (!ci_ce_n && !ci_reg_n))` | §3 |
+| a_setup | whenever `s_fall`: `c_set == 32'(setup) + 1 && ci_a == c_a` | §3 |
+| a_strobe | whenever `s_rise && ready`: `c_strb == 32'(strobe) + 1 + c_wait && (wait_max == 0 \|\| c_wait < 32'(wait_max))` | §3 |
+| a_no_wait_no_stretch | whenever `s_rise && ready && c_wait == 0`: `c_strb == 32'(strobe) + 1` | §3 |
+| a_hold | whenever `ci_ce_n && !ce_q && after_strb && ready`: `c_hold == 32'(hold) + 1` | §3 |
+| a_stable | whenever `!ci_ce_n && !ce_q && ready`: `ci_a == $past(ci_a) && (!ci_d_oe \|\| ci_d_o == $past(ci_d_o))` | §3 |
+| a_drive | always holds: `!ci_d_oe \|\| ci_ce_n \|\| (ci_oe_n && ci_iord_n)` | §3 |
+| a_bus_to | whenever `bus_to`: `s_rise && wait_max != 0 && c_wait == 32'(wait_max) - 1` | §3 |
+| a_write_word | whenever `m_wvalid && m_wready && ready`: `w_ok && m_wdata == w_exp` | §3 |
+| a_tx_byte | whenever `s_rise && ready && c_kind == 4'b1000 && c_a[1:0] == 2'd0`: `tq.size() != 0 && c_d == tq[0]` | §3 |
+| a_tx_size | whenever `s_rise && ready && c_kind == 4'b1000 && c_a[1:1] == 1'b1`: `c_d == (c_a[0] ? tx_len[15:8] : tx_len[7:0])` | §3 |
+| a_tx_done | whenever `tx_done && !tx_fail`: `tx_dw == tx_len` | §3 |
+| a_rx | whenever `rx`: `rx_len == r_size && rx_ovf == (r_size > rx_max) && r_got == r_size && rx_full` | §3 |
+| a_counters | always holds: `$past(tx_cnt) == m_tx && $past(rx_cnt) == m_rx && to_cnt == m_to && ts_cnt == m_ts` | §3 |
+| a_err_irq | always holds: `!err_irq \|\| j_err` | §3 |
+| a_err_end | whenever `(cfg \|\| tx_done \|\| rx) && j_err && $past(ready)`: `##1 err` | §3 |
+| a_ts | always holds: `!$past(rst_n) \|\| ci_mo_val == ($past(route) && $past(ts_in_valid)) && ci_mo_data == ($past(route) ? $past(ts_in_data) : 8'h00) && ts_out_valid == ($past(route) ? $past(ci_mi_val) : $past(ts_in_valid)) && ts_out_data == ($past(route) ? $past(ci_mi_data) : $past(ts_in_data))` | §3 |
+
+### Further TB checks
+
+| Check (TB message) | What it requires | Spec |
+|---|---|---|
+| "response" | fails when `!err` (`tb/CI_Plus_Host_tb.sv` line 400) | §3 |
+| "power-off during a CIS read" | fails when `busy \|\| !err \|\| ci_vcc_en` (`tb/CI_Plus_Host_tb.sv` line 422) | §3 |
+| "power-off during an RX message" | fails when `busy \|\| ci_vcc_en` (`tb/CI_Plus_Host_tb.sv` line 442) | §3 |
+| "counter runs: TX" | fails when `tx_cnt != 16'hFFFF \|\| rx_cnt != 16'hFFFF \|\| to_cnt != 16'hFFFF \|\| ts_cnt != 16'hFFFF` (`tb/CI_Plus_Host_tb.sv` line 502) | §3 |
+| "ENABLE off" | fails when `ci_vcc_en \|\| ready` (`tb/CI_Plus_Host_tb.sv` line 531) | §3 |

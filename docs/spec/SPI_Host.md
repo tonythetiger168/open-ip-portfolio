@@ -29,6 +29,15 @@ asynchronously by `rst_n` low. Edge S is the edge that accepts `start`.
 | `busy` | output | 1 | a frame is in progress (from edge S to the edge that sets `done`) | high | clk | 0 |
 | `done` | output | 1 | one-clock pulse at the end of each frame, with `rx_data` updated at the same edge | high | clk | 0 |
 
+### Internal signals used by the coverage checker
+
+`tb/cov/SPI_Host_sva.sv` is bound to `SPI_Host_top` with `.*`, so a re-implementation must have these
+names (width as seen by the checker).
+
+| Signal | Width | Meaning |
+|---|---|---|
+| `edge_n` | [4:0] | edges made in this frame (16 per frame) |
+
 ## 2. Registers
 
 The core has no registers of its own; the APB4 wrapper `SPI_Host_apb` holds `div`, `cpol`,
@@ -180,3 +189,28 @@ Messages are printed by `tb/SPI_Host_tb.sv` as `ERROR: <message>`.
 | `N DONE pulses for one frame` | one `done` per frame, also when `start` is pulsed again while busy | §3.1, §5 |
 | "SPI_top got" | the `SPI_top` target (mode 0, H = 3..9) receives each byte, several frames per chip select | §3.3, §3.4, §5 |
 | "timeout" | the test ends within 20 ms (no hung frame) | §3.2 |
+
+### Coverage-closure assertions
+
+From `tb/cov/SPI_Host_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_reset_idle | while `!rst_n` (reset): `!busy && !done && !sclk` | §3 |
+| a_csn | always holds: `csn == ~cs` | §3 |
+| a_start | whenever `go`, on the next clock: `busy` | §3 |
+| a_start_ignored | whenever `start && busy && !done`, on the next clock: `!busy \|\| edge_n >= $past(edge_n)` | §3 |
+| a_idle_level | always holds: `(!busy && $past(!busy) && $past(rst_n)) -> sclk == $past(cpol)` | §3 |
+| a_half_period | whenever `edge_seen && n_edge != 0`: `m_hc >= f_div` | §3 |
+| a_mosi_hold | whenever `samp`: `mosi == mosi_q` | §3 |
+| a_first_bit | whenever `busy && $past(go) && !f_pha`: `mosi == f_tx[7]` | §3 |
+| a_done | whenever `done`: `n_edge == 16 && d_mosi == f_tx && rx_data == d_miso && !busy` | §3 |
+| a_edges | always holds: `n_edge <= 16` | §3 |
+
+### Further TB checks
+
+| Check (TB message) | What it requires | Spec |
+|---|---|---|
+| "SCLK moved when CPOL changed during a frame" | fails when `sclk !== 1'b0` (`tb/SPI_Host_tb.sv` line 149) | §3 |
+| "busy in reset" | fails when `busy` (`tb/SPI_Host_tb.sv` line 153) | §3 |

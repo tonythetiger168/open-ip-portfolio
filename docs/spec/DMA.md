@@ -93,6 +93,21 @@ The TB reads these by name; a re-implementation must have them.
 | `e_start` | 1 | job start: no job running and a channel is pending (combinational) |
 | `nxt` | 2 | the channel the next job start will serve (round-robin choice, combinational) |
 
+### Internal signals used by the coverage checker
+
+`tb/cov/DMA_sva.sv` is bound to `DMA_top` with `.*`, so a re-implementation must have these
+names (width as seen by the checker).
+
+| Signal | Width | Meaning |
+|---|---|---|
+| `e_done` | 1 | core-internal signal read by name by the checker |
+| `rs_valid` | 1 | core-internal signal read by name by the checker |
+| `rs_ready` | 1 | core-internal signal read by name by the checker |
+| `ws_valid` | 1 | core-internal signal read by name by the checker |
+| `ws_ready` | 1 | core-internal signal read by name by the checker |
+| `rs_data` | [31:0] | core-internal signal read by name by the checker |
+| `ws_data` | 1 | core-internal signal read by name by the checker |
+
 ## 2. Registers
 
 <!-- AUTO:registers -->
@@ -306,3 +321,25 @@ channel sets (all at once or staggered) with random COPY / FILL jobs against
 | "write error: ERR / interrupt" | an error response on a FILL write sets `err` and pulses `err_irq` | §3.3, §3.4 |
 | "ERR not cleared by the next job" | `err` is cleared at the next job start | §3.3 |
 | "not idle in reset" | reset mid-job: `busy`, `pending`, `m_awvalid`, `m_arvalid`, `m_wvalid` all 0 | §3.5 |
+
+### Coverage-closure assertions
+
+From `tb/cov/DMA_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_reset_idle | while `!rst_n` (reset): `pending == 0 && !busy && active_ch == 2'd3 && checksum == 0 && dn == 0` | §3 |
+| a_queue | always holds: `pending == m_pend && busy == m_run && active_ch == m_ch && checksum == m_sum` | §3 |
+| a_engine_start | always holds: `e_start == m_go` | §3 |
+| a_engine_job | whenever `m_go`: `u_eng.src == sv[m_nxt] && u_eng.dst == dv[m_nxt] && u_eng.len == lv[m_nxt] && u_eng.rd_en == !md[m_nxt] && u_eng.wr_en` | §3 |
+| a_ws_valid | always holds: `ws_valid == (md[m_ch] ? m_run : rs_valid)` | §3 |
+| a_ws_data | whenever `ws_valid`: `ws_data == (md[m_ch] ? fv[m_ch] : rs_data)` | §3 |
+| a_rs_ready | always holds: `rs_ready == ws_ready` | §3 |
+| a_done | always holds: `dn == (e_done ? 4'b1 << m_ch : 4'b0) && err_irq == (e_done && err)` | §3 |
+
+### Further TB checks
+
+| Check (TB message) | What it requires | Spec |
+|---|---|---|
+| "error code: ERR" | fails when `!err` (`tb/DMA_tb.sv` line 164) | §3 |

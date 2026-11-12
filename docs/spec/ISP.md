@@ -77,6 +77,20 @@ The TB reads these by name; a re-implementation must have them.
 |---|---|---|
 | `u_eng` | - | the `soc_ss_axi_engine` instance; the TB prints its `rstate` (read side: 0 idle, 1 AR, 2 data) and `wstate` (write side: 0 idle, 1 AW, 2 data, 3 response) when a job times out |
 
+### Internal signals used by the coverage checker
+
+`tb/cov/ISP_sva.sv` is bound to `ISP_top` with `.*`, so a re-implementation must have these
+names (width as seen by the checker).
+
+| Signal | Width | Meaning |
+|---|---|---|
+| `rs_valid` | 1 | core-internal signal read by name by the checker |
+| `rs_ready` | 1 | core-internal signal read by name by the checker |
+| `ws_valid` | 1 | core-internal signal read by name by the checker |
+| `ws_ready` | 1 | core-internal signal read by name by the checker |
+| `rs_data` | [31:0] | core-internal signal read by name by the checker |
+| `ws_data` | 1 | core-internal signal read by name by the checker |
+
 ## 2. Registers
 
 <!-- AUTO:registers -->
@@ -255,3 +269,17 @@ at most 16 beats) and injects random stalls and error responses at one word of a
 | "STAT_SUM" | `stat_sum` equals the sum of the model's output pixels | §3.2 |
 | "sensor words left over" | the core takes exactly `xfer_len` sensor words | §3.2 |
 | "not idle in reset" | reset mid-job: `busy`, `m_awvalid`, `m_arvalid`, `m_wvalid` all 0 | §3.5 |
+
+### Coverage-closure assertions
+
+From `tb/cov/ISP_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_reset_idle | while `!rst_n` (reset): `stat_sum == 0 && !sns_ready && !err_irq` | §3 |
+| a_ws_valid | always holds: `ws_valid == (busy && (m_sel ? sns_valid : 1'b1))` | §3 |
+| a_ws_data | whenever `ws_valid`: `ws_data == m_out` | §3 |
+| a_sns_ready | always holds: `sns_ready == (busy && m_sel && ws_ready)` | §3 |
+| a_no_read_stream | always holds: `!rs_ready` | §3 |
+| a_stat_sum | always holds: `stat_sum == m_sum` | §3 |

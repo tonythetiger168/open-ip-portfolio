@@ -367,3 +367,50 @@ check §3.2, §3.4 to §3.6 step by step.
 | "not idle in reset" | in reset: no power, RST low, I/O released, no AXI request | §3.9 |
 
 The TB also prints `LAT` lines (performance report, not a check).
+
+### Coverage-closure assertions
+
+From `tb/cov/Smartcard_7816_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_reset_idle | while `!rst_n` (reset): `!sc_vcc_en && !sc_rst_n && !sc_clk && !sc_io_oe_low && !tx_busy && !m_awvalid && !m_arvalid && wr_idx == 0 && rx_cnt == 0 && perr_cnt == 0 && ovf_cnt == 0 && !err` | §3 |
+| a_power_up | whenever `!powered && activate && present && enable`, on the next clock: `powered && !sc_rst_n` | §3 |
+| a_status | always holds: `active == sc_rst_n && powered == sc_vcc_en && present == det_s[1] && det == (present != pres_q)` | §3 |
+| a_rst_needs_power | always holds: `!sc_rst_n \|\| sc_vcc_en` | §3 |
+| a_clk_needs_power | always holds: `!sc_clk \|\| sc_vcc_en` | §3 |
+| a_rst_low_time | whenever `sc_rst_n && !$past(sc_rst_n)`: `nce == rst_n_clks && $past(rstl)` | §3 |
+| a_deactivate | whenever `active && go_off`, on the next clock: `!sc_rst_n` | §3 |
+| a_vcc_off_last | whenever `!sc_vcc_en && $past(sc_vcc_en)`: `!sc_rst_n && !sc_clk && quiet >= 13` | §3 |
+| a_clk_half_period | whenever `sc_clk != sck_q && seen_edge && !div_chg && sc_rst_n && $past(sc_rst_n)`: `hc == 16'(cd_q)` | §3 |
+| a_tx_line_idle | whenever `sc_io_oe_low`: `(tx_busy && active) \|\| r_sig` | §3 |
+| a_tx_guard_released | whenever `d_run && d_k >= 10`: `!sc_io_oe_low` | §3 |
+| a_tx_char | whenever `d_end`: `d_par_ok && tq.size() != 0 && d_byte == tq[0]` | §3 |
+| a_tx_retx_cnt | always holds: `retx_cnt == m_retx` | §3 |
+| a_tx_done | whenever `tx_done`: `tx_fail == t_fail_m && (t_fail_m \|\| t_left == 0) && !d_on` | §3 |
+| a_tx_read_addr | whenever `m_arvalid && m_arready`: `m_araddr[31:2] >= tx_addr[31:2] && m_araddr[31:2] - tx_addr[31:2] + 32'(m_arlen) + 1 <= (32'(tx_len) + 3) / 4` | §3 |
+| a_rx_signal | whenever `!tx_busy && active`: `sc_io_oe_low == r_sig` | §3 |
+| a_rx_perr | always holds: `perr == ((r_done && r_bad) \|\| t_failp_m)` | §3 |
+| a_ring_word | whenever `m_wvalid && m_wready`: `rq.size() != 0 && m_wdata == rq[0]` | §3 |
+| a_ring_addr | whenever `m_awvalid`: `m_awaddr == ring_base + {14'd0, wr_idx, 2'b00} && m_wr_next != rd_idx` | §3 |
+| a_wr_idx | whenever `rx`, on the next clock: `wr_idx == $past(m_wr_next) \|\| !enable` | §3 |
+| a_rx_counters | always holds: `rx_cnt == m_rxc && perr_cnt == m_perr && ovf_cnt == m_ovf` | §3 |
+| a_timeout | always holds: `timeout == w_fire` | §3 |
+| a_err_irq | always holds: `err_irq == ((rx && b_err_now) \|\| (tx_done && t_err_m))` | §3 |
+| a_err_sticky | whenever `err_irq`: `##1 err` | §3 |
+
+### Further TB checks
+
+| Check (TB message) | What it requires | Spec |
+|---|---|---|
+| "not in the RST low time" | fails when `sc_rst_n \|\| !sc_vcc_en` (`tb/Smartcard_7816_tb.sv` line 344) | §3 |
+| "deactivation during the RST low time" | fails when `powered \|\| active` (`tb/Smartcard_7816_tb.sv` line 347) | §3 |
+| "glitch taken as a character" | fails when `rx_cnt != r0 \|\| perr_cnt != p0 \|\| dut.re_busy` (`tb/Smartcard_7816_tb.sv` line 359) | §3 |
+| "no TIMEOUT with WT 65535" | fails when `n_to == t0` (`tb/Smartcard_7816_tb.sv` line 373) | §3 |
+| "TX not waiting for its word" | fails when `!tx_busy` (`tb/Smartcard_7816_tb.sv` line 407) | §3 |
+| "TX not ended by a deactivation while loading" | fails when `tx_busy \|\| !tx_fail` (`tb/Smartcard_7816_tb.sv` line 416) | §3 |
+| "RING_WORDS 0" | see `tb/Smartcard_7816_tb.sv` (`tb/Smartcard_7816_tb.sv` line 421) | §3 |
+| "the 65535-byte TX sent nothing" | fails when `c_rxq.size() == 0` (`tb/Smartcard_7816_tb.sv` line 437) | §3 |
+| "long TX not ended by the deactivation" | fails when `!tx_fail` (`tb/Smartcard_7816_tb.sv` line 440) | §3 |
+| "ERR_IRQ after DECERR" | fails when `n_err_irq != e0 + 2` (`tb/Smartcard_7816_tb.sv` line 459) | §3 |

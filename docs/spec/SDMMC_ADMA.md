@@ -95,6 +95,34 @@ The TB reads these by name; a re-implementation must have them.
 |---|---|---|
 | `hold` | 1 | the data engine wants `sd_clk` stopped: 1 while waiting for a read block's start bit with less than W free words in the buffer (§3.4) |
 
+### Internal signals used by the coverage checker
+
+`tb/cov/SDMMC_ADMA_sva.sv` is bound to `SDMMC_ADMA_top` with `.*`, so a re-implementation must have these
+names (width as seen by the checker).
+
+| Signal | Width | Meaning |
+|---|---|---|
+| `as_q` | 1 | core-internal signal read by name by the checker |
+| `A_XWAIT` | 1 | core-internal signal read by name by the checker |
+| `c_go` | 1 | core-internal signal read by name by the checker |
+| `a_data` | 1 | the job in progress is a data job |
+| `drop` | 1 | core-internal signal read by name by the checker |
+| `dir_rd` | 1 | transfer direction: card to memory |
+| `e_start` | 1 | core-internal signal read by name by the checker |
+| `e_rd` | 1 | core-internal signal read by name by the checker |
+| `e_wr` | 1 | core-internal signal read by name by the checker |
+| `e_done` | 1 | core-internal signal read by name by the checker |
+| `e_err` | 1 | core-internal signal read by name by the checker |
+| `e_src` | [31:0] | core-internal signal read by name by the checker |
+| `e_dst` | 1 | core-internal signal read by name by the checker |
+| `e_len` | [15:0] | core-internal signal read by name by the checker |
+| `rs_valid` | 1 | core-internal signal read by name by the checker |
+| `rs_ready` | 1 | core-internal signal read by name by the checker |
+| `ws_valid` | 1 | core-internal signal read by name by the checker |
+| `ws_ready` | 1 | core-internal signal read by name by the checker |
+| `rs_data` | [31:0] | core-internal signal read by name by the checker |
+| `ws_data` | 1 | core-internal signal read by name by the checker |
+
 ## 2. Registers
 
 <!-- AUTO:registers -->
@@ -414,3 +442,43 @@ The messages "read" / "write ... D_ERR" and "... word ... memory ..., card ..." 
 transfers) and "... DMA_INT, expected ..." start with a formatted value and so have no fixed
 prefix. The TB also prints `LAT tb SDMMC_ADMA R|W <clocks>` from `c_start` to `xfer_done`
 (performance report, not a check).
+
+### Coverage-closure assertions
+
+From `tb/cov/SDMMC_ADMA_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_cmd_frame | whenever `chk_cmd`: `c_got == c_exp` | §3 |
+| a_cmd_errors | whenever `m_done`: `c_err[3:0] == m_cerr` | §3 |
+| a_rsp | whenever `m_done && m_rsp_v`: `m_rsp_long ? {rsp3, rsp2, rsp1, rsp0} == m_rsp : rsp0 == m_rsp[31:0]` | §3 |
+| a_data_word | whenever `chk_w`: `chk_w_ok` | §3 |
+| a_wr_block_crc | whenever `chk_blk && !rd`: `chk_blk_crc_ok && chk_blk_end_ok` | §3 |
+| a_rd_errors | whenever `xfer_done && rd && (d_err & 8'hF9) == 0`: `d_err[2:1] == {m_rd_end_err, m_rd_crc_err}` | §3 |
+| a_fetch_addr | whenever `e_start && !a_data`: `e_src == a_desc && e_len == 2 && e_rd && !e_wr && a_on && !a_exp_job` | §3 |
+| a_tran_job | whenever `e_start && a_data`: `a_exp_job && e_src == a_w1 && e_dst == a_w1 && e_len == 16'(a_job_w) && e_rd == !dir_rd && e_wr == dir_rd` | §3 |
+| a_dma_errors | whenever `xfer_done && (d_err & 8'h8F) == 0`: `(d_err & 8'h70) == a_err` | §3 |
+
+### Further TB checks
+
+| Check (TB message) | What it requires | Spec |
+|---|---|---|
+| "65536-byte descriptor: D_ERR" | fails when `d_err != 0 \|\| blk_done != (c ? 16'd1 : 16'd2)` (`tb/SDMMC_ADMA_tb.sv` line 309) | §3 |
+| "index: C_ERR" | fails when `e !== 5'b00100` (`tb/SDMMC_ADMA_tb.sv` line 312) | §3 |
+| "end bit: C_ERR" | fails when `!e[3]` (`tb/SDMMC_ADMA_tb.sv` line 313) | §3 |
+| "read end bit: D_ERR" | fails when `!d_err[2]` (`tb/SDMMC_ADMA_tb.sv` line 319) | §3 |
+| "data timeout: D_ERR" | fails when `!d_err[0]` (`tb/SDMMC_ADMA_tb.sv` line 322) | §3 |
+| "data command failed: D_ERR" | fails when `!d_err[7]` (`tb/SDMMC_ADMA_tb.sv` line 325) | §3 |
+| "DAT_RESET during a write: no XFER_ERR" | fails when `!xfer_err_seen` (`tb/SDMMC_ADMA_tb.sv` line 347) | §3 |
+| "gated / overlapped read: D_ERR" | fails when `d_err != 0` (`tb/SDMMC_ADMA_tb.sv` line 356) | §3 |
+| "random CID" | fails when `{rsp3, rsp2, rsp1, rsp0} !== card.cid` (`tb/SDMMC_ADMA_tb.sv` line 376) | §3 |
+| "CMD1 OCR echo" | fails when `rsp0[14:8] !== 7'h7F` (`tb/SDMMC_ADMA_tb.sv` line 381) | §3 |
+| "table error" | fails when `!xfer_err_seen \|\| d_err != (c == 0 ? 8'h10 : c == 1 ? 8'h20 : 8'h40)` (`tb/SDMMC_ADMA_tb.sv` line 396) | §3 |
+| "high table: D_ERR" | fails when `d_err != 0 \|\| blk_done != 2 \|\| n_dma_int != 1` (`tb/SDMMC_ADMA_tb.sv` line 429) | §3 |
+| "high buffer word" | fails when `mem.peek(a) !== {card.mem[b + 3], card.mem[b + 2], card.mem[b + 1], card.mem[b]}` (`tb/SDMMC_ADMA_tb.sv` line 436) | §3 |
+| "long descriptor" | fails when `!xfer_err_seen` (`tb/SDMMC_ADMA_tb.sv` line 453) | §3 |
+| "4-byte blocks: stopped at" | fails when `!blk_done[15]` (`tb/SDMMC_ADMA_tb.sv` line 465) | §3 |
+| "longest data timeout: D_ERR" | fails when `dat_busy \|\| !d_err[0]` (`tb/SDMMC_ADMA_tb.sv` line 479) | §3 |
+| "longest busy timeout: C_ERR" | fails when `cmd_busy \|\| c_err !== 5'b10000` (`tb/SDMMC_ADMA_tb.sv` line 484) | §3 |
+| "not idle in reset" | fails when `dat_busy \|\| cmd_busy` (`tb/SDMMC_ADMA_tb.sv` line 494) | §3 |

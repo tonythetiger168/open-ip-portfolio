@@ -64,6 +64,22 @@ and was 0 at the previous edge.
 | `m_rvalid` | input | 1 | read data valid | high | `clk` | - |
 | `m_rready` | output | 1 | 1 for the whole read data phase of a burst (never back-pressures) | high | `clk` | 0 |
 
+### Internal signals used by the coverage checker
+
+`tb/cov/Interrupt_Controller_sva.sv` is bound to `Interrupt_Controller_top` with `.*`, so a re-implementation must have these
+names (width as seen by the checker).
+
+| Signal | Width | Meaning |
+|---|---|---|
+| `ts` | 1 | core-internal signal read by name by the checker |
+| `e_busy` | 1 | not in the DONE clock: slot moves on |
+| `e_done` | 1 | not in the DONE clock: slot moves on |
+| `e_err` | 1 | core-internal signal read by name by the checker |
+| `ws_valid` | 1 | core-internal signal read by name by the checker |
+| `ws_ready` | 1 | core-internal signal read by name by the checker |
+| `rs_ready` | 1 | core-internal signal read by name by the checker |
+| `ws_data` | [31:0] | core-internal signal read by name by the checker |
+
 ## 2. Registers
 
 <!-- AUTO:registers -->
@@ -251,3 +267,26 @@ random sources, enables and software bits, then exercises the log against
 | "record after reset" | logging works after reset, starting at slot 0 | §3.2, §3.6 |
 | "record after lowering LOG_WORDS at slot 0" | after shrinking the ring below the next slot the record goes to slot 0 | §3.2 |
 | "record outside the shrunk ring" | ... and nothing is written outside the new ring | §3.2 |
+
+### Coverage-closure assertions
+
+From `tb/cov/Interrupt_Controller_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_reset_idle | while `!rst_n` (reset): `log_wp == 0 && !log_err && !ws_valid` | §3 |
+| a_pending | always holds: `pending == m_p && cpu_irq == (m_p != 0) && claim == m_claim(m_p)` | §3 |
+| a_log_wp | always holds: `log_wp == m_wp` | §3 |
+| a_engine_start | always holds: `u_eng.start == m_go` | §3 |
+| a_engine_job | whenever `m_go`: `u_eng.dst == log_base + {14'd0, m_ws, 2'b00} && u_eng.len == 16'd1 && !u_eng.rd_en && u_eng.wr_en` | §3 |
+| a_record | always holds: `ws_valid == e_busy && (!ws_valid \|\| ws_data == {m_ts, 3'b000, m_lidq})` | §3 |
+| a_log_err | always holds: `log_err == (e_done && e_err)` | §3 |
+| a_no_read_stream | always holds: `!rs_ready` | §3 |
+
+### Further TB checks
+
+| Check (TB message) | What it requires | Spec |
+|---|---|---|
+| "LOG_ERR on EXOKAY / DECERR" | fails when `n_log_err != 3` (`tb/Interrupt_Controller_tb.sv` line 161) | §3 |
+| "record written with LOG_WORDS 0" | fails when `log_wp != 8` (`tb/Interrupt_Controller_tb.sv` line 168) | §3 |

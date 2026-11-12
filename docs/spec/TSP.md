@@ -92,6 +92,15 @@ AFC[1:0], CC[3:0]}; byte 4 the adaptation field length when AFC bit 1 is set.
 | `m_rvalid` | input | 1 | read data valid | high | `clk` | - |
 | `m_rready` | output | 1 | 1 for the whole read data phase of a burst (never back-pressures) | high | `clk` | 0 |
 
+### Internal signals used by the coverage checker
+
+`tb/cov/TSP_sva.sv` is bound to `TSP_top` with `.*`, so a re-implementation must have these
+names (width as seen by the checker).
+
+| Signal | Width | Meaning |
+|---|---|---|
+| `clk_cnt` | 1 | core-internal signal read by name by the checker |
+
 ## 2. Registers
 
 <!-- AUTO:registers -->
@@ -349,3 +358,34 @@ buffers A and B byte by byte and every counter with the TB's model (§3.2 to §3
 | "counters not reset" | reset clears `desc_cnt` and `a_cnt` | §3.6 |
 
 The TB also prints `LAT` lines (performance report, not a check).
+
+### Coverage-closure assertions
+
+From `tb/cov/TSP_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_reset_idle | while `!rst_n` (reset): `!busy && !m_arvalid && !m_awvalid && a_cnt == 0 && b_cnt == 0 && pkt_cnt == 0 && desc_cnt == 0 && sync_cnt == 0 && drop_cnt == 0 && ovf_cnt == 0 && !err` | §3 |
+| a_start | whenever `go`, on the next clock: `busy \|\| done` | §3 |
+| a_key_busy | whenever `key_load && !key_busy`, on the next clock: `key_busy` | §3 |
+| a_read_addr | whenever `m_arvalid && m_arready`: `m_araddr == src_addr + 32'(j_pi) * 188 + 32'(ar_w) * 4 && ar_w + 32'(m_arlen) + 1 <= 47` | §3 |
+| a_write_addr | whenever `m_awvalid && m_awready`: `wq_addr.size() != 0 && m_awaddr == wq_addr[0] + 32'(aw_w) * 4 && aw_w + 32'(m_awlen) + 1 <= 47` | §3 |
+| a_write_data | whenever `m_wvalid && m_wready`: `wq_addr.size() != 0 && ((m_wdata ^ w_exp) & w_msk) == 0` | §3 |
+| a_counters | whenever `done \|\| go`: `desc_cnt == c_desc && nokey_cnt == c_nokey && sync_cnt == c_sync && drop_cnt == c_drop && ovf_cnt == c_ovf && pkt_cnt == c_pkt` | §3 |
+| a_pcr | whenever `pcr`: `e_pcr_v && pcr_base == e_pcr_b[31:0] && pcr_ext == {e_pcr_b[32], e_pcr_x}` | §3 |
+| a_pcr_local | whenever `pcr`: `pcr_local <= p_t0 && p_t0 - pcr_local < 32'd64` | §3 |
+| a_done | whenever `done`: `!busy && j_pi == pkts && a_cnt == j_a && b_cnt == j_b && wq_addr.size() == 0 && err_irq == j_err && n_sync_i == n_sync_e && n_nokey_i == n_nokey_e && n_ovf_i == n_ovf_e && n_pcr_i == n_pcr_e` | §3 |
+| a_err | whenever `done && err_irq`, on the next clock: `err` | §3 |
+
+### Further TB checks
+
+| Check (TB message) | What it requires | Spec |
+|---|---|---|
+| "0-packet job" | fails when `pkt_cnt != 0 && a_cnt != 0` (`tb/TSP_tb.sv` line 186) | §3 |
+| "job not started during a key expansion" | fails when `!busy` (`tb/TSP_tb.sv` line 200) | §3 |
+| "job ended before the key expansion" | fails when `!busy` (`tb/TSP_tb.sv` line 204) | §3 |
+| "job started during a key expansion" | fails when `a_cnt != 1` (`tb/TSP_tb.sv` line 209) | §3 |
+| "counter runs: sync" | fails when `sync_cnt != 16'hFFFF \|\| drop_cnt != 16'hFFFF \|\| nokey_cnt != 16'hFFFF \|\| desc_cnt < 16'd65535 \|\| ovf_cnt != 16'hFFFF \|\| pkt_cnt != 16'hFFFF \|\| a_cnt != 16'd44700 \|\| b_cnt != 16'd44700` (`tb/TSP_tb.sv` line 242) | §3 |
+| "B overflow with OVF_CNT saturated" | fails when `ovf_cnt != 16'hFFFF \|\| b_cnt != 0` (`tb/TSP_tb.sv` line 253) | §3 |
+| "PCR_LOCAL bit" | fails when `pcr_local[b] != (v != 1)` (`tb/TSP_tb.sv` line 266) | §3 |

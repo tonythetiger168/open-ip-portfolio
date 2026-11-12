@@ -80,6 +80,42 @@ words(n) = ceil(n / 4).
 | `m_rvalid` | input | 1 | read data valid | high | `clk` | - |
 | `m_rready` | output | 1 | 1 for the whole read data phase of a burst (never back-pressures) | high | `clk` | 0 |
 
+### Internal signals used by the coverage checker
+
+`tb/cov/GbE_DMA_sva.sv` is bound to `GbE_DMA_top` with `.*`, so a re-implementation must have these
+names (width as seen by the checker).
+
+| Signal | Width | Meaning |
+|---|---|---|
+| `u_mac` | 1 | instance of the core's sub-module, probed hierarchically |
+| `tx_valid` | 1 | core-internal signal read by name by the checker |
+| `tx_ready` | 1 | core-internal signal read by name by the checker |
+| `tx_last` | 1 | core-internal signal read by name by the checker |
+| `rx_valid` | 1 | core-internal signal read by name by the checker |
+| `e_start` | 1 | core-internal signal read by name by the checker |
+| `e_rd` | 1 | core-internal signal read by name by the checker |
+| `e_wr` | 1 | core-internal signal read by name by the checker |
+| `e_done` | 1 | core-internal signal read by name by the checker |
+| `e_err` | 1 | core-internal signal read by name by the checker |
+| `e_src` | [31:0] | core-internal signal read by name by the checker |
+| `e_dst` | 1 | core-internal signal read by name by the checker |
+| `e_len` | [15:0] | core-internal signal read by name by the checker |
+| `rs_valid` | 1 | core-internal signal read by name by the checker |
+| `rs_ready` | 1 | core-internal signal read by name by the checker |
+| `ws_valid` | 1 | core-internal signal read by name by the checker |
+| `ws_ready` | 1 | core-internal signal read by name by the checker |
+| `rs_data` | [31:0] | core-internal signal read by name by the checker |
+| `ws_data` | 1 | core-internal signal read by name by the checker |
+| `tx_done` | 1 | core-internal signal read by name by the checker |
+| `tx_underrun` | 1 | core-internal signal read by name by the checker |
+| `tx_data` | [7:0] | core-internal signal read by name by the checker |
+| `rx_data` | 1 | core-internal signal read by name by the checker |
+| `rx_last` | 1 | core-internal signal read by name by the checker |
+| `rx_stat` | [3:0] | core-internal signal read by name by the checker |
+| `st` | [3:0] | core-internal signal read by name by the checker |
+| `txs_pend` | 1 | TX frame sent, status to write |
+| `tx_busy` | 1 | a TX descriptor is being processed |
+
 ## 2. Registers
 
 <!-- AUTO:registers -->
@@ -360,3 +396,42 @@ responses in a chosen region), with TX and RX at the same time.
 
 The TB also prints `LAT GbE_DMA axi R|W <clocks>` for every burst (performance report, not a
 check).
+
+### Coverage-closure assertions
+
+From `tb/cov/GbE_DMA_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_reset_idle | while `!rst_n` (reset): `tx_head == 0 && rx_head == 0 && tx_frames == 0 && rx_frames == 0 && rx_drop == 0 && !err && !tx_valid && !e_start` | §3 |
+| a_heads | always holds: `tx_head == t_head && rx_head == r_head` | §3 |
+| a_counters | always holds: `tx_frames == t_frames && rx_frames == r_frames && rx_drop == m_drop` | §3 |
+| a_err | always holds: `err == m_err` | §3 |
+| a_err_irq | whenever `e_done && e_err`, on the next clock: `err_irq` | §3 |
+| a_irqs | always holds: `tx_irq == $past(st == S_TXS && e_done && !e_start) && rx_irq == $past(st == S_RXS && e_done && !e_start) && drop_irq == $past(rx_valid && rx_last && f_drop_now)` | §3 |
+| a_sched | whenever `st == S_IDLE`: `##1 st == sched_q` | §3 |
+| a_job_rx_desc | whenever `st == S_RXD && e_start`: `e_src == rx_base + {13'd0, r_head, 3'b000} && e_len == 2 && e_rd && !e_wr && w_info.size() != 0` | §3 |
+| a_job_tx_desc | whenever `st == S_TXD && e_start`: `e_src == tx_base + {13'd0, t_head, 3'b000} && e_len == 2 && e_rd && !e_wr` | §3 |
+| a_job_tx_status | whenever `st == S_TXS && e_start`: `e_dst == tx_base + {13'd0, t_head, 3'b100} && e_len == 1 && !e_rd && e_wr` | §3 |
+| a_job_tx_buf | whenever `st == S_TXB && e_start`: `e_src == d_w0 && e_len == wds(t_len) && e_rd && !e_wr && !t_bad` | §3 |
+| a_job_rx_buf | whenever `st == S_RXB && e_start`: `e_dst == d_w0 && e_len == r_take && !e_rd && e_wr && r_take != 0` | §3 |
+| a_job_rx_status | whenever `st == S_RXS && e_start`: `e_dst == rx_base + {13'd0, r_head, 3'b100} && e_len == 1 && !e_rd && e_wr` | §3 |
+| a_job_only_on_entry | always holds: `e_start -> $past(st) != st` | §3 |
+| a_tx_store_fwd | whenever `tx_valid`: `st != S_TXB && t_words.size() == int'(wds(t_len)) - int'(t_bi / 4)` | §3 |
+| a_tx_byte | whenever `tx_valid`: `tx_data == tx_byte() && tx_last == (t_bi + 1 == t_len)` | §3 |
+| a_tx_status | whenever `st == S_TXS && ws_valid`: `ws_data == {1'b1, 1'b0, t_ur && !t_bad, t_bad, 12'd0, t_len}` | §3 |
+| a_rx_word | whenever `st == S_RXB && ws_valid && ws_ready`: `ws_data == rx_word(int'(r_left)) && r_left < r_take` | §3 |
+| a_rx_status | whenever `st == S_RXS && ws_valid`: `ws_data == {1'b1, w_len > d_w1[15:0], 10'd0, w_stat, w_len}` | §3 |
+| a_no_underrun | always holds: `!tx_underrun` | §3 |
+
+### Further TB checks
+
+| Check (TB message) | What it requires | Spec |
+|---|---|---|
+| "bad-length TX descriptor write-back" | fails when `w !== {1'b1, 1'b0, 1'b0, 1'b1, 12'd0, 16'(len)}` (`tb/GbE_DMA_tb.sv` line 241) | §3 |
+| "FIFO full: RX_DROP" | fails when `rx_drop != d0 + 1` (`tb/GbE_DMA_tb.sv` line 433) | §3 |
+| "40000-byte frame: RX_DROP" | fails when `rx_drop != d0 + 1` (`tb/GbE_DMA_tb.sv` line 479) | §3 |
+| "drop run: RX_DROP" | fails when `rx_drop != 16'(n0 + 65540)` (`tb/GbE_DMA_tb.sv` line 546) | §3 |
+| "long runs: rings not drained" | fails when `tx_head != tx_tail \|\| rx_head != rx_tail` (`tb/GbE_DMA_tb.sv` line 547) | §3 |
+| "TX not idle in reset" | fails when `dut.tx_valid \|\| tx_head != 0` (`tb/GbE_DMA_tb.sv` line 571) | §3 |

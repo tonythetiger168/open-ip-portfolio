@@ -78,6 +78,20 @@ The TB reads these by name; a re-implementation must have them.
 | `nwords` | 16 | words queued for writing in this batch (dropped words not counted); the TB counts a sample as taken while `busy && sns_valid && nwords != len_q` |
 | `len_q` | 16 | `xfer_len` latched at the start |
 
+### Internal signals used by the coverage checker
+
+`tb/cov/Sensor_Hub_sva.sv` is bound to `Sensor_Hub_top` with `.*`, so a re-implementation must have these
+names (width as seen by the checker).
+
+| Signal | Width | Meaning |
+|---|---|---|
+| `rs_valid` | 1 | core-internal signal read by name by the checker |
+| `rs_ready` | 1 | core-internal signal read by name by the checker |
+| `ws_valid` | 1 | core-internal signal read by name by the checker |
+| `ws_ready` | 1 | core-internal signal read by name by the checker |
+| `rs_data` | [31:0] | core-internal signal read by name by the checker |
+| `ws_data` | 1 | core-internal signal read by name by the checker |
+
 ## 2. Registers
 
 <!-- AUTO:registers -->
@@ -262,3 +276,18 @@ with one sample per clock and a stalling memory.
 | "LAST_AVG" | `last_avg` is the last average of the batch | §3.2 |
 | "word" | every batch word equals the model's packed averages | §3.2, §3.3 |
 | "not idle in reset" | reset mid-batch: `busy`, `m_awvalid`, `m_wvalid` all 0 | §3.5 |
+
+### Coverage-closure assertions
+
+From `tb/cov/Sensor_Hub_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_reset_idle | while `!rst_n` (reset): `!wake && last_avg == 0 && drops == 0 && !err_irq` | §3 |
+| a_ws_valid | always holds: `ws_valid == (m_full && m_half)` | §3 |
+| a_ws_data | whenever `ws_valid`: `ws_data == {m_avg, m_lo}` | §3 |
+| a_wake | always holds: `wake == m_wake` | §3 |
+| a_last_avg | always holds: `last_avg == m_last` | §3 |
+| a_drops | always holds: `drops == m_drops` | §3 |
+| a_no_read_stream | always holds: `!rs_ready` | §3 |

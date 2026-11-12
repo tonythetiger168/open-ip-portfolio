@@ -75,6 +75,20 @@ The TB reads these by name; a re-implementation must have them.
 |---|---|---|
 | `u_eng` | - | the `soc_ss_axi_engine` instance; the TB prints its `rstate` (read side: 0 idle, 1 AR, 2 data) and `wstate` (write side: 0 idle, 1 AW, 2 data, 3 response) when a job times out |
 
+### Internal signals used by the coverage checker
+
+`tb/cov/Display_Controller_sva.sv` is bound to `Display_Controller_top` with `.*`, so a re-implementation must have these
+names (width as seen by the checker).
+
+| Signal | Width | Meaning |
+|---|---|---|
+| `rs_valid` | 1 | core-internal signal read by name by the checker |
+| `rs_ready` | 1 | core-internal signal read by name by the checker |
+| `ws_valid` | 1 | core-internal signal read by name by the checker |
+| `ws_ready` | 1 | core-internal signal read by name by the checker |
+| `rs_data` | [31:0] | core-internal signal read by name by the checker |
+| `ws_data` | 1 | core-internal signal read by name by the checker |
+
 ## 2. Registers
 
 <!-- AUTO:registers -->
@@ -257,3 +271,19 @@ at most 16 beats) and injects random stalls and error responses at one word of a
 | "UNDERRUNS" | `underruns` equals the TB's count of ready clocks without a pixel | §3.2 |
 | "CRC-32 check value" | a frame of the ASCII bytes 12345678 gives 0x9AE0DAAF | §3.2 |
 | "not idle in reset" | reset mid-job: `busy`, `m_awvalid`, `m_arvalid`, `m_wvalid` all 0 | §3.5 |
+
+### Coverage-closure assertions
+
+From `tb/cov/Display_Controller_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_reset_idle | while `!rst_n` (reset): `!pix_valid && !pix_hsync && !pix_vsync && underruns == 0 && frame_crc == 0` | §3 |
+| a_pix_stream | always holds: `pix_valid == rs_valid && pix_data == rs_data && rs_ready == pix_ready` | §3 |
+| a_hsync | always holds: `pix_hsync == (pix_valid && (m_eol \|\| m_left == 1))` | §3 |
+| a_vsync | always holds: `pix_vsync == (pix_valid && m_left == 1)` | §3 |
+| a_crc | always holds: `frame_crc == ~m_crc` | §3 |
+| a_underruns | always holds: `underruns == m_und` | §3 |
+| a_no_write_stream | always holds: `!ws_valid` | §3 |
+| a_pixels_in_frame | whenever `pix_valid`: `m_left != 0` | §3 |

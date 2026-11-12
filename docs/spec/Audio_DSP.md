@@ -75,6 +75,20 @@ The TB reads these by name; a re-implementation must have them.
 |---|---|---|
 | `u_eng` | - | the `soc_ss_axi_engine` instance; the TB prints its `rstate` (read side: 0 idle, 1 AR, 2 data) and `wstate` (write side: 0 idle, 1 AW, 2 data, 3 response) when a job times out |
 
+### Internal signals used by the coverage checker
+
+`tb/cov/Audio_DSP_sva.sv` is bound to `Audio_DSP_top` with `.*`, so a re-implementation must have these
+names (width as seen by the checker).
+
+| Signal | Width | Meaning |
+|---|---|---|
+| `rs_valid` | 1 | core-internal signal read by name by the checker |
+| `rs_ready` | 1 | core-internal signal read by name by the checker |
+| `ws_valid` | 1 | core-internal signal read by name by the checker |
+| `ws_ready` | 1 | core-internal signal read by name by the checker |
+| `rs_data` | [31:0] | core-internal signal read by name by the checker |
+| `ws_data` | 1 | core-internal signal read by name by the checker |
+
 ## 2. Registers
 
 <!-- AUTO:registers -->
@@ -251,3 +265,16 @@ at most 16 beats) and injects random stalls and error responses at one word of a
 | "PEAK" | `peak` equals the model's largest output magnitude | §3.2 |
 | "CLIPS" | `clips` equals the model's clipped-sample count | §3.2 |
 | "not idle in reset" | reset mid-job: `busy`, `m_awvalid`, `m_arvalid`, `m_wvalid` all 0 | §3.5 |
+
+### Coverage-closure assertions
+
+From `tb/cov/Audio_DSP_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_reset_idle | while `!rst_n` (reset): `peak == 0 && clips == 0 && !err_irq` | §3 |
+| a_ws_data | whenever `ws_valid`: `ws_data == m_out` | §3 |
+| a_stream | always holds: `ws_valid == rs_valid && rs_ready == ws_ready` | §3 |
+| a_peak | always holds: `peak == m_peak` | §3 |
+| a_clips | always holds: `clips == (m_clips > 19'hFFFF ? 16'hFFFF : m_clips[15:0])` | §3 |

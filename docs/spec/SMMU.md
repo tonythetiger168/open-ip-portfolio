@@ -97,6 +97,15 @@ The TB reads `walk` to tell walk reads from forwarded reads.
 |---|---|---|
 | `walk` | 1 | the downstream read channel carries a page walk; combinational |
 
+### Internal signals used by the coverage checker
+
+`tb/cov/SMMU_sva.sv` is bound to `SMMU_top` with `.*`, so a re-implementation must have these
+names (width as seen by the checker).
+
+| Signal | Width | Meaning |
+|---|---|---|
+| `st` | 1 | core-internal signal read by name by the checker |
+
 ## 2. Registers
 
 <!-- AUTO:registers -->
@@ -262,3 +271,45 @@ bypass; reads and writes waiting together; reset in the middle of a burst.
 | "downstream SLVERR not passed on a write" | write response passed | §3.2 |
 | "not idle in reset" | reset | §3.4 |
 | "counters not reset" | reset | §3.4 |
+
+### Coverage-closure assertions
+
+From `tb/cov/SMMU_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_reset_idle | while `!rst_n` (reset): `!busy && !fault && hits == 0 && misses == 0 && !m_arvalid && !m_awvalid && !m_wvalid && !s_rvalid && !s_bvalid && !s_arready && !s_awready` | §3 |
+| a_busy | always holds: `busy == (ph != P_IDLE) && fault == (ph == P_FAULT)` | §3 |
+| a_accept | always holds: `s_arready == (ph == P_IDLE && s_arvalid && (!s_awvalid \|\| m_last_wr)) && s_awready == (ph == P_IDLE && s_awvalid && !(s_arvalid && (!s_awvalid \|\| m_last_wr)))` | §3 |
+| a_counters | always holds: `hits == m_hits && misses == m_misses` | §3 |
+| a_ar_valid | always holds: `m_arvalid == (ph == P_WALK_AR \|\| (ph == P_FWD && !r_wr))` | §3 |
+| a_aw_valid | always holds: `m_awvalid == (ph == P_FWD && r_wr)` | §3 |
+| a_walk_req | whenever `ph == P_WALK_AR`: `m_araddr == walk_addr && m_arlen == 0 && m_arid == PTW_ID && m_arsize == 3'd2 && m_arburst == 2'b01 && m_arprot == 3'b010` | §3 |
+| a_fwd_ar | whenever `ph == P_FWD && !r_wr`: `m_araddr == r_pa && m_arlen == r_len && m_arid == r_id && m_arsize == r_size && m_arburst == r_burst && m_arprot == r_prot` | §3 |
+| a_fwd_aw | whenever `ph == P_FWD && r_wr`: `m_awaddr == r_pa && m_awlen == r_len && m_awid == r_id && m_awsize == r_size && m_awburst == r_burst && m_awprot == r_prot` | §3 |
+| a_bypass_pa | whenever `ph == P_LK && lk_byp`: `##1 r_pa == r_va` | §3 |
+| a_walk_rready | always holds: `(ph == P_WALK_R) -> m_rready` | §3 |
+| a_r_pass | always holds: `fwd_r == (fwd_r && s_rvalid == m_rvalid && m_rready == s_rready && s_rdata == m_rdata && s_rresp == m_rresp && s_rlast == m_rlast && s_rid == m_rid)` | §3 |
+| a_r_idle | always holds: `(ph != P_FWD_R && ph != P_WALK_R) -> !m_rready` | §3 |
+| a_w_pass | always holds: `fwd_w == (fwd_w && m_wvalid == s_wvalid && s_wready == m_wready && m_wdata == s_wdata && m_wstrb == s_wstrb && m_wlast == s_wlast)` | §3 |
+| a_w_idle | always holds: `!fwd_w -> (!m_wvalid && s_wready == (ph == P_FAULT_W))` | §3 |
+| a_b_pass | always holds: `fwd_b == (fwd_b && s_bvalid == m_bvalid && m_bready == s_bready && s_bresp == m_bresp && s_bid == m_bid)` | §3 |
+| a_b_idle | always holds: `!fwd_b -> (!m_bready && s_bvalid == (ph == P_FAULT_B))` | §3 |
+| a_r_upstream | always holds: `(ph != P_FWD_R) -> (s_rvalid == (ph == P_FAULT_R))` | §3 |
+| a_fault_regs | whenever `ph == P_FAULT`, on the next clock: `fault_addr == r_va && fault_info == r_info` | §3 |
+| a_fault_r | whenever `ph == P_FAULT_R`: `s_rdata == 0 && s_rresp == 2'b10 && s_rid == r_id && s_rlast == (r_beat == r_len)` | §3 |
+| a_fault_b | whenever `ph == P_FAULT_B`: `s_bresp == 2'b10 && s_bid == r_id` | §3 |
+| a_fault_regs_hold | whenever `ph != P_FAULT && $past(ph) != P_FAULT && !$past(!rst_n)`: `$stable(fault_addr) && $stable(fault_info)` | §3 |
+
+### Further TB checks
+
+| Check (TB message) | What it requires | Spec |
+|---|---|---|
+| "attribute burst" | fails when `resp !== 0` (`tb/SMMU_tb.sv` line 273) | §3 |
+| "downstream RRESP" | fails when `resp !== 2'(c)` (`tb/SMMU_tb.sv` line 289) | §3 |
+| "downstream BRESP" | fails when `resp !== 2'(c)` (`tb/SMMU_tb.sv` line 291) | §3 |
+| "unaligned write fault" | fails when `resp !== 2'b10 \|\| fault_addr !== ({vp[5], 12'h100} \| 32'(k))` (`tb/SMMU_tb.sv` line 305) | §3 |
+| "no walk after CMD.tlb_inv in the lookup clock" | fails when `n_walks != w0 + 1` (`tb/SMMU_tb.sv` line 314) | §3 |
+| "entry filled with CMD.tlb_inv lost" | fails when `n_walks != w0` (`tb/SMMU_tb.sv` line 321) | §3 |
+| "HITS" | fails when `hits !== 16'hFFFF \|\| misses !== 16'hFFFF` (`tb/SMMU_tb.sv` line 340) | §3 |

@@ -75,6 +75,38 @@ ntb = ceil(`txt_len` / 16) text blocks, nbl = nab + ntb.
 | `m_rvalid` | input | 1 | read data valid | high | `clk` | - |
 | `m_rready` | output | 1 | 1 for the whole read data phase of a burst (never back-pressures) | high | `clk` | 0 |
 
+### Internal signals used by the coverage checker
+
+`tb/cov/Crypto_DMA_sva.sv` is bound to `Crypto_DMA_top` with `.*`, so a re-implementation must have these
+names (width as seen by the checker).
+
+| Signal | Width | Meaning |
+|---|---|---|
+| `rs_valid` | 1 | core-internal signal read by name by the checker |
+| `rs_ready` | 1 | core-internal signal read by name by the checker |
+| `ws_valid` | 1 | core-internal signal read by name by the checker |
+| `ws_ready` | 1 | core-internal signal read by name by the checker |
+| `rs_data` | [31:0] | core-internal signal read by name by the checker |
+| `ws_data` | 1 | core-internal signal read by name by the checker |
+| `in_valid` | 1 | core-internal signal read by name by the checker |
+| `in_ready` | 1 | core-internal signal read by name by the checker |
+| `in_aad` | 1 | core-internal signal read by name by the checker |
+| `in_last` | 1 | core-internal signal read by name by the checker |
+| `in_data` | [127:0] | core-internal signal read by name by the checker |
+| `out_data` | 1 | core-internal signal read by name by the checker |
+| `in_bytes` | [4:0] | core-internal signal read by name by the checker |
+| `out_valid` | 1 | core-internal signal read by name by the checker |
+| `out_ready` | 1 | core-internal signal read by name by the checker |
+| `c_done` | 1 | core-internal signal read by name by the checker |
+| `c_err` | 1 | core-internal signal read by name by the checker |
+| `c_code` | [2:0] | core-internal signal read by name by the checker |
+| `r_done` | 1 | core-internal signal read by name by the checker |
+| `r_err` | 1 | core-internal signal read by name by the checker |
+| `w_done` | 1 | core-internal signal read by name by the checker |
+| `w_err` | 1 | core-internal signal read by name by the checker |
+| `r_busy` | 1 | core-internal signal read by name by the checker |
+| `w_busy` | 1 | core-internal signal read by name by the checker |
+
 ## 2. Registers
 
 <!-- AUTO:registers -->
@@ -337,3 +369,28 @@ one block with a marker.
 The TB also prints `LAT Crypto_DMA axi R|W <clocks>` for every burst (performance report, not a
 check). A second `start` while busy is issued in some jobs and must be ignored ("case" timing and
 the DONE count).
+
+### Coverage-closure assertions
+
+From `tb/cov/Crypto_DMA_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_reset_idle | while `!rst_n` (reset): `!busy && !done && !err && !gcm_err && !in_valid && !ws_valid` | §3 |
+| a_busy | always holds: `busy == m_run && done == m_fin && err == m_ax && gcm_err == m_gerr && err_code == m_code && err_irq == (m_fin && (m_ax \|\| m_gerr))` | §3 |
+| a_rd_job | always holds: `u_rd.start == (go && m_nbl != 0) && (!u_rd.start \|\| (u_rd.src == src_addr && u_rd.len == {m_nbl, 2'b00} && u_rd.rd_en && !u_rd.wr_en))` | §3 |
+| a_wr_job | always holds: `u_wr.start == (go && m_ntb != 0) && (!u_wr.start \|\| (u_wr.dst == dst_addr && u_wr.len == {1'b0, m_ntb, 2'b00} && !u_wr.rd_en && u_wr.wr_en))` | §3 |
+| a_rs_ready | always holds: `rs_ready == (m_run && (m_drop \|\| !m_ifull))` | §3 |
+| a_in_valid | always holds: `in_valid == (!m_drop && m_run && (m_term \|\| m_ifull))` | §3 |
+| a_in_term | whenever `in_valid && m_term`: `in_data == 0 && in_bytes == 0 && in_last && !in_aad` | §3 |
+| a_in_block | whenever `in_valid && !m_term`: `in_data == m_ib && in_aad == (m_bi < 14'(m_nab)) && in_last == (m_bi >= 14'(m_nab) && m_bi + 1 == m_nbl) && in_bytes == ((m_bi < 14'(m_nab)) ? ((m_last_aad && aad_len[3:0] != 0) ? 5'(aad_len[3:0]) : 5'd16) : ((m_bi + 1 == m_nbl && txt_len[3:0] != 0) ? 5'(txt_len[3:0]) : 5'd16))` | §3 |
+| a_out_ready | always holds: `out_ready == !m_ofull` | §3 |
+| a_out_words | always holds: `ws_valid == (m_ofull \|\| m_drop) && (!ws_valid \|\| ws_data == (m_drop ? 32'd0 : bsw(m_ob[127:96])))` | §3 |
+
+### Further TB checks
+
+| Check (TB message) | What it requires | Spec |
+|---|---|---|
+| "random job timed out" | fails when `busy` (`tb/Crypto_DMA_tb.sv` line 121) | §3 |
+| "random job" | fails when `err \|\| gcm_err` (`tb/Crypto_DMA_tb.sv` line 122) | §3 |

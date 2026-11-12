@@ -74,6 +74,20 @@ The TB reads these by name; a re-implementation must have them.
 |---|---|---|
 | `u_eng` | - | the `soc_ss_axi_engine` instance; the TB prints its `rstate` (read side: 0 idle, 1 AR, 2 data) and `wstate` (write side: 0 idle, 1 AW, 2 data, 3 response) when a job times out |
 
+### Internal signals used by the coverage checker
+
+`tb/cov/CPU_Cluster_sva.sv` is bound to `CPU_Cluster_top` with `.*`, so a re-implementation must have these
+names (width as seen by the checker).
+
+| Signal | Width | Meaning |
+|---|---|---|
+| `rs_valid` | 1 | core-internal signal read by name by the checker |
+| `rs_ready` | 1 | core-internal signal read by name by the checker |
+| `ws_valid` | 1 | core-internal signal read by name by the checker |
+| `ws_ready` | 1 | core-internal signal read by name by the checker |
+| `rs_data` | [31:0] | core-internal signal read by name by the checker |
+| `ws_data` | 1 | core-internal signal read by name by the checker |
+
 ## 2. Registers
 
 <!-- AUTO:registers -->
@@ -249,3 +263,17 @@ at most 16 beats) and injects random stalls and error responses at one word of a
 | "FIRST_FAIL" | CHECK: `first_fail` is the index of the first corrupted word | §3.2 |
 | "MISMATCH interrupt count" | one `mis_irq` per CHECK job with mismatches, none otherwise | §3.4 |
 | "not idle in reset" | reset mid-job: `busy`, `m_awvalid`, `m_arvalid`, `m_wvalid` all 0 | §3.5 |
+
+### Coverage-closure assertions
+
+From `tb/cov/CPU_Cluster_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_reset_idle | while `!rst_n` (reset): `mismatches == 0 && first_fail == 0 && !mis_irq && !err_irq` | §3 |
+| a_ws_valid | always holds: `ws_valid == (m_mode == 2'd0 ? busy : m_mode == 2'd1 ? 1'b0 : rs_valid)` | §3 |
+| a_ws_data | whenever `ws_valid`: `ws_data == (m_mode == 2'd0 ? m_pat_w : rs_data)` | §3 |
+| a_rs_ready | always holds: `rs_ready == (m_mode == 2'd1 ? 1'b1 : ws_ready)` | §3 |
+| a_mismatches | always holds: `mismatches == m_mis && first_fail == m_ff` | §3 |
+| a_mis_irq | always holds: `mis_irq == (done && m_mode == 2'd1 && m_mis != 0)` | §3 |
