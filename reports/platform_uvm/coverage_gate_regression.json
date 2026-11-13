@@ -1,0 +1,15 @@
+{
+  "scope": "synthetic policy regression only",
+  "before_commit": "7fb318a6ad3a2ec1db0745e15520c19e547ca9e4",
+  "tests": 19,
+  "results": [
+    {
+      "stage": "before",
+      "exit_code": 1
+    },
+    {
+      "stage": "after",
+      "exit_code": 0
+    }
+  ]
+}

@@ -2,9 +2,10 @@
 
 > **Newer results:** [COVERAGE_CLOSURE.md](COVERAGE_CLOSURE.md) has the five-metric flow
 > (`scripts/cov/run_cov.sh`: line, toggle, FSM, SVA and functional coverage, with
-> independent reference-model checkers). 68 IPs are closed there. The
-> clone-template and memory-family IPs are not closed yet. For the closed IPs,
-> it replaces the v2.5 numbers below.
+> independent reference-model checkers). Coverage run
+> [41955118614](https://github.com/tonythetiger168/open-ip-portfolio/actions/runs/41955118614)
+> (2026-11-05, main `359f40a`) closed all 142 cores and 142 APB wrappers there,
+> including the memory-family IPs. For those IPs, it replaces the v2.5 numbers below.
 
 Constrained-random verification with four coverage metrics per DUT:
 **line**, **toggle**, **FSM**, **assertion (SVA-subset)**.

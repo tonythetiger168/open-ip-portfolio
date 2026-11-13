@@ -78,7 +78,7 @@ module xSPI_top #(
 
   logic       ck_d, csn_d;
   logic [7:0] cmd;
-  logic [3:0] op;
+  (* fsm_encoding = "none" *) logic [3:0] op;   // decoded command, not a state machine (Yosys 0.33 fsm_extract asserts on it)
   logic [5:0] cnt;                      // edges within the phase
   logic       odd;                      // an odd number of edges so far
   logic       got;                      // a write frame carried data

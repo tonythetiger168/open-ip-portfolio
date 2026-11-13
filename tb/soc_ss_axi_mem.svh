@@ -11,6 +11,9 @@
 //    `stall` is 1 (the default), zero delays when it is 0.
 //  - Accesses with err_lo <= address < err_hi get SLVERR (writes are dropped,
 //    reads return 32'hDEAD_BEEF).
+//  - `err_resp` (default 2'b10, SLVERR) is the response code of those
+//    accesses; `rand_id` = 1 (default 0) returns random BID / RID instead of
+//    echoing the request ID (for a manager that ignores the IDs).
 //  - A reset (rst_n low) ends the bursts in progress.
 //  - Checks every burst: AxSIZE = 2, AxBURST = INCR, no 4 KB crossing, WLAST
 //    on the last beat only, BID / RID echo the request ID. A violation
@@ -64,6 +67,8 @@ module soc_ss_axi_mem #(parameter logic [31:0] RESET_WORD = 32'h0) (
   bit          ar_hold = 0;      // 1: ARREADY held low (a blocked read path)
   bit          any_burst = 0;    // 1: any AxSIZE / AxBURST / WSTRB accepted (see above)
   logic [31:0] err_lo = 32'hFFFF_FFFF, err_hi = 32'hFFFF_FFFF;
+  logic [1:0]  err_resp = 2'b10;
+  bit          rand_id = 0;
   int          errors = 0;
   int          n_wr_bursts = 0, n_rd_bursts = 0, n_wr_beats = 0, n_rd_beats = 0;
   int          max_awlen = 0, max_arlen = 0;
@@ -121,19 +126,24 @@ module soc_ss_axi_mem #(parameter logic [31:0] RESET_WORD = 32'h0) (
       #1 wready = 0;
     end
     dly();
-    #1 bvalid = 1; bid = id; bresp = e ? 2'b10 : 2'b00;
+    #1 bvalid = 1; bid = rand_id ? 4'($urandom) : id; bresp = e ? err_resp : 2'b00;
     @(posedge clk);
     while (!bready) @(posedge clk);
     #1 bvalid = 0;
   endtask
+  logic wr_fin = 0, rd_fin = 0;               // burst ended (ends its reset waiter)
   initial begin
     awready = 0; wready = 0; bvalid = 0; bid = 0; bresp = 0;
     forever begin
       @(posedge clk);
       if (!rst_n || !awvalid || aw_hold) continue;
+      // the reset waiter also ends with the burst: a disabled process that
+      // still waits on an event lives on in Verilator until that event, so
+      // waiting on the reset edge alone piles one up per burst
+      wr_fin = 0;
       fork
-        wr_burst();
-        @(negedge rst_n);
+        begin wr_burst(); wr_fin = 1; end
+        wait (!rst_n || wr_fin);
       join_any
       disable fork;
       if (!rst_n) begin awready = 0; wready = 0; bvalid = 0; end
@@ -152,9 +162,9 @@ module soc_ss_axi_mem #(parameter logic [31:0] RESET_WORD = 32'h0) (
     n_rd_bursts++; if (l > max_arlen) max_arlen = l;
     for (int i = 0; i <= l; i++) begin
       dly();
-      #1 rvalid = 1; rid = id; rlast = (i == l);
+      #1 rvalid = 1; rid = rand_id ? 4'($urandom) : id; rlast = (i == l);
       rdata = is_err(a) ? 32'hDEAD_BEEF : peek(a);
-      rresp = is_err(a) ? 2'b10 : 2'b00;
+      rresp = is_err(a) ? err_resp : 2'b00;
       @(posedge clk);
       while (!rready) @(posedge clk);
       n_rd_beats++;
@@ -167,9 +177,10 @@ module soc_ss_axi_mem #(parameter logic [31:0] RESET_WORD = 32'h0) (
     forever begin
       @(posedge clk);
       if (!rst_n || !arvalid || ar_hold) continue;
+      rd_fin = 0;                               // (as on the write channel)
       fork
-        rd_burst();
-        @(negedge rst_n);
+        begin rd_burst(); rd_fin = 1; end
+        wait (!rst_n || rd_fin);
       join_any
       disable fork;
       if (!rst_n) begin arready = 0; rvalid = 0; rlast = 0; end
