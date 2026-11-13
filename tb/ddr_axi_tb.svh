@@ -80,16 +80,17 @@
 
   task automatic gap; repeat ($urandom % 4) @(negedge clk); endtask
 
-  // one write burst; early_last: WLAST on beat 0 of a longer burst
-  task automatic wr(input logic [31:0] a, input int len, input int sz, input int bt, input bit early_last);
+  // one write burst; early_last: 1 WLAST on beat 0 of a longer burst,
+  // 2 WLAST missing on the last beat (sent one beat later)
+  task automatic wr(input logic [31:0] a, input int len, input int sz, input int bt, input int early_last);
     logic [3:0] id;
     int t0, nb;
     bit bad;
     logic [31:0] ba;
     logic [31:0] d [];
     logic [3:0]  st [];
-    id = $urandom; nb = early_last ? 1 : len + 1;
-    bad = (sz > 2) || early_last;
+    id = $urandom; nb = (early_last == 1) ? 1 : (early_last == 2) ? len + 2 : len + 1;
+    bad = (sz > 2) || early_last != 0;
     d = new[nb]; st = new[nb];
     for (int n = 0; n < nb; n++) begin
       logic [3:0] lanes;
@@ -105,7 +106,7 @@
     @(negedge clk); s_awvalid = 0;
     for (int n = 0; n < nb; n++) begin
       if ($urandom % 4 == 0) begin s_wvalid = 0; gap; end
-      s_wdata = d[n]; s_wstrb = st[n]; s_wlast = early_last || (n == len); s_wvalid = 1;
+      s_wdata = d[n]; s_wstrb = st[n]; s_wlast = (early_last == 1) || (n == nb - 1); s_wvalid = 1;
       @(posedge clk); while (!s_wready) @(posedge clk);
       @(negedge clk);
     end
@@ -117,22 +118,24 @@
     if (s_bresp != (bad ? 2'b10 : 2'b00)) fail($sformatf("BRESP %0d (bad=%0d)", s_bresp, bad));
     @(negedge clk); s_bready = 0;
     exp_wr++; if (bad) exp_err++;
-    if (!bad)
-      for (int n = 0; n < nb; n++) begin
-        logic [3:0]  sn;
-        logic [31:0] dn;
-        ba = beat_addr(a, sz, bt, len, n);
-        sn = st[n]; dn = d[n];
-        for (int b = 0; b < 4; b++) if (sn[b]) begin
-          logic [31:0] bb;
-          int i;
-          bb = {ba[31:2], 2'(b)};
-          i = ridx(bb);
-          if (!(`DDR_AXI_LP && i[7:0] == 8'hF0)) begin
-            if (b[0]) ref_mem[i][15:8] = dn[8*b +: 8]; else ref_mem[i][7:0] = dn[8*b +: 8];
-          end
+    // an erroring write writes nothing from the error on: WLAST missing on
+    // the last beat leaves the beats before it written
+    if (bad) nb = (early_last == 2 && sz <= 2) ? len : 0;
+    for (int n = 0; n < nb; n++) begin
+      logic [3:0]  sn;
+      logic [31:0] dn;
+      ba = beat_addr(a, sz, bt, len, n);
+      sn = st[n]; dn = d[n];
+      for (int b = 0; b < 4; b++) if (sn[b]) begin
+        logic [31:0] bb;
+        int i;
+        bb = {ba[31:2], 2'(b)};
+        i = ridx(bb);
+        if (!(`DDR_AXI_LP && i[7:0] == 8'hF0)) begin
+          if (b[0]) ref_mem[i][15:8] = dn[8*b +: 8]; else ref_mem[i][7:0] = dn[8*b +: 8];
         end
       end
+    end
   endtask
 
   task automatic rd(input logic [31:0] a, input int len, input int sz, input int bt);
@@ -195,7 +198,25 @@
     // errors: AxSIZE 3, early WLAST
     wr(32'h0000_0040, 1, 3, 1, 0); rd(32'h0000_0040, 1, 3, 1);
     wr(32'h0000_0040, 3, 2, 1, 1); rd(32'h0000_0040, 3, 2, 1);
+    wr(32'h0000_0040, 2, 2, 1, 2); rd(32'h0000_0040, 2, 2, 1);   // WLAST missing
+    for (int sz = 3; sz < 8; sz++) begin wr(32'h0000_0080, 1, sz, 1, 0); rd(32'h0000_0080, 1, sz, 1); end
     repeat (600) rnd_burst;
+    // long bursts: 16, 17 to 255 and 256 beats, every burst type and size
+    for (int k = 0; k < 18; k++) begin
+      int len, sz, bt;
+      bt = k % 3; sz = k / 3 % 3;
+      len = (bt == 2) ? 15 : (k % 2) ? 255 : 16 + $urandom % 239;
+      wr(rnd_addr(sz), len, sz, bt, 0); rd(rnd_addr(sz), len, sz, bt);
+    end
+    // a read and a write waiting together (disjoint halves of the array),
+    // after a read and after a write
+    for (int k = 0; k < 4; k++) begin
+      if (k % 2) wr(32'h0000_0010, 0, 2, 1, 0); else rd(32'h0000_0010, 0, 2, 1);
+      fork
+        wr(32'h0000_0000 + 32'(16 * k), 3, 2, 1, 0);
+        rd(32'h0000_0100 + 32'(16 * k), 3, 2, 1);
+      join
+    end
     // read back the whole array
     for (int a = 0; a < 1024; a += 64) rd(32'(a), 15, 2, 1);
     repeat (5) @(negedge clk);
@@ -204,6 +225,37 @@
     if (n_err != 16'(exp_err)) fail($sformatf("N_ERR %0d, expected %0d", n_err, exp_err));
     if (n_rmw == 0) fail("no read-modify-write was exercised");
     if (n_irq != exp_err) fail($sformatf("ERR_IRQ pulsed %0d times, expected %0d", n_irq, exp_err));
+    // counter MSBs: 32768 erroring single-beat reads and writes (AxSIZE 3: no
+    // host operation) take N_RD, N_WR and N_ERR past 2^15, and byte bursts
+    // (one strobe per halfword: a read-modify-write each) take N_RMW past
+    // 2^15; the reset below clears them all. A 256-beat AxSIZE 7 read sets
+    // every bit of the WRAP window mask.
+    // (long run: +cov_long, coverage only)
+    rd(32'h0000_0080, 255, 7, 1);
+    if ($test$plusargs("cov_long")) begin
+      for (int k = 0; k < 32768; k++) begin wr(32'h0000_0080, 0, 3, 1, 0); rd(32'h0000_0080, 0, 3, 1); end
+      while (n_rmw < 16'd32800) wr(32'h0000_0180 + 32'(16 * ($urandom % 4)), 15, 0, 1, 0);
+    end
+    repeat (5) @(negedge clk);
+    if (n_rd != 16'(exp_rd) || n_wr != 16'(exp_wr) || n_err != 16'(exp_err) || n_irq != exp_err)
+      fail($sformatf("after the counter run: N_RD %0d N_WR %0d N_ERR %0d IRQ %0d", n_rd, n_wr, n_err, n_irq));
+    // reset in the middle of a read and of a write burst: idle, counters 0,
+    // then a write and its read-back work
+    for (int k = 0; k < 2; k++) begin
+      fork : mid
+        if (k) wr(32'h0000_0020, 15, 2, 1, 0); else rd(32'h0000_0020, 15, 2, 1);
+      join_none
+      repeat (60) @(negedge clk);
+      rst_n = 0;
+      disable mid;
+      s_awvalid = 0; s_wvalid = 0; s_wlast = 0; s_bready = 0; s_arvalid = 0; s_rready = 0;
+      repeat (3) @(negedge clk);
+      if (s_rvalid || s_bvalid || s_wready || n_rd != 0 || n_wr != 0) fail("not idle in reset");
+      rst_n = 1;
+      repeat (3) @(negedge clk);
+    end
+    wr(32'h0000_01C0, 3, 2, 1, 0); rd(32'h0000_01C0, 3, 2, 1);   // (away from the interrupted bursts)
+    if (n_rd != 1 || n_wr != 1) fail($sformatf("after reset: N_RD %0d N_WR %0d", n_rd, n_wr));
     $display("%s: %0d reads, %0d writes, %0d RMW, %0d SLVERR", `DDR_AXI_NAME, n_rd, n_wr, n_rmw, n_err);
     for (int w = 0; w < 2; w++)
       $display("latency %s: min %0d avg %0d max %0d cycles over %0d bursts", w ? "W" : "R",
@@ -212,4 +264,4 @@
     else $display("TEST FAILED: %s (%0d errors)", `DDR_AXI_NAME, errors);
     $finish;
   end
-  initial begin #50ms; fail("timeout"); $display("TEST FAILED: timeout"); $finish; end
+  initial begin #300ms; fail("timeout"); $display("TEST FAILED: timeout"); $finish; end

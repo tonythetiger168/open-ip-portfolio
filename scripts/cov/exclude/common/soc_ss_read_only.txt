@@ -1,0 +1,13 @@
+# Shared by the SoC subsystem IPs that only read (the engine's WR_EN is tied
+# to 0): the write half of the AXI4 manager port and the engine's write
+# stream never move. a_no_write_stream (or the IP's equivalent) asserts that
+# the write stream stays idle; the engine's own run covers the write side.
+TOGGLE _top\.m_awaddr\[ # write address channel unused: the engine never writes (WR_EN = 0)
+TOGGLE _top\.m_awlen\[ # write address channel unused: the engine never writes (WR_EN = 0)
+TOGGLE _top\.m_(awvalid|wvalid|wlast|bready): # write channels unused: the engine never writes (WR_EN = 0)
+TOGGLE _top\.m_wdata\[ # write data channel unused: the engine never writes (WR_EN = 0)
+TOGGLE _top\.m_(awready|wready|bvalid): # the subordinate never sees a write request from a read-only IP
+TOGGLE _top\.m_(bid|bresp)\[ # the subordinate never sees a write request from a read-only IP
+TOGGLE _top\.ws_(valid|ready): # the engine's write stream is unused (WR_EN = 0)
+TOGGLE _top\.ws_data\[ # the engine's write stream is unused (WR_EN = 0)
+TOGGLE _top\.unused: # lint sink for the unused WS_READY, a constant 0

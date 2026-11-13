@@ -195,6 +195,7 @@ module SDMMC_ADMA_tb;
     cmd_ok(3, 0, R48); rca = rsp0[31:16];
     if (rca !== 16'hB37A) fail($sformatf("RCA %h", rca));
     cmd_ok(7, {rca, 16'h0}, R1B);
+    xfer(0, 5, 1, 512); xfer(1, 5, 1, 512);                  // 1-bit write and read
     cmd_ok(55, {rca, 16'h0}, R48); cmd_ok(6, 2, R48);
     bus_w = 1; clk_div = 0;
     for (int k = 0; k < ($test$plusargs("quick") ? 2 : 14); k++) begin
@@ -291,10 +292,215 @@ module SDMMC_ADMA_tb;
     card.f_rd_crc = 1; xfer(1, 1, 2, 512, 0);
     if (!d_err[1]) fail($sformatf("eMMC read CRC: D_ERR %b", d_err));
     for (int k = 0; k < 2; k++) rnd_xfer();
+    // ------------------------------------------------ more corners (eMMC, 8-bit)
+    mem.rand_id = 1;
+    if (card.blklen != 512) cmd_ok(16, 512, R48);   // the card's block length must match BLKSZ
+    // a reserved descriptor (skipped), then one tran of length 0 (65536
+    // bytes) capped at the transfer; BLKCNT 0 counts as 1
+    for (int c = 0; c < 2; c++) begin
+      logic [31:0] p;
+      p = DT0;
+      desc(p, {16'd0, 10'd0, 2'b01, 4'b0001}, 32'h0);
+      desc(p, {16'd0, 10'd0, 2'b10, 4'b0011}, 32'h0810_0000);
+      adma_addr = DT0; blksz = 512; blkcnt = c ? 16'd0 : 16'd2;
+      sdcmd(c ? 6'd17 : 6'd18, 0, R48, 1, 2'd1, e);
+      wait_xfer();
+      if (!c) cmd_ok(12, 0, R1B);
+      if (d_err != 0 || blk_done != (c ? 16'd1 : 16'd2)) fail($sformatf("65536-byte descriptor: D_ERR %b BLK_DONE %0d", d_err, blk_done));
+    end
+    // response with the wrong index, response end bit 0
+    card.f_ridx = 1; sdcmd(13, {rca, 16'h0}, R48, 1, 0, e); if (e !== 5'b00100) fail($sformatf("index: C_ERR %b", e));
+    card.f_rend = 1; sdcmd(13, {rca, 16'h0}, R48, 1, 0, e); if (!e[3]) fail($sformatf("end bit: C_ERR %b", e));
+    clks(50);
+    // read block end bit 0; data timeout (a command with no data); the
+    // data command failing
+    build(128); blksz = 512; blkcnt = 1;
+    card.f_rd_end = 1; sdcmd(17, 0, R48, 1, 2'd1, e); wait_xfer();
+    if (!d_err[2]) fail($sformatf("read end bit: D_ERR %b", d_err));
+    dto = 300;
+    build(128); sdcmd(13, {rca, 16'h0}, R48, 1, 2'd1, e); wait_xfer();
+    if (!d_err[0]) fail($sformatf("data timeout: D_ERR %b", d_err));
+    dto = 24'd20000;
+    build(128); card.f_mute = 1; sdcmd(17, 0, R48, 1, 2'd1, e); wait_xfer();
+    if (!d_err[7]) fail($sformatf("data command failed: D_ERR %b", d_err));
+    clks(200);
+    // EXOKAY and DECERR from memory
+    for (int c = 0; c < 2; c++) begin
+      build(128); blksz = 512; blkcnt = 1;
+      mem.err_resp = c ? 2'b11 : 2'b01; mem.err_lo = seg_a[0]; mem.err_hi = seg_a[0] + 4;
+      sdcmd(17, 0, R48, 1, 2'd1, e); wait_xfer();
+      mem.err_lo = 32'hFFFF_FFFF; mem.err_hi = 32'hFFFF_FFFF; mem.err_resp = 2'b10;
+      if (!d_err[5]) fail($sformatf("response %0d: D_ERR %b", c ? 3 : 1, d_err));
+      cmd_ok(12, 0, R1B);   // the host stopped early: stop the card's block too
+      clks(200);
+    end
+    // DAT_RESET during a write; SD_CLK gated during a read; a command and
+    // an ignored data command while a read runs
+    build(4 * 128); blksz = 512; blkcnt = 4;
+    for (int i = 0; i < 4 * 128; i++) mem.poke(seg_word(i), $urandom);
+    card.expect_bad = 1;   // the host stops in the middle of a block on purpose: the card sees a broken block
+    sdcmd(25, 8, R48, 1, 2'd2, e);
+    clks(400); @(negedge clk); dat_reset = 1; @(negedge clk); dat_reset = 0;
+    wait_xfer(); cmd_ok(12, 0, R1B);
+    clks(4000);            // the card clocks out the rest of its broken block and its CRC status
+    card.expect_bad = 0;
+    if (!xfer_err_seen) fail("DAT_RESET during a write: no XFER_ERR");
+    clks(200);
+    build(8 * 128); blksz = 512; blkcnt = 8;
+    sdcmd(18, 16, R48, 1, 2'd1, e);
+    clks(300); @(negedge clk); clk_en = 0; clks(100); clk_en = 1;
+    clks(300);
+    @(negedge clk); c_idx = 17; c_data = 2'd1; c_start = 1; @(negedge clk); c_start = 0; c_data = 0;
+    cmd_ok(13, {rca, 16'h0}, R48);
+    wait_xfer(); cmd_ok(12, 0, R1B);
+    if (d_err != 0) fail($sformatf("gated / overlapped read: D_ERR %b", d_err));
+    // the slowest and a mid SD_CLK
+    clk_div = 10'h3FF; cmd_ok(13, {rca, 16'h0}, R48);
+    clk_div = 12; xfer(1, 2, 1, 64);
+    clk_div = 0;
+    // ------------------------------------------------ register and field sweeps (eMMC, 8-bit)
+    // every command argument bit, random CIDs (R2 bits), OCR bits 14:8
+    // echoed by CMD1
+    cmd_ok(16, 512, R48);
+    sdcmd(6'd63, 32'hFFFF_FFFF, R0, 1, 0, e); sdcmd(6'd63, 32'h0, R0, 1, 0, e);   // ignored index, no response
+    begin
+      logic [127:0] cid0;
+      cid0 = card.cid;
+      for (int k = 0; k < 6; k++) begin
+        logic [119:0] body;
+        body = {$urandom, $urandom, $urandom, $urandom};
+        if (k == 0) body = '1;
+        if (k == 1) body = '0;
+        card.cid = {body, card.crc7({16'd0, body}, 119, 0), 1'b1};
+        cmd_ok(2, 0, R136);
+        if ({rsp3, rsp2, rsp1, rsp0} !== card.cid) fail($sformatf("random CID %0d: %h", k, {rsp3, rsp2, rsp1, rsp0}));
+      end
+      card.cid = cid0;
+    end
+    cmd_ok(1, 32'h40FF_FF80, R48, 0);
+    if (rsp0[14:8] !== 7'h7F) fail($sformatf("CMD1 OCR echo %h", rsp0));
+    cmd_ok(13, {rca, 16'h0}, R48);
+    // an unaligned table address; a descriptor fetch error (DECERR); a nop
+    // descriptor with the end bit before the transfer is done
+    for (int c = 0; c < 3; c++) begin
+      logic [31:0] p;
+      build(128); blksz = 512; blkcnt = 1;
+      if (c == 0) adma_addr = 32'hFFFF_FFFF;
+      if (c == 1) begin mem.err_resp = 2'b11; mem.err_lo = DT0; mem.err_hi = DT0 + 8; end
+      if (c == 2) begin p = DT0; desc(p, 32'h0000_0003, 32'h0); end
+      sdcmd(17, 0, R48, 1, 2'd1, e);
+      wait_xfer();
+      cmd_ok(12, 0, R1B);
+      mem.err_lo = 32'hFFFF_FFFF; mem.err_hi = 32'hFFFF_FFFF; mem.err_resp = 2'b10;
+      if (!xfer_err_seen || d_err != (c == 0 ? 8'h10 : c == 1 ? 8'h20 : 8'h40))
+        fail($sformatf("table error %0d: D_ERR %b", c, d_err));
+      clks(2000);   // the card finishes its block
+    end
+    // write: no CRC status token; busy longer than DTO
+    for (int c = 0; c < 2; c++) begin
+      build(128); blksz = 512; blkcnt = 1;
+      for (int i = 0; i < 128; i++) mem.poke(seg_word(i), $urandom);
+      dto = 300;
+      if (c == 0) card.f_wnotok = 1; else card.f_wbusy = 1;
+      sdcmd(24, 3, R48, 1, 2'd2, e);
+      wait_xfer();
+      dto = 24'd20000;
+      if (!xfer_err_seen || d_err != 8'h01) fail($sformatf("write %s: D_ERR %b", c ? "busy" : "token", d_err));
+      wait (dat[0] === 1'b1); clks(20);
+      cmd_ok(13, {rca, 16'h0}, R48);
+    end
+    // the largest block (BLKSZ 12'hFFF: bits 1:0 and 11:10 are ignored, 1020
+    // bytes), on a table high in the address space with reserved and
+    // attribute bits set in skipped descriptors, nop lengths that are not
+    // word multiples, and the buffer high in memory
+    cmd_ok(16, 1020, R48);
+    begin
+      logic [31:0] p, hb, hb2;
+      p = 32'hFFFF_FFC4; hb = 32'hFFFE_F804; hb2 = 32'hFFFF_7404;
+      desc(p, {16'hFFFF, 10'h3FF, 2'b00, 4'b1101}, 32'hFFFF_FFFF);   // nop, int, attribute bit 3 and 15:6
+      desc(p, {16'hE000, 10'h000, 2'b01, 4'b0001}, 32'h0);            // reserved
+      desc(p, {16'h0000, 10'h000, 2'b00, 4'b0001}, 32'h5555_5554);    // nop, length 0
+      desc(p, {16'd1020, 10'h000, 2'b10, 4'b0101}, hb);               // tran, int
+      desc(p, {16'd1020, 10'h000, 2'b10, 4'b0011}, hb2);             // tran, end (FFFF_FFE4..EB)
+      adma_addr = 32'hFFFF_FFC4; blksz = 12'hFFF; blkcnt = 2;
+      n_dma_int = 0;
+      sdcmd(18, 1, R48, 1, 2'd1, e);
+      wait_xfer(); cmd_ok(12, 0, R1B);
+      if (d_err != 0 || blk_done != 2 || n_dma_int != 1) fail($sformatf("high table: D_ERR %b BLK_DONE %0d DMA_INT %0d", d_err, blk_done, n_dma_int));
+      for (int i = 0; i < 510; i++) begin
+        int b;
+        logic [31:0] a;
+        b = 1020 + 4 * i;
+        a = (i < 255) ? hb + 32'(4 * i) : hb2 + 32'(4 * (i - 255));
+        if (mem.peek(a) !== {card.mem[b + 3], card.mem[b + 2], card.mem[b + 1], card.mem[b]}) begin
+          fail($sformatf("high buffer word %0d: %h", i, mem.peek(a))); break;
+        end
+      end
+    end
+    // the longest descriptors (65532 and 65536 bytes) and the largest
+    // transfers (1020 x 65535 and 1020 x 32768 bytes): started, then
+    // stopped by DAT_RESET once the descriptor's job runs (the engine
+    // finishes it with dummy data)
+    for (int c = 0; c < 2; c++) begin
+      logic [31:0] p;
+      p = DT0;
+      desc(p, {c ? 16'h0000 : 16'hFFFC, 10'h000, 2'b10, 4'b0001}, 32'h0010_0000);
+      adma_addr = DT0; blksz = 12'd1020; blkcnt = c ? 16'h8000 : 16'hFFFF;
+      sdcmd(18, 0, R48, 1, 2'd1, e);
+      wait (dut.as_q == dut.A_XWAIT || !dat_busy); clks(50);
+      @(negedge clk); dat_reset = 1; @(negedge clk); dat_reset = 0;
+      wait_xfer(); cmd_ok(12, 0, R1B);
+      if (!xfer_err_seen) fail($sformatf("long descriptor %0d: no XFER_ERR", c));
+      clks(3000);
+    end
+    if ($test$plusargs("cov_long")) begin
+      // 4-byte blocks until BLK_DONE passes 32768, then stopped
+      logic [31:0] p;
+      cmd_ok(16, 4, R48);
+      p = DT0;
+      for (int k = 0; k < 3; k++) desc(p, {16'h0000, 10'h000, 2'b10, 4'b0001}, 32'h0010_0000 + 32'(k) * 32'h0001_0000);
+      adma_addr = DT0; blksz = 12'd4; blkcnt = 16'hFFFF;
+      sdcmd(18, 0, R48, 1, 2'd1, e);
+      wait (blk_done[15] || !dat_busy);
+      if (!blk_done[15]) fail($sformatf("4-byte blocks: stopped at %0d, D_ERR %b", blk_done, d_err));
+      @(negedge clk); dat_reset = 1; @(negedge clk); dat_reset = 0;
+      wait_xfer(); cmd_ok(12, 0, R1B);
+      clks(1000);
+    end
+    cmd_ok(16, 512, R48);
+    if ($test$plusargs("cov_long")) begin
+      // the longest timeouts (DTO 2^24 - 1 SD_CLK periods): a read with no
+      // data, and an R1b busy that outlasts it
+      int t;
+      dto = 24'hFFFFFF;
+      build(128); blksz = 512; blkcnt = 1;
+      sdcmd(13, {rca, 16'h0}, R48, 1, 2'd1, e);
+      t = 0; while (dat_busy && t < 40000000) begin @(negedge clk); t++; end
+      if (dat_busy || !d_err[0]) fail($sformatf("longest data timeout: D_ERR %b", d_err));
+      card.busy_long = 24'hFFFFFF + 100; card.f_busy = 1;
+      @(negedge clk); c_idx = 7; c_arg = {rca, 16'h0}; c_rsp = 2'(R1B); c_crc_chk = 1; c_idx_chk = 1; c_data = 0;
+      c_start = 1; @(negedge clk); c_start = 0;
+      t = 0; while (cmd_busy && t < 40000000) begin @(negedge clk); t++; end
+      if (cmd_busy || c_err !== 5'b10000) fail($sformatf("longest busy timeout: C_ERR %b", c_err));
+      wait (dat[0] === 1'b1); card.busy_long = 5000;
+      clks(20);
+    end
+    dto = 24'hFFFFFF; clks(5); dto = 0; clks(5); dto = 24'd20000;
+    // reset in the middle of a transfer
+    build(4 * 128); blksz = 512; blkcnt = 4;
+    sdcmd(18, 0, R48, 1, 2'd1, e);
+    clks(500);
+    rst_n = 0; clks(3);
+    if (dat_busy || cmd_busy) fail("not idle in reset");
+    rst_n = 1; clks(10);
+    bus_w = 0; adma_addr = 0; clks(5);
     errors += card.errors;
     $display("SDMMC_ADMA: %0d transfers, card %0d commands, %0d blocks read, %0d written",
              n_xfer, card.n_cmds, card.n_rd_blk, card.n_wr_blk);
     finish("SDMMC_ADMA");
   end
-  initial begin #400ms; fail("timeout"); $display("TEST FAILED: timeout"); $finish; end
+  initial begin                       // +cov_long runs two timeouts of 2^24 SD_CLK periods (about 0.34 s each)
+    if ($test$plusargs("cov_long")) #2s; else #400ms;
+    fail("timeout"); $display("TEST FAILED: timeout"); $finish;
+  end
 endmodule

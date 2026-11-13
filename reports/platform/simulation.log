@@ -1,0 +1,2 @@
+TEST PASSED: PLATFORM_APB checks=16
+/mnt/c/Users/chien/Documents/Codex/2026-10-26/soc-design-platform/outputs/platform-update/open-vip-portfolio/ipcheck/platform/apb_window_router_tb.sv:64: $finish called at 30000 (1ps)

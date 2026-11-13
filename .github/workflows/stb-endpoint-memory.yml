@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: Apache-2.0
+name: STB endpoint memory campaign
+on:
+  pull_request:
+    paths:
+      - 'products/STB/endpoint-memory-campaign/**'
+      - '.github/workflows/stb-endpoint-memory.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  endpoint-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container:
+      image: verilator/verilator@sha256:a5b73e2fce0b2c483396f3800940f33b6faa802331a061c21694dd27b7352120
+      options: --user 0
+    env:
+      OBJCACHE: ''
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Fixed sources, prefix/full native identities, two oracles, replay and three RTL mutants
+        run: python3 products/STB/endpoint-memory-campaign/run_campaign.py
+      - name: Exact functional domains and native/passive SVA witness event counts
+        run: python3 products/STB/endpoint-memory-campaign/analyze_campaign.py
+      - name: Keep complete raw evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stb-endpoint-memory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: products/STB/endpoint-memory-campaign/evidence/
+          if-no-files-found: error
+          retention-days: 14
+  unchanged-control-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install the existing qualified Icarus version
+        run: sudo apt-get update && sudo apt-get install -y iverilog
+      - name: Preserve original nine runs and sixteen mutants without changing their gate
+        run: python products/STB/control-slice/run.py
+      - name: Preserve original gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stb-original-control-${{ github.run_id }}-${{ github.run_attempt }}
+          path: products/STB/control-slice/evidence/
+          if-no-files-found: error
+          retention-days: 14
