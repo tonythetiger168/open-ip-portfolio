@@ -1,0 +1,169 @@
+{
+  "title": "HDMI 2.1 receiver video capture: TMDS decode and frame write to memory over AXI4",
+  "code": "0x7C01",
+  "version": "1.0",
+  "axi_master": {
+    "id": 2,
+    "reads": false,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "TMDS 8b/10b decode of three channels (tmds_ch0..2, one 10-bit character per clock per channel); control tokens on channel 0 give HSYNC / VSYNC, video guard bands are skipped.",
+    "Pixel word {8'h00, R (ch2), G (ch1), B (ch0)}.",
+    "CMD.arm starts a capture at the next VSYNC: line k of V_ACTIVE goes to FB_ADDR + k * STRIDE (H_ACTIVE words).",
+    "Short lines are padded with zeros and long lines cut (STATUS.len_err); a full line FIFO drops pixels (STATUS.ovf, OVF interrupt).",
+    "hpd follows CTRL.hpd_en (hot-plug detect to the source)."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Link control",
+      "fields": [
+        {
+          "port": "hpd_en",
+          "reset": "0",
+          "desc": "drive hpd high"
+        }
+      ]
+    },
+    {
+      "name": "FB_ADDR",
+      "kind": "rw",
+      "desc": "Frame buffer address",
+      "fields": [
+        {
+          "port": "fb_addr",
+          "reset": "0",
+          "desc": "line 0, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "GEOM",
+      "kind": "rw",
+      "desc": "Line pitch and width",
+      "fields": [
+        {
+          "port": "stride",
+          "reset": "0",
+          "desc": "line pitch in bytes"
+        },
+        {
+          "port": "h_active",
+          "reset": "0",
+          "desc": "pixels per line"
+        }
+      ]
+    },
+    {
+      "name": "V_ACTIVE",
+      "kind": "rw",
+      "desc": "Lines per frame",
+      "fields": [
+        {
+          "port": "v_active",
+          "reset": "0",
+          "desc": "lines captured per frame"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "arm",
+          "desc": "capture the next frame; ignored while busy"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "Capture state",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "a capture is armed or running"
+        },
+        {
+          "port": "err",
+          "desc": "AXI error response in the last capture"
+        },
+        {
+          "port": "ovf",
+          "desc": "pixels dropped (FIFO full)"
+        },
+        {
+          "port": "len_err",
+          "desc": "a line was short or long"
+        },
+        {
+          "port": "vsync",
+          "desc": "decoded VSYNC"
+        },
+        {
+          "port": "hsync",
+          "desc": "decoded HSYNC"
+        }
+      ]
+    },
+    {
+      "name": "LINES",
+      "kind": "ro",
+      "desc": "Lines written",
+      "fields": [
+        {
+          "port": "lines",
+          "desc": "lines written by the current / last capture"
+        }
+      ]
+    },
+    {
+      "name": "CYCLES",
+      "kind": "ro",
+      "desc": "Capture length in clocks",
+      "fields": [
+        {
+          "port": "cycles",
+          "desc": "clocks from VSYNC to DONE"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DONE",
+      "port": "done",
+      "desc": "a job ended"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "a job ended that saw an AXI error response"
+    },
+    {
+      "name": "OVF",
+      "port": "ovf_irq",
+      "desc": "pixels were dropped"
+    }
+  ],
+  "sequence": [
+    "Write CTRL.hpd_en = 1, FB_ADDR, GEOM and V_ACTIVE.",
+    "Write IRQ_ENABLE, then CMD.arm = 1.",
+    "Wait for DONE, check STATUS.len_err / ovf, write 1s to IRQ_STATUS."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time.",
+    "tmds_ch0..2 (in) and hpd (out) are the link pins; the TMDS clock is the core clock (one character per clock). FRL (HDMI 2.1 fixed rate link) framing is out of scope: this is the TMDS mode.",
+    "The core testbench prints one `LAT <master> dram R|W <cycles>` line per AXI burst (tb/tv_lat_mon.svh), the regression suite's latency format."
+  ]
+}

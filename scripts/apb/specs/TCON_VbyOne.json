@@ -1,0 +1,163 @@
+{
+  "title": "TV panel timing controller: frame scan-out from memory over AXI4 to a V-by-One HS style 8-lane link",
+  "code": "0x7C03",
+  "version": "1.0",
+  "axi_master": {
+    "id": 4,
+    "reads": true,
+    "writes": false,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "Lane training (D10.2) until vbo_lockn_n is low; idle K28.5; K28.2 before line 0 and K28.0 before every other line.",
+    "4-byte mode: pixel p of a line goes to lane p % LANES, byte j in symbol j; a new symbol every SYM_DIV clocks (0 counts as 1), vbo_sym on its first clock.",
+    "CMD.start scans out V_ACTIVE lines of H_ACTIVE pixels from FB_ADDR + k * STRIDE, HBLANK idle symbols between lines.",
+    "A line starts once min(H_ACTIVE, FIFO_DEPTH / 2) of its words are buffered; the group register loads one word per clock, so SYM_DIV must be at least 3 with 8 lanes.",
+    "STATUS.underrun: the next lane group was not ready inside a line (idle symbols sent); lock loss during a frame sets STATUS.lock_lost (LOCK interrupt); the frame goes on once lock returns."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "FB_ADDR",
+      "kind": "rw",
+      "desc": "Frame buffer address",
+      "fields": [
+        {
+          "port": "fb_addr",
+          "reset": "0",
+          "desc": "line 0, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "GEOM",
+      "kind": "rw",
+      "desc": "Line pitch and width",
+      "fields": [
+        {
+          "port": "stride",
+          "reset": "0",
+          "desc": "line pitch in bytes"
+        },
+        {
+          "port": "h_active",
+          "reset": "0",
+          "desc": "pixels per line"
+        }
+      ]
+    },
+    {
+      "name": "TIMING",
+      "kind": "rw",
+      "desc": "Frame timing",
+      "fields": [
+        {
+          "port": "v_active",
+          "reset": "0",
+          "desc": "lines per frame"
+        },
+        {
+          "port": "hblank",
+          "reset": "0",
+          "desc": "idle symbols between lines"
+        },
+        {
+          "port": "sym_div",
+          "reset": "0",
+          "desc": "clocks per symbol (0 counts as 1)"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "start",
+          "desc": "scan out one frame; ignored while busy"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "State",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "a frame is being sent"
+        },
+        {
+          "port": "err",
+          "desc": "AXI error response"
+        },
+        {
+          "port": "underrun",
+          "desc": "FIFO empty inside a line"
+        },
+        {
+          "port": "lock_lost",
+          "desc": "lock was lost during the frame"
+        },
+        {
+          "port": "locked",
+          "desc": "the receiver reports lock"
+        }
+      ]
+    },
+    {
+      "name": "LINES",
+      "kind": "ro",
+      "desc": "Lines sent",
+      "fields": [
+        {
+          "port": "lines",
+          "desc": "lines sent by the current / last frame"
+        }
+      ]
+    },
+    {
+      "name": "CYCLES",
+      "kind": "ro",
+      "desc": "Frame length in clocks",
+      "fields": [
+        {
+          "port": "cycles",
+          "desc": "clocks from start to DONE"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "DONE",
+      "port": "done",
+      "desc": "a job ended"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "a job ended that saw an AXI error response"
+    },
+    {
+      "name": "LOCK",
+      "port": "lock_irq",
+      "desc": "lock was lost"
+    }
+  ],
+  "sequence": [
+    "Wait for STATUS.locked = 1.",
+    "Write FB_ADDR, GEOM, TIMING and IRQ_ENABLE.",
+    "Write CMD.start = 1 once per frame (on DONE)."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time.",
+    "vbo_lane_d / vbo_lane_k / vbo_sym (out) and vbo_htpdn_n / vbo_lockn_n (in) are the link pins; serialisation and 8b/10b coding are in the PHY.",
+    "The core testbench prints one `LAT <master> dram R|W <cycles>` line per AXI burst (tb/tv_lat_mon.svh), the regression suite's latency format."
+  ]
+}

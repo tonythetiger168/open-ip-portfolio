@@ -1,0 +1,199 @@
+{
+  "title": "MPEG-2 transport stream demultiplexer: 4 PID filters, packets to a ring in memory over AXI4",
+  "code": "0x7C02",
+  "version": "1.0",
+  "axi_master": {
+    "id": 3,
+    "reads": false,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "Byte stream ts_valid / ts_sync / ts_data / ts_err (one 188-byte packet starts with ts_sync and 0x47).",
+    "Up to 4 PID filters (PID_EN, PID0..3); each matching packet takes one 192-byte ring slot: words 0..46 the packet bytes (little-endian), word 47 a descriptor {cc_err, 0, pusi, filter, 0, cc, 0, pid}.",
+    "Packets with a bad sync byte, ts_err, TEI or a short length are dropped (DROP_CNT); continuity counter errors per filter (CC_ERR_CNT).",
+    "Ring of RING_PKTS slots at RING_BASE: the core writes WR_IDX, software returns slots with RD_IDX; a full ring drops packets (OVF_CNT)."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Enable and filters",
+      "fields": [
+        {
+          "port": "enable",
+          "reset": "0",
+          "desc": "demux on; 0 clears WR_IDX and ERR"
+        },
+        {
+          "port": "pid_en",
+          "reset": "0",
+          "desc": "filter enables"
+        }
+      ]
+    },
+    {
+      "name": "PID01",
+      "kind": "rw",
+      "desc": "Filters 0 and 1",
+      "fields": [
+        {
+          "port": "pid0",
+          "reset": "0",
+          "desc": "PID of filter 0"
+        },
+        {
+          "port": "pid1",
+          "reset": "0",
+          "desc": "PID of filter 1"
+        }
+      ]
+    },
+    {
+      "name": "PID23",
+      "kind": "rw",
+      "desc": "Filters 2 and 3",
+      "fields": [
+        {
+          "port": "pid2",
+          "reset": "0",
+          "desc": "PID of filter 2"
+        },
+        {
+          "port": "pid3",
+          "reset": "0",
+          "desc": "PID of filter 3"
+        }
+      ]
+    },
+    {
+      "name": "RING_BASE",
+      "kind": "rw",
+      "desc": "Ring address",
+      "fields": [
+        {
+          "port": "ring_base",
+          "reset": "0",
+          "desc": "slot 0, word aligned"
+        }
+      ]
+    },
+    {
+      "name": "RING_PKTS",
+      "kind": "rw",
+      "desc": "Ring size",
+      "fields": [
+        {
+          "port": "ring_pkts",
+          "reset": "0",
+          "desc": "slots of 192 bytes"
+        }
+      ]
+    },
+    {
+      "name": "RD_IDX",
+      "kind": "rw",
+      "desc": "Software read index",
+      "fields": [
+        {
+          "port": "rd_idx",
+          "reset": "0",
+          "desc": "next slot software reads"
+        }
+      ]
+    },
+    {
+      "name": "WR_IDX",
+      "kind": "ro",
+      "desc": "Hardware write index",
+      "fields": [
+        {
+          "port": "wr_idx",
+          "desc": "next slot the core writes"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "State",
+      "fields": [
+        {
+          "port": "busy",
+          "desc": "a packet is being written"
+        },
+        {
+          "port": "err",
+          "desc": "AXI error response seen"
+        }
+      ]
+    },
+    {
+      "name": "PKTS",
+      "kind": "ro",
+      "desc": "Packet counters",
+      "fields": [
+        {
+          "port": "pkt_cnt",
+          "desc": "packets written"
+        },
+        {
+          "port": "drop_cnt",
+          "desc": "packets dropped"
+        }
+      ]
+    },
+    {
+      "name": "ERRS",
+      "kind": "ro",
+      "desc": "Error counters",
+      "fields": [
+        {
+          "port": "cc_err_cnt",
+          "desc": "continuity errors"
+        },
+        {
+          "port": "ovf_cnt",
+          "desc": "packets lost to a full ring"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "PKT",
+      "port": "pkt",
+      "desc": "a packet was written to the ring"
+    },
+    {
+      "name": "DROP",
+      "port": "drop",
+      "desc": "a packet was dropped"
+    },
+    {
+      "name": "CC_ERR",
+      "port": "cc_err",
+      "desc": "continuity counter error"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "a job ended that saw an AXI error response"
+    }
+  ],
+  "sequence": [
+    "Write RING_BASE, RING_PKTS, RD_IDX = 0, PID01 / PID23.",
+    "Write CTRL with enable = 1 and the filter enables; IRQ_ENABLE with PKT.",
+    "On PKT, read slots RD_IDX .. WR_IDX - 1, then write RD_IDX = WR_IDX."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time.",
+    "ts_valid / ts_sync / ts_data / ts_err are the transport stream input pins.",
+    "The core testbench prints one `LAT <master> dram R|W <cycles>` line per AXI burst (tb/tv_lat_mon.svh), the regression suite's latency format."
+  ]
+}

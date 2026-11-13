@@ -1,0 +1,8 @@
+# HDMI_CEC synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/HDMI_CEC_top.sv ../rtl/soc_ss_axi_engine.sv
+hierarchy -check -top HDMI_CEC_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json HDMI_CEC_top.json
+write_verilog HDMI_CEC_top_netlist.v

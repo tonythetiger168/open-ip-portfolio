@@ -1,0 +1,16 @@
+# HDMI_RX_DMA_apb coverage exclusions. Structural constants of the AXI4 manager
+# (rtl/soc_ss_axi_engine.sv): fixed ID, 32-bit beats (size 2, addresses
+# word aligned, all strobes set), INCR bursts, fixed AxPROT, at most 16 beats.
+TOGGLE \.m_(aw|ar)id\[ # constant: the manager drives its fixed AXI_ID parameter
+TOGGLE \.m_[br]id\[ # tied to the manager's single AXI_ID by the subordinate echo; never varies
+TOGGLE \.m_(aw|ar)addr\[[01]\] # constant 0: every access is a word-aligned 32-bit beat
+TOGGLE \.m_(aw|ar)len\[[4567]\] # constant 0: bursts are at most 16 beats (AxLEN <= 15)
+TOGGLE \.m_(aw|ar)size\[ # constant 3'b010: 4-byte beats only
+TOGGLE \.m_(aw|ar)burst\[ # constant 2'b01: INCR bursts only
+TOGGLE \.m_(aw|ar)prot\[ # constant: the PROT parameter
+TOGGLE \.m_wstrb\[ # constant 4'hF: full-word writes only
+TOGGLE \.m_[br]resp\[0\] # constant 0: the test memory answers OKAY (00) or SLVERR (10); EXOKAY / DECERR not used
+TOGGLE \.m_(ar\w+|r\w+)(\[|:) # read channel unused: HDMI_RX_DMA only writes (the engine's rd_en is tied 0)
+TOGGLE \.m_wdata\[(24|25|26|27|28|29|30|31)\] # constant 0: a pixel word is {8'h00, R, G, B} (rtl/HDMI_RX_DMA_top.sv pix), padding is 0
+TOGGLE \.c_lines\[(2|3|4|5|6|7|8|9|10|11|12|13|14|15)\] # LINES bits 2-15: register-level frames have at most 3 lines (4320 at 8K); the +1 counter's low bits toggle here
+TOGGLE \.c_cycles\[(11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27|28|29|30|31)\] # CYCLES bits 11-31: register-level frames end in under 2^11 clocks (an 8K frame is ~2^25); the +1 counter's low bits toggle here

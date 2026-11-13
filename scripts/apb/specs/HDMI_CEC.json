@@ -1,0 +1,199 @@
+{
+  "title": "HDMI CEC controller: bit timing, arbitration and ACK, messages in memory over AXI4",
+  "code": "0x7C06",
+  "version": "1.0",
+  "axi_master": {
+    "id": 7,
+    "reads": true,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "Open-drain line: cec_in samples it, cec_oe_low pulls it low. Tick = TICK_DIV + 1 clocks, nominally 0.05 ms: start bit 3.7 ms low / 4.5 ms, bit 0 1.5 ms low, bit 1 0.6 ms low, 2.4 ms period, sample at 1.05 ms.",
+    "Receive: messages to logical address LA (or all with PROMISC) and broadcasts; directed blocks are ACKed. Each message takes one 32-byte RX slot: word 0 {flags (bcast, acked), len}, words 1..4 the bytes.",
+    "Transmit: CMD.tx_start fetches 5 words at TX_ADDR (word 0 = length, words 1..4 bytes), waits SFT bit periods of free line, sends with arbitration (lost in the first 4 bits: TX_STATUS.arb_lost) and checks ACK (TX_STATUS.nack).",
+    "RX ring of RX_SLOTS slots at RX_BASE (RX_WR / RX_RD)."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Enable and address",
+      "fields": [
+        {
+          "port": "enable",
+          "reset": "0",
+          "desc": "controller on"
+        },
+        {
+          "port": "la",
+          "reset": "0",
+          "desc": "logical address"
+        },
+        {
+          "port": "promisc",
+          "reset": "0",
+          "desc": "receive every message"
+        }
+      ]
+    },
+    {
+      "name": "TIMING",
+      "kind": "rw",
+      "desc": "Timing",
+      "fields": [
+        {
+          "port": "tick_div",
+          "reset": "0",
+          "desc": "tick = TICK_DIV + 1 clocks"
+        },
+        {
+          "port": "sft",
+          "reset": "0",
+          "desc": "signal free time in ticks"
+        }
+      ]
+    },
+    {
+      "name": "RX_BASE",
+      "kind": "rw",
+      "desc": "RX ring address",
+      "fields": [
+        {
+          "port": "rx_base",
+          "reset": "0",
+          "desc": "slot 0, 32-byte aligned"
+        }
+      ]
+    },
+    {
+      "name": "RX_RING",
+      "kind": "rw",
+      "desc": "RX ring control",
+      "fields": [
+        {
+          "port": "rx_slots",
+          "reset": "0",
+          "desc": "slots"
+        },
+        {
+          "port": "rx_rd",
+          "reset": "0",
+          "desc": "next slot software reads"
+        }
+      ]
+    },
+    {
+      "name": "TX_ADDR",
+      "kind": "rw",
+      "desc": "TX message address",
+      "fields": [
+        {
+          "port": "tx_addr",
+          "reset": "0",
+          "desc": "5 words"
+        }
+      ]
+    },
+    {
+      "name": "CMD",
+      "kind": "cmd",
+      "desc": "Commands (write 1)",
+      "fields": [
+        {
+          "port": "tx_start",
+          "desc": "send the message at TX_ADDR; ignored while tx_busy"
+        }
+      ]
+    },
+    {
+      "name": "RX_WR",
+      "kind": "ro",
+      "desc": "RX write index",
+      "fields": [
+        {
+          "port": "rx_wr",
+          "desc": "next slot the core writes"
+        }
+      ]
+    },
+    {
+      "name": "TX",
+      "kind": "ro",
+      "desc": "Transmit state",
+      "fields": [
+        {
+          "port": "tx_status",
+          "desc": "{err, arb_lost, nack, ok} of the last message"
+        },
+        {
+          "port": "tx_busy",
+          "desc": "a message is being sent"
+        }
+      ]
+    },
+    {
+      "name": "RX_CNT",
+      "kind": "ro",
+      "desc": "RX counters",
+      "fields": [
+        {
+          "port": "rx_cnt",
+          "desc": "messages stored"
+        },
+        {
+          "port": "rx_err_cnt",
+          "desc": "bit timing errors"
+        }
+      ]
+    },
+    {
+      "name": "RX_OVF",
+      "kind": "ro",
+      "desc": "Lost messages",
+      "fields": [
+        {
+          "port": "rx_ovf_cnt",
+          "desc": "messages lost to a full ring"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "RX",
+      "port": "rx",
+      "desc": "a message was stored"
+    },
+    {
+      "name": "RX_ERR",
+      "port": "rx_err",
+      "desc": "a bit timing error"
+    },
+    {
+      "name": "TX_DONE",
+      "port": "tx_done",
+      "desc": "a transmit ended (see TX)"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "a job ended that saw an AXI error response"
+    }
+  ],
+  "sequence": [
+    "Write TIMING (TICK_DIV = clock x 50 us - 1, SFT), RX_BASE, RX_RING, CTRL with enable and LA.",
+    "Receive: on RX read slots RX_RD .. RX_WR - 1 and write RX_RD.",
+    "Transmit: write the message to memory, TX_ADDR, CMD.tx_start; on TX_DONE read TX."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time.",
+    "cec_in / cec_oe_low are the line pins (open drain: the pad pulls low when cec_oe_low is 1).",
+    "The core testbench prints one `LAT <master> dram R|W <cycles>` line per AXI burst (tb/tv_lat_mon.svh), the regression suite's latency format."
+  ]
+}

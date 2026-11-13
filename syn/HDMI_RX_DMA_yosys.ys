@@ -1,0 +1,8 @@
+# HDMI_RX_DMA synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/HDMI_RX_DMA_top.sv ../rtl/soc_ss_axi_engine.sv ../rtl/tv_fifo.sv
+hierarchy -check -top HDMI_RX_DMA_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json HDMI_RX_DMA_top.json
+write_verilog HDMI_RX_DMA_top_netlist.v

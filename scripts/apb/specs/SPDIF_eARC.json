@@ -1,0 +1,183 @@
+{
+  "title": "S/PDIF (IEC 60958) and HDMI eARC audio receiver: biphase decode, samples to a ring in memory over AXI4",
+  "code": "0x7C05",
+  "version": "1.0",
+  "axi_master": {
+    "id": 6,
+    "reads": false,
+    "writes": true,
+    "port_prefix": "m_",
+    "addr_bits": 32,
+    "data_bits": 32,
+    "id_bits": 4,
+    "max_burst": 16
+  },
+  "features": [
+    "spdif_in biphase-mark decode with a UI of UI_CLKS clocks (pulses of 1, 2 or 3 UI); preambles B, M, W.",
+    "Locks after 4 good subframes; a bad pulse or preamble drops lock (CODE_ERR_CNT, LOCK_LOST interrupt).",
+    "Sample word {chan_b, block_start, V, U, C, parity_err, 2'b00, sample[23:0]} per subframe, DMA'd in 16-word chunks to a ring of RING_WORDS words (a multiple of 16, at least 32).",
+    "CS0: channel status bits 0..31 of channel A from the last block (CS interrupt when updated)."
+  ],
+  "tb_clk_ns": 10,
+  "regs": [
+    {
+      "name": "CTRL",
+      "kind": "rw",
+      "desc": "Enable and UI",
+      "fields": [
+        {
+          "port": "enable",
+          "reset": "0",
+          "desc": "receiver on; 0 clears WR_IDX"
+        },
+        {
+          "port": "ui_clks",
+          "reset": "0",
+          "desc": "clocks per unit interval"
+        }
+      ]
+    },
+    {
+      "name": "RING_BASE",
+      "kind": "rw",
+      "desc": "Ring address",
+      "fields": [
+        {
+          "port": "ring_base",
+          "reset": "0",
+          "desc": "word 0, 64-byte aligned"
+        }
+      ]
+    },
+    {
+      "name": "RING_WORDS",
+      "kind": "rw",
+      "desc": "Ring size",
+      "fields": [
+        {
+          "port": "ring_words",
+          "reset": "0",
+          "desc": "words, multiple of 16, at least 32"
+        }
+      ]
+    },
+    {
+      "name": "RD_IDX",
+      "kind": "rw",
+      "desc": "Software read index",
+      "fields": [
+        {
+          "port": "rd_idx",
+          "reset": "0",
+          "desc": "next word software reads"
+        }
+      ]
+    },
+    {
+      "name": "WR_IDX",
+      "kind": "ro",
+      "desc": "Hardware write index",
+      "fields": [
+        {
+          "port": "wr_idx",
+          "desc": "next word the core writes"
+        }
+      ]
+    },
+    {
+      "name": "STATUS",
+      "kind": "ro",
+      "desc": "State",
+      "fields": [
+        {
+          "port": "locked",
+          "desc": "biphase lock"
+        },
+        {
+          "port": "err",
+          "desc": "AXI error response seen"
+        }
+      ]
+    },
+    {
+      "name": "CS0",
+      "kind": "ro",
+      "desc": "Channel status",
+      "fields": [
+        {
+          "port": "cs0",
+          "desc": "channel A status bits 0..31"
+        }
+      ]
+    },
+    {
+      "name": "SAMPLES",
+      "kind": "ro",
+      "desc": "Samples stored",
+      "fields": [
+        {
+          "port": "samples",
+          "desc": "subframes written to the ring"
+        }
+      ]
+    },
+    {
+      "name": "ERRS",
+      "kind": "ro",
+      "desc": "Error counters",
+      "fields": [
+        {
+          "port": "perr_cnt",
+          "desc": "parity errors"
+        },
+        {
+          "port": "code_err_cnt",
+          "desc": "coding errors"
+        }
+      ]
+    },
+    {
+      "name": "OVF_CNT",
+      "kind": "ro",
+      "desc": "Lost samples",
+      "fields": [
+        {
+          "port": "ovf_cnt",
+          "desc": "chunks lost to a full ring"
+        }
+      ]
+    }
+  ],
+  "irqs": [
+    {
+      "name": "CHUNK",
+      "port": "chunk",
+      "desc": "16 samples were written"
+    },
+    {
+      "name": "LOCK_LOST",
+      "port": "lock_lost",
+      "desc": "lock was lost"
+    },
+    {
+      "name": "CS",
+      "port": "cs",
+      "desc": "CS0 was updated"
+    },
+    {
+      "name": "ERR",
+      "port": "err_irq",
+      "desc": "a job ended that saw an AXI error response"
+    }
+  ],
+  "sequence": [
+    "Write CTRL.ui_clks (clock / (128 x fs)), RING_BASE, RING_WORDS, RD_IDX = 0.",
+    "Write CTRL.enable = 1 and IRQ_ENABLE with CHUNK.",
+    "On CHUNK, read the ring words RD_IDX .. WR_IDX - 1 and write RD_IDX."
+  ],
+  "notes": [
+    "m_* is the AXI4 manager port (32-bit address and data, 4-bit ID, no user / QoS); it passes through unchanged. Bursts are INCR, AxSIZE = 2 (4 bytes), 1 to 16 beats, WSTRB = 4'hF, never across a 4 KB boundary; one read and one write burst are outstanding at a time.",
+    "spdif_in is the receiver pin (the eARC differential data channel after the PHY). The eARC common-mode channel and ECC are not implemented.",
+    "The core testbench prints one `LAT <master> dram R|W <cycles>` line per AXI burst (tb/tv_lat_mon.svh), the regression suite's latency format."
+  ]
+}
