@@ -110,7 +110,6 @@ module QSPI_XIP_top (
   logic        rb_valid;                // a read byte is complete (one clock)
   logic [7:0]  rb_data;
   logic        hold;                    // consumer full: stop SCLK at the byte boundary
-  logic        go;                      // start a job (from IDLE)
   logic        stop;                    // end the read phase (from P_RD, at a byte boundary)
   logic [3:0]  io_o, io_oe;
   assign io[0] = io_oe[0] ? io_o[0] : 1'bz;
@@ -235,7 +234,6 @@ module QSPI_XIP_top (
   logic [31:0] w_last;                  // last word read, and its address
   logic [21:0] w_last_a;
   logic        w_last_v;
-  logic        last_pref;
 
   // next beat address (AXI4 A3.4.1)
   logic [31:0] inc, nxt, wmask, a_nx;
@@ -328,5 +326,5 @@ module QSPI_XIP_top (
     endcase
   end
   wire _unused = &{1'b0, s_awaddr, s_awlen, s_awsize, s_awburst, s_wdata, s_wstrb, cmd_q,
-                   j_wdata, last_pref, wbuf[31:24]};
+                   j_wdata, wbuf[31:24]};
 endmodule

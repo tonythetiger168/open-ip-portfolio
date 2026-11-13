@@ -1,0 +1,28 @@
+# SDMMC_ADMA core coverage exclusions.
+# Constants of the AXI4 manager (soc_ss_axi_engine, closed by its own run):
+# fixed ID and PROT, 32-bit INCR beats, all strobes, at most 16 beats,
+# word-aligned addresses.
+INCLUDE soc_ss_axi_manager
+# The engine's source / destination come from word-aligned table addresses
+# and tran addresses (A_FETCH and A_DEC reject bits 1:0 before loading them).
+TOGGLE _top\.e_(src|dst)\[[01]\]: # word aligned: an unaligned address is rejected before it is loaded
+# A descriptor moves at most 65536 bytes (16384 words, bit 14): the job
+# length and the per-descriptor word count never set bit 15 and up.
+TOGGLE _top\.e_len\[15\]: # a job is at most 16384 words
+TOGGLE _top\.j_words\[(1[5-9]|2[0-3])\]: # min(descriptor words, words left) is at most 16384
+# e_cycles: the engine's job clock count; nothing reads it (the engine
+# closes it in its own run). The longest job of the bench is a 16384-word
+# descriptor, well under 2^16 clocks without stalls.
+TOGGLE _top\.e_cycles\[(1[6-9]|2[0-9]|3[01])\]: # unused engine clock count
+# Local error vectors with bits no branch sets: the response check `e` sets
+# bits 1..3 only (no-response and busy errors are flagged in their own
+# states), the data FSM's d_errs sets bits 0..3 and 7 (descriptor and AXI
+# errors come from the ADMA engine), and the engine's dma_err_bits is one
+# of 8'h10 / 8'h20 / 8'h40.
+TOGGLE _top\.e\[[04]\]: # constant 0: no branch of C_RX sets them
+TOGGLE _top\.d_errs\[[4-6]\]: # constant 0: DMA errors are reported through dma_err_bits
+TOGGLE _top\.dma_err_bits\[[0-37]\]: # constant 0: only 8'h10, 8'h20 and 8'h40 are loaded
+# DAT0 is in use at every bus width (masks 01 / 0F / FF).
+TOGGLE _top\.lmask\[0\]: # constant 1 after reset
+# The command token's start and transmission bits are constants 0 and 1.
+TOGGLE _top\.c_body\[3[89]\]: # constant 2'b01: start and transmission bits

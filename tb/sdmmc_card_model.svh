@@ -22,7 +22,9 @@
 //   f_rd_end (DAT0 end bit 0 on the next read block),
 //   f_rd_crc (bad CRC16 on DAT0 of the next read block), f_wtok (next write
 //   block rejected, CRC status 101, not written), f_busy (next R1b busy
-//   lasts busy_long clocks).
+//   lasts busy_long clocks), f_wnotok (no CRC status token after the next
+//   write block), f_wbusy (busy_long clocks of busy after the next write
+//   block).
 // - Checks (counted in `errors`): host command CRC7, transmission and end
 //   bits, write data CRC16 and end bits, start bits on every data line in
 //   use, lines driven by the host while the card drives them.
@@ -42,7 +44,7 @@ module sdmmc_card_model #(parameter int NBLK = 64) (
   logic [15:0] rca = 0;
   bit          acmd = 0, selected = 0;
   bit          f_mute = 0, f_rcrc = 0, f_rd_crc = 0, f_wtok = 0, f_busy = 0;
-  bit          f_ridx = 0, f_rend = 0, f_rd_end = 0;
+  bit          f_ridx = 0, f_rend = 0, f_rd_end = 0, f_wnotok = 0, f_wbusy = 0;
   bit          rnd_id = 0;                // insert(): random CID body and SD RCA
   logic [15:0] sd_rca = 16'hB37A;
   // drivers
@@ -58,7 +60,9 @@ module sdmmc_card_model #(parameter int NBLK = 64) (
   bit          rd_req = 0, wr_req = 0, multi = 0, stop = 0, xcsd = 0;
   int          d_addr = 0;
 
+  bit          expect_bad = 0;   // a test breaks the protocol on purpose: report, do not count
   function automatic void bad(input string m);
+    if (expect_bad) begin $display("note: sdmmc_card (expected): %s @%0t", m, $time); return; end
     errors++;
     $display("ERROR: sdmmc_card: %s @%0t", m, $time);
   endfunction
@@ -276,6 +280,7 @@ module sdmmc_card_model #(parameter int NBLK = 64) (
       for (int i = 0; i < blklen; i++) mem[(d_addr + i) % (NBLK * 512)] = buf_b[i];
       n_wr_blk++;
     end
+    if (f_wnotok) begin f_wnotok = 0; aborted = 1; return; end   // no CRC status token
     @(negedge sclk);                                    // N1
     @(negedge sclk); d_oe[0] = 1; d_o[0] = 0;           // token start
     @(negedge sclk); d_o[0] = ok ? 1'b0 : 1'b1;
@@ -283,7 +288,8 @@ module sdmmc_card_model #(parameter int NBLK = 64) (
     @(negedge sclk); d_o[0] = ok ? 1'b0 : 1'b1;
     @(negedge sclk); d_o[0] = 1;                        // end bit
     @(negedge sclk); d_oe[0] = 0;
-    b = $urandom % (busy_max + 1);
+    b = f_wbusy ? busy_long : $urandom % (busy_max + 1);
+    f_wbusy = 0;
     busy_lo = (b != 0); repeat (b) @(negedge sclk); busy_lo = 0;
     d_addr += blklen;
     if (!ok) aborted = 1;

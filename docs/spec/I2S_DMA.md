@@ -72,6 +72,29 @@ edge.
 | `m_rvalid` | input | 1 | read data valid | high | `clk` | - |
 | `m_rready` | output | 1 | 1 for the whole read data phase of a burst (never back-pressures) | high | `clk` | 0 |
 
+### Internal signals used by the coverage checker
+
+`tb/cov/I2S_DMA_sva.sv` is bound to `I2S_DMA_top` with `.*`, so a re-implementation must have these
+names (width as seen by the checker).
+
+| Signal | Width | Meaning |
+|---|---|---|
+| `rd_step` | 1 | 1: read left, 2: read right |
+| `rx_on` | 1 | core-internal signal read by name by the checker |
+| `rx_full` | 1 | core-internal signal read by name by the checker |
+| `ws_ready` | 1 | core-internal signal read by name by the checker |
+| `rs_valid` | 1 | core-internal signal read by name by the checker |
+| `rs_ready` | 1 | core-internal signal read by name by the checker |
+| `ws_valid` | 1 | core-internal signal read by name by the checker |
+| `rs_data` | [31:0] | core-internal signal read by name by the checker |
+| `rx_word` | 1 | core-internal signal read by name by the checker |
+| `wen` | 1 | core-internal signal read by name by the checker |
+| `waddr` | [3:0] | core-internal signal read by name by the checker |
+| `wdata` | [15:0] | core-internal signal read by name by the checker |
+| `to_left` | 1 | frame start |
+| `to_right` | 1 | left slot ended |
+| `bclk_rise` | 1 | core-internal signal read by name by the checker |
+
 ## 2. Registers
 
 <!-- AUTO:registers -->
@@ -271,3 +294,28 @@ overruns.
 | "no overrun with AXI writes held off" | holding AW off for 40 frames causes overruns | §3.3 |
 | "TX-only job wrote the destination" | a TX-only job never writes | §3.1 |
 | "timeout" | the whole test ends within 200 ms | §3.4 |
+
+### Coverage-closure assertions
+
+From `tb/cov/I2S_DMA_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_reset_idle | while `!rst_n` (reset): `!busy && frames == 0 && tx_underrun == 0 && rx_overrun == 0 && !ws_valid && !wen` | §3 |
+| a_engine_start | always holds: `u_eng.start == go && (!go \|\| (u_eng.rd_en == tx_en && u_eng.wr_en == rx_en && u_eng.len == xfer_len))` | §3 |
+| a_tx_take | always holds: `rs_ready == t_take` | §3 |
+| a_core_write | always holds: `wen == (t_take \|\| (to_left && t_have)) && (!t_take \|\| (waddr == 4'd0 && wdata == rs_data[15:0])) && (t_take \|\| !wen \|\| (waddr == 4'd1 && wdata == t_r))` | §3 |
+| a_counters | always holds: `frames == m_frames && tx_underrun == t_under && rx_overrun == r_over` | §3 |
+| a_rx_word | always holds: `ws_valid == r_full && (!ws_valid \|\| rx_word == r_word)` | §3 |
+| a_done | always holds: `done == u_eng.done` | §3 |
+
+### Further TB checks
+
+| Check (TB message) | What it requires | Spec |
+|---|---|---|
+| "job started with neither TX_EN nor RX_EN" | fails when `busy` (`tb/I2S_DMA_tb.sv` line 182) | §3 |
+| "no job after a START the clock after DONE" | fails when `!busy` (`tb/I2S_DMA_tb.sv` line 187) | §3 |
+| "no RX load in the clock the engine took the previous word" | fails when `!hit` (`tb/I2S_DMA_tb.sv` line 216) | §3 |
+| "not idle in reset" | fails when `busy \|\| frames != 0` (`tb/I2S_DMA_tb.sv` line 230) | §3 |
+| "TX_UNDERRUN" | fails when `tx_underrun < 16'd32768 \|\| rx_overrun < 16'd32768` (`tb/I2S_DMA_tb.sv` line 236) | §3 |

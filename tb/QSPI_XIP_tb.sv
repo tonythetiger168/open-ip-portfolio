@@ -112,6 +112,25 @@ module QSPI_XIP_tb;
     if (pc_busy) fail($sformatf("command %h timed out", c));
   endtask
 
+  // an AXI write (consumed, SLVERR) with the given fields; BREADY after bw clocks
+  task automatic wr(input logic [3:0] id, input logic [31:0] a, input logic [7:0] len, input logic [2:0] sz,
+                    input logic [1:0] bt, input logic [31:0] d, input logic [3:0] strb, input int bw);
+    @(negedge clk);
+    s_awid = id; s_awaddr = a; s_awlen = len; s_awsize = sz; s_awburst = bt; s_awvalid = 1;
+    @(posedge clk); while (!s_awready) @(posedge clk);
+    @(negedge clk); s_awvalid = 0;
+    for (int n = 0; n <= len; n++) begin
+      s_wvalid = 1; s_wdata = d ^ 32'(n); s_wstrb = strb; s_wlast = (n == len);
+      @(posedge clk); while (!s_wready) @(posedge clk);
+      @(negedge clk);
+    end
+    s_wvalid = 0; s_wlast = 0;
+    clks(bw); s_bready = 1;
+    @(posedge clk); while (!s_bvalid) @(posedge clk);
+    if (s_bresp !== 2'b10 || s_bid !== id) fail($sformatf("AXI write: BRESP %b BID %h", s_bresp, s_bid));
+    @(negedge clk); s_bready = 0;
+  endtask
+
   task automatic rnd_burst;
     int sz, bt, len;
     logic [31:0] a;
@@ -170,6 +189,68 @@ module QSPI_XIP_tb;
     if (s_bresp !== 2'b10) fail("AXI write not SLVERR");
     @(negedge clk); s_bready = 0;
     rnd_burst();
+    // command shapes: 1 to 3 write bytes, an address with a read, PC_NRD
+    // above 4 (4 bytes read)
+    pc(8'h06, 0, 0, 0, 0, 0);
+    pc(8'h02, 1, 24'h00_7000, 1, $urandom, 0);
+    pc(8'h06, 0, 0, 0, 0, 0);
+    pc(8'h02, 1, 24'h00_7010, 2, $urandom, 0);
+    pc(8'h06, 0, 0, 0, 0, 0);
+    pc(8'h02, 1, 24'hFF_7020, 3, $urandom, 0);
+    pc(8'h03, 1, 24'h00_7010, 0, 0, 4);
+    if (pc_rdata !== fword(32'h0000_7010)) fail($sformatf("read command: %h, expected %h", pc_rdata, fword(32'h0000_7010)));
+    for (int n = 5; n < 8; n++) begin
+      pc(8'h9F, 0, 0, 0, 0, n);
+      if (pc_rdata[23:0] !== 24'h18_40EF) fail($sformatf("JEDEC ID with PC_NRD %0d: %h", n, pc_rdata));
+    end
+    // every bit of DIV (slowest SCLK), and DIV 0
+    div = 255; pc(8'h05, 0, 0, 0, 0, 1);
+    div = 0;  rd(32'hFFFF_0040, 3, 2, 1); pc(8'h05, 0, 0, 0, 0, 1);
+    div = 2;
+    // the word at hand: a burst inside the last word read
+    rd(32'h0000_0400, 0, 0, 1); rd(32'h0000_0401, 0, 0, 1); rd(32'h0000_0402, 1, 0, 1);
+    // upper address bits are ignored (the window is 16 MB)
+    for (int k = 0; k < 8; k++) rd(($urandom & 32'hFFFF_0000) | 32'h0000_0800 | 32'(k * 64), 3, 2, 1);
+    // a command while an XIP burst runs waits for it; a burst while a
+    // command runs waits for it
+    fork
+      rd(32'h0000_0900, 15, 2, 1);
+      begin clks(30); pc(8'h05, 0, 0, 0, 0, 1); end
+    join
+    fork
+      pc(8'h9F, 0, 0, 0, 0, 3);
+      begin clks(5); rd(32'h0000_0A00, 3, 2, 1); end
+    join
+    // AXI writes with every field both ways, BRESP held
+    wr(4'hF, 32'hFFFF_FFFF, 8'hFF, 3'h7, 2'h3, 32'hFFFF_FFFF, 4'hF, 4);
+    wr(4'h0, 32'h0, 8'h00, 3'h0, 2'h0, 32'h0, 4'h0, 0);
+    // command shapes without an address (writes, writes then reads), with an
+    // address, writes and reads; every command / address / data bit (the
+    // flash ignores commands it does not know: reads see the pull-ups)
+    pc(8'h7E, 1, 24'hFF_FFFF, 4, 32'hFFFF_FFFF, 4);
+    pc(8'h3C, 0, 24'h00_0000, 2, 32'h0000_0000, 0);
+    pc(8'h3C, 0, 24'h00_0000, 1, 32'h0000_1000, 2);
+    pc(8'h3C, 1, 24'h12_3456, 3, 32'hFFFF_EFFF, 2);
+    pc(8'h05, 0, 0, 0, 0, 1);
+    // the longest INCR burst (256 beats)
+    rd(32'h0000_1000, 255, 2, 1);
+    // (long runs: +cov_long) 65540 single-beat reads at alternating words:
+    // one read command each, the counts wrap
+    if ($test$plusargs("cov_long")) begin
+      div = 0;
+      for (int i = 0; i < 65540; i++) rd(32'(i % 2) * 32'h100, 0, 2, 1);
+      div = 2;
+    end
+    // reset in the middle of a frame
+    @(negedge clk);
+    s_arid = 1; s_araddr = 32'h0000_0B00; s_arlen = 7; s_arsize = 2; s_arburst = 1; s_arvalid = 1;
+    @(posedge clk); while (!s_arready) @(posedge clk);
+    @(negedge clk); s_arvalid = 0;
+    clks(60);
+    rst_n = 0; clks(3);
+    if (!csn || s_rvalid || xip_cmds != 0) fail("not idle in reset");
+    rst_n = 1; clks(5);
+    rd(32'h0000_0C00, 3, 2, 1);
     clks(20);
     errors += flash.errors;
     $display("QSPI_XIP: %0d beats, %0d XIP read commands, %0d flash commands", n_beats, xip_cmds, flash.n_cmds);
