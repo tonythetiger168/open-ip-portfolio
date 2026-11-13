@@ -135,6 +135,8 @@ Measured on 2026-11-05 by GitHub Actions coverage run
 total is 0), using the cell format in `scripts/cov/report.py`. The shard
 logs printed `CLOSED` 36/36, 36/36, 36/36, 36/36, 35/35, 35/35, 35/35, 35/35
 (shards 1 through 8).
+DDR4_JEDEC_AXI and AXI_Async_Bridge (cores and wrappers) were added later, from a
+local `scripts/cov/run_cov.sh` run on 2026-11-10 (Verilator 5.052).
 
 Eleven cores are in the tree and in this closed set, and have no release zip
 yet. They are the README rows marked not yet packaged (`releases/` holds the
@@ -151,7 +153,7 @@ buffer-address bits and the stop bit) and the two FSM arcs above
 
 ### Cores
 
-142/142 closed.
+144/144 closed.
 
 | IP | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
@@ -168,6 +170,7 @@ buffer-address bits and the stop bit) and the two FSM arcs above
 | AXI | 59/60 (+1 excl.) | 650/650 | 10/10 | 16/16 | 120/120 | pass |
 | AXI4 | 58/59 (+1 excl.) | 690/690 | 10/10 | 16/16 | 123/123 | pass |
 | AXI4_Lite | 38/39 (+1 excl.) | 506/510 (+4 excl.) | 10/10 | 13/13 | 56/56 | pass |
+| AXI_Async_Bridge | 14/14 | 1286/1286 | n/a | 18/18 | 96/96 | pass |
 | AXI_Stream | 5/5 | 172/172 | n/a | 6/6 | 61/61 | pass |
 | Avalon_MM | 50/51 (+1 excl.) | 338/338 | 7/7 | 15/15 | 59/59 | pass |
 | Avalon_ST | 4/4 | 170/170 | n/a | 6/6 | 61/61 | pass |
@@ -185,6 +188,7 @@ buffer-address bits and the stop bit) and the two FSM arcs above
 | Crypto___Security_Engine | 111/112 (+1 excl.) | 2982/2982 | 11/11 | 8/8 | 82/82 | pass |
 | DDR | 87/90 (+3 excl.) | 576/602 (+26 excl.) | 24/24 | 24/24 | 65/65 | pass |
 | DDR4 | 92/96 (+4 excl.) | 740/858 (+118 excl.) | 24/24 | 24/24 | 66/66 | pass |
+| DDR4_JEDEC_AXI | 150/150 | 4608/4736 (+128 excl.) | 19/19 | 55/55 | 174/174 | pass |
 | DDR4_Lite | 158/161 (+3 excl.) | 2274/2330 (+56 excl.) | 43/43 | 31/31 | 98/98 | pass |
 | DDR5 | 104/107 (+3 excl.) | 1134/1346 (+212 excl.) | 24/24 | 25/25 | 68/68 | pass |
 | DDR6 | 88/91 (+3 excl.) | 1064/1236 (+172 excl.) | 21/21 | 24/24 | 67/67 | pass |
@@ -311,7 +315,7 @@ The wrapper's coverage scope is the wrapper alone (`u_core` is excluded),
 because the core is closed by its own run above. The wrapper has no state
 machine, so FSM is n/a.
 
-142/142 closed.
+144/144 closed.
 
 | APB wrapper | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
@@ -327,6 +331,7 @@ machine, so FSM is n/a.
 | AVSBus__Adaptive_Voltage_Scaling__apb | 20/20 | 450/450 | n/a | 7/7 | 25/25 | pass |
 | AXI4_Lite_apb | 19/19 | 680/684 (+4 excl.) | n/a | 7/7 | 23/23 | pass |
 | AXI4_apb | 19/19 | 772/772 | n/a | 7/7 | 23/23 | pass |
+| AXI_Async_Bridge_apb | 19/19 | 1220/1220 | n/a | 7/7 | 23/23 | pass |
 | AXI_Stream_apb | 36/36 | 572/572 | n/a | 9/9 | 57/57 | pass |
 | AXI_apb | 19/19 | 764/764 | n/a | 7/7 | 23/23 | pass |
 | Avalon_MM_apb | 19/19 | 616/616 | n/a | 7/7 | 23/23 | pass |
@@ -343,6 +348,7 @@ machine, so FSM is n/a.
 | CXS_CCIX_Stream_Interface_apb | 38/38 | 1334/1334 | n/a | 14/14 | 59/59 | pass |
 | C_PHY_apb | 33/33 | 616/616 | n/a | 11/11 | 64/64 | pass |
 | Crypto___Security_Engine_apb | 57/57 | 2036/2036 | n/a | 22/22 | 68/68 | pass |
+| DDR4_JEDEC_AXI_apb | 26/26 | 1560/1580 (+20 excl.) | n/a | 7/7 | 37/37 | pass |
 | DDR4_Lite_apb | 37/37 | 1032/1084 (+52 excl.) | n/a | 11/11 | 54/54 | pass |
 | DDR4_apb | 33/33 | 798/810 (+12 excl.) | n/a | 11/11 | 42/42 | pass |
 | DDR5_apb | 33/33 | 830/842 (+12 excl.) | n/a | 11/11 | 42/42 | pass |
