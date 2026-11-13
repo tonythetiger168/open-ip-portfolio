@@ -2,6 +2,7 @@
 # TSP Open IP (STB, AXI4 manager) -- sim & synthesis entry points
 S      := TSP
 DEPS   := rtl/tsp_aes128_dec.sv rtl/soc_ss_axi_engine.sv
+COVLIB := rtl/soc_ss_axi_engine.sv   # closed by their own coverage runs
 SIM    ?= iverilog
 VFLAGS := -g2012 -Wall
 SYN    ?= yosys

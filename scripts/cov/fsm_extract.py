@@ -12,22 +12,33 @@ arcs and are not reported.
 
 Usage: fsm_extract.py <PROTOCOL>     -> JSON on stdout
 """
-import json, re, sys
+import json, os, re, sys
 from pyslang.syntax import SyntaxTree
 from pyslang.ast import Compilation, SymbolKind, ExpressionKind, StatementKind, \
     TimingControlKind
 
+def makefile(p):
+    """The IP's Makefile, or scripts/cov/units/<P>.mk for a shared block
+    closed on its own (see run_cov.sh)."""
+    for f in (f"Makefile.{p}", f"scripts/cov/units/{p}.mk"):
+        if os.path.exists(f):
+            return open(f).read()
+    raise FileNotFoundError(f"Makefile.{p}")
+
 def proto_sources(p):
-    mk = open(f"Makefile.{p}").read()
+    mk = makefile(p)
     s = re.search(r"^S\s*:?=\s*(\S+)", mk, re.M).group(1)
-    deps = re.search(r"^DEPS\s*:?=(.*)$", mk, re.M).group(1).split()
-    return s, [f"rtl/{s}_top.sv"] + deps
+    deps = re.search(r"^DEPS\s*:?=([^#\n]*)", mk, re.M).group(1).split()
+    top = f"rtl/{s}_top.sv"
+    if not os.path.exists(top):
+        top = f"rtl/{s}.sv"
+    return s, [top] + deps
 
 def covlib_modules(p):
     """Modules of the Makefile's COVLIB files: IPs used as sub-blocks that are
     closed by their own coverage run, so their FSMs are not covered here."""
-    mk = open(f"Makefile.{p}").read()
-    m = re.search(r"^COVLIB\s*:?=(.*)$", mk, re.M)
+    mk = makefile(p)
+    m = re.search(r"^COVLIB\s*:?=([^#\n]*)", mk, re.M)
     mods = set()
     for f in (m.group(1).split() if m else []):
         mods |= set(re.findall(r"^module\s+(\w+)", open(f).read(), re.M))

@@ -1,0 +1,16 @@
+INCLUDE soc_ss_axi_manager
+# Two engines share the AXI4 manager port: u_rd only reads (WR_EN = 0) and
+# u_wr only writes (RD_EN = 0). The unused half of each is left on internal
+# wires (r_* write half of u_rd, w_* read half of u_wr) that a lint sink
+# (_unused) collects; they never move. The engines' own run covers both halves.
+TOGGLE _top\.r_(awid|awaddr|awlen|awsize|awburst|awprot|awvalid|wdata|wstrb|wlast|wvalid|bready|ws_ready)(\[|:) # unused write half of the read engine (WR_EN = 0)
+TOGGLE _top\.w_(arid|araddr|arlen|arsize|arburst|arprot|arvalid|rready|rs_valid|rs_data)(\[|:) # unused read half of the write engine (RD_EN = 0)
+TOGGLE _top\._unused: # lint sink of the unused engine halves
+# r_cyc / w_cyc: the engines' clock counts (unused, collected by _unused).
+TOGGLE _top\.[rw]_cyc\[(1[7-9]|2[0-9]|3[01])\] # needs a job longer than 2^17 clocks (unused output)
+# The wrapper only ever hands the GCM core legal input (16-byte blocks, AAD
+# before text, a closing partial block flagged last) and lengths that fit the
+# 20-bit counters (AAD and text are 16-bit), so the core's input errors
+# (E_FMT 1, E_ORDER 2, E_LEN 3) cannot happen: only code 4 (side-load key not
+# valid) is reachable, and bits 1:0 of the error code stay 0.
+TOGGLE _top\.(c_code|err_code)\[[01]\] # GCM input-error codes 1..3 unreachable through the DMA wrapper

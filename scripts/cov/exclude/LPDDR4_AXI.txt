@@ -1,0 +1,11 @@
+# LPDDR4_AXI: the AXI4 front end (rtl/ddr_axi_slv.sv) is scored here; the LPDDR4 core
+# is closed by its own run (COVLIB). Constant bits and unreachable branches.
+LINE ddr_axi_slv\.sv:205:case: # unused 4-bit encodings of the 12-state enum (default arm)
+TOGGLE \.s_[br]resp\[0\] # constant 0: the front end answers OKAY (00) or SLVERR (10) only
+TOGGLE \.hcmd\[[12]\] # constant: the front end issues only RD (010) and WR (011)
+TOGGLE \.(haddr|map_addr|trace_addr)\[1[1-7]\] # constant 0: halfword h maps to {h[24:11], 7'b0, h[10:0]}
+TOGGLE \.trace_cmd\[2\] # constant 0: trace codes are 1 ACT, 2 RD, 3 WR
+TOGGLE \.dqs\[[01]\] # tied Hi-Z: the core model has no strobe
+TOGGLE \.addr\[1[4-6]\] # always 0: rows are 14 bits, columns 8 bits
+TOGGLE ddr_axi_slv\.inc\[([89]|[12][0-9]|3[01])\] # inc = 1 << AxSIZE, AxSIZE <= 7: bits 8 and up are 0
+TOGGLE ddr_axi_slv\.wmask\[(1[5-9]|2[0-9]|3[01])\] # ((AxLEN + 1) << AxSIZE) - 1 < 2^15: bits 15 and up are 0

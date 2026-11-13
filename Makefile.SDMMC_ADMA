@@ -2,6 +2,7 @@
 # SDMMC_ADMA Open IP (SD / eMMC host with ADMA2, IP camera SoC) -- sim & synthesis entry points
 S      := SDMMC_ADMA
 DEPS   := rtl/soc_ss_axi_engine.sv
+COVLIB := rtl/soc_ss_axi_engine.sv   # closed by their own coverage runs
 TBDEPS := tb/soc_ss_axi_mem.svh tb/sdmmc_card_model.svh   # after the TB: they take the TB's timescale
 SIM    ?= iverilog
 VFLAGS := -g2012 -Wall

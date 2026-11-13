@@ -1,0 +1,23 @@
+# soc_ss_axi_engine: shared AXI4 manager of the SoC subsystem IPs.
+# Unused state encodings: rstate has 3 states in 2 bits, wstate 4 in 2 bits
+# but the default arm is only reachable through a corrupted state register.
+LINE soc_ss_axi_engine\.sv:.*\| default: rstate <= R_IDLE; # defensive default: unused rstate encoding 2'b11
+LINE soc_ss_axi_engine\.sv:.*\| default: wstate <= W_IDLE; # defensive default: the case lists all four wstate encodings, so the arm is dead
+# Pins tied to parameters or constants by construction: ID, PROT, AxSIZE = 2,
+# AxBURST = INCR, WSTRB = 4'hF, AxLEN[7:5] = 0 (bursts of at most 16 beats),
+# and the word-aligned address bits 1:0. a_ar_req / a_aw_req / a_wbeat check
+# their values on every request.
+TOGGLE \.m_(aw|ar)id\[ # tied to the ID parameter (constant per instance)
+TOGGLE \.m_(aw|ar)prot\[ # tied to the PROT parameter (constant per instance)
+TOGGLE \.m_(aw|ar)size\[ # constant 3'd2: 32-bit beats only
+TOGGLE \.m_(aw|ar)burst\[ # constant INCR (2'b01)
+TOGGLE \.m_wstrb\[ # constant 4'hF: whole-word writes only
+TOGGLE \.m_(aw|ar)len\[[5-7]\] # constant 0: at most 16 beats, AxLEN <= 15
+TOGGLE \.(m_awaddr|m_araddr|raddr|waddr)\[[01]\] # constant 0: addresses are word aligned (SRC / DST bits 1:0 are dropped at START)
+TOGGLE \.unused: # lint sink for the ignored BID / RID inputs, a constant 0
+# CYCLES is a 32-bit clock counter. The longest job of the bench (65535
+# words, read + write) runs about 131 K clocks, bit 16; a_cycles checks the
+# whole register against the model every clock, but toggling bit 17 and up
+# needs a job of more than 2^17 clocks (2^31 for bit 31), which no
+# simulation of this bench reaches in reasonable time.
+TOGGLE \.cycles\[(1[7-9]|2[0-9]|3[01])\] # needs a job longer than 2^17 clocks; value checked by a_cycles

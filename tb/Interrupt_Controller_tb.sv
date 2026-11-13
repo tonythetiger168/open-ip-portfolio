@@ -59,6 +59,7 @@ module Interrupt_Controller_tb;
     clks(3);
     rst_n = 1;
     clks(2);
+    mem.rand_id = 1;   // the core ignores BID
     // routing, priority and masking
     for (int k = 0; k < 400; k++) begin
       @(negedge clk);
@@ -150,6 +151,62 @@ module Interrupt_Controller_tb;
     if ((mem.peek(log_base) & 32'h1F) !== 9) fail($sformatf("record after lowering LOG_WORDS at slot 0: %h", mem.peek(log_base)));
     if (mem.peek(log_base + 20) !== 32'hDEAD_0005) fail("record outside the shrunk ring");
     irq_src = 0;
+    // other AXI error codes on a record write
+    for (int k = 0; k < 2; k++) begin
+      mem.err_resp = k ? 2'b11 : 2'b01;
+      mem.err_lo = log_base; mem.err_hi = log_base + 12;   // the whole ring
+      @(negedge clk); irq_src = 32'h0001_0000 << k; wait_wp(7 + k);
+      @(negedge clk); irq_src = 0;
+    end
+    if (n_log_err != 3) fail("LOG_ERR on EXOKAY / DECERR");
+    mem.err_resp = 2'b10; mem.err_lo = '1; mem.err_hi = '1;
+    // log base anywhere (every address bit), LOG_WORDS 0 holds the queue
+    log_base = 32'hFFFF_F0FF;   // every address bit set (bits 1:0 are dropped)
+    log_words = 0;
+    @(negedge clk); irq_src = 32'h0000_0400;
+    clks(20);
+    if (log_wp != 8) fail("record written with LOG_WORDS 0");
+    log_words = 4; wait_wp(9);
+    irq_src = 0;
+    log_base = 32'h0000_0000;
+    // a long ring: 65536 records, every source in turn; LOG_WP and the slot
+    // climb through all their bits and wrap
+    mem.stall = 0;
+    log_words = 16'hFFFF;
+    for (int k = 0; k < 65536; k++) begin
+      logic [15:0] w0;
+      w0 = log_wp;
+      @(negedge clk); irq_src = 32'(1) << (k % 32);
+      if (k % 4096 == 0) begin   // every source rising at once now and then
+        sw_set = 32'hFFFF_FFFF; @(negedge clk); sw_set = 0;
+      end
+      while (log_wp == w0) @(negedge clk);
+    end
+    @(negedge clk); irq_src = 0;
+    clks(200);
+    log_words = 3;
+    // records with the timestamp's top bits set, then after it wraps
+    while (dut.ts < 24'hF0_0000) @(negedge clk);
+    for (int k = 0; k < 3; k++) begin
+      logic [15:0] w0;
+      w0 = log_wp;
+      @(negedge clk); irq_src = 32'(1) << k;
+      while (log_wp == w0) @(negedge clk);
+      @(negedge clk); irq_src = 0;
+      if (k == 1) while (dut.ts != 24'h00_0010) @(negedge clk);
+    end
+    // LOG_EN cleared while records wait (the write path blocked)
+    mem.aw_hold = 1;
+    @(negedge clk); irq_src = 32'h0000_0700;
+    clks(5);
+    log_en = 0; clks(3); log_en = 1;
+    irq_src = 0;
+    // reset while a record write is in progress
+    @(negedge clk); irq_src = 32'h0000_0800;
+    clks(6);
+    rst_n = 0; clks(2);
+    mem.aw_hold = 0;
+    rst_n = 1; clks(3);
     finish("Interrupt_Controller");
   end
 endmodule

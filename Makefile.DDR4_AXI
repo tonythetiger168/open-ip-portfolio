@@ -2,6 +2,7 @@
 # DDR4_AXI Open IP (DDR4 memory controller with an AXI4 subordinate port) -- sim & synthesis entry points
 S      := DDR4_AXI
 DEPS   := rtl/ddr_axi_slv.sv rtl/DDR4_top.sv
+COVLIB := rtl/DDR4_top.sv   # closed by their own coverage runs
 SIM    ?= iverilog
 VFLAGS := -g2012 -Wall
 SYN    ?= yosys

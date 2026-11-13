@@ -1,0 +1,18 @@
+# Shared by the SoC subsystem IPs whose AXI4 manager port is driven by
+# soc_ss_axi_engine (closed as its own unit, see units/soc_ss_axi_engine.mk).
+# These pins are tied to parameters or constants inside the engine, so they
+# can never toggle at the IP's ports either; the engine's checker asserts
+# their values on every request.
+TOGGLE _top\.m_(aw|ar)id\[ # tied to the AXI_ID parameter (constant per instance)
+TOGGLE _top\.m_(aw|ar)prot\[ # tied to the engine's PROT parameter (constant)
+TOGGLE _top\.m_(aw|ar)size\[ # constant 3'd2: 32-bit beats only
+TOGGLE _top\.m_(aw|ar)burst\[ # constant INCR (2'b01)
+TOGGLE _top\.m_wstrb\[ # constant 4'hF: whole-word writes only
+TOGGLE _top\.m_(aw|ar)len\[[5-7]\] # constant 0: bursts of at most 16 beats
+TOGGLE _top\.m_(aw|ar)addr\[[01]\] # constant 0: the engine drops address bits 1:0
+# CYCLES is the engine's 32-bit clock count of a job, passed through. The
+# longest job of each bench runs at most a few hundred thousand clocks; the
+# engine's own run checks the whole register every clock (a_cycles), but
+# toggling bit 17 and up needs a job of more than 2^17 clocks
+# (a 65535-word job, the longest, runs about 2^17 clocks without stalls).
+TOGGLE _top\.cycles\[(1[7-9]|2[0-9]|3[01])\] # needs a job longer than 2^17 clocks; checked by the engine's a_cycles

@@ -351,7 +351,7 @@ module CI_Plus_Host_top #(
           end else if (p_cis) begin
             p_cis <= 1'b0; job <= J_CFG; q_n <= cis_len;
             if (cis_len != 16'd0) begin
-              e_rd <= 1'b0; e_addr <= cis_addr; e_len <= (cis_len + 16'd3) >> 2; e_left <= (cis_len + 16'd3) >> 2;
+              e_rd <= 1'b0; e_addr <= cis_addr; e_len <= 16'((17'(cis_len) + 17'd3) >> 2); e_left <= 16'((17'(cis_len) + 17'd3) >> 2);
               e_start <= 1'b1; e_used <= 1'b1;
               qs <= Q_CIS;
             end else qs <= Q_EWAIT;
@@ -360,7 +360,7 @@ module CI_Plus_Host_top #(
             b_kind <= 2'd1; b_addr <= cor_addr; b_wd <= cor_val; b_go <= 1'b1; qs <= Q_BUS; q_ret <= Q_COR_END;
           end else if (p_tx) begin
             p_tx <= 1'b0; job <= J_TX; q_n <= tx_len; tx_fail <= 1'b0;
-            e_rd <= 1'b1; e_addr <= tx_addr; e_len <= (tx_len + 16'd3) >> 2; e_start <= 1'b1; e_used <= 1'b1;
+            e_rd <= 1'b1; e_addr <= tx_addr; e_len <= 16'((17'(tx_len) + 17'd3) >> 2); e_start <= 1'b1; e_used <= 1'b1;
             qs <= Q_FR; q_after <= Q_TX_HC;
           end else if (poll && io_mode && !rx_full && pt == 16'd0) begin
             job <= J_RX; qs <= Q_RX_ST;
@@ -450,7 +450,7 @@ module CI_Plus_Host_top #(
         Q_RX_GO: begin
           q_store <= store_n; qs <= Q_RX_D;
           if (store_n != 16'd0) begin
-            e_rd <= 1'b0; e_addr <= rx_addr; e_len <= (store_n + 16'd3) >> 2; e_left <= (store_n + 16'd3) >> 2;
+            e_rd <= 1'b0; e_addr <= rx_addr; e_len <= 16'((17'(store_n) + 17'd3) >> 2); e_left <= 16'((17'(store_n) + 17'd3) >> 2);
             e_start <= 1'b1; e_used <= 1'b1;
           end
         end

@@ -1,0 +1,32 @@
+# The host drives IO0 only (command, address, write bytes); IO1 is always
+# an input and IO2 / IO3 are held high (WP# / HOLD#) or read in quad phases.
+TOGGLE _top\.io_o\[[123]\]: # constant: only IO0 carries host data
+TOGGLE _top\.io_oe\[1\]: # IO1 is never driven by the host
+LINE QSPI_XIP_top\.sv:116:cond_then: # IO1 is never driven by the host
+# Dummy clocks are 8 (XIP reads) or 0 (command port): only bit 3 moves.
+TOGGLE _top\.(dmy|j_dmy)\[[0-24-7]\]: # dummy count is 0 or 8
+# The XIP stream is always a read that continues (x_more is 1) at a word
+# address (x_addr bits 1:0 are 0).
+TOGGLE _top\.x_more: # constant 1: an XIP frame reads until closed
+TOGGLE _top\.x_addr\[[01]\]: # XIP reads start at a word address
+# 32-bit port: AxSIZE above 2 is not a legal transfer size, so the size,
+# its increment and the WRAP mask beyond a 16-beat x 4-byte window are not
+# reached (AWSIZE is consumed without use).
+TOGGLE _top\.(s_arsize|size_q)\[2\]: # AxSIZE > 2 is illegal on a 32-bit port
+TOGGLE _top\.inc\[([3-9]|[12][0-9]|3[01])\]: # increment is at most 4 bytes (AxSIZE <= 2)
+TOGGLE _top\.wmask\[([6-9]|[12][0-9]|3[01])\]: # WRAP window is at most 16 x 4 bytes
+# Response codes are constants: reads OKAY, writes SLVERR.
+TOGGLE _top\.s_rresp\[ # constant OKAY
+TOGGLE _top\.s_bresp\[ # constant SLVERR
+# Case defaults: xs and wst only hold their encoded states.
+LINE QSPI_XIP_top\.sv:30[0-9]:case: # xs only holds its encoded states
+LINE QSPI_XIP_top\.sv:32[0-9]:case: # wst only holds its encoded states
+# ph: one shared case arm handles CMD / ADDR / DUMMY / WR / RD; the next
+# phase depends on the job (XIP: CMD, ADDR, DUMMY, RD; commands: CMD, ADDR,
+# WR, RD in that order, no dummy), so these arcs are never taken.
+FSM fsm_arc__ph__P_(CMD__P_DUMMY|DUMMY__P_(ADDR|WR|GAP)|WR__P_(ADDR|DUMMY)|RD__P_(ADDR|DUMMY|WR))$ # phase order is fixed by the job type
+# X_OPEN is entered only with the stream closed and no command running, and
+# the stream is only closed with the flash pins idle (X_SHUT / X_CLOSE wait
+# for P_IDLE, a command clears PC_BUSY when its CS high time ends), so the
+# flash is always idle there.
+LINE QSPI_XIP_top\.sv:290:else: # X_OPEN always finds the pins idle

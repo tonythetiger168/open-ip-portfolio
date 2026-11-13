@@ -143,7 +143,7 @@ module Video_Codec_top #(
       mode_q <= mode; pred_q <= 8'd128; x <= '0; zeros <= '0; checksum <= '0;
     end else if (rs_valid && rs_ready) begin
       pred_q   <= recon[31:24];
-      zeros    <= (zeros > 16'hFFFB) ? 16'hFFFF : zeros + 16'(nz);
+      zeros    <= (17'(zeros) + 17'(nz) > 17'h0FFFF) ? 16'hFFFF : zeros + 16'(nz);   // saturating add
       checksum <= checksum + recon;
       x <= (line_words != 0 && x + 16'd1 >= line_words) ? 16'd0 : x + 16'd1;
     end

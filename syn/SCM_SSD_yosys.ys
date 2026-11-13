@@ -1,0 +1,8 @@
+# SCM_SSD synthesis script -- Yosys (open-source flow)
+read_verilog -sv ../rtl/SCM_SSD_top.sv 
+hierarchy -check -top SCM_SSD_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+write_json SCM_SSD_top.json
+write_verilog SCM_SSD_top_netlist.v

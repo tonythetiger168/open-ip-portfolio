@@ -1,0 +1,195 @@
+{
+  "date": "2026-11-01",
+  "claim": "No product or fixture six-metric coverage percentage is reported",
+  "products": [
+    {
+      "product": "TV",
+      "config_sha256": "368fbb56485d4f53317550aee116c85700175ad223f3727adce4150a82806418",
+      "scope": "product SoC required scope not yet built",
+      "status": "BLOCKED",
+      "raw_db": null,
+      "metrics": {
+        "line": {
+          "target_percent": 100,
+          "raw_total": null,
+          "raw_hit": null,
+          "approved_excluded": null,
+          "effective_total": null,
+          "effective_hit": null,
+          "status": "NOT_MEASURED_OR_NOT_IMPLEMENTED"
+        },
+        "fsm": {
+          "target_percent": 100,
+          "raw_total": null,
+          "raw_hit": null,
+          "approved_excluded": null,
+          "effective_total": null,
+          "effective_hit": null,
+          "status": "NOT_MEASURED_OR_NOT_IMPLEMENTED"
+        },
+        "toggle": {
+          "target_percent": 100,
+          "raw_total": null,
+          "raw_hit": null,
+          "approved_excluded": null,
+          "effective_total": null,
+          "effective_hit": null,
+          "status": "NOT_MEASURED_OR_NOT_IMPLEMENTED"
+        },
+        "branch": {
+          "target_percent": 100,
+          "raw_total": null,
+          "raw_hit": null,
+          "approved_excluded": null,
+          "effective_total": null,
+          "effective_hit": null,
+          "status": "NOT_MEASURED_OR_NOT_IMPLEMENTED"
+        },
+        "sva": {
+          "target_percent": 100,
+          "raw_total": null,
+          "raw_hit": null,
+          "approved_excluded": null,
+          "effective_total": null,
+          "effective_hit": null,
+          "status": "NOT_MEASURED_OR_NOT_IMPLEMENTED"
+        },
+        "functional": {
+          "target_percent": 100,
+          "raw_total": null,
+          "raw_hit": null,
+          "approved_excluded": null,
+          "effective_total": null,
+          "effective_hit": null,
+          "status": "NOT_MEASURED_OR_NOT_IMPLEMENTED"
+        }
+      }
+    },
+    {
+      "product": "STB",
+      "config_sha256": "ef75c16e2618716a1e19c441dd67798da73ddaa768c313a5134b426fdf1553f8",
+      "scope": "product SoC required scope not yet built",
+      "status": "BLOCKED",
+      "raw_db": null,
+      "metrics": {
+        "line": {
+          "target_percent": 100,
+          "raw_total": null,
+          "raw_hit": null,
+          "approved_excluded": null,
+          "effective_total": null,
+          "effective_hit": null,
+          "status": "NOT_MEASURED_OR_NOT_IMPLEMENTED"
+        },
+        "fsm": {
+          "target_percent": 100,
+          "raw_total": null,
+          "raw_hit": null,
+          "approved_excluded": null,
+          "effective_total": null,
+          "effective_hit": null,
+          "status": "NOT_MEASURED_OR_NOT_IMPLEMENTED"
+        },
+        "toggle": {
+          "target_percent": 100,
+          "raw_total": null,
+          "raw_hit": null,
+          "approved_excluded": null,
+          "effective_total": null,
+          "effective_hit": null,
+          "status": "NOT_MEASURED_OR_NOT_IMPLEMENTED"
+        },
+        "branch": {
+          "target_percent": 100,
+          "raw_total": null,
+          "raw_hit": null,
+          "approved_excluded": null,
+          "effective_total": null,
+          "effective_hit": null,
+          "status": "NOT_MEASURED_OR_NOT_IMPLEMENTED"
+        },
+        "sva": {
+          "target_percent": 100,
+          "raw_total": null,
+          "raw_hit": null,
+          "approved_excluded": null,
+          "effective_total": null,
+          "effective_hit": null,
+          "status": "NOT_MEASURED_OR_NOT_IMPLEMENTED"
+        },
+        "functional": {
+          "target_percent": 100,
+          "raw_total": null,
+          "raw_hit": null,
+          "approved_excluded": null,
+          "effective_total": null,
+          "effective_hit": null,
+          "status": "NOT_MEASURED_OR_NOT_IMPLEMENTED"
+        }
+      }
+    },
+    {
+      "product": "IPCAM",
+      "config_sha256": "16a0d133d02867e9da572e984ed52026aa0b689ae9bc70c3c3a0a5269f536a0b",
+      "scope": "product SoC required scope not yet built",
+      "status": "BLOCKED",
+      "raw_db": null,
+      "metrics": {
+        "line": {
+          "target_percent": 100,
+          "raw_total": null,
+          "raw_hit": null,
+          "approved_excluded": null,
+          "effective_total": null,
+          "effective_hit": null,
+          "status": "NOT_MEASURED_OR_NOT_IMPLEMENTED"
+        },
+        "fsm": {
+          "target_percent": 100,
+          "raw_total": null,
+          "raw_hit": null,
+          "approved_excluded": null,
+          "effective_total": null,
+          "effective_hit": null,
+          "status": "NOT_MEASURED_OR_NOT_IMPLEMENTED"
+        },
+        "toggle": {
+          "target_percent": 100,
+          "raw_total": null,
+          "raw_hit": null,
+          "approved_excluded": null,
+          "effective_total": null,
+          "effective_hit": null,
+          "status": "NOT_MEASURED_OR_NOT_IMPLEMENTED"
+        },
+        "branch": {
+          "target_percent": 100,
+          "raw_total": null,
+          "raw_hit": null,
+          "approved_excluded": null,
+          "effective_total": null,
+          "effective_hit": null,
+          "status": "NOT_MEASURED_OR_NOT_IMPLEMENTED"
+        },
+        "sva": {
+          "target_percent": 100,
+          "raw_total": null,
+          "raw_hit": null,
+          "approved_excluded": null,
+          "effective_total": null,
+          "effective_hit": null,
+          "status": "NOT_MEASURED_OR_NOT_IMPLEMENTED"
+        },
+        "functional": {
+          "target_percent": 100,
+          "raw_total": null,
+          "raw_hit": null,
+          "approved_excluded": null,
+          "effective_total": null,
+          "effective_hit": null,
+          "status": "NOT_MEASURED_OR_NOT_IMPLEMENTED"
+        }
+      }
+    }
+  ]
+}

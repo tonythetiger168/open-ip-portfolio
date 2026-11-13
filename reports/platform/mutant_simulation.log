@@ -1,0 +1,6 @@
+ERROR overlapping windows fail closed
+ERROR hole error completion
+ERROR misalignment no side effects
+TEST FAILED: 3 errors
+FATAL: /mnt/c/Users/chien/Documents/Codex/2026-10-26/soc-design-platform/outputs/platform-update/open-vip-portfolio/ipcheck/platform/apb_window_router_tb.sv:63: 
+       Time: 30000  Scope: apb_window_router_tb

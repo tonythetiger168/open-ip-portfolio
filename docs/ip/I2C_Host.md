@@ -21,7 +21,7 @@ the bus is held), then WR (send TX_DATA, read the ACK bit into RX_ACK)
 or RD (read a byte into RX_DATA, then send ACK, or NACK with NACK = 1),
 then STO (STOP). DONE pulses when the command ends; BUSY is high during
 it. A command while busy is ignored; STO alone with the bus free does
-nothing on the wire.
+nothing on the wire; WR or RD with the bus free sends a START first.
 - Timing: one quarter of the SCL period is PRESCALE + 1 clocks (at least
 3, for targets that sample on their own clock). SCL is driven push-pull
 (no clock stretching, single controller); SDA is open drain.

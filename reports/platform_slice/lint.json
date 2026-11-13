@@ -1,0 +1,6 @@
+{
+  "command": "verilator --lint-only --top-module platform_apb_slice <three sources in slice.f>",
+  "tool": "Verilator 5.032",
+  "exit_code": 0,
+  "scope": "bounded three-module RTL fixture; not SoC/UVM elaboration"
+}

@@ -1,0 +1,5 @@
+INCLUDE soc_ss_axi_manager
+INCLUDE soc_ss_write_only
+# The sample count of a group runs 0 .. 2^AVG_LOG2 - 1 <= 127 (AVG_LOG2 is
+# at most 7), so bit 7 of the 8-bit counter is never set.
+TOGGLE Sensor_Hub_top\.cnt\[7\] # the group count is at most 127 (AVG_LOG2 <= 7)
