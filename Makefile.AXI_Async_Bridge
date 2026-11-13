@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+# AXI_Async_Bridge Open IP (AXI4 clock-domain crossing) -- sim & synthesis entry points
+S      := AXI_Async_Bridge
+DEPS   := rtl/axi_async_fifo.sv
+SIM    ?= iverilog
+VFLAGS := -g2012
+SYN    ?= yosys
+
+all: sim syn
+
+sim:
+	$(SIM) $(VFLAGS) -o simv rtl/$(S)_top.sv $(DEPS) tb/$(S)_tb.sv
+	vvp -n simv
+
+syn:
+	mkdir -p work && cd work && $(SYN) -p "read_verilog -sv ../rtl/axi_async_fifo.sv ../rtl/$(S)_top.sv; synth -top $(S)_top; stat"
+
+apb:
+	$(SIM) $(VFLAGS) -I tb -o simv_apb rtl/$(S)_top.sv $(DEPS) rtl/$(S)_apb.sv tb/$(S)_apb_tb.sv
+	./simv_apb
+	mkdir -p work && cd work && $(SYN) ../syn/$(S)_apb_yosys.ys
+
+clean:
+	rm -rf simv simv_apb work/*.json
+.PHONY: all sim syn apb clean

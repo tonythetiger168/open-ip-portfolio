@@ -1,0 +1,6 @@
+# DDR4_JEDEC_AXI_apb: pass-through pins that are constant by design (see DDR4_JEDEC_AXI.txt) and
+# the top bits of the refresh counter.
+TOGGLE \.s_[br]resp\[0\]: # constant 0: the IP answers only OKAY (00) and SLVERR (10)
+TOGGLE \.p_odt: # constant 0: ODT is not used (RTT_NOM / RTT_WR off, point-to-point single rank)
+TOGGLE \.p_bg\[1\]: # constant 0: x16 devices have one bank-group bit; BG1 is only used by x4 / x8 parts
+TOGGLE \.c_n_ref\[1[0-5]\]: # N_REF bits 10-15: the run makes over 512 refreshes (bits 0-9 toggle), one per tREFI = 12480 clocks; bit k needs 2^k x 12480 clocks (bit 15: 400M)

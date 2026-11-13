@@ -1,0 +1,9 @@
+# DDR4_JEDEC_AXI: tie-offs by design and the top bits of the 16-bit status counters.
+TOGGLE DDR4_JEDEC_AXI_top\.s_(b|r)resp\[0\]: # constant 0: the IP answers only OKAY (00) and SLVERR (10); EXOKAY and DECERR are never returned
+TOGGLE \.p_odt: # constant 0: ODT is not used (RTT_NOM / RTT_WR off in MR1 / MR2, point-to-point single rank)
+TOGGLE \.p_bg\[1\]: # constant 0: x16 devices have one bank-group bit (BGB = 1); BG1 is only used by x4 / x8 parts
+TOGGLE DDR4_JEDEC_AXI_top\.n_(rd|wr)\[1[1-5]\]: # status counter bits 11-15: the test runs about 1500 read and write bursts (bits 0-10 toggle both ways, the reset clears them); bit k needs 2^k bursts
+TOGGLE DDR4_JEDEC_AXI_top\.n_err\[1[2-5]\]: # status counter bits 12-15: the test makes 2060 error bursts (bits 0-11 toggle); bit k needs 2^k of them
+TOGGLE \.n_act\[1[0-5]\]: # status counter bits 10-15: about 800 ACTs in the run (bits 0-9 toggle); bit k needs 2^k ACTs
+TOGGLE \.n_hit\[1[1-5]\]: # status counter bits 11-15: about 1200 page hits in the run (bits 0-10 toggle); bit k needs 2^k hits
+TOGGLE \.n_ref\[([5-9]|1[0-5])\]: # status counter bits 5-15: 30 refreshes in the run (bits 0-4 toggle); bit k needs 2^k x tREFI = 2^k x 3000 clocks

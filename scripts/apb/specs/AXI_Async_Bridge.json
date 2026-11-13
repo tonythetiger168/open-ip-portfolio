@@ -1,0 +1,20 @@
+{
+  "title": "AXI4 clock-domain crossing bridge: one gray-pointer asynchronous FIFO per channel, any clock ratio",
+  "code": "0x41AB",
+  "version": "1.0",
+  "tb_clk_ns": 10,
+  "clock": "s_clk",
+  "reset": "s_rst_n",
+  "regs": [],
+  "irqs": [
+    {"name": "RESP_ERR", "port": "resp_err", "desc": "a B or R beat with SLVERR or DECERR was handed to the s side"}
+  ],
+  "notes": [
+    "The bridge has no registers of its own: the wrapper adds the common ID, IRQ, FLAGS and SCRATCH words on the s_clk side, the RESP_ERR interrupt flags error responses, and every AXI4 pin of both ports (s_* on s_clk = PCLK, m_* on m_clk) passes through unchanged. m_clk and m_rst_n are wrapper pins; reset both sides together.",
+    "Clock-domain crossing: each channel is an axi_async_fifo (rtl/axi_async_fifo.sv) with binary and gray pointers and two-flop synchronizers. RTL simulation cannot see metastability; the two-flop structure is a design rule, not something the tests can prove."
+  ],
+  "verification": [
+    "Core TB (tb/AXI_Async_Bridge_tb.sv): every channel driven as a random stream, a scoreboard per channel, phases with s faster, m faster, nearly equal clocks, slow and sparse sides (FIFOs full and empty), and a reset of both sides with full FIFOs.",
+    "Checker tb/cov/AXI_Async_Bridge_sva.sv: an order model per channel (each beat out equals the next beat in), no more than DEPTH beats in flight, payload held while READY is low, VALID low in reset; coverage of clock ratios crossed with stalls, full and empty FIFOs, data classes, responses and burst fields."
+  ]
+}
