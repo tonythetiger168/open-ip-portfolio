@@ -39,18 +39,22 @@ module DMA_tb;
   logic [31:0] c_src [4], c_dst [4], c_fill [4];
   int          c_len [4];
   bit          c_mode [4];
-  task automatic set_ch(input int c, input int n, input bit m);
+  int n_any = 0;
+  task automatic set_ch(input int c, input int n, input bit m, input bit anywhere = 0);
     c_src[c] = pick_addr(n) & 32'hCFFF_FFFC | 32'(c) << 28;   // channels in disjoint regions
     if (c_src[c][31:28] != 4'(c) && c_src[c][31:28] != 4'(c) + 4'h4) c_src[c] = {4'(c), c_src[c][27:0]};
+    if (anywhere) begin   // top of the address space, then the bottom
+      c_src[c] = {n_any % 2 ? 4'h0 : 4'hF, 28'(pick_addr(n))}; n_any++;
+    end
     c_dst[c] = dst_of(c_src[c]);
-    c_len[c] = n; c_mode[c] = m; c_fill[c] = $urandom;
+    c_len[c] = n; c_mode[c] = m; c_fill[c] = rand_word();
     fill_rand(c_src[c], n);
     for (int i = 0; i < n; i++) mem.poke(c_dst[c] + 32'(4 * i), 32'hBAD0_0000 ^ i);
     case (c)
-      0: begin src0 = c_src[0]; dst0 = c_dst[0]; len0 = 16'(n); mode0 = m; fill0 = c_fill[0]; end
-      1: begin src1 = c_src[1]; dst1 = c_dst[1]; len1 = 16'(n); mode1 = m; fill1 = c_fill[1]; end
-      2: begin src2 = c_src[2]; dst2 = c_dst[2]; len2 = 16'(n); mode2 = m; fill2 = c_fill[2]; end
-      default: begin src3 = c_src[3]; dst3 = c_dst[3]; len3 = 16'(n); mode3 = m; fill3 = c_fill[3]; end
+      0: begin src0 = c_src[0] | 32'($urandom % 4); dst0 = c_dst[0] | 32'($urandom % 4); len0 = 16'(n); mode0 = m; fill0 = c_fill[0]; end
+      1: begin src1 = c_src[1] | 32'($urandom % 4); dst1 = c_dst[1] | 32'($urandom % 4); len1 = 16'(n); mode1 = m; fill1 = c_fill[1]; end
+      2: begin src2 = c_src[2] | 32'($urandom % 4); dst2 = c_dst[2] | 32'($urandom % 4); len2 = 16'(n); mode2 = m; fill2 = c_fill[2]; end
+      default: begin src3 = c_src[3] | 32'($urandom % 4); dst3 = c_dst[3] | 32'($urandom % 4); len3 = 16'(n); mode3 = m; fill3 = c_fill[3]; end
     endcase
   endtask
   task automatic kick(input logic [3:0] m);
@@ -71,7 +75,7 @@ module DMA_tb;
   task automatic wait_idle;
     int t;
     t = 0;
-    while ((busy || pending != 0) && t < 200000) begin @(negedge clk); t++; end
+    while ((busy || pending != 0) && t < 2000000) begin @(negedge clk); t++; end
     if (busy || pending != 0) fail("DMA did not go idle");
     clks(3);
   endtask
@@ -124,6 +128,7 @@ module DMA_tb;
     clks(3);
     rst_n = 1;
     clks(2);
+    mem.rand_id = 1;   // the core ignores BID / RID
     if (pending !== 0 || busy !== 0) fail("not idle after reset");
     round(4'b0001, 0);
     round(4'b1111, 0);
@@ -150,8 +155,42 @@ module DMA_tb;
     mem.err_lo = c_dst[1] + 8; mem.err_hi = mem.err_lo + 4;
     kick(4'b0010); wait_idle();
     if (!err || n_err_irq != 2) fail("write error: ERR / interrupt");
+    // the other error codes, and a job of each mode with an error
+    for (int k = 0; k < 4; k++) begin
+      mem.err_resp = 2'(1 + k % 3);
+      set_ch(k, 20, k % 2);
+      mem.err_lo = (k % 2 ? c_dst[k] : c_src[k]) + 12; mem.err_hi = mem.err_lo + 4;
+      kick(4'b1 << k); wait_idle();
+      if (!err) fail("error code: ERR");
+    end
+    mem.err_resp = 2'b10;
     mem.err_lo = '1; mem.err_hi = '1;
     round(4'b0110, 0);
+    // every channel and mode at every length class, one channel at a time
+    mem.stall = 0;
+    for (int c = 0; c < 4; c++) begin
+      set_ch(c, 0, c % 2); kick(4'b1 << c); wait_idle(); check_ch(c);
+      set_ch(c, 1 + c, !c[0]); kick(4'b1 << c); wait_idle(); check_ch(c);
+      set_ch(c, 1500, c[0]); kick(4'b1 << c); wait_idle(); check_ch(c);
+      set_ch(c, 65535, !c[0]); kick(4'b1 << c); wait_idle(); check_ch(c);
+      // anywhere in the address space (one channel at a time: no overlap)
+      set_ch(c, 40, c[0], 1); kick(4'b1 << c); wait_idle(); check_ch(c);
+      set_ch(c, 40, !c[0], 1); kick(4'b1 << c); wait_idle(); check_ch(c);
+    end
+    for (int c = 0; c < 4; c++) set_ch(c, 3, 0);   // every LEN falls again
+    // channels 0-2 queued while 3 runs, then served 0, 1, 2
+    set_ch(3, 200, 0); kick(4'b1000); clks(5); kick(4'b0111); wait_idle();
+    // START held for two clocks: the second lands as the channel launches
+    set_ch(1, 5, 0);
+    @(negedge clk); start1 = 1; clks(2); start1 = 0;
+    wait_idle(); wait_idle();
+    // the write path blocked: FILL and COPY stall
+    for (int m = 0; m < 2; m++) begin
+      set_ch(2, 300, m);
+      fork begin clks(20); mem.aw_hold = 1; clks(150); mem.aw_hold = 0; end join_none
+      kick(4'b0100); wait_idle(); check_ch(2);
+    end
+    mem.stall = 1;
     if (err) fail("ERR not cleared by the next job");
     // reset in the middle of a job
     set_ch(3, 300, 0);

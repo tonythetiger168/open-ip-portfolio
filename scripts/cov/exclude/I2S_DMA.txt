@@ -1,0 +1,11 @@
+INCLUDE soc_ss_axi_manager
+# tx_take needs tx_on, which a job only sets with TX_EN (and so TX mode):
+# FRAMES is always counted on a TX take.
+LINE I2S_DMA_top\.sv:158:else: # unreachable: a TX take only happens in TX mode
+# The RX load step (rd_step 2) only follows a frame captured while RX_ON is
+# set, and RX_ON only drops on that load's own count (or at a new START,
+# which also clears rd_step): rd_step 2 never sees RX_ON low.
+LINE I2S_DMA_top\.sv:182:(if|else): # unreachable: rd_step 2 always has RX_ON set
+# The core's register port address: TX writes use 0 (left) and 1 (right),
+# RX reads 0 and 1 (left / right samples); bits 3:1 are always 0.
+TOGGLE I2S_DMA_top\.(waddr|raddr)\[[1-3]\] # constant 0: only core registers 0 and 1 are used

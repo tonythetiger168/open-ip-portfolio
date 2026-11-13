@@ -1,0 +1,19 @@
+{
+  "date": "2026-11-01",
+  "status": "BLOCKED",
+  "tool_source_commit": "ea338be98e1e838d3518809ce8899f85a009963c",
+  "system_verilator_unchanged": "5.032",
+  "attempted_isolated_version": "5.052",
+  "completed": [
+    "public source checkout",
+    "autoconf/configure"
+  ],
+  "incomplete": [
+    "optimized Verilator build",
+    "UVM simulator compile/run"
+  ],
+  "blockers": [
+    "Wsl/Service/0x8007274c prevents new tool process startup"
+  ],
+  "actions": "Stopped only own default debug+opt build; did not restart shared WSL"
+}

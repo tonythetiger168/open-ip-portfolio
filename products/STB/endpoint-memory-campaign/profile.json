@@ -1,0 +1,38 @@
+{
+  "id": "STB-ENDPOINT-MEMORY-01",
+  "source_repository": "tonythetiger168/open-ip-portfolio",
+  "source_pr": 29,
+  "source_commit": "48fb2afd65e6f2a41e3739708569aa746f0e15a1",
+  "adopted": false,
+  "tool_image": "verilator/verilator@sha256:a5b73e2fce0b2c483396f3800940f33b6faa802331a061c21694dd27b7352120",
+  "tool_source": "ea338be98e1e838d3518809ce8899f85a009963c",
+  "top": "endpoint_memory_tb",
+  "dut_hierarchy": [
+    "u_ep",
+    "u_ep.u_core"
+  ],
+  "DW": 32,
+  "AW": 32,
+  "memory_bytes": 1024,
+  "contract": [
+    "One outstanding write and read per direction; AW/W VALID presentation may be independent, W acceptance follows AW",
+    "VALID/payload held until handshake; aligned addresses0..1020; no uninitialized read",
+    "No write to the same word while its read response is outstanding; simultaneous disjoint read/write is allowed",
+    "APB remains zero-wait; no SoC drain/reset/zeroization or error-path extension in this campaign"
+  ],
+  "functional_raw_expected": 355,
+  "sva_properties": 8,
+  "native_assertion_inventory": "NOT_MEASURED",
+  "signoff": "NOT_CLOSED",
+  "source_sha256": {
+    "campaign.py": "c6af249bc3ec0a2a8021a03918c3e379ffbcf477e2e8f2bb792324eb00dd40ec",
+    "endpoint_memory_tb.sv": "e255e1c74c7d39e4d889687406e6aba089b6babfb536169e1ae40aa588eb3dee",
+    "irq_wait_scoreboard.py": "c364b1af8f4db4f2f0fd660c585d7de7879096e9497c589bd6086d8c59a865d1",
+    "memory_contract.sv": "f92cf7fbe16665251c685aa9e1b50bdd67371d5812584d3ad6bef0c5f6e0a81a",
+    "run_campaign.py": "a198975fc9a3eb7a66275dd929e9eebf24dae4ba30b8c985fc459bd8a7e66ce1",
+    "sim_main.cpp": "971dd86af953193577ac0e0ff50c17e75976abcd2ab70360c0c51fe4020b2d1c",
+    "rtl/AXI4_Lite_apb.sv": "d93ff2a587697d7ac835f0e6f0ff04e74ce2938e7bc60c93e4517a2f4455a7dc",
+    "rtl/AXI4_Lite_top.sv": "087d15b0500c30bf7305b2d747578621a3be9f3c021867d544370a7d6ab086ce"
+  },
+  "ci_profile_revision": "before-prefix-identity-and-independent-job"
+}

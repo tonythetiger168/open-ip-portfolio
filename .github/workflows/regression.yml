@@ -50,6 +50,9 @@ jobs:
           git status --short
           git diff --exit-code --stat
 
+      - name: Design specs cover every port, parameter, internal probe and TB check (docs/spec)
+        run: python3 scripts/spec/gen_spec.py --check
+
       - name: Strict IEEE 1800 elaboration of all RTL (slang; catches what iverilog accepts)
         run: python3 scripts/lint/strict_elab.py
 
@@ -62,4 +65,27 @@ jobs:
         with:
           name: ci-logs
           path: work/ci_*.log
+          retention-days: 7
+
+  # Every IP (core and APB wrapper) must pass a strict Yosys flow: no latches,
+  # no multiple / missing drivers or combinational loops (check -assert), and
+  # a full synth down to gates with ABC. Runs next to sim-syn.
+  yosys-strict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yosys
+        run: sudo apt-get update && sudo apt-get install -y yosys && yosys -V
+
+      - name: Strict Yosys synthesis of every IP
+        run: python3 scripts/lint/yosys_strict.py
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yosys-strict-logs
+          path: work/yosys_strict/*.log
           retention-days: 7

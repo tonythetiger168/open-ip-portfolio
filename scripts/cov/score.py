@@ -15,7 +15,8 @@ different parameters (e.g. both accept latencies) covers the union.
 
 Exclusions: scripts/cov/exclude/<P>.txt, one per line
   <METRIC> <regex on point id> # <justification>   (justification mandatory;
-  the regex is everything up to " # ")
+  the regex is everything up to " # "), or INCLUDE <name> for a shared list
+  in scripts/cov/exclude/common/<name>.txt
 LINE point ids end in " | <source line text>", so an exclusion can name the
 code it waives instead of a line number. A point is excluded only if it is a
 hole AND matches; excluded points stay in
@@ -112,9 +113,17 @@ def main():
         m["SVA"][k] = 0 if short in fails else c
 
     excl = []
-    try:
-        for ln in open(f"scripts/cov/exclude/{proto}.txt"):
+    def excl_lines(path):
+        """Lines of an exclusion file; 'INCLUDE <name>' pulls in the shared
+        list scripts/cov/exclude/common/<name>.txt (same format)."""
+        for ln in open(path):
             ln = ln.strip()
+            if ln.startswith("INCLUDE "):
+                yield from excl_lines(f"scripts/cov/exclude/common/{ln.split()[1]}.txt")
+            else:
+                yield ln
+    try:
+        for ln in excl_lines(f"scripts/cov/exclude/{proto}.txt"):
             if not ln or ln.startswith("#"):
                 continue
             met, rest = ln.split(None, 1)

@@ -1,0 +1,22 @@
+{
+  "scope": "static SV/UVM frontend semantics only; no simulation, coverage or runtime topology proof",
+  "tool": "pyslang 12.1.0",
+  "uvm_commit": "78c06547a2a0a29b3dc9dcafae62b75b2ff61544",
+  "strict_errors": 0,
+  "locked_source_set_sha256": "408f5855d1d0b34598eb7b1dc93e572a84ead7cfb8f912c0e735d051d5beca78",
+  "warnings": 1,
+  "diagnostics_total": 1105,
+  "status": "FRONTEND_PASS",
+  "command": "--lint-only --single-unit --timescale=1ns/1ps -DUVM_NO_DPI -I\"C:/Users/chien/Documents/Codex/2026-10-26/soc-design-platform/work/uvm-core-2020.3.1/src\" \"C:/Users/chien/Documents/Codex/2026-10-26/soc-design-platform/work/uvm-core-2020.3.1/src/uvm_pkg.sv\" \"C:/Users/chien/Documents/Codex/2026-10-26/soc-design-platform/outputs/platform-update/open-vip-portfolio/ipcheck/platform/uvm/platform_apb_if.sv\" \"C:/Users/chien/Documents/Codex/2026-10-26/soc-design-platform/outputs/platform-update/open-vip-portfolio/ipcheck/platform/uvm/platform_apb_pkg.sv\" \"C:/Users/chien/Documents/Codex/2026-10-26/soc-design-platform/work/platform-slice-source/APB_top.sv\" \"C:/Users/chien/Documents/Codex/2026-10-26/soc-design-platform/outputs/platform-update/open-ip-portfolio/rtl/platform/apb_window_router.sv\" \"C:/Users/chien/Documents/Codex/2026-10-26/soc-design-platform/outputs/platform-update/open-ip-portfolio/rtl/platform/platform_apb_slice.sv\" \"C:/Users/chien/Documents/Codex/2026-10-26/soc-design-platform/outputs/platform-update/open-vip-portfolio/ipcheck/platform/uvm/platform_uvm_tb.sv\"",
+  "source_sha256": {
+    "uvm_pkg.sv": "4c1516f91172fc24e9d8f023911ffcb5718da281f285f3062547553c09be60e6",
+    "platform_apb_if.sv": "16c0af352a79bab1136f5b82012b2da00446e1e3a632f24b9287ac6d5bc3d6de",
+    "platform_apb_pkg.sv": "2316f96bf377d74ff323996effd7c8dfc4950e43732e2de5216ca33e448b0ae0",
+    "APB_top.sv": "bb960519d6b2f5c2e3e40e81a469fd804bd6f8d809659c605a82535823b19bec",
+    "apb_window_router.sv": "8bec3dfeccfb0ce3e0bd65f508adb9d238e85a0cf830f809820a6ae03f725554",
+    "platform_apb_slice.sv": "cd4f0e3910bbba4ed7d7e67adbddb8de5fc3ddacf1af810ee07edca2eb201b9a",
+    "platform_uvm_tb.sv": "3df0eaccbb836b34e8bbef20860e12f4ab50a8e0600ec469f8f7fd4d4e410e3a"
+  },
+  "simulation": "NOT_RUN_BY_THIS_GATE",
+  "raw_coverage_db": null
+}

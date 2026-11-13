@@ -1,0 +1,3 @@
+# st has 5 encoded steps in 3 bits; the default arm only returns an
+# unencoded value (never reached) to S_IDLE.
+LINE I2C_Host_top\.sv:128:case: # st holds the 5 encoded steps only

@@ -22,6 +22,10 @@ module Video_Codec_tb;
   wire  [31:0] checksum;
   int          exp_z;
   logic [31:0] exp_ck;
+  int force_mode = -1;   // >= 0: the mode of the next jobs
+  int lw_force = -1;     // >= 0: LINE_WORDS of the next jobs
+  bit flat = 0;          // 1: an ENCODE of a flat frame (ZEROS saturates)
+  int short_lens[5] = '{0, 1, 7, 16, 40};
   Video_Codec_top dut (.*);
 
   int n_done = 0, n_err_irq = 0;
@@ -54,9 +58,18 @@ module Video_Codec_tb;
     fill_rand(s, n);
     for (int i = 0; i < n; i++) mem.poke(d + 32'(4 * i), 32'hBAD0_0000 ^ i);
     @(negedge clk);
-    src_addr = s; dst_addr = d; xfer_len = 16'(n);
-    mode = $urandom; line_words = ($urandom % 2) ? 16'(1 + $urandom % 8) : 16'd0;
-    if ($urandom % 3 == 0) for (int i = 0; i < n; i++) mem.poke(s + 32'(4 * i), {4{8'($urandom % 2 ? 8'h40 : 8'h41)}});   // smooth: zero residuals
+    src_addr = s | 32'($urandom % 4); dst_addr = d | 32'($urandom % 4); xfer_len = 16'(n);   // address bits 1:0 are ignored
+    mode = force_mode >= 0 ? force_mode[0] : 1'($urandom);
+    case ($urandom % 4)
+      0: line_words = 16'd0;
+      1: line_words = 16'd1;
+      2: line_words = 16'(2 + $urandom % 8);
+      default: line_words = 16'(16 + $urandom % 40);
+    endcase
+    if (lw_force >= 0) line_words = 16'(lw_force);
+    if (flat) mode = 0;
+    if (flat) for (int i = 0; i < n; i++) mem.poke(s + 32'(4 * i), 32'h8080_8080);   // every residual 0
+    else if ($urandom % 3 == 0) for (int i = 0; i < n; i++) mem.poke(s + 32'(4 * i), {4{8'($urandom % 2 ? 8'h40 : 8'h41)}});   // smooth: zero residuals
     rd = 1; wr = 1;
     if (inject == 1 && !rd) inject = 2;
     if (inject == 2 && !wr) inject = 1;
@@ -77,7 +90,7 @@ module Video_Codec_tb;
       start = 0;
     end
     t = 0;
-    while (busy && t < 100000) begin @(negedge clk); t++; end
+    while (busy && t < 2000000) begin @(negedge clk); t++; end
     if (busy) fail($sformatf("job of %0d words timed out (rstate %0d wstate %0d)", n, dut.u_eng.rstate, dut.u_eng.wstate));
     clks(2);
     if (n_done != nd0 + 1) fail($sformatf("%0d DONE pulses for one job", n_done - nd0));
@@ -94,7 +107,7 @@ module Video_Codec_tb;
                                          mem.peek(d + 32'(4 * i)), expw[i]));
         end
     if (!wr && mem.peek(d) !== 32'hBAD0_0000 && n != 0) fail("read-only job wrote the destination");
-    if (zeros !== 16'(exp_z)) fail($sformatf("ZEROS %0d, expected %0d", zeros, exp_z));
+    if (zeros !== 16'(exp_z > 65535 ? 65535 : exp_z)) fail($sformatf("ZEROS %0d, expected %0d", zeros, exp_z));   // saturating count
     if (checksum !== exp_ck) fail($sformatf("CHECKSUM %h, expected %h", checksum, exp_ck));
   endtask
 
@@ -102,20 +115,44 @@ module Video_Codec_tb;
     clks(3);
     rst_n = 1;
     clks(2);
+    mem.rand_id = 1;   // the core ignores BID / RID
     run(0, 0, 0);
     run(1, 0, 0);
     run(16, 0, 0);
     run(17, 0, 1);
+    // both modes at the short lengths
+    for (int m = 0; m < 2; m++) begin
+      force_mode = m;
+      foreach (short_lens[i]) run(short_lens[i], 0, 0);
+    end
+    force_mode = -1;
     for (int k = 0; k < 40; k++) begin
       mem.stall = (k % 4) != 3;
       run(1 + $urandom % 80, 0, k % 7 == 0);
     end
     mem.stall = 1;
+    // the write path blocked for a while: the write FIFO fills up and the
+    // datapath stalls the read stream
+    fork begin clks(30); mem.aw_hold = 1; clks(150); mem.aw_hold = 0; end join_none
     run(600, 0, 0);
     mem.stall = 0;
     run(300, 0, 0);
     mem.stall = 1;
-    for (int k = 0; k < 6; k++) run(5 + $urandom % 40, 1 + k % 2, 0);
+    for (int k = 0; k < 6; k++) begin   // read / write side x EXOKAY, SLVERR, DECERR
+      mem.err_resp = 2'(1 + k % 3);
+      run(5 + $urandom % 40, 1 + k % 2, 0);
+    end
+    mem.err_resp = 2'b10;
+    // long jobs: the upper bits of the length and of the counters
+    mem.stall = 0;
+    run(1500, 0, 0);
+    lw_force = 65535;     // one line: the column count climbs to 65534
+    run(65535, 0, 0);
+    lw_force = -1;
+    flat = 1;
+    run(65535, 0, 0);
+    flat = 0;
+    mem.stall = 1;
     run(33, 0, 0);
     // reset in the middle of a job: the core and the bus go idle
     @(negedge clk);

@@ -31,8 +31,19 @@
   function automatic logic [31:0] dst_of(input logic [31:0] src);
     return src ^ 32'h4000_0000;
   endfunction
+  // a random word; one in two is a corner value (all zeros, all ones,
+  // 0x5555_5555 or 0xAAAA_AAAA) so datapaths see their data corners
+  function automatic logic [31:0] rand_word();
+    case ($urandom % 8)
+      0: return 32'h0000_0000;
+      1: return 32'hFFFF_FFFF;
+      2: return 32'h5555_5555;
+      3: return 32'hAAAA_AAAA;
+      default: return $urandom;
+    endcase
+  endfunction
   function automatic void fill_rand(input logic [31:0] a, input int n);
-    for (int i = 0; i < n; i++) mem.poke(a + 32'(4 * i), $urandom);
+    for (int i = 0; i < n; i++) mem.poke(a + 32'(4 * i), rand_word());
   endfunction
   // AXI rules the memory model checks, plus no burst left open at the end
   task automatic finish(input string name);

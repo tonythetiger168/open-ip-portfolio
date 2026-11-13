@@ -119,7 +119,7 @@ always @(posedge `CAM_CLK) begin
   end
   if (st == 4'h0 && cam_str_q != 4'h0) begin       // strobe end
     cam_wait_n <= 1'b1; cam_wc = 0;
-    if (cam_s_n < cam_strobe + 1) begin
+    if (cam_s_n < cam_strobe + 1 && ci_vcc_en) begin   // (a cycle cut by power-off is not checked)
       cam_errors++; $display("ERROR: CAM: strobe %0d clocks, STROBE %0d @%0t", cam_s_n, cam_strobe, $time);
     end
     if (cam_str_q[1]) begin                        // attribute write

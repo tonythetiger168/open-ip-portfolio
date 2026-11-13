@@ -1,0 +1,12 @@
+# Shared by the SoC subsystem IPs that only write (the engine's RD_EN is tied
+# to 0): the read half of the AXI4 manager port and the engine's read stream
+# never move. The checker asserts that the read stream is never accepted;
+# the engine's own run covers the read side.
+TOGGLE _top\.m_araddr\[ # read address channel unused: the engine never reads (RD_EN = 0)
+TOGGLE _top\.m_arlen\[ # read address channel unused: the engine never reads (RD_EN = 0)
+TOGGLE _top\.m_(arvalid|rready): # read channels unused: the engine never reads (RD_EN = 0)
+TOGGLE _top\.m_(arready|rvalid|rlast): # the subordinate never sees a read request from a write-only IP
+TOGGLE _top\.m_(rid|rresp|rdata)\[ # the subordinate never sees a read request from a write-only IP
+TOGGLE _top\.rs_(valid|ready): # the engine's read stream is unused (RD_EN = 0)
+TOGGLE _top\.rs_data\[ # the engine's read stream is unused (RD_EN = 0)
+TOGGLE _top\.unused: # lint sink for the unused read stream, a constant 0

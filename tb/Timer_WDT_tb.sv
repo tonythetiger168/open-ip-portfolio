@@ -67,7 +67,7 @@ module Timer_WDT_tb;
     while (dut.e_busy) @(negedge clk);
     clks(2);
     if (ts_wp !== 16'(recs.size())) fail($sformatf("TS_WP %0d, expected %0d", ts_wp, recs.size()));
-    if (ts_missed !== 16'(n_missed)) fail($sformatf("TS_MISSED %0d, expected %0d", ts_missed, n_missed));
+    if (ts_missed !== 16'(n_missed > 65535 ? 65535 : n_missed)) fail($sformatf("TS_MISSED %0d, expected %0d", ts_missed, n_missed));
     // the last min(TS_WORDS, n) records are in the ring
     for (int r = (recs.size() > ts_words ? recs.size() - ts_words : 0); r < recs.size(); r++)
       if (mem.peek(ts_base + 32'(4 * (r % ts_words))) !== recs[r]) begin
@@ -167,6 +167,49 @@ module Timer_WDT_tb;
     tmr_en = 0; clks(10);
     if (mem.peek(ts_base) === 32'hDEAD_0000 || mem.peek(ts_base + 4) === 32'hDEAD_0001) fail("record not at slots 0, 1 after lowering TS_WORDS");
     for (int i = 5; i < 8; i++) if (mem.peek(ts_base + 32'(4 * i)) !== (32'hDEAD_0000 | 32'(i))) fail($sformatf("record at slot %0d, outside the shrunk ring", i));
+    // other AXI error codes, random BID
+    mem.rand_id = 1;
+    for (int k = 0; k < 2; k++) begin
+      mem.err_resp = k ? 2'b11 : 2'b01;
+      mem.err_lo = ts_base; mem.err_hi = ts_base + 32'(4 * ts_words);
+      @(negedge clk); period = 20; tmr_en = 1;
+      clks(30);
+      @(negedge clk); tmr_en = 0; clks(20);
+    end
+    mem.err_resp = 2'b10; mem.err_lo = '1; mem.err_hi = '1;
+    // TS_WORDS 0: events but no records
+    @(negedge clk); ts_words = 0; tmr_en = 1; period = 2; clks(20); tmr_en = 0;
+    // every bit of the configuration pins and of the watchdog count
+    @(negedge clk); wdt_en = 0; wdt_load = 32'hFFFF_FFFF; ts_base = 32'hFFFF_FFFF;
+    clks(3);
+    @(negedge clk); wdt_load = 32'h0; clks(3);
+    // a kick right at expiry, a kick after the bite, the watchdog off while biting
+    @(negedge clk); prescale = 0; wdt_load = 3; wdt_en = 1;
+    clks(3); @(negedge clk); kick = 1; @(negedge clk); kick = 0;
+    clks(15); @(negedge clk); kick = 1; @(negedge clk); kick = 0;
+    clks(15); @(negedge clk); wdt_en = 0; clks(2);
+    @(negedge clk); wdt_load = 0; wdt_en = 1; clks(1); @(negedge clk); kick = 1; @(negedge clk); kick = 0;
+    wdt_en = 0;
+    // the prescaler at its maximum: PRE climbs to 16'hFFFF
+    @(negedge clk); prescale = 16'hFFFF; clks(140000);
+    // a long ring at one event per clock: TS_WP wraps, TS_MISSED saturates
+    @(negedge clk); prescale = 0; period = 0; ts_base = 32'h0000_0000; ts_words = 16'hFFFF;
+    mem.stall = 0; ts_en = 1; tmr_en = 1;
+    while (ts_wp != 16'h0010 || dut.ts_missed != 16'hFFFF) @(negedge clk);
+    @(negedge clk); tmr_en = 0;
+    clks(20);   // (TS_WP and TS_MISSED are checked every clock by the coverage checker)
+    // a long period: the timer count's upper bits, and the timer with the
+    // watchdog together
+    @(negedge clk); period = 32'hFFFF_FFFF; ts_en = 0; tmr_en = 1; wdt_load = 5; wdt_en = 1;
+    clks(1100000);
+    @(negedge clk); period = 40; clks(200); tmr_en = 0; wdt_en = 0;
+    // a timer event and a bark on the same tick
+    @(negedge clk); period = 0; wdt_load = 0; tmr_en = 1; wdt_en = 1; clks(10);
+    @(negedge clk); tmr_en = 0; wdt_en = 0;
+    ts_words = 3; wdt_load = 0;
+    // a final reset clears the counters
+    check_on = 0;
+    @(negedge clk); rst_n = 0; clks(2); rst_n = 1; clks(3);
     finish("Timer_WDT");
   end
 endmodule
