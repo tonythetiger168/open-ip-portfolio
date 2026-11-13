@@ -160,6 +160,26 @@ setup_tools.sh           installs yosys and iverilog 13.0 if missing
 | I2S | `make -f Makefile.I2S sim` | [open_ip_I2S.zip](releases/open_ip_I2S.zip) |
 | I2S Audio | `make -f Makefile.I2S_Audio sim` | [open_ip_I2S_Audio.zip](releases/open_ip_I2S_Audio.zip) |
 
+### TV SoC subsystems (9)
+
+Cores of an 8K TV SoC. Each has an AXI4 manager port built on the shared
+`rtl/soc_ss_axi_engine.sv` (the memory firewall sits on an AXI4 path
+instead), an APB4 register wrapper, a self-checking core TB that prints one
+`LAT <master> dram R|W <cycles>` line per AXI burst, and a register-level
+wrapper test. Pages in [docs/ip](docs/ip/README.md).
+
+| IP | What it does | Build |
+|---|---|---|
+| HDMI_RX_DMA | HDMI 2.1 receiver (TMDS mode): decode, frame capture to memory | `make -f Makefile.HDMI_RX_DMA sim` |
+| TS_Demux | MPEG-2 transport stream demux: 4 PID filters, packets to a ring | `make -f Makefile.TS_Demux sim` |
+| TCON_VbyOne | Panel timing controller: frame scan-out to an 8-lane V-by-One HS style link | `make -f Makefile.TCON_VbyOne sim` |
+| PQ_MEMC | HDR tone mapping + MEMC blend (stages reused from pq-pipeline-sv, see `rtl/pq/`) | `make -f Makefile.PQ_MEMC sim` |
+| Video_Codec_8K | 8K decoder traffic shape: CTU bitstream, motion-compensation and reconstruction accesses with rate shaping | `make -f Makefile.Video_Codec_8K sim` |
+| HDMI_CEC | CEC controller: bit timing, arbitration, ACK, messages in memory | `make -f Makefile.HDMI_CEC sim` |
+| IR_Receiver | NEC / RC-5 remote receiver, codes to a ring | `make -f Makefile.IR_Receiver sim` |
+| SPDIF_eARC | S/PDIF (IEC 60958) / eARC data channel receiver, samples to a ring | `make -f Makefile.SPDIF_eARC sim` |
+| Mem_Firewall | 4-region read / write / secure-only checker on an AXI4 path | `make -f Makefile.Mem_Firewall sim` |
+
 ### Ethernet & networking (11)
 
 | Protocol | Build | Standalone package |
