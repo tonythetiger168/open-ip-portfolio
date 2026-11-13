@@ -9,7 +9,7 @@
 //   or RD (read a byte into RX_DATA, then send ACK, or NACK with NACK = 1),
 //   then STO (STOP). DONE pulses when the command ends; BUSY is high during
 //   it. A command while busy is ignored; STO alone with the bus free does
-//   nothing on the wire.
+//   nothing on the wire; WR or RD with the bus free sends a START first.
 // - Timing: one quarter of the SCL period is PRESCALE + 1 clocks (at least
 //   3, for targets that sample on their own clock). SCL is driven push-pull
 //   (no clock stretching, single controller); SDA is open drain.
@@ -64,7 +64,9 @@ module I2C_Host_top (
         S_IDLE: if (cmd_valid) begin
           sta_q <= cmd_sta; wr_q <= cmd_wr; rd_q <= cmd_rd && !cmd_wr; sto_q <= cmd_sto;
           nack_q <= cmd_nack; sh <= tx_data; q <= '0; bi <= 3'd7; qcnt <= prescale;
-          if (cmd_sta) st <= S_STA;
+          // a WR / RD with the bus free starts with a START (SCL is high on a
+          // free bus: without one the first bit would have no SCL rise)
+          if (cmd_sta || ((cmd_wr || cmd_rd) && !bus_held)) begin sta_q <= 1'b1; st <= S_STA; end
           else if (cmd_wr || cmd_rd) st <= S_BIT;
           else if (cmd_sto && bus_held) st <= S_STO;
           else done <= 1'b1;                       // nothing to do (STO with the bus free)

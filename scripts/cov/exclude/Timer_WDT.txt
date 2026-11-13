@@ -1,0 +1,13 @@
+INCLUDE soc_ss_axi_manager
+INCLUDE soc_ss_write_only
+# COUNT is a free-running 32-bit tick counter and TCNT the timer's count up
+# to PERIOD; a record holds COUNT. The bench runs about 1.5 M clocks at one
+# tick per clock, so bits 20 and up of COUNT (19 for the records written in
+# its long-ring phase, 21 for TCNT) would need 2^20 to 2^32 more ticks.
+# a_count, a_timer and a_record check the whole registers every clock.
+TOGGLE Timer_WDT_top\.count\[(2[0-9]|3[01])\] # free-running tick counter: needs more than 2^20 ticks
+TOGGLE Timer_WDT_top\.tcnt\[(2[1-9]|3[01])\] # timer count up to PERIOD: needs more than 2^21 ticks
+TOGGLE Timer_WDT_top\.(rec|ws_data|m_wdata)\[(19|2[0-9]|3[01])\] # a record holds COUNT: needs a record after 2^19 ticks and again after a wrap
+# The engine's CYCLES output is not used (lint sink): each record is a
+# single-beat job of a few clocks, so its upper bits never move.
+TOGGLE Timer_WDT_top\.e_cycles\[([5-9]|[12][0-9]|3[01])\] # unused engine output: a one-word record job lasts a few clocks

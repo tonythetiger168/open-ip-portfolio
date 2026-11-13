@@ -214,3 +214,26 @@ START, STOP and the 9 bits of every byte independently of the core and the targe
 | "monitor saw" | the monitor counted exactly one START per START command and one STOP per STOP with the bus held | §3.3, §3.4 |
 | "BUS_HELD at the end" | `bus_held` = 0 after the last STOP | §3.3 |
 | "timeout" | the test finishes within 50 ms | §3.2 |
+
+### Coverage-closure assertions
+
+From `tb/cov/I2C_Host_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_reset_idle | while `!rst_n` (reset): `scl && sd && !busy && !bus_held && !done` | §3 |
+| a_sda_moves_with_scl_low | always holds: `(scl && scl_q && sd != sd_q) -> (start_c ? (c_sta && busy) : (c_sto && busy))` | §3 |
+| a_bus_held | whenever `done`: `bus_held == held` | §3 |
+| a_scl_timing | whenever `scl != scl_q && busy`: `m_hc >= prescale` | §3 |
+| a_done_conditions | whenever `done`: `n_sta == (c_sta ? 1 : 0) && n_sto == ((c_sto && (c_held \|\| c_sta)) ? 1 : 0) && e_n == (xfer ? 9 : 0)` | §3 |
+| a_done_write | whenever `done && c_wr`: `e_bits[8:1] == c_tx && rx_ack == e_bits[0]` | §3 |
+| a_done_read | whenever `done && c_rd`: `rx_data == e_bits[8:1] && e_bits[0] == c_nack` | §3 |
+| a_busy | whenever `go && (cmd_sta \|\| cmd_wr \|\| cmd_rd \|\| (cmd_sto && held))`, on the next clock: `busy` | §3 |
+| a_nothing | whenever `go && !cmd_sta && !cmd_wr && !cmd_rd && !(cmd_sto && held)`, on the next clock: `done && !busy` | §3 |
+
+### Further TB checks
+
+| Check (TB message) | What it requires | Spec |
+|---|---|---|
+| "not idle in reset" | fails when `bus_held \|\| busy \|\| scl !== 1'b1` (`tb/I2C_Host_tb.sv` line 187) | §3 |

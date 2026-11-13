@@ -435,7 +435,7 @@ module SDMMC_ADMA_top #(
   end
 
   // ------------------------------------------------------------ ADMA2 engine
-  typedef enum logic [2:0] {A_IDLE, A_FETCH, A_FWAIT, A_DEC, A_XFER, A_XWAIT} as_t;
+  typedef enum logic [2:0] {A_IDLE, A_FETCH, A_FWAIT, A_DEC, A_XWAIT} as_t;
   as_t         as_q;
   logic [31:0] desc, w0, w1;
   logic        w_n;                    // descriptor words captured

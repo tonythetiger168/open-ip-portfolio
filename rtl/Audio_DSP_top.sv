@@ -143,7 +143,7 @@ module Audio_DSP_top #(
       peak <= '0; clips <= '0;
     end else if (rs_valid && rs_ready) begin
       if (pk > peak) peak <= pk;
-      clips <= (clips > 16'hFFFD) ? 16'hFFFF : clips + 16'(nclip);
+      clips <= (17'(clips) + 17'(nclip) > 17'h0FFFF) ? 16'hFFFF : clips + 16'(nclip);   // saturating add
     end
   end
   assign done    = e_done;

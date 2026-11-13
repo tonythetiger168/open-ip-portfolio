@@ -20,6 +20,8 @@ module Modem_tb;
   logic        crc_sel = 0, bypass = 0;
   wire  [31:0] crc;
   logic [31:0] exp_crc;
+  int force_byp = -1;   // >= 0: BYPASS of the next jobs
+  int short_lens[5] = '{0, 1, 7, 16, 40};
   Modem_top dut (.*);
 
   int n_done = 0, n_err_irq = 0;
@@ -57,8 +59,14 @@ module Modem_tb;
     fill_rand(s, n);
     for (int i = 0; i < n; i++) mem.poke(d + 32'(4 * i), 32'hBAD0_0000 ^ i);
     @(negedge clk);
-    src_addr = s; dst_addr = d; xfer_len = 16'(n);
-    seed = ($urandom % 8 == 0) ? 32'd0 : 32'($urandom); crc_sel = $urandom; bypass = ($urandom % 6 == 0);
+    src_addr = s | 32'($urandom % 4); dst_addr = d | 32'($urandom % 4); xfer_len = 16'(n);   // address bits 1:0 are ignored
+    case ($urandom % 8)
+      0: seed = 32'd0;           // replaced by 1
+      1: seed = 32'd1;
+      2: seed = 32'hFFFF_FFFF;
+      default: seed = 32'($urandom);
+    endcase
+    crc_sel = $urandom; bypass = force_byp >= 0 ? force_byp[0] : ($urandom % 6 == 0);
     rd = 1; wr = 1;
     if (inject == 1 && !rd) inject = 2;
     if (inject == 2 && !wr) inject = 1;
@@ -79,7 +87,7 @@ module Modem_tb;
       start = 0;
     end
     t = 0;
-    while (busy && t < 100000) begin @(negedge clk); t++; end
+    while (busy && t < 2000000) begin @(negedge clk); t++; end
     if (busy) fail($sformatf("job of %0d words timed out (rstate %0d wstate %0d)", n, dut.u_eng.rstate, dut.u_eng.wstate));
     clks(2);
     if (n_done != nd0 + 1) fail($sformatf("%0d DONE pulses for one job", n_done - nd0));
@@ -104,20 +112,39 @@ module Modem_tb;
     clks(3);
     rst_n = 1;
     clks(2);
+    mem.rand_id = 1;   // the core ignores BID / RID
     run(0, 0, 0);
     run(1, 0, 0);
     run(16, 0, 0);
     run(17, 0, 1);
+    // scrambled and bypassed jobs at the short lengths
+    for (int b = 0; b < 2; b++) begin
+      force_byp = b;
+      foreach (short_lens[i]) run(short_lens[i], 0, 0);
+    end
+    force_byp = -1;
     for (int k = 0; k < 40; k++) begin
       mem.stall = (k % 4) != 3;
       run(1 + $urandom % 80, 0, k % 7 == 0);
     end
     mem.stall = 1;
+    // the write path blocked for a while: the write FIFO fills up and the
+    // datapath stalls the read stream
+    fork begin clks(30); mem.aw_hold = 1; clks(150); mem.aw_hold = 0; end join_none
     run(600, 0, 0);
     mem.stall = 0;
     run(300, 0, 0);
     mem.stall = 1;
-    for (int k = 0; k < 6; k++) run(5 + $urandom % 40, 1 + k % 2, 0);
+    for (int k = 0; k < 6; k++) begin   // read / write side x EXOKAY, SLVERR, DECERR
+      mem.err_resp = 2'(1 + k % 3);
+      run(5 + $urandom % 40, 1 + k % 2, 0);
+    end
+    mem.err_resp = 2'b10;
+    // long jobs: the upper bits of the length and of the counters
+    mem.stall = 0;
+    run(1500, 0, 0);
+    run(65535, 0, 0);
+    mem.stall = 1;
     run(33, 0, 0);
     // reset in the middle of a job: the core and the bus go idle
     @(negedge clk);

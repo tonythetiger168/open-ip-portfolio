@@ -83,7 +83,7 @@ module I2C_Host_tb;
       clks(2); cmd_sta = 1; cmd_sto = 1; cmd_valid = 1; @(negedge clk); cmd_valid = 0;
     end
     t = 0;
-    while (busy && t < 20000) begin @(negedge clk); t++; end
+    while (busy && t < 2000000) begin @(negedge clk); t++; end
     clks(1);
     if (n_done != nd0 + 1) fail($sformatf("%0d DONE pulses for one command", n_done - nd0));
     if (bus_held !== (sto ? 1'b0 : (sta ? 1'b1 : bus_held))) fail("BUS_HELD");
@@ -169,6 +169,23 @@ module I2C_Host_tb;
     if (n_start != s0) fail($sformatf("monitor saw %0d STARTs, expected %0d", n_start, s0));
     if (n_stop != p0) fail($sformatf("monitor saw %0d STOPs, expected %0d", n_stop, p0));
     if (bus_held) fail("BUS_HELD at the end");
+    // every combination of STA / WR / RD / STO with the bus free and held,
+    // to an address no target answers (NACK; reads see 0xFF)
+    for (int h = 0; h < 2; h++)
+      for (int c = 0; c < 16; c++) begin
+        if (h && !bus_held) cmd(1, 0, 0, 0, 0, 8'h00);
+        if (!h && bus_held) cmd(0, 0, 0, 1, 0, 8'h00);
+        cmd(c[3], c[2], c[1], c[0], c % 3 == 0, 8'hFE);
+      end
+    if (bus_held) cmd(0, 0, 0, 1, 0, 8'h00);
+    // the largest and smallest PRESCALE, then a reset with the bus held
+    prescale = 0; cmd(1, 1, 0, 1, 0, 8'hFE);
+    prescale = 300; cmd(1, 1, 0, 1, 0, 8'hFE);
+    prescale = 16'hFFFF; cmd(1, 0, 0, 0, 0, 8'h00);
+    prescale = 3; clks(5);
+    rst_n = 0; clks(2);
+    if (bus_held || busy || scl !== 1'b1) fail("not idle in reset");
+    rst_n = 1; clks(5);
     $display("I2C_Host: %0d STARTs, %0d STOPs, %0d bytes on the wire", n_start, n_stop, mon_bytes.size());
     if (errors == 0) $display("TEST PASSED: I2C_Host");
     else $display("TEST FAILED: I2C_Host (%0d errors)", errors);

@@ -38,6 +38,7 @@ module Smartcard_7816_tb;
   logic [31:0] expq [$];
   int          m_idx = 0, n_rx = 0, n_txd = 0, n_perr = 0, n_det = 0, n_to = 0, n_err_irq = 0;
   bit          auto_consume = 1;
+  function automatic int nw_tb; return (ring_words == 0) ? 1 : ring_words; endfunction
   always @(posedge clk) if (rst_n) begin
     n_txd += tx_done; n_perr += perr; n_det += det; n_to += timeout; n_err_irq += err_irq;
     if (rx) begin
@@ -49,7 +50,7 @@ module Smartcard_7816_tb;
         if (!err_irq && mem.peek(ring_base + 32'(4 * m_idx)) !== e)
           fail($sformatf("ring word %0d: %h, expected %h", m_idx, mem.peek(ring_base + 32'(4 * m_idx)), e));
       end
-      m_idx = (m_idx + 1) % ring_words;
+      m_idx = (m_idx + 1) % nw_tb();
       if (auto_consume) rd_idx <= 16'(m_idx);
     end
   end
@@ -313,6 +314,191 @@ module Smartcard_7816_tb;
       if (n_det != d0 + 1) fail("no DET on removal");
     end
     inverse = 0; c_inv = 0;
+    // ---------------- corner cases ----------------
+    // every configuration pin both ways (no card, ENABLE off)
+    enable = 0; clks(4);
+    begin
+      logic [7:0]  k_div, k_g;
+      logic [15:0] k_etu, k_rw;
+      logic [31:0] k_rb, k_ta;
+      k_div = clk_div; k_g = guard; k_etu = etu; k_rw = ring_words; k_rb = ring_base; k_ta = tx_addr;
+      clk_div = '1; guard = '1; etu = '1; wt = '1; rst_clks = '1; ring_words = '1; rd_idx = '1; tx_len = '1;
+      ring_base = '1; tx_addr = '1; inverse = 1; t1 = 1;
+      clks(4);
+      clk_div = '0; guard = '0; etu = '0; wt = '0; rst_clks = '0; ring_words = '0; rd_idx = '0; tx_len = '0;
+      ring_base = '0; tx_addr = '0; inverse = 0; t1 = 0;
+      clks(4);
+      guard = 8'hF0; tx_len = 16'hFFF0;            // the frame length and word count wires
+      clks(4);
+      guard = 8'd4;                                 // t_frame 16: bit 3 falls
+      clks(4);
+      guard = 0; tx_len = 0;
+      clks(4);
+      clk_div = k_div; guard = k_g; etu = k_etu; rst_clks = 40; ring_words = k_rw; ring_base = k_rb; tx_addr = k_ta;
+    end
+    enable = 1; m_idx = 0; clks(4);
+    // deactivation while RST is still low
+    sc_det = 1; clks(4);
+    `PULSE(activate)
+    cclk(5);
+    if (sc_rst_n || !sc_vcc_en) fail("not in the RST low time");
+    `PULSE(deactivate)
+    wait (!sc_vcc_en); clks(4);
+    if (powered || active) fail("deactivation during the RST low time");
+    // RST_CLKS 65535 at the fastest CLK, then the largest CLK divider
+    clk_div = 0; rst_clks = 16'hFFFF;
+    do_activate("RST_CLKS 65535");
+    rst_clks = 40;
+    clk_div = 255; cclk(3); clk_div = 1;
+    // a glitch on I/O shorter than half an ETU is not a start bit
+    begin
+      int r0, p0;
+      r0 = rx_cnt; p0 = perr_cnt;
+      c_busy = 1; card_low = 1; cclk(etu / 4); card_low = 0; c_busy = 0;
+      cclk(3 * etu);
+      if (rx_cnt != r0 || perr_cnt != p0 || dut.re_busy) fail("glitch taken as a character");
+    end
+    // ETU 65535: one character each way, then WT 65535 at ETU 1
+    clk_div = 0; etu = 16'hFFFF;
+    exp_rx(8'hA5, 0);
+    c_char(8'hA5, 0);
+    drain("ETU 65535 RX");
+    atr = new[1]; atr = '{8'h5A};
+    do_tx(atr, "ETU 65535 TX", 0);
+    etu = 1; wt = 16'hFFFF;
+    begin
+      int t0, t;
+      t0 = n_to; t = 0;
+      while (n_to == t0 && t < 400000) begin clks(1); t++; end
+      if (n_to == t0) fail("no TIMEOUT with WT 65535");
+    end
+    wt = 0;
+    // ETU 0 counts as 1, then ETU 1 (the card model cannot sample that fast:
+    // no data check), CLK_DIV 8
+    etu = 0; clk_div = 8; t1 = 1; tx_chk = 0;
+    atr = new[1]; atr = '{8'h3C};
+    do_tx(atr, "ETU 0", 0);
+    etu = 1;
+    do_tx(atr, "ETU 1", 0);
+    tx_chk = 1; t1 = 0; etu = 16; clk_div = 1;
+    cclk(40);
+    // GUARD 255 with a repetition: 269 ETU frames
+    guard = 255; c_nak = 1;
+    atr = new[2]; atr = '{8'hC1, 8'hC2};
+    do_tx(atr, "GUARD 255", 0);
+    guard = 0; c_nak = 0;
+    // a TX buffer at an odd 16-byte line (read address bit 4)
+    tx_addr = 32'h0010_0010;
+    do_tx(atr, "TX at +16", 0);
+    tx_addr = 32'h0010_0000;
+    // inverse convention with T=1, ETU 64
+    inverse = 1; c_inv = 1; t1 = 1; etu = 64;
+    exp_rx(8'h3B, 1);
+    c_char(8'h3B, 1);
+    drain("inverse T=1 RX");
+    atr = new[2]; atr = '{8'h12, 8'h34};
+    do_tx(atr, "inverse T=1 TX", 0);
+    inverse = 0; c_inv = 0; t1 = 0; etu = 16;
+    // deactivation while the TX waits for its first word
+    mem.ar_hold = 1;
+    tx_len = 8;
+    `PULSE(tx_start)
+    clks(20);
+    if (!tx_busy) fail("TX not waiting for its word");
+    `PULSE(deactivate)
+    clks(10);
+    mem.ar_hold = 0;
+    begin
+      int t;
+      t = 0;
+      while (tx_busy && t < 10000) begin clks(1); t++; end
+    end
+    if (tx_busy || !tx_fail) fail("TX not ended by a deactivation while loading");
+    wait (!sc_vcc_en); clks(4);
+    // RING_WORDS 0 counts as 1: every character at RING_BASE
+    enable = 0; clks(4); m_idx = 0;
+    enable = 1; ring_words = 0; auto_consume = 0; rd_idx = 1;
+    do_activate("RING_WORDS 0");
+    cclk(2 * etu);
+    exp_rx(8'h12, 0);
+    c_char(8'h12, 0);
+    drain("RING_WORDS 0 first");
+    exp_rx(8'h34, 0);
+    c_char(8'h34, 0);
+    drain("RING_WORDS 0 second");
+    if (wr_idx != 0 || mem.peek(ring_base) !== 32'h34) fail("RING_WORDS 0");
+    ring_words = 8; rd_idx = 0; auto_consume = 1;
+    // a 65535-byte TX from the top of the address space, random BID / RID,
+    // stopped by a deactivation; then DECERR on an RX write and a TX read
+    tx_addr = 32'hFFFF_0000; tx_len = 16'hFFFF; mem.rand_id = 1;
+    c_rxq.delete();
+    `PULSE(tx_start)
+    cclk(30 * etu);
+    if (c_rxq.size() == 0) fail("the 65535-byte TX sent nothing");
+    `PULSE(deactivate)
+    wait (!tx_busy);
+    if (!tx_fail) fail("long TX not ended by the deactivation");
+    wait (!sc_vcc_en); clks(4);
+    tx_addr = 32'h0010_0000;
+    do_activate("DECERR");
+    cclk(2 * etu);
+    begin
+      int e0;
+      e0 = n_err_irq;
+      mem.err_resp = 2'b11;
+      mem.err_lo = ring_base + 32'(4 * m_idx); mem.err_hi = mem.err_lo + 4;
+      exp_rx(8'h77, 0);
+      c_char(8'h77, 0);
+      drain("RX DECERR");
+      mem.err_lo = tx_addr; mem.err_hi = tx_addr + 4;
+      atr = new[1]; atr = '{8'h01};
+      tx_chk = 0;
+      do_tx(atr, "TX DECERR", 0);
+      tx_chk = 1;
+      mem.err_lo = '1; mem.err_hi = '1; mem.err_resp = 2'b10; mem.rand_id = 0;
+      if (n_err_irq != e0 + 2) fail("ERR_IRQ after DECERR");
+    end
+    // (long runs: +cov_long, coverage only)
+    if ($test$plusargs("cov_long")) begin
+      // counter runs at ETU 8, CLK = clk / 2: 65540 T=1 characters with a bad
+      // parity into a 65535-word ring at the top of the address space (RX_CNT
+      // and PERR_CNT saturate, WR_IDX wraps), 32780 characters that find the
+      // ring and the FIFO full (OVF_CNT), 8200 bytes the card refuses 5 times
+      // (RETX_CNT past 2^15); the reset below clears them
+      etu = 8; clk_div = 0; t1 = 1; mem.rand_id = 1;
+      ring_words = 16'hFFFF; ring_base = 32'hFFFC_0000;
+      for (int i = 0; i < 65540; i++) begin
+        logic [7:0] d;
+        d = $urandom;
+        exp_rx(d, 1);
+        c_char(d, 1);
+      end
+      drain("RX counter run");
+      if (rx_cnt != 16'hFFFF || perr_cnt != 16'hFFFF) fail($sformatf("RX_CNT %0d PERR_CNT %0d after the counter run", rx_cnt, perr_cnt));
+      auto_consume = 0;
+      rd_idx = 16'((m_idx + 1) % nw_tb());
+      for (int i = 0; i < 32788; i++) begin
+        if (i < 8) exp_rx(8'(i), 0);
+        c_char(8'(i), 0);
+      end
+      auto_consume = 1; rd_idx = 16'(m_idx);
+      drain("overflow run");
+      if (ovf_cnt < 16'd32768) fail($sformatf("OVF_CNT %0d after the overflow run", ovf_cnt));
+      t1 = 0;
+      atr = new[1];
+      for (int i = 0; i < 8200; i++) begin
+        atr[0] = $urandom;
+        c_nak = 5;
+        do_tx(atr, "RETX run", 1);
+      end
+      c_nak = 0;
+      if (retx_cnt < 16'd32768) fail($sformatf("RETX_CNT %0d after the repetition run", retx_cnt));
+    end
+    etu = 16; clk_div = 1;
+    enable = 0; clks(4); m_idx = 0; rd_idx = 0; ring_words = 8; ring_base = 32'h0040_0000; enable = 1;
+    mem.rand_id = 0;
+    wait (!sc_vcc_en);
+    sc_det = 0; clks(4);
     // reset in the middle of an activation
     sc_det = 1; clks(4);
     `PULSE(activate)
@@ -331,7 +517,7 @@ module Smartcard_7816_tb;
     finish("Smartcard_7816");
   end
   initial begin
-    #50ms;
+    #3s;
     $display("TEST FAILED: Smartcard_7816 (timeout)");
     $finish;
   end

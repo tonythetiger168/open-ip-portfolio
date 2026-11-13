@@ -81,6 +81,19 @@ a re-implementation must have them, with these names and meanings.
 Other internal state (names free): `pre` (16-bit prescaler), `tcnt` (32-bit timer count),
 `barked`, `rec` (record value), `slot` (next ring slot).
 
+### Internal signals used by the coverage checker
+
+`tb/cov/Timer_WDT_sva.sv` is bound to `Timer_WDT_top` with `.*`, so a re-implementation must have these
+names (width as seen by the checker).
+
+| Signal | Width | Meaning |
+|---|---|---|
+| `e_err` | 1 | core-internal signal read by name by the checker |
+| `ws_valid` | 1 | core-internal signal read by name by the checker |
+| `ws_ready` | 1 | core-internal signal read by name by the checker |
+| `rs_ready` | 1 | core-internal signal read by name by the checker |
+| `ws_data` | [31:0] | core-internal signal read by name by the checker |
+
 ## 2. Registers
 
 The core has no registers of its own: the inputs above come from the APB4 wrapper
@@ -293,3 +306,21 @@ common end check fails on an AXI request still open or a burst longer than 16 be
 | "TS_WP before lowering TS_WORDS" | 5 records written before the ring is shrunk | §3.3 |
 | "record not at slots 0, 1 after lowering TS_WORDS" | after shrinking 8 → 3 with next slot 5, records go to slots 0 and 1 | §3.3, §5 |
 | "record at slot" | slots 5..7, outside the shrunk ring, are not written | §3.3, §5 |
+
+### Coverage-closure assertions
+
+From `tb/cov/Timer_WDT_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_reset_idle | while `!rst_n` (reset): `count == 0 && ts_wp == 0 && ts_missed == 0 && wdt_count == 0 && !wdt_reset && !ws_valid` | §3 |
+| a_count | always holds: `count == m_cnt` | §3 |
+| a_timer | always holds: `tmr_irq == m_tev` | §3 |
+| a_watchdog | always holds: `wdt_count == m_wdt && bark == m_bark && wdt_reset == m_bite` | §3 |
+| a_ring | always holds: `ts_wp == m_wp && ts_missed == m_miss` | §3 |
+| a_engine_start | always holds: `u_eng.start == m_go` | §3 |
+| a_engine_job | whenever `m_go`: `u_eng.dst == ts_base + {14'd0, m_ws, 2'b00} && u_eng.len == 16'd1 && !u_eng.rd_en && u_eng.wr_en` | §3 |
+| a_record | always holds: `ws_valid == e_busy && (!ws_valid \|\| ws_data == m_rec)` | §3 |
+| a_ts_err | always holds: `ts_err == (e_done && e_err)` | §3 |
+| a_no_read_stream | always holds: `!rs_ready` | §3 |

@@ -65,6 +65,19 @@ asynchronously by `rst_n` low. SPI mode 0: the controller changes its output aft
 | `s_rvalid` | output | 1 | read beat valid | high | `clk` | 0 |
 | `s_rready` | input | 1 | beat taken | high | `clk` | - |
 
+### Internal signals used by the coverage checker
+
+`tb/cov/QSPI_XIP_sva.sv` is bound to `QSPI_XIP_top` with `.*`, so a re-implementation must have these
+names (width as seen by the checker).
+
+| Signal | Width | Meaning |
+|---|---|---|
+| `pc_job` | 1 | the engine is running the command |
+| `s_open` | 1 | the XIP read stream is open (CS low, in P_RD) |
+| `w_last_v` | 1 | core-internal signal read by name by the checker |
+| `s_next` | [21:0] | next word address of the open stream |
+| `w_last_a` | 1 | core-internal signal read by name by the checker |
+
 ## 2. Registers
 
 <!-- AUTO:registers -->
@@ -225,3 +238,33 @@ command legality), the command port flows and AXI writes.
 | "sector not erased" | sector erase | §3.3 |
 | "AXI write not SLVERR" | writes refused | §3.4 |
 | "timeout" | operations finish | §3 |
+
+### Coverage-closure assertions
+
+From `tb/cov/QSPI_XIP_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
+`t_head` or `m_err` are the checker's own reference model). Each row is the property as written.
+
+| Assertion | What it requires | Spec |
+|---|---|---|
+| a_reset_idle | while `!rst_n` (reset): `csn && !sclk && !pc_busy && !s_rvalid && !s_bvalid && xip_cmds == 0 && xip_beats == 0` | §3 |
+| a_cmd | whenever `rise && k == n_cmd_end`: `d_cmd == f_cmd_exp` | §3 |
+| a_addr | whenever `rise && k == n_addr_end && n_addr_end != n_cmd_end`: `d_addr == f_addr_exp` | §3 |
+| a_wdata | whenever `rise && k == n_wr_end && n_wr_end != n_dmy_end`: `d_wr == (f_nwr == 1 ? 32'(f_wdata[7:0]) : f_nwr == 2 ? 32'({f_wdata[7:0], f_wdata[15:8]}) : f_nwr == 3 ? 32'({f_wdata[7:0], f_wdata[15:8], f_wdata[23:16]}) : {f_wdata[7:0], f_wdata[15:8], f_wdata[23:16], f_wdata[31:24]})` | §3 |
+| a_pc_len | whenever `$rose(csn) && f_pc`: `k == n_wr_end + 8 * f_nrd` | §3 |
+| a_pc_rdata | whenever `pc_done`: `pc_rdata == d_pc` | §3 |
+| a_xip_rdata | whenever `s_rvalid`: `w_map.exists(a_q[23:2]) && s_rdata == w_map[a_q[23:2]] && s_rresp == 2'b00 && s_rlast == (b_n == b_len)` | §3 |
+| a_half_period | whenever `sclk != sclk_q`: `m_hc >= div` | §3 |
+| a_mode0 | always holds: `(csn != csn_q) -> !sclk` | §3 |
+| a_wp_hold_high | always holds: `!in_quad -> io[3:2] == 2'b11` | §3 |
+| a_counters | always holds: `$past(xip_cmds) == m_cmds && xip_beats == m_beats` | §3 |
+| a_pc_busy | always holds: `pc_busy -> !(s_arready)` | §3 |
+| a_axi_write | whenever `s_bvalid`: `s_bresp == 2'b10` | §3 |
+
+### Further TB checks
+
+| Check (TB message) | What it requires | Spec |
+|---|---|---|
+| "AXI write: BRESP" | fails when `s_bresp !== 2'b10 \|\| s_bid !== id` (`tb/QSPI_XIP_tb.sv` line 130) | §3 |
+| "read command" | see `tb/QSPI_XIP_tb.sv` | §3 |
+| "JEDEC ID with PC_NRD" | fails when `pc_rdata[23:0] !== 24'h18_40EF` (`tb/QSPI_XIP_tb.sv` line 204) | §3 |
+| "not idle in reset" | fails when `!csn \|\| s_rvalid \|\| xip_cmds != 0` (`tb/QSPI_XIP_tb.sv` line 251) | §3 |

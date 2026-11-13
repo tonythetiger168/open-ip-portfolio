@@ -32,6 +32,10 @@ module ISP_tb;
     sns_valid = (sns_q.size() != 0) && ($urandom % 3 != 0);
     sns_data  = sns_valid ? sns_q[0] : $urandom;
   end
+  int lw_force = -1;    // >= 0: LINE_WORDS of the next frames
+  int sel_force = -1;   // >= 0: SRC_SEL of the next frames
+  int short_lens[5] = '{0, 1, 7, 16, 40};
+  int lw_cls[4] = '{0, 1, 5, 20};
   ISP_top dut (.*);
 
   int n_done = 0, n_err_irq = 0;
@@ -67,11 +71,23 @@ module ISP_tb;
     fill_rand(s, n);
     for (int i = 0; i < n; i++) mem.poke(d + 32'(4 * i), 32'hBAD0_0000 ^ i);
     @(negedge clk);
-    src_addr = s; dst_addr = d; xfer_len = 16'(n);
-    line_words = 16'($urandom % 12); src_sel = $urandom; seed = $urandom; black = ($urandom % 2) ? 8'($urandom) : 8'd0;
-    gain = ($urandom % 3 == 0) ? 8'd16 : 8'($urandom);
+    src_addr = s | 32'($urandom % 4); dst_addr = d | 32'($urandom % 4); xfer_len = 16'(n);   // address bits 1:0 are ignored
+    case ($urandom % 4)
+      0: line_words = 16'd0;
+      1: line_words = 16'd1;
+      2: line_words = 16'(2 + $urandom % 14);
+      default: line_words = 16'(16 + $urandom % 40);
+    endcase
+    if (lw_force >= 0) line_words = 16'(lw_force);
+    src_sel = sel_force >= 0 ? sel_force[0] : 1'($urandom); seed = $urandom; black = ($urandom % 2) ? 8'($urandom) : 8'd0;
+    case ($urandom % 5)
+      0: gain = 8'd16;
+      1: gain = 8'd0;
+      2: gain = 8'(1 + $urandom % 15);
+      default: gain = 8'($urandom);
+    endcase
     sns_q.delete();
-    if (src_sel) for (int i = 0; i < n; i++) sns_q.push_back($urandom);
+    if (src_sel) for (int i = 0; i < n; i++) sns_q.push_back(rand_word());
     rd = 0; wr = 1;
     if (inject == 1 && !rd) inject = 2;
     if (inject == 2 && !wr) inject = 1;
@@ -92,7 +108,7 @@ module ISP_tb;
       start = 0;
     end
     t = 0;
-    while (busy && t < 100000) begin @(negedge clk); t++; end
+    while (busy && t < 2000000) begin @(negedge clk); t++; end
     if (busy) fail($sformatf("job of %0d words timed out (rstate %0d wstate %0d)", n, dut.u_eng.rstate, dut.u_eng.wstate));
     clks(2);
     if (n_done != nd0 + 1) fail($sformatf("%0d DONE pulses for one job", n_done - nd0));
@@ -117,20 +133,46 @@ module ISP_tb;
     clks(3);
     rst_n = 1;
     clks(2);
+    mem.rand_id = 1;   // the core ignores BID / RID
     run(0, 0, 0);
     run(1, 0, 0);
     run(16, 0, 0);
     run(17, 0, 1);
+    // both sources at the short lengths and every line length class
+    for (int sl = 0; sl < 2; sl++) begin
+      sel_force = sl;
+      foreach (short_lens[i]) run(short_lens[i], 0, 0);
+      foreach (lw_cls[j]) begin lw_force = lw_cls[j]; run(9, 0, 0); end
+      lw_force = -1;
+    end
+    sel_force = -1;
     for (int k = 0; k < 40; k++) begin
       mem.stall = (k % 4) != 3;
       run(1 + $urandom % 80, 0, k % 7 == 0);
     end
     mem.stall = 1;
+    // the write path blocked for a while: the write FIFO fills up and the
+    // datapath stalls the read stream
+    fork begin clks(30); mem.aw_hold = 1; clks(150); mem.aw_hold = 0; end join_none
     run(600, 0, 0);
     mem.stall = 0;
     run(300, 0, 0);
     mem.stall = 1;
-    for (int k = 0; k < 6; k++) run(5 + $urandom % 40, 1 + k % 2, 0);
+    for (int k = 0; k < 6; k++) begin   // read / write side x EXOKAY, SLVERR, DECERR
+      mem.err_resp = 2'(1 + k % 3);
+      run(5 + $urandom % 40, 1 + k % 2, 0);
+    end
+    mem.err_resp = 2'b10;
+    // long jobs: the upper bits of the length and of the counters
+    mem.stall = 0;
+    run(1500, 0, 0);
+    sel_force = 0;
+    lw_force = 1;       // 65535 lines: the line count climbs to 65535
+    run(65535, 0, 0);
+    lw_force = 65535;   // one line: the column count climbs to 65534
+    run(65535, 0, 0);
+    lw_force = -1; sel_force = -1;
+    mem.stall = 1;
     run(33, 0, 0);
     // reset in the middle of a job: the core and the bus go idle
     @(negedge clk);

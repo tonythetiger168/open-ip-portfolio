@@ -20,6 +20,16 @@ module Audio_DSP_tb;
   logic        mix = 0, mute = 0;
   wire  [15:0] peak, clips;
   int          exp_pk, exp_cl;
+  bit clip_all = 0;   // 1: full-scale input, maximum gain: every sample clips
+  function automatic logic [15:0] pick_gain();
+    case ($urandom % 6)
+      0: return 16'd256;                       // 0 dB
+      1: return 16'd0;
+      2: return 16'(16'h8000 | $urandom);      // negative
+      3: return 16'($urandom % 256);           // cut
+      default: return 16'($urandom);
+    endcase
+  endfunction
   Audio_DSP_top dut (.*);
 
   int n_done = 0, n_err_irq = 0;
@@ -62,9 +72,10 @@ module Audio_DSP_tb;
     fill_rand(s, n);
     for (int i = 0; i < n; i++) mem.poke(d + 32'(4 * i), 32'hBAD0_0000 ^ i);
     @(negedge clk);
-    src_addr = s; dst_addr = d; xfer_len = 16'(n);
-    gain_l = ($urandom % 3 == 0) ? 16'd256 : 16'($urandom); gain_r = ($urandom % 3 == 0) ? 16'd256 : 16'($urandom);
-    mix = $urandom; mute = ($urandom % 8 == 0);
+    src_addr = s | 32'($urandom % 4); dst_addr = d | 32'($urandom % 4); xfer_len = 16'(n);   // address bits 1:0 are ignored
+    gain_l = pick_gain(); gain_r = pick_gain();
+    if (clip_all) begin gain_l = 16'h7FFF; gain_r = 16'h7FFF; mix = 0; end
+    mix = clip_all ? 1'b0 : 1'($urandom); mute = !clip_all && ($urandom % 8 == 0);
     rd = 1; wr = 1;
     if (inject == 1 && !rd) inject = 2;
     if (inject == 2 && !wr) inject = 1;
@@ -85,7 +96,7 @@ module Audio_DSP_tb;
       start = 0;
     end
     t = 0;
-    while (busy && t < 100000) begin @(negedge clk); t++; end
+    while (busy && t < 2000000) begin @(negedge clk); t++; end
     if (busy) fail($sformatf("job of %0d words timed out (rstate %0d wstate %0d)", n, dut.u_eng.rstate, dut.u_eng.wstate));
     clks(2);
     if (n_done != nd0 + 1) fail($sformatf("%0d DONE pulses for one job", n_done - nd0));
@@ -103,13 +114,14 @@ module Audio_DSP_tb;
         end
     if (!wr && mem.peek(d) !== 32'hBAD0_0000 && n != 0) fail("read-only job wrote the destination");
     if (peak !== 16'(exp_pk)) fail($sformatf("PEAK %0d, expected %0d", peak, exp_pk));
-    if (clips !== 16'(exp_cl)) fail($sformatf("CLIPS %0d, expected %0d", clips, exp_cl));
+    if (clips !== 16'(exp_cl > 65535 ? 65535 : exp_cl)) fail($sformatf("CLIPS %0d, expected %0d", clips, exp_cl));   // saturating count
   endtask
 
   initial begin
     clks(3);
     rst_n = 1;
     clks(2);
+    mem.rand_id = 1;   // the core ignores BID / RID
     run(0, 0, 0);
     run(1, 0, 0);
     run(16, 0, 0);
@@ -119,11 +131,26 @@ module Audio_DSP_tb;
       run(1 + $urandom % 80, 0, k % 7 == 0);
     end
     mem.stall = 1;
+    // the write path blocked for a while: the write FIFO fills up and the
+    // datapath stalls the read stream
+    fork begin clks(30); mem.aw_hold = 1; clks(150); mem.aw_hold = 0; end join_none
     run(600, 0, 0);
     mem.stall = 0;
     run(300, 0, 0);
     mem.stall = 1;
-    for (int k = 0; k < 6; k++) run(5 + $urandom % 40, 1 + k % 2, 0);
+    for (int k = 0; k < 6; k++) begin   // read / write side x EXOKAY, SLVERR, DECERR
+      mem.err_resp = 2'(1 + k % 3);
+      run(5 + $urandom % 40, 1 + k % 2, 0);
+    end
+    mem.err_resp = 2'b10;
+    // long jobs: the upper bits of the length and of the counters
+    mem.stall = 0;
+    run(1500, 0, 0);
+    run(65535, 0, 0);
+    clip_all = 1;
+    run(65535, 0, 0);
+    clip_all = 0;
+    mem.stall = 1;
     run(33, 0, 0);
     // reset in the middle of a job: the core and the bus go idle
     @(negedge clk);

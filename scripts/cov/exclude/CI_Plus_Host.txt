@@ -1,0 +1,19 @@
+# CI_Plus_Host core: constants of the AXI4 manager (soc_ss_axi_engine, closed
+# by its own run) and FSM points of registers that are not state machines.
+INCLUDE soc_ss_axi_manager
+# q_ret and q_after hold the state the sequencer returns to after a bus cycle
+# (q_ret) or after FR is seen (q_after); they are only ever loaded with the
+# states listed in the RTL, so the generated "visit every state" points of
+# the other states cannot be reached.
+FSM fsm_st__q_ret__Q_(BUS|CIS|GAP|TX_HC|TX_SL|RX_ST|RX_SR|RX_D|FLUSH)$ # q_ret is never loaded with this state
+FSM fsm_st__q_after__Q_(BUS|CIS|CIS_GOT|COR_END|RS0|FR|FR_CHK|GAP|TX_FR2|TX_CHK2|TX_SL|TX_SM|TX_D|TX_END|RX_ST|RX_CHK|RX_SR|RX_SL|RX_SM|RX_SR0|RX_GO|RX_D|RX_GOT|FLUSH)$ # q_after is only loaded with Q_TX_HC and Q_EWAIT
+# Q_RX_SR is an encoding of the state enum that no transition uses.
+FSM fsm_(st__qs__Q_RX_SR|arc__qs__Q_RX_SR__Q_IDLE)$ # unused enum value
+# q_after is only loaded with Q_TX_HC (1) and Q_EWAIT (8): bits 1 and 2 stay 0.
+TOGGLE _top\.q_after\[[12]\]: # q_after only holds Q_TX_HC or Q_EWAIT
+# DMA jobs are at most 16384 words (16-bit byte counts), so the word count
+# and words-left registers never set bit 15.
+TOGGLE _top\.e_(len|left)\[15\]: # jobs are at most 16384 words (65535 bytes)
+# e_cycles: the engine's job clock count; nothing reads it (the engine closes
+# it in its own run). A 65535-byte job takes about 2^19 clocks.
+TOGGLE _top\.e_cycles\[(19|2[0-9]|3[01])\]: # unused engine clock count, jobs shorter than 2^19 clocks

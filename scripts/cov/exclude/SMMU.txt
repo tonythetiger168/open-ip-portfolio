@@ -1,0 +1,7 @@
+# SMMU core coverage exclusions.
+# The state register has 11 legal states in 4 bits; `default` only catches
+# the 5 unused encodings, which no input can reach.
+LINE \| default: st <= S_IDLE; # unreachable: the 5 unused state encodings
+# AxSIZE is forwarded unchanged; on the 32-bit data bus only 1, 2 and 4-byte
+# beats (0 to 2) are legal, so bit 2 stays 0 (the bench drives all three).
+TOGGLE \.(s_awsize|s_arsize|m_awsize|m_arsize|size)\[2\] # 8 to 128-byte beats are illegal on a 32-bit bus
