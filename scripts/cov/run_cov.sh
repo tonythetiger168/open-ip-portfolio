@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-# run_cov.sh <PROTOCOL> -- Verilator 5.052 five-metric coverage run:
+# run_cov.sh <PROTOCOL> -- Verilator (5.054; 5.052 still works) five-metric coverage run:
 # line, toggle, FSM (generated state/arc covers), SVA (bound concurrent
 # assertions) and functional (covergroups + fc_* covers).
 #   bash scripts/cov/run_cov.sh I2C
@@ -16,10 +16,15 @@ SEED="${SEED:-1}"
 # Older Verilators parse covergroups but drop them (COVERIGN, silenced below),
 # which would score functional coverage on the fc_* covers alone.
 VV=$(verilator --version 2>/dev/null | awk '{print $2}')
-[ -n "$VV" ] || { echo "NO_VERILATOR: install Verilator 5.052 (see README, Setup)"; exit 2; }
+[ -n "$VV" ] || { echo "NO_VERILATOR: install Verilator 5.054 (see README, Setup)"; exit 2; }
 if [ "$(printf '%s\n5.052\n' "$VV" | sort -V | head -1)" != "5.052" ]; then
   echo "OLD_VERILATOR $VV: this flow needs Verilator >= 5.052 (see README, Setup)"; exit 2
 fi
+# Verilator 5.054 moved branch points (v_branch) out of --coverage-line into
+# --coverage-branch. score.py counts LINE as v_line + v_branch, so ask for
+# branch points explicitly where the option exists, or they silently vanish.
+BRANCH=""
+if [ "$(printf '%s\n5.054\n' "$VV" | sort -V | head -1)" = "5.054" ]; then BRANCH="--coverage-branch"; fi
 python3 -c "import pyslang" 2>/dev/null || { echo "NO_PYSLANG: pip install pyslang==12.0.0 (see README, Setup)"; exit 2; }
 mkdir -p "$BUILD"
 case "$P" in
@@ -65,7 +70,7 @@ XFLAGS=$(grep -v '^#' "scripts/cov/flags/$BASE.txt" 2>/dev/null | tr '\n' ' ')
 sed "s/V@TOP@/Vtop/g; s/@TOP@/${TB}/g" scripts/verilator_cov/sim_main.cpp.tmpl > "$BUILD/sim_main.cpp"
 
 verilator --cc --exe --build --timing --assert \
-  --coverage-line --coverage-toggle --coverage-user \
+  --coverage-line $BRANCH --coverage-toggle --coverage-user \
   -j 4 -Wno-fatal -Wno-lint -Wno-style -Wno-UNOPTFLAT -Wno-COVERIGN \
   +incdir+tb/cov +incdir+tb --top-module "$TB" --prefix Vtop ${XFLAGS} ${VFLAGS:-} \
   $RTL "tb/$TB.sv" $TBDEPS $COV "$BUILD/sim_main.cpp" \
