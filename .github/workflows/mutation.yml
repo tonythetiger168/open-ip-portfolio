@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  VERILATOR_VERSION: v5.052
+  VERILATOR_VERSION: v5.054
 
 jobs:
   verilator:

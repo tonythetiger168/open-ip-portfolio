@@ -360,7 +360,7 @@ Tested on a clean Ubuntu 24.04 container. Versions used for the published result
 |---|---|---|
 | Icarus Verilog | 13.0 | `make sim`, `make apb`, CI |
 | Yosys | 0.33 | `make syn`, `make apb`, CI |
-| Verilator | 5.052 | coverage flow (`scripts/cov/`) only |
+| Verilator | 5.054 | coverage flow (`scripts/cov/`) only |
 | Python 3 + `pyslang` 12.0.0 | 3.10+ | coverage flow (FSM cover generation), APB generator, strict elaboration gate |
 
 ```sh
@@ -369,10 +369,10 @@ Tested on a clean Ubuntu 24.04 container. Versions used for the published result
 # (issue #25), so setup_tools.sh builds 13.0 from source (~3 min on 4 cores)
 sudo sh setup_tools.sh
 
-# Verilator 5.052: distribution packages are too old (Ubuntu 24.04 ships 5.020,
+# Verilator 5.054: distribution packages are too old (Ubuntu 24.04 ships 5.020,
 # which silently drops covergroups), so build it from source (~25 min on 4 cores)
 sudo apt-get install -y git make autoconf g++ flex bison libfl-dev help2man python3
-git clone -b v5.052 --depth 1 https://github.com/verilator/verilator.git
+git clone -b v5.054 --depth 1 https://github.com/verilator/verilator.git
 cd verilator && autoconf && ./configure && make -j"$(nproc)" && sudo make install && cd ..
 
 # Python dependency of scripts/cov/ and scripts/apb/
@@ -380,7 +380,8 @@ pip install pyslang==12.0.0    # add --break-system-packages on a PEP 668 distro
 ```
 
 `scripts/cov/run_cov.sh` refuses to run with a Verilator older than 5.052 or
-without `pyslang`.
+without `pyslang`. On 5.054 and later it adds `--coverage-branch`, because
+5.054 no longer counts branch points under `--coverage-line`.
 
 ## Quick start
 
