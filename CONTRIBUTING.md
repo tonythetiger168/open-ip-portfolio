@@ -32,7 +32,7 @@ new protocol IPs, deeper testbench coverage, and documentation.
   multiply driven or undriven-but-read nets, no combinational loops)
 - CI (`scripts/ci_regression.sh`) runs every protocol on every push
 - A core or wrapper change must keep `bash scripts/cov/run_cov.sh <P>` and
-  `<P>_apb` at `RESULT: CLOSED` (Verilator 5.052)
+  `<P>_apb` at `RESULT: CLOSED` (Verilator 5.054)
 
 ## Workflow
 

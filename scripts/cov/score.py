@@ -46,6 +46,15 @@ def canon_factory(files):
         return cache[name]
     return canon
 
+def unparam(name):
+    """Drop parameter values such as #(32,32,1) from a covergroup name."""
+    while True:
+        n = re.sub(r"#\([^()]*\)", "", name)
+        if n == name:
+            return n
+        name = n
+
+
 def parse_dat(path):
     pts = []
     for ln in open(path, encoding="latin1"):
@@ -105,7 +114,11 @@ def main():
             elif name.startswith("fc_"):
                 k = f"{mod}.{name}"; m["FUNCTIONAL"][k] = m["FUNCTIONAL"].get(k, 0) + p["count"]
         elif kind == "v_covergroup":
-            key = f"{mod}:{p.get('h','')}"   # h = cg.cp.bin (already per type)
+            # h = <class>.cg.cp.bin. Verilator 5.054 names the class, in h and
+            # in the page, with its parameter values (OCP_sva#(32,32,1).cg...),
+            # so two bound instances with different parameters became separate
+            # bins; fold them into one bin per covergroup type, as 5.052 did.
+            key = unparam(f"{mod}:{p.get('h', '')}")
             m["FUNCTIONAL"][key] = m["FUNCTIONAL"].get(key, 0) + p["count"]
     fails = set(re.findall(r"SVA_FAIL: (\S+)", logtxt))
     for k, c in ante.items():
