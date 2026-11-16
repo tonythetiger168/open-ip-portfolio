@@ -256,6 +256,12 @@ None.
 | "SoT LP-00" | then LP-00 | §3.2 |
 | "SoT HS-0" | then HS-0 with the HS driver on | §3.2 |
 | "HS differential" | `d_hs_n` = !`d_hs_p` during the burst | §3.2 |
+| "data lane HS pads not P=0 N=1 while HS is off" | the data lane HS pads rest at P = 0, N = 1 | §3.2 |
+| "clock lane HS enable differs from the data lane's" | the clock lane drives HS from HS-0 through EoT, like the data lane | §3.2 |
+| "clock lane HS not differential" | `c_hs_n` = !`c_hs_p` while the clock lane is HS | §3.2 |
+| "HS clock: c_hs_p" | `c_hs_p` toggles every clock of the burst, starting at 0 | §3.2 |
+| "lpdt_ready outside an LPDT escape" | LPDT bytes are taken only during an LPDT escape | §3.4 |
+| "no HS-0: irq not set in the next clock" | LP-00 not followed by HS-0 raises `irq` at once | §3.5 |
 | "sync byte" | 0xB8 LSB first | §3.2 |
 | "EoT inverted bit" | EoT: the last bit inverted | §3.2 |
 | "EoT hold bit" | then the last bit | §3.2 |
