@@ -222,7 +222,7 @@ and `rx_wr` to 0, so `count` = 0 and `irq` = 0. The FIFO and ring storage are no
 ## 6. TB check map
 
 Messages are printed by `tb/RGMII_tb.sv` as `ERROR: <message>` (A1..A6 as `SVA_FAIL:`); "CRV"
-messages, the `rx_ctl` drop tests and A1..A6 are built only for Verilator. Assertions a_* are in
+messages and A1..A6 are built only for Verilator (the `rx_ctl` drop tests now run in every build). Assertions a_* are in
 `tb/cov/RGMII_sva.sv`. All TB checks run in loopback (`rx_clk` = `tx_clk`, `rxd` = `txd`,
 `rx_ctl` = `tx_ctl` unless the TB forces it low).
 
@@ -250,3 +250,5 @@ messages, the `rx_ctl` drop tests and A1..A6 are built only for Verilator. Asser
 | a_rx_count_model | `count` equals an independent model of §3.3 | §3.3 |
 | a_rx_read_model | for a written entry, `rdata` matches the model ring | §3.3, §3.4 |
 | a_irq_model | `irq` = (model count != 0) && `ren` | §3.4 |
+| "RGMII irq" | every clock: `irq` = (`count` ≠ 0) and `ren` | §3.4 |
+| "RGMII byte stored from a lone low nibble after reset" | when the first `rx_clk` edge after reset is rising, that low nibble has no high half and no byte is stored | §3.3, §3.5 |
