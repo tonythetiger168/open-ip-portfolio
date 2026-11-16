@@ -73,6 +73,10 @@ I2S_Audio | bclk_d       <= 1'b0; | 1'b0 -> 1'b1 | reset value: the false fallin
 MIPI_DBI__Display_Bus_Interface_ | st <= S_IDLE; cnt <= '0; bits <= '0; dum <= '0; o_rd <= 1'b0; o_last <= 1'b0; | 1'b0 -> 1'b1 | reset values of o_rd and o_last; both are loaded when an op is accepted, before any phase reads them
 MIPI_DBI__Display_Bus_Interface_ | prev_rd <= 1'b0; sh <= '0; rsh <= '0; rd_valid <= 1'b0; rd_data <= '0; | 1'b0 -> 1'b1@1 | reset value of prev_rd; the first op after reset has CSX high, which forces the dummy clocks whatever prev_rd is
 MIPI_DBI__Display_Bus_Interface_ | sda_o <= op_rd ? 1'b0 : (cfg_type == 2'd2 ? op_dc : op_data[7]); | 1'b0 -> 1'b1 | a read releases SDA (sda_oe = 0), so the sda_o level is not on the pin
+ARM_Serial_Wire_Debug | if (!rst_n) begin ck_m <= 1'b0; ck_s <= 1'b0; ck_q <= 1'b0; io_m <= 1'b1; io_s <= 1'b1; end | 1'b0 -> 1'b1@3 | reset value of ck_q: with ck_s 0 a 1 in ck_q cannot make a rise, and ck_q follows ck_s from the first clock
+ARM_Serial_Wire_Debug | if (!rst_n) begin ck_m <= 1'b0; ck_s <= 1'b0; ck_q <= 1'b0; io_m <= 1'b1; io_s <= 1'b1; end | 1'b1 -> 1'b0 | SWDIO synchronizer reset values: the earliest SWCLK rise is seen two clocks after reset, when io_s already holds SWDIO from after reset
+ARM_Serial_Wire_Debug | st <= S_LOCK; ones <= '0; idle2 <= 1'b0; need_id <= 1'b0; req <= '0; k3 <= '0; k <= '0; | 1'b0 -> 1'b1@2 | reset value of need_id; the port starts locked out and every way out (a line reset) sets need_id
+ARM_Serial_Wire_Debug | end else begin swdio_out <= sh[0]; sh <= {1'b0, sh[32:1]}; end | 1'b0 -> 1'b1 | the bit shifted in at sh[32] would need 33 more shifts to reach sh[0]; a read sends only bits 0..32
 WTB | tsh    <= {B_PRE[6:0], 1'b0}; | 1'b0 -> 1'b1 | the pre-shifted LSB is never sent: tsh is reloaded after the 8th bit
 UCIe | for (int k = 15; k > 0; k--) m[528 * k +: 528] = m[528 * (k - 1) +: 528]; | > -> >= | constant function: the extra k = 0 step writes row 0, which the next statement clears
 UCIe | rsp_got <= 1'b0; | 1'b0 -> 1'b1 | reset value; cleared on every entry to ACTREQ, the only state that reads it
