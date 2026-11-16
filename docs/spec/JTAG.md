@@ -203,6 +203,8 @@ The TB drives TMS / TDI while TCK is low and samples TDO just before the rise.
 | "JTAG long IDCODE scan" | ... and bits 0..31 are IDCODE | §3.3 |
 | "A1 trst: TAP in TLR" | `trst_n` low: `tap_q` = TLR | §3.6 |
 | "A2 TAP transition legal" | `tap_q` follows the state diagram | §3.1 |
+| "JTAG tdo not 0 outside Shift" | `tdo` is 0 when it was updated in any state other than Shift-IR / Shift-DR (every build, every scan) | §3.4 |
+| "JTAG tdo not 0 in TAP reset" | `tdo` is 0 while `trst_n` is low | §3.4, §3.6 |
 | "A4 tdo never X" | `tdo` is 0 or 1 at every TCK | §3.4 |
 | "A6 ir_q updates only at UPD_IR / TLR" | `ir_q` changes only after Update-IR or in Test-Logic-Reset | §3.2 |
 | a_irq_quiet_in_reset | `irq` = 0 in `rst_n` | §3.5 |
