@@ -210,3 +210,8 @@ built only for Verilator. Assertions a_* are in `tb/cov/QSPI_sva.sv`.
 | a_quad_write_released | quad write: `io_oe` = 0000 | §3.4 |
 | a_irq_byte_done | `irq` equals the model's byte-done | §3.2 |
 | a_read_mux | `rdata` by `raddr` | §2 |
+| "QSPI irq longer than one clock" | `irq` is a one-clock pulse | §3.2 |
+| "QSPI rdata raddr" | `rdata` = `tx_q` at `raddr` 1 and 0 at `raddr` 2..15 | §2 |
+| "QSPI irq in reset" | in reset `irq` = 0 | §3.5 |
+| "QSPI quad read with reset dir" | `dir` resets to 0 (slave drives): a quad read works with no `dir` write | §3.4, §3.5 |
+| "QSPI %s: %0d irq pulses" | exactly one `irq` pulse per 8-bit frame (std or quad) | §3.2 |
