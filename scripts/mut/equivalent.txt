@@ -257,3 +257,5 @@ Ethernet_AVB_TSN | if (gcl_entry == gcl_last) ent_done <= 1'b1; | 1'b1 -> 1'b0 |
 Ethernet_AVB_TSN | for (int c = 0; c < 4; c++) begin : b_cbs | 4 -> 5 | the extra iteration writes credit[4], which does not exist (index 0..3), so nothing is stored
 Ethernet_AVB_TSN | for (int c = 0; c < 4; c++) credit[c] <= '0; | 4 -> 5 | the extra iteration writes credit[4], which does not exist (index 0..3), so nothing is stored
 Ethernet_AVB_TSN | for (int k = 0; k < 8; k++) begin g_gates[k] <= '0; g_ivl[k] <= '0; end | 8 -> 9 | the extra iteration writes entry 8, which does not exist (index 0..7), so nothing is stored
+ACE_Lite | werr_q  <= (awburst != BURST_INCR) || (awsize > 3'd2) || (|awaddr[AW-1:10]); | | -> & | a start address at or past 1KB also makes the first W beat out of range (w_oor), which sets werr_q, drops the write and raises irq at the last beat; bresp is only seen after that
+UniPro_Mem | r_tc <= 1'b0; r_cport <= 4'h0; r_len <= 8'h0; | 1'b0 -> 1'b1@1 | reset value; r_tc is read only when a complete good frame is enqueued, and that frame's header byte has set it
