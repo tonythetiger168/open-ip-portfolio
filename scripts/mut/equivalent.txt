@@ -233,3 +233,8 @@ MDIO | for (int i = 0; i < 32; i++) regs[i] <= 16'h0000; | 32 -> 33 | the extra 
 GMII | rxclk_s <= 1'b0; rxclk_d <= 1'b0; rxdv_s <= 1'b0; rxd_s <= '0; | 1'b0 -> 1'b1@1 | a capture in the first clock out of reset also needs rxdv_s, still at its reset value 0
 GMII | rxclk_s <= 1'b0; rxclk_d <= 1'b0; rxdv_s <= 1'b0; rxd_s <= '0; | 1'b0 -> 1'b1@2 | only hides an rx_clk rise in the first clock out of reset, when rxclk_s is still 0, so nothing changes
 GMII | rxclk_s <= 1'b0; rxclk_d <= 1'b0; rxdv_s <= 1'b0; rxd_s <= '0; | 1'b0 -> 1'b1@3 | a capture in the first clock out of reset also needs an rx_clk rise, and rxclk_s is still 0
+SAS_4__Serial_Attached_SCSI_ | oob_det <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; oob_det is read only in the idle states, and OOB starts in CR_BURST while oob_det is cleared every clock
+SAS_4__Serial_Attached_SCSI_ | rsp_pending <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; phy_ready is 0 out of reset, and the !phy_ready branch clears rsp_pending in the next clock
+SAS_4__Serial_Attached_SCSI_ | tx_pld <= {tx_pld[126:0], 1'b0}; | 1'b0 -> 1'b1 | a shifted-in bit reaches tx_pld[127] only after 128 shifts; the next block is loaded after 128
+SAS_4__Serial_Attached_SCSI_ | pay_blk    <= 1'b0; | 1'b0 -> 1'b1 | reset value; RF_HDR clears pay_blk before RF_PAY reads it
+SAS_4__Serial_Attached_SCSI_ | for (int k = 0; k < 16; k++) regs[k] <= 32'd0; | 16 -> 17 | the extra iteration writes regs[16], which does not exist (the write is ignored)
