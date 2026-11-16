@@ -283,6 +283,13 @@ module MIPI_SPMI_tb;
     m_ssc; m_cmd(USID, 8'h01, 0); m_frm(8'd12, 0); for (int i = 0; i < 3; i++) m_bit(0);  // in WDATA
     m_ssc; m_cmd(USID, 8'h32, 0); m_frm(8'd0, 0); m_bit(1);                // between long addr frames
     reg_read(USID, 5'd12);
+    // the response cycle belongs to the slave: an SDATA pulse there is not
+    // an SSC, and the slave still answers ACK on the next SCLK rise
+    m_ssc; m_cmd(USID, {3'b010, 5'd13}, 0); m_frm(8'hD3, 0);
+    m_ssc;
+    s_ack(1, "write after an SDATA pulse in the response cycle"); m_idle(2);
+    smem[13] = 8'hD3;
+    reg_read(USID, 5'd13);
     // SDATA pulses that are not an SSC (SCLK rises before SDATA falls)
     m_sclk = 0; m_oe = 1; m_val = 1; #HALF; m_sclk = 1; #HALF; m_val = 0; #HALF; m_sclk = 0; #HALF;
     m_idle(2);

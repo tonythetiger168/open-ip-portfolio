@@ -245,3 +245,9 @@ Bluetooth5 | tx_sn          <= 1'b0; | 1'b0 -> 1'b1 | reset value; tx_sn is used
 Bluetooth5 | rx_sn         <= 1'b0; | 1'b0 -> 1'b1 | reset value; rx_sn is used only in the connection state, and CONNECT_REQ sets it to 0 on entry
 Bluetooth5 | for (int i = 0; i < 16; i++) rx_buf[i] <= 8'h00; | < -> >= | rx_buf is then not cleared at reset; it is read only for a 15-byte CONNECT_REQ, whose payload has just rewritten rx_buf[0..14]
 Bluetooth5 | for (int i = 0; i < 16; i++) rx_buf[i] <= 8'h00; | 16 -> 17 | the extra iteration writes rx_buf[16], which does not exist (index 0..15), so nothing is stored
+MIPI_SPMI | nleft <= '0; rd_q <= 1'b0; long_q <= 1'b0; hi_q <= 1'b0; ack_q <= 1'b0; | 1'b0 -> 1'b1@1 | reset value; rd_q is set by every extended command before S_ADDR reads it
+MIPI_SPMI | nleft <= '0; rd_q <= 1'b0; long_q <= 1'b0; hi_q <= 1'b0; ack_q <= 1'b0; | 1'b0 -> 1'b1@4 | reset value; ack_q is set at the end of every command frame before S_WDATA or S_ACK reads it
+MIPI_SPMI | for (int i = 0; i < 32; i++) mem[i] <= 8'h00;#1 | 32 -> 33 | the reset loop's extra iteration writes mem[32], which does not exist (index 0..31), so nothing is stored
+MIPI_SPMI | bcnt <= bcnt + 4'd1;#3 | + -> - | S_WDATA is entered with bcnt = 0; counting down 0, 15, 14, ..., 8 also reaches 8 on the 9th bit, and bcnt is cleared there
+MIPI_SPMI | nleft <= '0; rd_q <= 1'b0; long_q <= 1'b0; hi_q <= 1'b0; ack_q <= 1'b0; | 1'b0 -> 1'b1@2 | reset value; long_q is set by every extended command before S_ADDR reads it
+MIPI_SPMI | nleft <= '0; rd_q <= 1'b0; long_q <= 1'b0; hi_q <= 1'b0; ack_q <= 1'b0; | 1'b0 -> 1'b1@3 | reset value; hi_q is cleared at the end of every command frame before S_ADDR reads it
