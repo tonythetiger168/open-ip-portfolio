@@ -217,6 +217,12 @@ transaction, and (Verilator) random writes, reads and snoops.
 | "CRV ACE snoop" | random snoop CRRESP | §3.4 |
 | "CRV ACE snoop CD" | random snoop CD data | §3.4 |
 | "ACE write" | directed write BRESP | §3.2 |
+| "ACE reset values bresp" | `bresp`, `rresp`, `crresp`, `irq` are 0 in reset | §1, §3.5 |
+| "ACE awready while a write or snoop is in progress" | `awready` only while the write path and the snoop path are idle | §3.2, §3.4 |
+| "ACE acready while a write or snoop is in progress" | `acready` only while the snoop path and the write path are idle | §3.4 |
+| "ACE write without wlast not ended after awlen+1 beats" | the burst ends at the beat count when `wlast` never comes | §3.2 |
+| "ACE read error irq count" | a read header error alone (burst type, or start at 64 KB) pulses `irq` once | §3.3, §5 |
+| "ACE dirty CleanInvalid crresp" | CleanInvalid on a dirty line: WasUnique, PassDirty, DataTransfer | §3.4 |
 | "ACE read" | directed read data / RRESP / RLAST | §3.3 |
 | "ACE snoop" | directed snoop completes | §3.4 |
 | "ACE reset state bvalid" | out of reset: `bvalid`, `rvalid`, `crvalid`, `cdvalid`, `irq` 0 | §3.5 |

@@ -122,6 +122,15 @@ module MIPI_SoundWire_tb;
   logic [9:0]  rq [0:255];
   int          rqh = 0, rqt = 0, n_rsp = 0;
   bit          bad_par = 0;              // the next command's parity bit is forced
+  // outputs in reset (documented reset value 0), every node
+  int rst_clk [N];
+  always @(negedge clk)
+    for (int i = 0; i < N; i++) begin
+      rst_clk[i] = rst_n[i] ? 0 : rst_clk[i] + 1;
+      if (rst_clk[i] >= 2 && {dat_o[i], dat_oe[i], rsp_valid[i], rsp_ack[i], rsp_nak[i], reg_we[i], reg_re[i]} !== '0)
+        fail($sformatf("node %0d data/response/register outputs not 0 in reset", i));
+    end
+
   always @(negedge clk) if (rst_n[0] && rsp_valid[0]) begin
     n_rsp++;
     if (rqh == rqt) fail("response with no command");

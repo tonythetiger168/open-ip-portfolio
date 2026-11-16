@@ -165,6 +165,7 @@ balance and injects `hpd` loss.
 | "tmds_clk pattern bit" | clock channel pattern | §3.1 |
 | "flags px" | hsync / vsync / de per pixel | §3.2 |
 | "pixel px" | decoded video pixels | §3.3 |
+| "TMDS code px" | every video code is exactly the DVI 1.0 8b/10b code for the running disparity (a reference encoder in the TB, restarted after every non-video pixel) | §3.3 |
 | "disparity ch" | DC balance | §3.3 |
 | "video guard px" | video guard band | §3.4 |
 | "video preamble px" | video preamble | §3.4 |
@@ -195,6 +196,9 @@ balance and injects `hpd` loss.
 | "irq not set before reset" | `irq` | §3.7 |
 | "reset while unplugged" | reset | §3.7 |
 | "irq after reset with hpd low" | reset clears the running flag | §3.7 |
+| "de before the first pixel out of reset" | with `hpd` high, no pixel before the 10th clock after reset | §3.2, §3.7 |
+| "first pixel out of reset is not (0, 0)" | ...and the first pixel, at the 10th clock, is (0, 0) | §3.2, §3.7 |
+| "stream not checked after reset with hpd high" | the monitor checks the stream again after that reset | §3.7 |
 | "CRV" | random plug / unplug phase | §3.7 |
 | "no SPD InfoFrame seen" | SPD sent | §3.6 |
 | "TIMEOUT" | the run finishes | §3 |

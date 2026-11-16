@@ -17,6 +17,14 @@ Simplified SAS-4 (24G) style initiator with a 128b/150b-style block code (here 1
 
 The checker uses ports only; it models the whole core from the line.
 
+### Internal signals used by the verification
+
+The TB reads these by name; a re-implementation must have them.
+
+| Signal | Width | Meaning |
+|---|---|---|
+| `rx_lock` | 1 | receive block lock (0 hunting, 1 locked), §3.3 |
+
 ## 2. Registers
 
 <!-- AUTO:registers -->
@@ -175,6 +183,14 @@ None.
 |---|---|---|
 | "DUT header junk bits" | header dwords carry the field in bits 7:0 and zeros above | §3.2 |
 | "DUT frame structure" | SOF, header, 0 or 1 payload block, CRC, EOF | §3.2 |
+| "OOB idle" | the DUT's OOB idle between bursts is 318 clocks (bursts are 106) | §3.1 |
+| "first DUT frame after link-up has type" | after a link-up the first frame is the sequencer's write: no response is carried across a link loss | §3.4, §3.5 |
+| "sequencer write timeout" | a lost write raises a timeout irq, and the read that follows a mismatch irq | §3.5, §3.6 |
+| "sequencer read timeout: no irq" | a lost read response raises a timeout irq | §3.5, §3.6 |
+| "sequencer read-verify mismatch: no irq" | a wrong read value raises a mismatch irq | §3.5, §3.6 |
+| "block lock without a legal control code" | the receiver locks only after a legal control code (IDLE, SOF, EOF) at the current alignment; unknown codes and codes before a bit slip do not count; no frame is sent while hunting | §3.3 |
+| "no block lock on" | SOF alone, or EOF alone, is a legal code for lock | §3.3 |
+| "no response to the reg 0 read after reset" | a read of reg 0 right after lock returns the reset value 0 | §3.7 |
 | "DUT payload padding" | payload dwords 1..3 are zero | §3.2 |
 | "DUT frame CRC" | CRC block dword 0 is the right CRC, the rest zero | §3.2 |
 | "DUT write header" | write: type 0x01, dst = register, src 1, len 1 | §3.2 |

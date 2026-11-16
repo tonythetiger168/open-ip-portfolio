@@ -181,6 +181,7 @@ response after every write.
 | "reg" | register file as the shadow model | §3.2, §3.3 |
 | "reset state" | `irq` 0, released | §3.6 |
 | "SDATA pulse with SCLK high taken as SSC" | not an SSC | §3.1 |
+| "write after an SDATA pulse in the response cycle" | an SDATA pulse in the ACK cycle is not an SSC; the slave still answers ACK | §3.1, §3.4 |
 | "drive kept through reset" | reset releases a read drive | §3.6 |
 | "ACK kept through reset" | reset releases an ACK drive | §3.6 |
 | a_reset_released | in reset: released, no `irq` | §3.6 |

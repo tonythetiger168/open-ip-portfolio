@@ -219,6 +219,9 @@ The TB is the controller, with a pulled-up SDA (`tri1`) and `I2C_ADDR` = 0x50.
 | Check (TB message or assertion) | What it requires | Spec |
 |---|---|---|
 | "I2C no ACK on addr W" | address 0x50 + W is ACKed | §3.2, §3.3 |
+| "I2C slave pulled SDA low while SCL is high" | the slave changes SDA only while SCL is low (no false START, also not after a STOP) | §3.1, §3.3 |
+| "I2C outputs not idle in reset" | `busy`, `rx_valid`, `irq` low and SDA released in reset | §3.6 |
+| "I2C busy" | while the bus is idle (since reset or a STOP) the slave is not busy, reports no byte and releases SDA | §3.1, §3.6 |
 | "I2C no ACK on data" | a written data byte is ACKed | §3.4 |
 | "I2C rx_valid never pulsed" | a written byte pulses `rx_valid` | §3.4 |
 | "I2C rx_byte" | `rx_byte` holds the written byte (0x5A) | §3.4 |

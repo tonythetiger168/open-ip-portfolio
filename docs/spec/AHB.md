@@ -175,6 +175,8 @@ Messages are printed by `tb/AHB_tb.sv` through `chk()` as `ERROR: <message>` (A1
 | "A3 two-cycle ERROR response" | ERROR with `hreadyout` = 0 is followed by ERROR with `hreadyout` = 1 | §3.2 |
 | "A4 state encoding legal" | `state` <= 2 | §1 |
 | "A5 hrdata zero on ERROR" | `hrdata` = 0 during ERROR | §3.2 |
+| "hrdata not 0 outside a read data phase" | `hrdata` = 0 except in the data phase of an OKAY read (all builds) | §1 |
+| "irq not exactly the first ERROR cycle" | `irq` = 1 exactly in ERROR cycle 1 (`hresp` high, `hreadyout` low) | §3.2 |
 | "A6 irq single-cycle pulse" | `irq` never two cycles in a row | §3.2 |
 | "crv: idle cycle must be ready" | random single transfers: ready when idle | §3.2 |
 | "crv fast: single-cycle OKAY" | fast region zero wait | §3.2 |
