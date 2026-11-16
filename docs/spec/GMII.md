@@ -223,6 +223,8 @@ All TB checks run in loopback (`rx_clk` = `tx_clk`, `rxd` = `txd`, `rx_dv` = `tx
 | Check (TB message or assertion) | What it requires | Spec |
 |---|---|---|
 | "GMII rxq[" | 8 bytes written, looped back, captured in order in ring entries 0..7 | §3.1, §3.2, §3.3 |
+| "GMII tx_er not 0" | `tx_er` = 0 always (all builds) | §1 |
+| "GMII irq" | `irq` = `count` != 0 && `ren`, also with `ren` and nothing captured (all builds) | §3.4 |
 | "CRV burst" | 120 random bursts of 1..8 bytes (00/FF corners, stray writes to other addresses, `rx_er` pulses) read back in random order from `rxq[(base+i) % 16]` | §3.3, §5 |
 | "GMII overflow" | 12 back-to-back writes: some but not all 12 bytes are sent (FIFO fills, later writes dropped) | §3.1 |
 | "GMII overflow byte" | the first 8 of those bytes arrive intact and in order | §3.1, §3.2 |
