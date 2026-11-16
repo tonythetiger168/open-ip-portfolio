@@ -238,3 +238,10 @@ SAS_4__Serial_Attached_SCSI_ | rsp_pending <= 1'b0;#1 | 1'b0 -> 1'b1 | reset val
 SAS_4__Serial_Attached_SCSI_ | tx_pld <= {tx_pld[126:0], 1'b0}; | 1'b0 -> 1'b1 | a shifted-in bit reaches tx_pld[127] only after 128 shifts; the next block is loaded after 128
 SAS_4__Serial_Attached_SCSI_ | pay_blk    <= 1'b0; | 1'b0 -> 1'b1 | reset value; RF_HDR clears pay_blk before RF_PAY reads it
 SAS_4__Serial_Attached_SCSI_ | for (int k = 0; k < 16; k++) regs[k] <= 32'd0; | 16 -> 17 | the extra iteration writes regs[16], which does not exist (the write is ignored)
+Bluetooth5 | for (int i = 0; i < 16; i++) adv_pay[i] <= 8'hB0 + 8'(i); | 16 -> 17 | the extra iteration writes adv_pay[16], which does not exist (index 0..15), so nothing is stored
+Bluetooth5 | for (int i = 0; i < 16; i++) rx_buf[i] <= 8'h00; | 0 -> 1 | rx_buf is read only for a 15-byte CONNECT_REQ, whose payload has just rewritten rx_buf[0..14]
+Bluetooth5 | gnt_adv  <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; gnt_adv only clears adv_tx_req, which is 0 out of reset and cannot be set before ADV_INTV clocks
+Bluetooth5 | tx_sn          <= 1'b0; | 1'b0 -> 1'b1 | reset value; tx_sn is used only in the connection state, and CONNECT_REQ sets it to 0 on entry
+Bluetooth5 | rx_sn         <= 1'b0; | 1'b0 -> 1'b1 | reset value; rx_sn is used only in the connection state, and CONNECT_REQ sets it to 0 on entry
+Bluetooth5 | for (int i = 0; i < 16; i++) rx_buf[i] <= 8'h00; | < -> >= | rx_buf is then not cleared at reset; it is read only for a 15-byte CONNECT_REQ, whose payload has just rewritten rx_buf[0..14]
+Bluetooth5 | for (int i = 0; i < 16; i++) rx_buf[i] <= 8'h00; | 16 -> 17 | the extra iteration writes rx_buf[16], which does not exist (index 0..15), so nothing is stored
