@@ -180,6 +180,12 @@ built only for Verilator. Assertions a_* are in `tb/cov/MDIO_sva.sv`.
 |---|---|---|
 | "MDIO rw" | write 0xBEEF to reg 3, read it back | §3.3, §3.4 |
 | "MDIO read TA2 not driven low" | in a read the core drives TA[0] = 0 | §3.4 |
+| "MDIO irq high longer than one MDC period" | `irq` is high only while the last bit of a frame is pending | §1, §3.3 |
+| "MDIO irq pulses" | one `irq` pulse per frame, whatever its PHY address or opcode | §1, §3.3 |
+| "MDIO frame started without an idle 1 after reset" | a frame needs an idle 1 before ST; a 0 straight after reset is not ST | §3.2, §3.5 |
+| "MDIO reg 9 changed by another PHY's write or op 00/11" | only a write (OP 01) to this PHY address changes a register | §3.3 |
+| "MDIO reg 1 after reset" | reset clears the registers | §3.5 |
+| "MDIO reg 0 after reset" | reset restores reg 0 = 0x1140 | §3.5 |
 | "MDIO reg0" | reg 0 reads 0x1140 after reset | §2 |
 | "MDIO reg5" | after a 1-bit preamble a frame is still received | §3.2 |
 | "MDIO back-to-back reg6" | a frame ending in 0 followed by a 1-bit preamble: the next frame is received | §3.2 |
