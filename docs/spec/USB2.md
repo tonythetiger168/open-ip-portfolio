@@ -181,6 +181,8 @@ A bus reset clears the address, the configuration, the toggles and `hs_mode`. It
 |---|---|---|
 | "device PID check" | every device packet has a valid PID / check nibble | §3.3 |
 | "device CRC16" | every device data packet has the right CRC16 | §3.3 |
+| "device EOP SE0" | every device EOP starts with SE0 for exactly 2 bit times | §3.3 |
+| "device EOP J" | ...followed by J for exactly 1 bit time before release | §3.3 |
 | "descriptor byte" | descriptor contents per speed | §3.5 |
 | "high-speed descriptor not one packet" | in high speed the 18-byte descriptor is one packet (max 64) | §3.5 |
 | "descriptor length" | descriptor data truncated to wLength | §3.5 |
