@@ -244,3 +244,10 @@ transactions and a reset mid-transfer.
 | a_rd_data | `rd_data` as the model | §3.2, §3.3 |
 | a_strobe_csx | any strobe or SCL high only with CSX low | §3.2, §3.3 |
 | a_reset | in reset: CSX high, outputs idle | §3.4 |
+| "pins not at their reset levels in reset" | in reset CSX, D/CX, WRX, RDX high; bus, SCL, SDA and their enables 0; no `rd_valid` | §3.4 |
+| "busy is not (op in progress or CSX low)" | `busy` = not `op_ready` or CSX low | §3.1 |
+| "WRX low or bus driven with CSX high" | Type B / C: WRX high and the bus released while CSX is high | §3.1, §3.2 |
+| "Type A R/WX not back to 1 with CSX high" | Type A: R/WX returns to 1 by the time CSX rises | §3.2 |
+| "Type B strobe %0d PCLK" / "Type A E high" | strobe phase = `cfg_tw` + 1 PCLK for a write, `cfg_tr` + 1 for a read | §3.2 |
+| "Type C SCL low" / "Type C SCL high" | each SCL low and high phase = `cfg_tw` + 1 PCLK (write) or `cfg_tr` + 1 (read) | §3.3 |
+| "hold before CSX rise" | Type A / B: after the strobe of an op with `op_last`, CSX rises after the hold phase of `ph` + 1 PCLK | §3.1, §3.2 |
