@@ -186,3 +186,4 @@ immediate checks A1..A6 are built only for Verilator. Assertions a_* are in `tb/
 | a_pwm_model | `pwm_out` equals the model's compare | §3.1, §3.2 |
 | a_irq_model | `irq` equals the model's terminal count | §3.2 |
 | a_disabled_low | period 0: `pwm_out` and `irq` low | §3.3, §5 |
+| "PWM model mismatch t" | every clock: `pwm_out`, `pwm_n_out`, `irq` as the period/duty/counter model | §3.1–§3.3 |

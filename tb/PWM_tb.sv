@@ -61,6 +61,30 @@ module PWM_tb;
   end
 `endif
 
+  // Independent cycle model of the register/counter behaviour, built from the
+  // testbench's own bus drive (not from DUT internals). Every output is
+  // compared on every falling edge, in all builds (issue #44).
+  logic [31:0] m_period = '0, m_duty = '0, m_cnt = '0;
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      m_period <= '0; m_duty <= '0; m_cnt <= '0;
+    end else begin
+      if (wen && waddr == 4'd0) m_period <= wdata;
+      if (wen && waddr == 4'd1) m_duty   <= wdata;
+      m_cnt <= (m_period == 0 || m_cnt >= m_period - 1) ? '0 : m_cnt + 1;
+    end
+  end
+  wire m_pwm = (m_period != 0) && (m_cnt < m_duty);
+  wire m_irq = (m_period != 0) && (m_cnt == m_period - 1);
+  always @(negedge clk) begin
+    if (dut.pwm_out !== m_pwm || dut.pwm_n_out !== !m_pwm || dut.irq !== m_irq) begin
+      errors++;
+      if (errors < 10)
+        $display("ERROR: PWM model mismatch t=%0t pwm=%b/%b n=%b irq=%b/%b",
+                 $time, dut.pwm_out, m_pwm, dut.pwm_n_out, dut.irq, m_irq);
+    end
+  end
+
   task automatic wr(input logic [3:0] a, input logic [31:0] d);
     begin
       @(negedge clk); wen <= 1'b1; waddr <= a; wdata <= d;
@@ -182,6 +206,21 @@ module PWM_tb;
                n_norm, n_bnd, n_ovf, n_ill);
     end
 `endif
+
+    // address decode: a period write must leave duty alone and vice versa;
+    // waddr=1 with wen low must not write
+    wr(4'd0, 32'd6); wr(4'd1, 32'd2);
+    repeat (14) @(posedge clk);
+    wr(4'd0, 32'd12);
+    repeat (14) @(posedge clk);
+    @(negedge clk); waddr <= 4'd1; wdata <= 32'd11;   // wen stays 0
+    repeat (14) @(posedge clk);
+    wr(4'd3, 32'd1);
+    repeat (14) @(posedge clk);
+    wr(4'd0, 32'd1); wr(4'd1, 32'd1);                 // period 1: irq every clock
+    repeat (4) @(posedge clk);
+    wr(4'd0, 32'd2);
+    repeat (6) @(posedge clk);
 
     // reconfigure on the fly: shrink the period below the running count,
     // change duty mid-period, disable, then reset while running

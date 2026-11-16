@@ -249,3 +249,7 @@ clean line; alignment is tested at every bit offset, at and below the unlock thr
 | a_rx_data | block data and start flags as the model | §3.5 |
 | a_rx_mb | `rx_cmd` / `rx_crc_err` as the model | §3.5 |
 | a_reset | in reset: line 0, no locks, no pulses | §3.6 |
+| "A line: block" | end A line bits = independent CRC-12 / scrambler / sync-header reference | §3.1–§3.3 |
+| "tx_p not 0 in reset" | in reset the line output is 0 | §3.6 |
+| "an output is not 0 in reset" | in reset every output is 0 | §3.6 |
+| "pulse output" | pulse outputs never stay high two clocks in a row; `sh_lock` not before 63 x 66 bit times after reset or unlock | §3.3–§3.5 |

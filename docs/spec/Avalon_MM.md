@@ -237,3 +237,6 @@ and (Verilator) random traffic over every error class.
 | a_irq_sticky | `irq` stays 1 | §3.5 |
 | a_irq_on_error | each error event sets `irq` by the next clock | §3.5 |
 | a_irq_cause | `irq` rises only after an error event | §3.5 |
+| "Avalon_MM model t" | before every rising edge: `av_waitrequest`, `av_readdatavalid`, `irq` and read data as the cycle model | §3.1–§3.6 |
+| "irq after legal bursts" | fast and slow bursts inside the map leave `irq` low | §3.5 |
+| "irq not set for burstcount 17" | burstcount > 16 alone raises `irq` | §3.5 |
