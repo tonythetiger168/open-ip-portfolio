@@ -217,6 +217,7 @@ transaction, and (Verilator) random writes, reads and snoops.
 | "CRV ACE snoop" | random snoop CRRESP | §3.4 |
 | "CRV ACE snoop CD" | random snoop CD data | §3.4 |
 | "ACE write" | directed write BRESP | §3.2 |
+| "ACE reset values bresp" | `bresp`, `rresp`, `crresp`, `irq` are 0 in reset | §1, §3.5 |
 | "ACE awready while a write or snoop is in progress" | `awready` only while the write path and the snoop path are idle | §3.2, §3.4 |
 | "ACE acready while a write or snoop is in progress" | `acready` only while the snoop path and the write path are idle | §3.4 |
 | "ACE write without wlast not ended after awlen+1 beats" | the burst ends at the beat count when `wlast` never comes | §3.2 |

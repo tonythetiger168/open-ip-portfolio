@@ -512,6 +512,10 @@ module ACE_tb;
       $display("ERROR: ACE reset state bvalid=%b rvalid=%b crvalid=%b cdvalid=%b",
                bvalid, rvalid, crvalid, cdvalid);
     end
+    if (bresp !== 2'b00 || rresp !== 2'b00 || crresp !== 5'b0 || irq !== 1'b0) begin
+      errors++;
+      $display("ERROR: ACE reset values bresp=%b rresp=%b crresp=%b irq=%b", bresp, rresp, crresp, irq);
+    end
     rst_n = 1; repeat (2) @(posedge clk);
 
     // ---------------- 2. burst write then read-back compare ----------------
