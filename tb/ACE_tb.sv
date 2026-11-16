@@ -85,6 +85,28 @@ module ACE_tb;
   // irq monitor
   always @(posedge clk) if (irq) irq_seen++;
 
+  // channel interlock monitor (all builds): AW and AC are accepted only
+  // while both the write path (AW handshake .. B handshake) and the snoop
+  // path (AC handshake .. CR handshake, or CD handshake after DataTransfer)
+  // are idle
+  bit wr_busy = 0, snp_busy = 0, snp_cd = 0;
+  always @(posedge clk) begin
+    if (!rst_n) begin wr_busy = 0; snp_busy = 0; snp_cd = 0; end
+    else begin
+      if ((wr_busy || snp_busy) && awready) begin
+        errors++; $display("ERROR: ACE awready while a write or snoop is in progress @%0t", $time);
+      end
+      if ((wr_busy || snp_busy) && acready) begin
+        errors++; $display("ERROR: ACE acready while a write or snoop is in progress @%0t", $time);
+      end
+      if (awvalid && awready) wr_busy = 1;
+      else if (bvalid && bready) wr_busy = 0;
+      if (acvalid && acready) snp_busy = 1;
+      else if (crvalid && crready) begin snp_cd = crresp[0]; snp_busy = crresp[0]; end
+      else if (cdvalid && cdready) begin snp_busy = 0; snp_cd = 0; end
+    end
+  end
+
 `ifdef VERILATOR
   // =====================================================================
   // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
@@ -407,12 +429,12 @@ module ACE_tb;
   // -------------------------------------------------
   task automatic axi_read(input logic [AW-1:0] addr, input logic [7:0] len,
                           input logic [DW-1:0] base, input logic [1:0] exp_resp,
-                          input bit exp_zero);
+                          input bit exp_zero, input logic [1:0] burst = 2'b01);
     logic [DW-1:0] exp;
     begin
       @(negedge clk);
       arvalid = 1; araddr = addr; arlen = len; arsize = 3'd2;
-      arburst = 2'b01; arsnoop = 4'h0; ardomain = 2'b01; arbar = 2'b00;
+      arburst = burst; arsnoop = 4'h0; ardomain = 2'b01; arbar = 2'b00;
       while (!arready) @(negedge clk);
       @(posedge clk);
       @(negedge clk) arvalid = 0;
@@ -466,7 +488,12 @@ module ACE_tb;
           errors++;
           $display("ERROR: ACE snoop @%h cdlast not set on single-beat CD", addr);
         end
-        @(negedge clk) cdready = 1;
+        @(negedge clk);                       // one clock of CD backpressure
+        if (cdvalid !== 1'b1 || cddata !== dat) begin
+          errors++;
+          $display("ERROR: ACE snoop @%h CD not held until cdready", addr);
+        end
+        cdready = 1;
         @(posedge clk);
         @(negedge clk) cdready = 0;
       end
@@ -610,6 +637,40 @@ module ACE_tb;
     while (!bvalid) @(negedge clk);
     bready = 1; @(posedge clk); @(negedge clk) bready = 0;
     axi_read(32'h0000_0740, 8'd1, 32'h0740_0000, AXI_OKAY, 0);
+
+    // missing wlast: the burst ends after awlen+1 beats
+    @(negedge clk);
+    awvalid = 1; awaddr = 32'h0000_0780; awlen = 8'd2; awsize = 3'd2; awburst = 2'b01;
+    while (!awready) @(negedge clk);
+    @(posedge clk); @(negedge clk) awvalid = 0;
+    for (int i = 0; i < 3; i++) begin
+      wvalid = 1; wdata = 32'h0780_0000 + i; wstrb = 4'hF; wlast = 0;
+      while (!wready) @(negedge clk);
+      @(posedge clk); @(negedge clk) wvalid = 0;
+    end
+    if (wready !== 1'b0 || bvalid !== 1'b1) begin
+      errors++; $display("ERROR: ACE write without wlast not ended after awlen+1 beats");
+    end
+    while (!bvalid) @(negedge clk);
+    bready = 1; @(posedge clk); @(negedge clk) bready = 0;
+    axi_read(32'h0000_0780, 8'd2, 32'h0780_0000, AXI_OKAY, 0);
+
+    // read header errors alone: each raises SLVERR on every beat and irq
+    irq_seen = 0;
+    axi_read(32'h0000_3010, 8'd1, 32'h0, AXI_SLVERR, 1, 2'b00);   // FIXED burst (miss)
+    repeat (2) @(posedge clk);
+    if (irq_seen != 1) begin errors++; $display("ERROR: ACE read error irq count %0d after a FIXED burst", irq_seen); end
+    irq_seen = 0;
+    axi_read(32'h0001_0000, 8'd0, 32'h0, AXI_SLVERR, 1);          // 64 KB
+    repeat (2) @(posedge clk);
+    if (irq_seen != 1) begin errors++; $display("ERROR: ACE read error irq count %0d at 64 KB", irq_seen); end
+
+    // CleanInvalid on a dirty line: WasUnique, PassDirty, DataTransfer
+    axi_write(32'h0000_07C0, 8'd0, 32'h07C0_D1E7, 2'b01, AXI_OKAY);
+    do_snoop(32'h0000_07C0, SNP_CLEANINVALID, sresp, sdat_q);
+    if (sresp !== 5'b10101 || sdat_q !== 32'h07C0_D1E7) begin
+      errors++; $display("ERROR: ACE dirty CleanInvalid crresp=%b data=%h", sresp, sdat_q);
+    end
 
     // ---------------- 10. reset with every cache line valid ----------------
     axi_write(32'h0000_0000, 8'd63, 32'h0F11_0000, 2'b01, AXI_OKAY);  // fills 64 lines

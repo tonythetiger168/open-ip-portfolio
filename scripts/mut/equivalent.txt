@@ -212,3 +212,6 @@ D_PHY | tshift    <= {1'b0, tshift[7:1]};#1 | 1'b0 -> 1'b1 | the bit shifted in 
 D_PHY | tshift    <= {1'b0, tshift[7:1]};#2 | 1'b0 -> 1'b1 | the bit shifted in would reach tshift[0] only after 8 shifts; at bit 7 the next byte is loaded or EoT (tlast_bit) follows
 D_PHY | tshift <= {1'b0, tshift[7:1]};#1 | 1'b0 -> 1'b1 | escape command: the bit shifted in never reaches tshift[0] before the command ends and the next state ignores tshift
 D_PHY | tshift <= {1'b0, tshift[7:1]};#2 | 1'b0 -> 1'b1 | LPDT: the bit shifted in reaches tshift[0] only at the next byte boundary, where the pad shows buf_data[0] or the exit space
+ACE | werr_q      <= 1'b0; | 1'b0 -> 1'b1 | reset value; every AW handshake loads werr_q before W_DATA and W_RESP read it (bresp is only valid with bvalid)
+ACE | snp_shared_q<= 1'b0; | 1'b0 -> 1'b1 | reset value; every AC handshake loads snp_shared_q before S_CR shows it (crresp is only valid with crvalid)
+ACE | line_dirty[acaddr[7:2]] <= 1'b0;#2 | 1'b0 -> 1'b1 | MakeInvalid clears valid in the same clock; dirty is only read on a valid line, and every write that revalidates the line sets it
