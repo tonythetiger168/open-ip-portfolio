@@ -114,7 +114,7 @@ module Ethernet_AVB_TSN_tb;
   longint      rn_prev;
   bit          run_prev;
   bit     chk_prio = 0;
-  int     sat_hi [0:3], sat_lo [0:3];
+  int     sat_hi [0:3], sat_lo [0:3], neg_seen [0:3];
   always @(negedge clk) if (rst_n) begin
     // models advance with the posedge just passed
     t_prev = m_time; rn_prev = rn; run_prev = m_run;
@@ -135,6 +135,7 @@ module Ethernet_AVB_TSN_tb;
     for (int c = 0; c < 4; c++) begin
       if (cbs_credit[20*c +: 20] == 20'h7FFFF) sat_hi[c]++;
       if (cbs_credit[20*c +: 20] == 20'h80000) sat_lo[c]++;
+      if (cbs_credit[20*c + 19]) neg_seen[c]++;
     end
     if (tx_start) begin : b_mon
       int c, L;
@@ -182,6 +183,14 @@ module Ethernet_AVB_TSN_tb;
     s_gates[k] = g; s_ivl[k] = ivl;
     @(negedge clk) gcl_we = 0;
   endtask
+  // section 3.6: time 0, schedule stopped (gates all open), credits 0,
+  // line free, and the selection outputs at 0
+  task automatic check_reset_outputs(input string w);
+    if (time_ns !== 64'd0 || gcl_running !== 1'b0 || gcl_entry !== 3'd0 || gate_state !== 4'hF ||
+        cycle_start !== 1'b0 || cbs_credit !== 80'd0 || tx_busy !== 1'b0 || tx_start !== 1'b0 ||
+        q_pop !== 4'd0 || tx_tc !== 2'd0 || tx_len !== 11'd0 || tx_ts !== 64'd0)
+      fail({"outputs in reset: ", w});
+  endtask
   task automatic set_idle(input int c, input int v); cbs_idle[9*c +: 9] = v; endtask
   function automatic int rlen();
     case ($urandom % 8)
@@ -194,10 +203,12 @@ module Ethernet_AVB_TSN_tb;
   endfunction
   task automatic stats_clear; $display("@%0t frames %0d %0d %0d %0d", $time, n_tx[0], n_tx[1], n_tx[2], n_tx[3]); for (int c = 0; c < 4; c++) begin n_tx[c] = 0; bytes[c] = 0; end endtask
 
+  initial #18 check_reset_outputs("power-on");
+
   // ---------------- scenarios ----------------
   int g_off = -1;                       // >= 0: entry k gets gate mask g_off + k
   initial begin
-    for (int c = 0; c < 4; c++) begin qh[c] = 0; qt[c] = 0; n_tx[c] = 0; bytes[c] = 0; sat_hi[c] = 0; sat_lo[c] = 0; end
+    for (int c = 0; c < 4; c++) begin qh[c] = 0; qt[c] = 0; n_tx[c] = 0; bytes[c] = 0; sat_hi[c] = 0; sat_lo[c] = 0; neg_seen[c] = 0; end
     for (int k = 0; k < 8; k++) begin s_gates[k] = 0; s_ivl[k] = 0; end
     update_q();
     #20 rst_n = 1;
@@ -239,12 +250,36 @@ module Ethernet_AVB_TSN_tb;
     enq(2, 100);
     update_q(); drain(100_000);
     if (sat_hi[2] == 0) fail("credit never saturated high");
+    cycles(2);
+    if (cbs_credit[40 +: 20] !== 20'd0) fail("positive credit kept with no frame queued");
+    // a credit of exactly 1 is cleared too: class 2 (idle 1) waits behind
+    // class 3 until its credit is 1, then its frame is withdrawn
+    set_idle(2, 1);
+    enq(3, 2047); update_q();
+    cycles(3);
+    enq(2, 100); update_q();
+    begin
+      int g;
+      g = 0;
+      while (cbs_credit[40 +: 20] !== 20'd1 && g < 1000) begin @(negedge clk); g++; end
+    end
+    qh[2] = qt[2]; update_q();
+    cycles(1);
+    if (cbs_credit[40 +: 20] !== 20'd0) fail("credit of 1 kept with no frame queued");
+    drain(100_000);
     // negative saturation: idle slope 0 is never eligible again once negative;
     // slope 1 recovers slowly
     cbs_en = 4'b0010; set_idle(1, 1);
     enq(1, 2047); enq(1, 64);
     update_q(); drain(2_000_000);
     if (sat_lo[1] == 0) fail("credit never saturated low");
+    // with no frame queued a negative credit rises by the idle slope (1)
+    begin
+      logic [19:0] c1, c2;
+      cycles(1); c1 = cbs_credit[20 +: 20];
+      cycles(1); c2 = cbs_credit[20 +: 20];
+      if (!c1[19] || c2 !== c1 + 20'd1) fail("negative credit not recovering by the idle slope");
+    end
     cbs_en = 0;
     cycles(10);
 
@@ -333,19 +368,29 @@ module Ethernet_AVB_TSN_tb;
     @(negedge clk) time_set = 0; inc_frac = 0;
     cycles(3);
     cbs_en = 4'b0001; set_idle(0, 64);
+    neg_seen[0] = 0;
     enq(0, 1500); enq(0, 64); update_q(); drain(100_000);
+    if (neg_seen[0] == 0) fail("class 0 credit never went negative");
     cbs_en = 0; set_idle(0, 0);
 
     // 6. reset in the middle of a frame
     enq(0, 1000); update_q();
     @(posedge tx_busy); cycles(300);
     rst_n = 0; cycles(3);
+    check_reset_outputs("mid-frame reset");
     for (int c = 0; c < 4; c++) qh[c] = qt[c];
     update_q();
     m_time = 0; m_frac = 0; m_run = 0; rn = 0; line_free = 0; gcl_en = 0; qv_prev = 0;
     #1 rst_n = 1;
     cycles(20);
     enq(2, 77); update_q(); drain(10_000);
+    // reset cleared the gate list: a schedule run on it keeps every gate shut
+    for (int k = 0; k < 8; k++) begin s_gates[k] = 0; s_ivl[k] = 0; end
+    gcl_last = 0; gcl_cycle = 1000; gcl_base = 0;
+    @(negedge clk) gcl_en = 1;
+    cycles(20);
+    if (gate_state !== 4'h0) fail("gate list not cleared by reset");
+    gcl_en = 0; cycles(2);
 
     $display("end at %0t, %0d clocks", $time, now);
     for (int c = 0; c < 4; c++) $display("class %0d: %0d frames, sat %0d/%0d", c, n_tx[c], sat_hi[c], sat_lo[c]);

@@ -257,6 +257,12 @@ increments and a reset mid-frame are run.
 | "class 2 share" | shaper gives class 2 its share | §3.4 |
 | "credit never saturated high" | positive saturation reached | §3.4 |
 | "credit never saturated low" | negative saturation reached | §3.4 |
+| "positive credit kept with no frame queued" | a positive credit drops to 0 once the class has no frame queued | §3.4 |
+| "credit of 1 kept with no frame queued" | ...also the smallest positive credit, 1 | §3.4 |
+| "negative credit not recovering by the idle slope" | with no frame queued a negative credit rises by `cbs_idle` per clock | §3.4 |
+| "class 0 credit never went negative" | class 0 has its own shaper: a frame drives its credit negative | §3.4 |
+| "outputs in reset" | in reset: time 0, schedule stopped with all gates open, credits 0, line free, selection outputs 0 | §3.6 |
+| "gate list not cleared by reset" | reset sets the gate list entries to 0: a one-entry schedule run on entry 0 keeps all gates closed | §3.6 |
 | "frame longer than the cycle was sent" | never sent | §3.3 |
 | a_time | `time_ns` exactly as the checker's model | §3.1 |
 | a_running | `gcl_running` as the model | §3.2 |
