@@ -162,7 +162,9 @@ sync.
 
 `rst_n` low: synchronizers to 0, `tx_shift` = 0 (SDOUT = 0 at once), `tx_pend` = 0, all four data
 registers 0, `rx_cnt` = `DW` (idle), `rx_pend` = 0. After reset SDOUT stays 0 and nothing is
-received until the next LRCK change starts a slot.
+received until the next LRCK change starts a slot. The LRCK synchronizer resets to 0, so when
+LRCK is high as reset is released it reports one change: one `irq` pulse, and the right-channel
+slot is armed as for a real LRCK edge.
 
 ## 4. Parameters
 
@@ -201,3 +203,7 @@ Messages are printed by `tb/I2S_tb.sv` as `ERROR: <message>`. The TB is the I2S 
 | a_sdout_model | at every rise SDOUT equals a pin-level model of the Philips framing | §3.2 |
 | a_rx_model | `rx_left`/`rx_right` always equal the model's received words | §3.3 |
 | a_irq_frame_sync | `irq` is exactly the detected LRCK change | §3.4 |
+| "I2S padding bit" | slot bits after the LSB are sent as 0 | §3.2 |
+| "I2S %s: %0d irq pulses" | exactly one `irq` pulse per LRCK change (counted from the first clocks after reset) | §3.4, §3.5 |
+| "I2S sdout before the first LRCK change" | after reset SDOUT stays 0 until an LRCK change, even with TX registers written | §3.5 |
+| "I2S word received before the first LRCK change" | BCLK without an LRCK change stores no word | §3.5 |
