@@ -144,6 +144,106 @@ module JESD204C_tb;
       end
     end
 
+  // ---------------- independent line reference (end A) ----------------
+  // Rebuilds A's line from what the host gave it, with the TB's own
+  // scrambler (1 + x^39 + x^58), CRC-12 (x^12+x^11+x^3+x^2+x+1, payload
+  // bit 0 first, initial 0) and sync header layout, and compares bit by
+  // bit, so a fault that both ends share (they are the same RTL) is seen.
+  function automatic logic [11:0] ref_crc(input logic [11:0] c, input logic b);
+    logic fb;
+    fb = c[11] ^ b;
+    ref_crc = {c[10:0], 1'b0};
+    if (fb) ref_crc = ref_crc ^ 12'b1000_0000_1111;
+  endfunction
+  logic [63:0] rl_pay, rl_next;
+  logic [57:0] rl_scr;
+  logic [11:0] rl_crc, rl_crc_s;
+  logic [6:0]  rl_cmd;
+  logic [4:0]  rl_j;
+  int          rl_e, rl_k;
+  bit          rl_on;
+  logic        rl_sb;
+  always @(posedge clk) if (u_a.tc == 7'd0) rl_next <= tx_valid[0] ? tx_data[0] : 64'd0;
+  always @(negedge clk)
+    if (!rst_n) begin
+      rl_on = 0; rl_scr = 0; rl_crc = 0; rl_crc_s = 0; rl_cmd = 0; rl_j = 0; rl_e = 0;
+    end else begin
+      // the bit on the line now was driven at the last edge, from bit rl_k
+      rl_k = u_a.tc == 7'd0 ? 65 : int'(u_a.tc) - 1;
+      if (rl_k == 0) begin
+        if (rl_on) begin
+          rl_j = rl_j + 1;
+          if (rl_j == 0) begin
+            rl_crc_s = rl_crc; rl_crc = 0;
+            rl_e = rl_e >= int'(cfg_e[0]) ? 0 : rl_e + 1;
+          end
+        end
+        rl_on = 1;
+        rl_pay = rl_next;
+        if (rl_j == 0) rl_cmd = tx_cmd[0];
+        case (rl_j)
+          0: rl_sb = rl_crc_s[11]; 1: rl_sb = rl_crc_s[10]; 2: rl_sb = rl_crc_s[9];
+          4: rl_sb = rl_crc_s[8];  5: rl_sb = rl_crc_s[7];  6: rl_sb = rl_crc_s[6];
+          8: rl_sb = rl_crc_s[5];  9: rl_sb = rl_crc_s[4];  10: rl_sb = rl_crc_s[3];
+          12: rl_sb = rl_crc_s[2]; 13: rl_sb = rl_crc_s[1]; 14: rl_sb = rl_crc_s[0];
+          16: rl_sb = rl_cmd[6]; 17: rl_sb = rl_cmd[5]; 18: rl_sb = rl_cmd[4];
+          20: rl_sb = rl_cmd[3]; 21: rl_sb = rl_cmd[2]; 22: rl_sb = rl_cmd[1];
+          24: rl_sb = rl_cmd[0]; 25: rl_sb = rl_e >= int'(cfg_e[0]);
+          27, 28, 29, 30: rl_sb = 1'b0;
+          default: rl_sb = 1'b1;
+        endcase
+        if (a_tx !== !rl_sb) fail($sformatf("A line: block %0d header bit 0 is %b", rl_j, a_tx));
+      end else if (rl_on && rl_k == 1) begin
+        if (a_tx !== rl_sb) fail($sformatf("A line: block %0d sync header stream bit is %b, expected %b", rl_j, a_tx, rl_sb));
+      end else if (rl_on) begin : rl_bit
+        logic d, sc;
+        d = rl_pay[rl_k - 2];
+        sc = d ^ rl_scr[38] ^ rl_scr[57];
+        if (a_tx !== sc) fail($sformatf("A line: block %0d payload bit %0d is %b, expected %b", rl_j, rl_k - 2, a_tx, sc));
+        rl_scr = {rl_scr[56:0], sc};
+        rl_crc = ref_crc(rl_crc, d);
+      end
+    end
+
+  // ---------------- reset values and pulse widths ----------------
+  // In reset every output is 0. The event outputs are one-clock pulses at
+  // most once per block (66 clocks), so two in a row is an error.
+  logic [1:0] pv_q [0:7];
+  bit         in_rst = 0;   // rst_n was already low at the previous check
+  initial for (int i = 0; i < 8; i++) pv_q[i] = 0;
+  always @(negedge clk) begin
+    if (!rst_n && !in_rst) in_rst = 1;
+    else if (!rst_n) begin
+      if (a_tx !== 0 || b_tx !== 0) fail("tx_p not 0 in reset");
+      if (tx_mb_start !== 0 || tx_underrun !== 0 || rx_valid !== 0 || rx_mb_valid !== 0 ||
+          rx_mb_start !== 0 || rx_emb_start !== 0 || rx_crc_err !== 0 || sh_lock !== 0 ||
+          emb_lock !== 0 || err_sh !== 0 || err_emb !== 0 || rx_data !== 0 || rx_cmd !== 0)
+        fail("an output is not 0 in reset");
+    end else begin : pulses
+      logic [1:0] v [0:7];
+      in_rst = 0;
+      v[0] = tx_mb_start; v[1] = tx_underrun; v[2] = rx_valid; v[3] = rx_mb_valid;
+      v[4] = err_sh; v[5] = err_emb; v[6] = tx_ready; v[7] = 0;
+      for (int i = 0; i < 7; i++)
+        if ((v[i] & pv_q[i]) != 0) fail($sformatf("pulse output %0d high two clocks in a row", i));
+      for (int i = 0; i < 8; i++) pv_q[i] = v[i];
+    end
+  end
+
+  // ---------------- lock timing ----------------
+  // sh_lock needs 64 valid headers in a row: never sooner than 64 blocks
+  // after reset or after the lock was lost
+  time sh_free [0:1];
+  logic [1:0] sh_was = 0;
+  initial for (int p = 0; p < 2; p++) sh_free[p] = 0;
+  always @(negedge clk)
+    for (int p = 0; p < 2; p++) begin
+      if (!rst_n || (sh_was[p] && !sh_lock[p])) sh_free[p] = $time;
+      if (rst_n && sh_lock[p] && !sh_was[p] && $time - sh_free[p] < 63 * 66 * 10)
+        fail($sformatf("end %0d: sh_lock after %0t, before 64 valid headers", p, $time - sh_free[p]));
+      sh_was[p] = sh_lock[p];
+    end
+
   // ---------------- helpers ----------------
   task automatic wait_clk(input int n);
     repeat (n) @(negedge clk);
