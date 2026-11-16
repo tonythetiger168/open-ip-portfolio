@@ -158,6 +158,74 @@ module MIPI_DBI__Display_Bus_Interface__tb;
     endcase
     p_csx = csx; p_wrx = wrx; p_rdx = rdx; p_scl = scl; p_d = d_o; p_dcx = dcx;
   end
+  // ---------------- phase timing, reset and busy (#44) ----------------
+  // Every phase is cfg_tw + 1 PCLK for a write and cfg_tr + 1 for a read:
+  // Type B WRX / RDX low, Type A E high, Type C SCL low and high, and the
+  // hold from the end of the strobe to CSX rising after op_last.
+  int  t_lo = 0, t_hi = 0, t_hold = -1, ph_exp = 0;
+  bit  t_rd = 0, in_rst = 0;
+  always @(negedge clk) if (!rst_n) begin
+    // the first edge after reset asserts may come before the reset lands
+    if (in_rst && (csx !== 1'b1 || dcx !== 1'b1 || wrx !== 1'b1 || rdx !== 1'b1 || d_o !== 16'h0 ||
+        d_oe !== 1'b0 || scl !== 1'b0 || sda_o !== 1'b0 || sda_oe !== 1'b0 || rd_valid !== 1'b0))
+      fail("pins not at their reset levels in reset");
+    in_rst = 1; t_lo = 0; t_hi = 0; t_hold = -1;
+  end else begin
+    in_rst = 0;
+    if (busy !== (!op_ready || !csx)) fail("busy is not (op in progress or CSX low)");
+    if (csx && cfg_type != 2'd0 && (wrx !== 1'b1 || d_oe)) fail("WRX low or bus driven with CSX high");
+    if (csx && cfg_type == 2'd0 && wrx !== 1'b1) fail("Type A R/WX not back to 1 with CSX high");
+    case (cfg_type)
+      2'd1: begin
+        // a strobe is a strobe only with CSX low: after a type change the
+        // idle levels move one clock later (spec)
+        if (!csx && (!wrx || !rdx)) begin t_lo++; t_rd = !rdx; end
+        else if (t_lo > 0) begin
+          ph_exp = (t_rd ? cfg_tr : cfg_tw) + 1;
+          if (t_lo != ph_exp) fail($sformatf("Type B strobe %0d PCLK, expected %0d", t_lo, ph_exp));
+          t_lo = 0; t_hold = 0;
+        end
+      end
+      2'd0: begin
+        if (!csx && rdx) begin t_hi++; t_rd = wrx; end
+        else if (t_hi > 0) begin
+          ph_exp = (t_rd ? cfg_tr : cfg_tw) + 1;
+          if (t_hi != ph_exp) fail($sformatf("Type A E high %0d PCLK, expected %0d", t_hi, ph_exp));
+          t_hi = 0; t_hold = 0;
+        end
+      end
+      default: if (!csx) begin
+        // direction from the host's own SDA enable: driven for a write,
+        // released for a read, constant through an op
+        if (scl) begin
+          if (t_hi == 0) begin
+            if (t_lo > 0 && t_lo != ph_exp) fail($sformatf("Type C SCL low %0d PCLK, expected %0d", t_lo, ph_exp));
+            t_lo = 0;
+          end
+          t_hi++;
+        end else begin
+          if (t_hi > 0) begin
+            if (t_hi != ph_exp) fail($sformatf("Type C SCL high %0d PCLK, expected %0d", t_hi, ph_exp));
+            t_hi = 0;
+          end
+          if (op_ready) t_lo = 0;
+          else begin
+            if (t_lo == 0) ph_exp = (sda_oe ? cfg_tw : cfg_tr) + 1;
+            t_lo++;
+          end
+        end
+      end else begin t_lo = 0; t_hi = 0; end
+    endcase
+    // hold: the strobe ends, then ph + 1 PCLK later CSX rises (after op_last)
+    if (t_hold >= 0 && cfg_type < 2) begin
+      if (csx) begin
+        if (t_hold != ph_exp) fail($sformatf("hold before CSX rise %0d PCLK, expected %0d", t_hold, ph_exp));
+        t_hold = -1;
+      end else if (op_ready) t_hold = -1;      // not the last op: next one may start
+      else t_hold++;
+    end
+  end
+
   // Type C read start: when a read op is taken, set up the dummy clocks and
   // the first bit
   logic op_rd_q, csx_q;

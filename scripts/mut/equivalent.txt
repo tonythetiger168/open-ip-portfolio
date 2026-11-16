@@ -57,6 +57,26 @@ DisplayPort2 | sym_d = D10_2; sym_k = 1'b0;#1 | 1'b0 -> 1'b1 | the encoder uses 
 eCPRI_over_Ethernet | rx_push_f    = {1'b0, rx_pay[0], rx_pay[1]}; | 1'b0 -> 1'b1 | bit 16 of the field is not sent in a reset response
 QSPI | end else if (sclk_d && !sclk) begin | && -> || | the next output bit is presented right after the sampling edge instead of at the falling edge; the master samples only on rising edges
 QSPI | io_out <= {2'b00, tx_q[7 - bit_cnt], 1'b0}; | 1'b0 -> 1'b1 | io[0] is an input in standard mode (io_oe = 0010)
+QSPI | wire  [3:0] first_out = std_mode ? {2'b00, tx_q[7], 1'b0} : tx_q[7:4]; | 1'b0 -> 1'b1 | io[0] is an input in standard mode (io_oe = 0010)
+QSPI | started <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; csn is high outside a frame and clears started in the first clock after reset
+QSPI | sclk_d <= 1'b0; bit_cnt <= '0; qcnt <= '0; | 1'b0 -> 1'b1 | reset value; sclk_d follows sclk in the first clock, and only a rising edge with csn low is used
+RGMII | rxv_s <= 1'b0; rxv_d <= 1'b0; rxc_s <= 1'b0; rxc_d <= 1'b0; | 1'b0 -> 1'b1 | synchronizer reset values: a false rx_clk edge they create right after reset samples rx_ctl through rxc_d, which is still 0 from reset, so no half byte is armed
+RGMII | rx_half <= 1'b0; | 1'b0 -> 1'b1 | rx_clk edges alternate: the falling edge after every rising edge reloads rx_half before the next rising edge reads it
+I2S | bclk_s <= 1'b0; bclk_d <= 1'b0; | 1'b0 -> 1'b1 | synchronizer reset values: the false BCLK edge they create right after reset shifts the all-zero tx_shift and finds rx_cnt = DW (idle), so nothing changes
+I2S | lrck_s <= 1'b0; lrck_d <= 1'b0; sdin_s <= 1'b0; | 1'b0 -> 1'b1@3 | sdin_s is used only by a rise with rx_cnt below DW, which needs an LRCK change after reset; sdin_s follows sdin long before that
+I2S | tx_shift <= '0; tx_pend <= 1'b0; tx_ch <= 1'b0; | 1'b0 -> 1'b1@2 | tx_ch is loaded at every LRCK change, together with the tx_pend that makes it used
+I2S | rx_cnt <= CW'(DW); rx_pend <= 1'b0; rx_ch_n <= 1'b0; rx_ch <= 1'b0; | 1'b0 -> 1'b1@2 | rx_ch_n is loaded at every LRCK change, together with the rx_pend that makes it used
+I2S | rx_cnt <= CW'(DW); rx_pend <= 1'b0; rx_ch_n <= 1'b0; rx_ch <= 1'b0; | 1'b0 -> 1'b1@3 | rx_ch is loaded from rx_ch_n when a word starts, before any bit of that word is stored
+I2S_Audio | wire s_rise =  bclk_in & ~bclk_d; | & -> | | sd_in is sampled again in other clocks of the same bit; an I2S transmitter changes data only on falling edges, so every extra sample sees the bit already taken
+I2S_Audio | wire s_rise =  bclk_in & ~bclk_d; | ~ -> | sd_in is sampled in every high clock after the first instead of the first; an I2S transmitter holds data from falling edge to falling edge, so the value is the same
+I2S_Audio | bclk_d       <= 1'b0; | 1'b0 -> 1'b1 | reset value: the false falling edge it can make right after reset only moves the slave frame position before the first word-clock change, and that position is unsynchronized and realigned to wclk_in anyway
+MIPI_DBI__Display_Bus_Interface_ | st <= S_IDLE; cnt <= '0; bits <= '0; dum <= '0; o_rd <= 1'b0; o_last <= 1'b0; | 1'b0 -> 1'b1 | reset values of o_rd and o_last; both are loaded when an op is accepted, before any phase reads them
+MIPI_DBI__Display_Bus_Interface_ | prev_rd <= 1'b0; sh <= '0; rsh <= '0; rd_valid <= 1'b0; rd_data <= '0; | 1'b0 -> 1'b1@1 | reset value of prev_rd; the first op after reset has CSX high, which forces the dummy clocks whatever prev_rd is
+MIPI_DBI__Display_Bus_Interface_ | sda_o <= op_rd ? 1'b0 : (cfg_type == 2'd2 ? op_dc : op_data[7]); | 1'b0 -> 1'b1 | a read releases SDA (sda_oe = 0), so the sda_o level is not on the pin
+ARM_Serial_Wire_Debug | if (!rst_n) begin ck_m <= 1'b0; ck_s <= 1'b0; ck_q <= 1'b0; io_m <= 1'b1; io_s <= 1'b1; end | 1'b0 -> 1'b1@3 | reset value of ck_q: with ck_s 0 a 1 in ck_q cannot make a rise, and ck_q follows ck_s from the first clock
+ARM_Serial_Wire_Debug | if (!rst_n) begin ck_m <= 1'b0; ck_s <= 1'b0; ck_q <= 1'b0; io_m <= 1'b1; io_s <= 1'b1; end | 1'b1 -> 1'b0 | SWDIO synchronizer reset values: the earliest SWCLK rise is seen two clocks after reset, when io_s already holds SWDIO from after reset
+ARM_Serial_Wire_Debug | st <= S_LOCK; ones <= '0; idle2 <= 1'b0; need_id <= 1'b0; req <= '0; k3 <= '0; k <= '0; | 1'b0 -> 1'b1@2 | reset value of need_id; the port starts locked out and every way out (a line reset) sets need_id
+ARM_Serial_Wire_Debug | end else begin swdio_out <= sh[0]; sh <= {1'b0, sh[32:1]}; end | 1'b0 -> 1'b1 | the bit shifted in at sh[32] would need 33 more shifts to reach sh[0]; a read sends only bits 0..32
 WTB | tsh    <= {B_PRE[6:0], 1'b0}; | 1'b0 -> 1'b1 | the pre-shifted LSB is never sent: tsh is reloaded after the 8th bit
 UCIe | for (int k = 15; k > 0; k--) m[528 * k +: 528] = m[528 * (k - 1) +: 528]; | > -> >= | constant function: the extra k = 0 step writes row 0, which the next statement clears
 UCIe | rsp_got <= 1'b0; | 1'b0 -> 1'b1 | reset value; cleared on every entry to ACTREQ, the only state that reads it

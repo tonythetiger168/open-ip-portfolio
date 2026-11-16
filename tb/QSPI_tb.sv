@@ -73,6 +73,34 @@ module QSPI_tb;
   end
 `endif
 
+  // Always-on checks (issue #44): irq is low in reset, a one-clock pulse per
+  // completed byte (counted against the frames the tasks below run), and
+  // the register read port returns tx_q at raddr 1 and 0 above it.
+  int irq_cnt = 0;
+  logic [7:0] m_tx = 8'h00;
+  logic       irq_d = 1'b0;
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      m_tx <= 8'h00;
+    end else begin
+      if (wen && waddr == 4'd0) m_tx <= wdata;
+      if (dut.irq) irq_cnt <= irq_cnt + 1;
+      if (dut.irq && irq_d) begin errors++; $display("ERROR: QSPI irq longer than one clock @%0t", $time); end
+      if ((raddr == 4'd1 && rdata !== m_tx) || (raddr > 4'd1 && rdata !== 8'h00)) begin
+        errors++; $display("ERROR: QSPI rdata raddr=%0d got=%h @%0t", raddr, rdata, $time);
+      end
+    end
+    irq_d <= rst_n && dut.irq;
+  end
+  always @(negedge clk)
+    if (!rst_n && dut.irq !== 1'b0) begin errors++; $display("ERROR: QSPI irq in reset"); end
+  // each task frame is exactly one byte: one irq pulse
+  task automatic chk_irq(input string what, input int at_start);
+    if (irq_cnt != at_start + 1) begin
+      errors++; $display("ERROR: QSPI %s: %0d irq pulses, expected 1", what, irq_cnt - at_start);
+    end
+  endtask
+
   task automatic wr(input logic [3:0] a, input logic [7:0] d);
     begin
       @(negedge clk); wen <= 1'b1; waddr <= a; wdata <= d;
@@ -88,7 +116,9 @@ module QSPI_tb;
   endtask
 
   task automatic std_xfer(input logic [7:0] din, output logic [7:0] dout);
+    int i0;
     begin
+      i0 = irq_cnt;
       csn = 1'b0; drv_en = 1'b1; drv_mask = 4'b0001;   // MOSI only
       for (int i = 0; i < 8; i++) begin
         drv_val = {3'b000, din[7-i]};
@@ -97,11 +127,14 @@ module QSPI_tb;
         #39 sclk = 1'b0;
       end
       drv_en = 1'b0; csn = 1'b1; #100;
+      chk_irq("std frame", i0);
     end
   endtask
 
   task automatic quad_read(output logic [7:0] dout);
+    int i0;
     begin
+      i0 = irq_cnt;
       csn = 1'b0; drv_en = 1'b0;          // release: slave drives io
       for (int i = 0; i < 2; i++) begin
         #40 sclk = 1'b1;
@@ -109,17 +142,21 @@ module QSPI_tb;
         #39 sclk = 1'b0;
       end
       csn = 1'b1; #100;
+      chk_irq("quad read", i0);
     end
   endtask
 
   task automatic quad_write(input logic [7:0] din);
+    int i0;
     begin
+      i0 = irq_cnt;
       csn = 1'b0; drv_en = 1'b1; drv_mask = 4'b1111;
       for (int i = 0; i < 2; i++) begin
         drv_val = din[7-4*i -: 4];
         #40 sclk = 1'b1; #1; #39 sclk = 1'b0;
       end
       drv_en = 1'b0; csn = 1'b1; #100;
+      chk_irq("quad write", i0);
     end
   endtask
 
@@ -127,6 +164,17 @@ module QSPI_tb;
   initial begin
     rst_n = 0; repeat(5) @(posedge clk);
     rst_n = 1; repeat(5) @(posedge clk);
+
+    // quad read straight after reset: dir resets to "slave drives" (#44)
+    wr(4'd2, 8'h01);
+    wr(4'd0, 8'hC6);
+    rd(4'd1, got);
+    rd(4'd9, got);
+    repeat (2) @(posedge clk);
+    quad_read(q1);
+    if (q1 !== 8'hC6) begin errors++; $display("ERROR: QSPI quad read with reset dir got=%h exp=C6", q1); end
+    wr(4'd2, 8'h00);
+    rd(4'd0, got);
 
     // standard mode
     wr(4'd0, 8'h3C);
