@@ -261,3 +261,6 @@ every AP request.
 | a_ap_fields_model | AP request fields | §3.4 |
 | a_status_model | status pulses and `lockout` | §3.1, §3.2 |
 | a_power_model | power-up requests | §3.3 |
+| "outputs not inactive in reset" | in reset SWDIO released, no AP request or abort, no pulses, `lockout` = 1 | §3.5 |
+| "pulse output high two clocks in a row" | `line_reset`, `proto_err`, `ack_wait`, `ack_fault`, `ap_req`, `ap_abort` are one-clock pulses | §3.1, §3.2, §3.4 |
+| "line_reset pulses" | exactly one `line_reset` pulse per line reset of 50 or more ones (also 49 ones straight after reset are none, and the first line reset after reset needs two idle samples) | §3.1, §3.5 |
