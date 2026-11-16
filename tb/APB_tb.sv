@@ -89,7 +89,7 @@ module APB_tb;
     apb_setup(a, 1'b1, d);
     apb_access();
     chk(slverr_f === exp_slverr, "apb_write: pslverr mismatch");
-    if (exp_slverr) chk(irq_f === 1'b1, "apb_write: irq expected on pslverr");
+    chk(irq_f === exp_slverr, "apb_write: irq must equal pslverr at completion");
     apb_done();
   endtask
 
@@ -99,9 +99,8 @@ module APB_tb;
     apb_setup(a, 1'b0, '0);
     apb_access();
     chk(slverr_f === exp_slverr, "apb_read: pslverr mismatch");
-    if (!exp_slverr)
-      chk(rd_data === exp, "apb_read: data mismatch");
-    if (exp_slverr) chk(irq_f === 1'b1, "apb_read: irq expected on pslverr");
+    chk(rd_data === (exp_slverr ? '0 : exp), "apb_read: data mismatch (reserved reads 0)");
+    chk(irq_f === exp_slverr, "apb_read: irq must equal pslverr at completion");
     apb_done();
   endtask
 
@@ -155,6 +154,42 @@ module APB_tb;
   end
 `endif
 
+  // Cycle model of the completer (issue #44), from docs/ip/APB.md: SETUP
+  // then ACCESS, one wait state for paddr[11:10] = 01, PSLVERR + irq for
+  // paddr[11] = 1 (writes ignored, reads 0), register file reset to 0.
+  // pready, pslverr and irq are compared before every rising edge, prdata
+  // at every read completion, in all builds.
+  logic [31:0] m_mem [0:255];
+  bit          m_acc = 0, m_w = 0, m_slow = 0, m_err = 0, m_waited = 0;
+  logic [31:0] m_addr = '0;
+  int          m_bad = 0;
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      m_acc <= 0; m_waited <= 0;
+      for (int k = 0; k < 256; k++) m_mem[k] <= '0;
+    end else begin : m_step
+      bit rdy, fin;
+      rdy = m_acc && penable && !(m_slow && !m_waited);
+      fin = rdy;
+      if (pready !== rdy || pslverr !== (fin && m_err) || irq !== (fin && m_err) ||
+          (fin && !m_w && prdata !== (m_err ? 32'h0 : m_mem[m_addr[9:2]]))) begin
+        errors++; m_bad++;
+        if (m_bad <= 10)
+          $display("ERROR: APB model t=%0t pready=%b/%b pslverr=%b irq=%b exp_err=%b prdata=%h",
+                   $time, pready, rdy, pslverr, irq, fin && m_err, prdata);
+      end
+      if (!m_acc && psel && !penable) begin
+        m_acc <= 1; m_w <= pwrite; m_addr <= paddr; m_waited <= 0;
+        m_slow <= paddr[11:10] == 2'b01; m_err <= paddr[11];
+      end else if (m_acc && penable && !rdy) m_waited <= 1;
+      if (fin) begin
+        m_acc <= 0;
+        if (m_w && !m_err) m_mem[m_addr[9:2]] <= pwdata;
+      end
+    end
+  end
+
+
   initial begin
     psel = 0; penable = 0; paddr = '0; pwrite = 0; pwdata = '0;
 
@@ -166,6 +201,10 @@ module APB_tb;
     chk(prdata  === '0,   "reset: prdata must be 0");
     chk(irq     === 1'b0, "reset: irq must be 0");
     rst_n = 1; repeat (2) @(posedge clk);
+    bus_idle(1);
+    // the register file resets to zero (#44)
+    apb_read(32'h0000, 32'h0, 0);
+    apb_read(32'h07FC, 32'h0, 0);
 
     // ---------------- 2. write/read compare x4 (fast region) ------------
     apb_write(32'h0000, 32'hA5A5_0001, 0);
@@ -315,6 +354,12 @@ module APB_tb;
                n_wr, n_rd, n_err);
     end
 `endif
+    // reserved reads return 0 even where paddr[9:2] aliases written words,
+    // and a reserved write leaves that word alone (#44)
+    apb_write(32'h0010, 32'h1357_9BDF, 0);
+    apb_read (32'h0810, 32'h0, 1);
+    apb_write(32'h0C10, 32'hFFFF_FFFF, 1);
+    apb_read (32'h0010, 32'h1357_9BDF, 0);
     if (errors == 0) $display("TEST PASSED: APB");
     else             $display("TEST FAILED: %0d errors", errors);
 `ifdef VERILATOR
