@@ -231,11 +231,11 @@ def one(flow, P, n, seed, lines=None, ops=None, even=False):
     timeout = max(60, 3 * base)
     cand = sites(src, ops)
     eq, stale = equiv_sites(src, cand, load_equiv().get(P, []))
-    if stale and ops not in (None, OPS):
-        # equivalent.txt is written for the default operators; another set may
-        # simply not make that mutant. Only a vanished RTL line is still stale.
-        stale = [e for e in stale if not any(
-            code_part(l).strip() == code_part(e[0]).strip() for l in src.splitlines())]
+    if stale:
+        # one equivalent.txt serves every operator set: an entry is stale only
+        # when no set makes that mutant
+        every = set(sites(src, OPS)) | set(sites(src, OPS_HELIOSLM))
+        _, stale = equiv_sites(src, every, stale)
     if stale:
         return {"ip": P, "error": "equivalent.txt entries match no mutant: " +
                 "; ".join(f"{c}{'#%d' % k if k else ''} {a} -> {b}" for c, k, a, b, _, _ in stale)}
