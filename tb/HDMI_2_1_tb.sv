@@ -151,12 +151,53 @@ module HDMI_2_1_tb;
     end
   endfunction
 
+  // ------------------------- TMDS 8b/10b reference encoder -------------------------
+  // DVI 1.0 section 3.2, written from the spec flow chart. cnt is the
+  // running disparity (ones minus zeros) of the channel, updated here.
+  task automatic ref_tmds(input logic [7:0] d, inout int cnt, output logic [9:0] q);
+    logic [8:0] qm;
+    int n1d, n1, n0;
+    begin
+      n1d = 0;
+      for (int i = 0; i < 8; i++) n1d += d[i];
+      qm[0] = d[0];
+      if (n1d > 4 || (n1d == 4 && d[0] == 1'b0)) begin
+        for (int i = 1; i < 8; i++) qm[i] = ~(qm[i-1] ^ d[i]);
+        qm[8] = 1'b0;
+      end else begin
+        for (int i = 1; i < 8; i++) qm[i] = qm[i-1] ^ d[i];
+        qm[8] = 1'b1;
+      end
+      n1 = 0;
+      for (int i = 0; i < 8; i++) n1 += qm[i];
+      n0 = 8 - n1;
+      if (cnt == 0 || n1 == n0) begin
+        q[9]   = ~qm[8];
+        q[8]   = qm[8];
+        q[7:0] = qm[8] ? qm[7:0] : ~qm[7:0];
+        if (qm[8] == 1'b0) cnt = cnt + (n0 - n1);
+        else               cnt = cnt + (n1 - n0);
+      end else if ((cnt > 0 && n1 > n0) || (cnt < 0 && n0 > n1)) begin
+        q[9]   = 1'b1;
+        q[8]   = qm[8];
+        q[7:0] = ~qm[7:0];
+        cnt = cnt + 2 * qm[8] + (n0 - n1);
+      end else begin
+        q[9]   = 1'b0;
+        q[8]   = qm[8];
+        q[7:0] = qm[7:0];
+        cnt = cnt - 2 * (!qm[8]) + (n1 - n0);
+      end
+    end
+  endtask
+
   // ------------------------- monitor state -------------------------
   int px = 0, py = 0;
   int frames_done = 0;
   int pixels_checked = 0;
   int island_count = 0, spd_count = 0;
   int disp_run [0:2];
+  int ref_cnt [0:2];       // reference encoder disparity (0 outside video)
   logic avi_bad = 0;
 
   // island extraction
@@ -178,7 +219,7 @@ module HDMI_2_1_tb;
         if (i == 0) begin
           fde = de; fhs = hsync; fvs = vsync;
         end
-        if (!hpd) alive = 1'b0;
+        if (!hpd || !rst_n) alive = 1'b0;
         // TMDS clock channel pattern: 0000011111 (bit0 first)
         if (alive && fck !== (i >= 5)) begin
           errors++;
@@ -207,6 +248,8 @@ module HDMI_2_1_tb;
         $display("ERROR: flags px=%0d py=%0d de=%b/%b hs=%b/%b vs=%b/%b",
                  px, py, fde, e_de, fhs, e_hs, fvs, e_vs);
       end
+      // the encoder disparity restarts after every non-video pixel
+      if (!e_de) begin ref_cnt[0] = 0; ref_cnt[1] = 0; ref_cnt[2] = 0; end
       if (e_de) begin
         // ---- video period: full TMDS decode loopback ----
         d0 = tmds_dec(c0);
@@ -216,6 +259,17 @@ module HDMI_2_1_tb;
           errors++;
           $display("ERROR: pixel px=%0d py=%0d RGB=%02h%02h%02h exp=%02h%02h%02h",
                    px, py, d2, d1, d0, px[7:0], py[7:0], px[7:0]^py[7:0]);
+        end
+        begin
+          logic [9:0] e0, e1, e2;
+          ref_tmds(px[7:0] ^ py[7:0], ref_cnt[0], e0);
+          ref_tmds(py[7:0], ref_cnt[1], e1);
+          ref_tmds(px[7:0], ref_cnt[2], e2);
+          if (c0 !== e0 || c1 !== e1 || c2 !== e2) begin
+            errors++;
+            $display("ERROR: TMDS code px=%0d py=%0d c=%b %b %b exp=%b %b %b",
+                     px, py, c2, c1, c0, e2, e1, e0);
+          end
         end
         disp_run[0] += ones10(c0) - 5;
         disp_run[1] += ones10(c1) - 5;
@@ -408,6 +462,7 @@ module HDMI_2_1_tb;
       // restart here (otherwise a residual from the previous stream can
       // trip the |disp|<=16 bound by +/-1 right after a replug).
       disp_run[0] = 0; disp_run[1] = 0; disp_run[2] = 0;
+      ref_cnt[0] = 0; ref_cnt[1] = 0; ref_cnt[2] = 0;
       alive = 1'b1;
       while (alive) begin
         get_pixel(c0, c1, c2, fde, fhs, fvs, fck, alive);
@@ -551,6 +606,26 @@ module HDMI_2_1_tb;
                n_drop, frames_done);
     end
 `endif
+
+    // Phase E: reset with the sink attached: the first pixel out of reset
+    // is (0, 0), so de rises with the 10th clock after the release
+    wait (hpd === 1'b1 && py == 20);
+    @(negedge clk);
+    rst_n = 1'b0;
+    repeat (3) @(negedge clk);
+    rst_n = 1'b1;
+    repeat (9) @(negedge clk);
+    if (de !== 1'b0) begin errors++; $display("ERROR: de before the first pixel out of reset"); end
+    @(negedge clk);
+    if (de !== 1'b1) begin errors++; $display("ERROR: first pixel out of reset is not (0, 0)"); end
+    begin
+      int f0;
+      f0 = pixels_checked;
+      repeat (20000) @(negedge clk);
+      if (pixels_checked < f0 + 1900) begin
+        errors++; $display("ERROR: stream not checked after reset with hpd high");
+      end
+    end
 
     if (spd_count == 0) begin errors++; $display("ERROR: no SPD InfoFrame seen"); end
     if (errors == 0) $display("TEST PASSED: HDMI_2_1");

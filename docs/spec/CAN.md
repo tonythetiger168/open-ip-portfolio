@@ -325,6 +325,16 @@ None. Bit timing comes from the `cfg_*` inputs (keep them stable while the bus i
 | "BFM should have lost arbitration" | a lower ID wins arbitration (base vs extended, data vs remote) | §3.4 |
 | "BFM frame at the 3rd intermission bit" | a dominant 3rd intermission bit is a SOF; a pending node joins from the ID | §3.5 |
 | "BFM frame not acknowledged" | a receiver drives the ACK slot when its CRC matched | §3.6 |
+| "A's first frame after reset starts" | until the first bus edge the bit timing free-runs from reset, so a frame starts a whole number of bit times after reset | §3.1, §3.9 |
+| "event or status output set in reset" | event pulses, `err_passive` and `bus_off` are 0 in reset | §3.9 |
+| "A did not join (and lose) the frame at the 3rd intermission bit" | a pending node joins a frame that starts at its 3rd intermission bit and can lose arbitration in it | §3.5 |
+| "BFM frame at the 3rd intermission bit, nothing pending" | a node with nothing pending stays a receiver of such a frame | §3.5 |
+| "BFM frame with a late edge not acknowledged" | a frame with one edge shifted late is still received | §3.1 |
+| "SJW: ACK delays" | resynchronisation corrects at most SJW tq of a phase error | §3.1 |
+| "A not error passive before the intermission join" | test setup: TEC above 127 makes A error passive | §3.8 |
+| "BFM frame at the 3rd intermission bit (A passive)" | the frame is received while A is error passive | §3.5 |
+| "error-passive receiver A did not join the frame at the 3rd intermission bit" | suspend only follows a frame the error-passive node transmitted | §3.5 |
+| "passive receiver: A's frame came after" | an error-passive receiver starts its frame right after intermission, without suspend | §3.5 |
 | "A never became error passive" | `tec` above 127 makes the node error passive | §3.8 |
 | "passive TEC" | `tec` value while passive | §3.8 |
 | "TEC moved on passive ACK errors" | an error-passive transmitter's ACK error does not change `tec` | §3.8 |

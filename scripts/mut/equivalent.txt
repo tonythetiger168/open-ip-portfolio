@@ -201,3 +201,59 @@ SPDM | need_ms <= 1'b0; need_rn <= 1'b0; ax_ms <= 1'b0; is_err <= 1'b0; | 1'b0 -
 SPDM | lane <= '0; nb <= '0; finp <= 1'b0; rd <= 1'b0; wi <= '0; dig <= '0; done <= 1'b0; | 1'b0 -> 1'b1@1 | SPDM_th reset value of finp: the idle SHA3 engine takes no input, and every hash begins with start, which clears it
 SPDM | lane <= '0; nb <= '0; finp <= 1'b0; rd <= 1'b0; wi <= '0; dig <= '0; done <= 1'b0; | 1'b0 -> 1'b1@2 | SPDM_th reset value of rd: the idle SHA3 engine offers no output, and every hash begins with start, which clears it
 SPDM | lane <= '0; nb <= '0; finp <= 1'b0; rd <= 1'b0; wi <= '0; dig <= '0; done <= 1'b0; | 1'b0 -> 1'b1@3 | SPDM_th reset value of done: a pulse in the first clock, when no state waits on an engine
+CAN | if (!rst_n) begin rx_s1 <= 1'b1; rx_s <= 1'b1; rx_d <= 1'b1; end | 1'b1 -> 1'b0@3 | rx_d only feeds fall = rx_d & ~rx_s, and rx_s is still 1 (its reset value) in the first clock out of reset
+CAN | mode <= M_IDLE; drv <= 1'b1; last_smp <= 1'b1; | 1'b1 -> 1'b0@2 | last_smp only gates resynchronisation outside bus idle, and every way out of M_IDLE passes a sample point that reloads it
+CAN | f_ida <= '0; f_b12 <= 1'b0; f_ide <= 1'b0; f_rtr <= 1'b0; f_idb <= '0; f_dlc <= '0; | 1'b0 -> 1'b1@1 | reset value; bit 12 of every frame loads f_b12 before the DLC is known, the only point it is read
+CAN | f_ida <= '0; f_b12 <= 1'b0; f_ide <= 1'b0; f_rtr <= 1'b0; f_idb <= '0; f_dlc <= '0; | 1'b0 -> 1'b1@2 | reset value; bit 13 of every frame loads f_ide, and before that pos is below both DLC ends so it is not read
+CAN | f_ida <= '0; f_b12 <= 1'b0; f_ide <= 1'b0; f_rtr <= 1'b0; f_idb <= '0; f_dlc <= '0; | 1'b0 -> 1'b1@3 | reset value; f_rtr is read only in extended frames, which load it at bit 32 before the DLC is known
+CAN | if (b == run_val) run_len <= run_len + 3'd1; | + -> - | 3-bit count from 1: +1 and -1 both reach 5 after the 4th equal bit (2,3,4,5 vs 0,7,6,5) and only == 5 is tested
+D_PHY | cur_last   <= 1'b0; | 1'b0 -> 1'b1 | reset value; every LPDT byte loads cur_last at its first bit, before bit 7 reads it
+D_PHY | tshift    <= {1'b0, tshift[7:1]};#1 | 1'b0 -> 1'b1 | the bit shifted in would reach tshift[0] only after 8 shifts; the shifter is reloaded or left (EoT uses tlast_bit) after 8
+D_PHY | tshift    <= {1'b0, tshift[7:1]};#2 | 1'b0 -> 1'b1 | the bit shifted in would reach tshift[0] only after 8 shifts; at bit 7 the next byte is loaded or EoT (tlast_bit) follows
+D_PHY | tshift <= {1'b0, tshift[7:1]};#1 | 1'b0 -> 1'b1 | escape command: the bit shifted in never reaches tshift[0] before the command ends and the next state ignores tshift
+D_PHY | tshift <= {1'b0, tshift[7:1]};#2 | 1'b0 -> 1'b1 | LPDT: the bit shifted in reaches tshift[0] only at the next byte boundary, where the pad shows buf_data[0] or the exit space
+ACE | line_dirty[acaddr[7:2]] <= 1'b0;#2 | 1'b0 -> 1'b1 | MakeInvalid clears valid in the same clock; dirty is only read on a valid line, and every write that revalidates the line sets it
+I2C | scl_s <= 1'b1; scl_d <= 1'b1; sda_s <= 1'b1; sda_d <= 1'b1; | 1'b1 -> 1'b0@1 | in the first clock out of reset sda_s = sda_d = 1, so no START/STOP is seen, and SCL edges are ignored in ST_IDLE; scl_s is reloaded from scl at that clock
+I2C | state <= ST_IDLE; ack_low <= 1'b0; txack_done <= 1'b0; | 1'b0 -> 1'b1@2 | after a STOP txack_done is not read in ST_IDLE, and the next START clears it
+I2C | scl_s <= 1'b1; scl_d <= 1'b1; sda_s <= 1'b1; sda_d <= 1'b1; | 1'b1 -> 1'b0@2 | gives at most an SCL rise in the first clock out of reset, which ST_IDLE ignores
+I2C | scl_s <= 1'b1; scl_d <= 1'b1; sda_s <= 1'b1; sda_d <= 1'b1; | 1'b1 -> 1'b0@4 | gives at most a STOP in the first clock out of reset, which leaves ST_IDLE with SDA released, as reset does
+MIPI_SoundWire | dyn_ok <= 1'b0; s_ok <= 1'b0; miss <= 1'b0; cw <= '0; rw <= '0; | 1'b0 -> 1'b1@2 | reset value; s_ok is read only in Y_CHECK / Y_LOCK, and the move out of Y_HUNT sets it
+MIPI_SoundWire | dyn_ok <= 1'b0; s_ok <= 1'b0; miss <= 1'b0; cw <= '0; rw <= '0; | 1'b0 -> 1'b1@1 | reset value; dyn_ok is read only in Y_CHECK, and the move out of Y_HUNT clears it
+MIPI_SoundWire | dyn_ok <= 1'b0; s_ok <= 1'b0; miss <= 1'b0; cw <= '0; rw <= '0; | 1'b0 -> 1'b1@3 | reset value; miss is read only in Y_LOCK, and the move out of Y_HUNT clears it
+AHB | write_q <= 1'b0; | 1'b0 -> 1'b1 | reset value; write_q is read only with valid_q, and every accepted transfer that sets valid_q loads it
+AHB | err_q   <= 1'b0; | 1'b0 -> 1'b1 | reset value; err_q is read only with valid_q, and every accepted transfer that sets valid_q loads it
+AHB | hreadyout = 1'b1;#3 | 1'b1 -> 1'b0 | default arm of a three-state FSM whose fourth encoding is never reached
+MDIO | mdc_s <= 1'b0; mdc_d <= 1'b0; mdio_s <= 1'b1; | 1'b0 -> 1'b1@2 | mdc_rise in the first clock out of reset needs mdc_s = 1, which is still its reset value 0; mdc_d is reloaded from mdc_s at that clock
+MDIO | read_frame <= 1'b0; read_match <= 1'b0; regad_q <= '0; | 1'b0 -> 1'b1@2 | reset value; read_match drives MDIO only from cnt 13, and cnt 6 of every frame reloads it
+MDIO | for (int i = 0; i < 32; i++) regs[i] <= 16'h0000; | 0 -> 1 | the loop then skips reg 0, which the preset 0x1140 sets in the same reset
+MDIO | read_frame <= 1'b0; | 1'b0 -> 1'b1 | cnt 1 of every frame reloads read_frame before cnt 6 reads it
+MDIO | mdc_s <= 1'b0; mdc_d <= 1'b0; mdio_s <= 1'b1; | 1'b1 -> 1'b0 | mdio_s is read only on an MDC rise, which needs mdc_s = 1 and so comes after the clock that reloads mdio_s
+MDIO | read_frame <= 1'b0; read_match <= 1'b0; regad_q <= '0; | 1'b0 -> 1'b1@1 | reset value; cnt 1 of every frame reloads read_frame before cnt 6 reads it
+MDIO | for (int i = 0; i < 32; i++) regs[i] <= 16'h0000; | 32 -> 33 | the extra iteration writes regs[32], which does not exist (the write is ignored)
+GMII | rxclk_s <= 1'b0; rxclk_d <= 1'b0; rxdv_s <= 1'b0; rxd_s <= '0; | 1'b0 -> 1'b1@1 | a capture in the first clock out of reset also needs rxdv_s, still at its reset value 0
+GMII | rxclk_s <= 1'b0; rxclk_d <= 1'b0; rxdv_s <= 1'b0; rxd_s <= '0; | 1'b0 -> 1'b1@2 | only hides an rx_clk rise in the first clock out of reset, when rxclk_s is still 0, so nothing changes
+GMII | rxclk_s <= 1'b0; rxclk_d <= 1'b0; rxdv_s <= 1'b0; rxd_s <= '0; | 1'b0 -> 1'b1@3 | a capture in the first clock out of reset also needs an rx_clk rise, and rxclk_s is still 0
+SAS_4__Serial_Attached_SCSI_ | oob_det <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; oob_det is read only in the idle states, and OOB starts in CR_BURST while oob_det is cleared every clock
+SAS_4__Serial_Attached_SCSI_ | rsp_pending <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; phy_ready is 0 out of reset, and the !phy_ready branch clears rsp_pending in the next clock
+SAS_4__Serial_Attached_SCSI_ | tx_pld <= {tx_pld[126:0], 1'b0}; | 1'b0 -> 1'b1 | a shifted-in bit reaches tx_pld[127] only after 128 shifts; the next block is loaded after 128
+SAS_4__Serial_Attached_SCSI_ | pay_blk    <= 1'b0; | 1'b0 -> 1'b1 | reset value; RF_HDR clears pay_blk before RF_PAY reads it
+SAS_4__Serial_Attached_SCSI_ | for (int k = 0; k < 16; k++) regs[k] <= 32'd0; | 16 -> 17 | the extra iteration writes regs[16], which does not exist (the write is ignored)
+Bluetooth5 | for (int i = 0; i < 16; i++) adv_pay[i] <= 8'hB0 + 8'(i); | 16 -> 17 | the extra iteration writes adv_pay[16], which does not exist (index 0..15), so nothing is stored
+Bluetooth5 | for (int i = 0; i < 16; i++) rx_buf[i] <= 8'h00; | 0 -> 1 | rx_buf is read only for a 15-byte CONNECT_REQ, whose payload has just rewritten rx_buf[0..14]
+Bluetooth5 | gnt_adv  <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; gnt_adv only clears adv_tx_req, which is 0 out of reset and cannot be set before ADV_INTV clocks
+Bluetooth5 | tx_sn          <= 1'b0; | 1'b0 -> 1'b1 | reset value; tx_sn is used only in the connection state, and CONNECT_REQ sets it to 0 on entry
+Bluetooth5 | rx_sn         <= 1'b0; | 1'b0 -> 1'b1 | reset value; rx_sn is used only in the connection state, and CONNECT_REQ sets it to 0 on entry
+Bluetooth5 | for (int i = 0; i < 16; i++) rx_buf[i] <= 8'h00; | < -> >= | rx_buf is then not cleared at reset; it is read only for a 15-byte CONNECT_REQ, whose payload has just rewritten rx_buf[0..14]
+Bluetooth5 | for (int i = 0; i < 16; i++) rx_buf[i] <= 8'h00; | 16 -> 17 | the extra iteration writes rx_buf[16], which does not exist (index 0..15), so nothing is stored
+MIPI_SPMI | nleft <= '0; rd_q <= 1'b0; long_q <= 1'b0; hi_q <= 1'b0; ack_q <= 1'b0; | 1'b0 -> 1'b1@1 | reset value; rd_q is set by every extended command before S_ADDR reads it
+MIPI_SPMI | nleft <= '0; rd_q <= 1'b0; long_q <= 1'b0; hi_q <= 1'b0; ack_q <= 1'b0; | 1'b0 -> 1'b1@4 | reset value; ack_q is set at the end of every command frame before S_WDATA or S_ACK reads it
+MIPI_SPMI | for (int i = 0; i < 32; i++) mem[i] <= 8'h00;#1 | 32 -> 33 | the reset loop's extra iteration writes mem[32], which does not exist (index 0..31), so nothing is stored
+MIPI_SPMI | bcnt <= bcnt + 4'd1;#3 | + -> - | S_WDATA is entered with bcnt = 0; counting down 0, 15, 14, ..., 8 also reaches 8 on the 9th bit, and bcnt is cleared there
+MIPI_SPMI | nleft <= '0; rd_q <= 1'b0; long_q <= 1'b0; hi_q <= 1'b0; ack_q <= 1'b0; | 1'b0 -> 1'b1@2 | reset value; long_q is set by every extended command before S_ADDR reads it
+MIPI_SPMI | nleft <= '0; rd_q <= 1'b0; long_q <= 1'b0; hi_q <= 1'b0; ack_q <= 1'b0; | 1'b0 -> 1'b1@3 | reset value; hi_q is cleared at the end of every command frame before S_ADDR reads it
+USB2 | field_token <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; every packet start (RS_IDLE -> RS_SYNC) clears field_token before RS_DUMP or the token check reads it
+USB2 | out_tgl    <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; out_tgl only gates the OUT status stage, which needs rq = DESC / CFGGET, set only by a SETUP, and every applied SETUP sets out_tgl to 1
+Ethernet_AVB_TSN | if (gcl_entry == gcl_last) ent_done <= 1'b1; | 1'b1 -> 1'b0 | ent_done only stops ent_el and gcl_entry from moving; without it the last entry keeps meeting ent_nx >= ivl_cur, which also leaves both unchanged
+Ethernet_AVB_TSN | for (int c = 0; c < 4; c++) begin : b_cbs | 4 -> 5 | the extra iteration writes credit[4], which does not exist (index 0..3), so nothing is stored
+Ethernet_AVB_TSN | for (int c = 0; c < 4; c++) credit[c] <= '0; | 4 -> 5 | the extra iteration writes credit[4], which does not exist (index 0..3), so nothing is stored
+Ethernet_AVB_TSN | for (int k = 0; k < 8; k++) begin g_gates[k] <= '0; g_ivl[k] <= '0; end | 8 -> 9 | the extra iteration writes entry 8, which does not exist (index 0..7), so nothing is stored

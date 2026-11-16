@@ -43,6 +43,26 @@ module AHB_tb;
     end
   endtask
 
+  // Data-phase model (all builds): a transfer is accepted when hsel, hready
+  // and htrans[1] are high and occupies the next data phase until hready.
+  // hrdata is 0 outside a read data phase of an OKAY transfer; irq is high
+  // exactly in the first ERROR cycle (hresp high, hreadyout low).
+  logic dp_valid = 0, dp_write = 0, dp_err = 0;
+  always @(posedge clk) begin
+    if (rst_n && hready) begin
+      dp_valid <= hsel && htrans[1];
+      dp_write <= hwrite;
+      dp_err   <= haddr[11];
+    end
+    if (!rst_n) dp_valid <= 0;
+  end
+  always @(negedge clk) if (rst_n) begin
+    if (!(dp_valid && !dp_write && !dp_err) && hrdata !== '0)
+      chk(1'b0, "hrdata not 0 outside a read data phase");
+    if (irq !== (hresp && !hreadyout))
+      chk(1'b0, "irq not exactly the first ERROR cycle");
+  end
+
   task automatic bus_idle(input int n);
     hsel = 1'b0; htrans = 2'b00; hwrite = 1'b0; haddr = '0;
     repeat (n) @(negedge clk);
