@@ -86,6 +86,75 @@ module Avalon_MM_tb;
 `endif
 
   // ------------------------------------------------------------------
+  // Independent cycle model of the slave, written from the timing in the
+  // design header (fast window 0x000-0x1FF, slow window 0x200-0x3FF with one
+  // wait state per command / write beat and a one-cycle bubble before each
+  // read beat, burstcount 0 -> 1 and > 16 -> 16 + irq, out-of-range writes
+  // dropped and reads zero, sticky irq). Inputs come from the master model,
+  // outputs are compared before every rising edge in all builds (issue #44).
+  // ------------------------------------------------------------------
+  logic [31:0] m_mem [0:255];
+  int          m_st = 0;            // 0 idle, 1 write burst, 2 read data
+  logic [32:0] m_addr = '0;
+  int          m_left = 0;
+  bit          m_ws = 0, m_gap = 0, m_irq = 0;
+  function automatic bit m_ok(input logic [32:0] a);   return a < 33'h400; endfunction
+  function automatic bit m_slow(input logic [32:0] a); return a >= 33'h200 && a < 33'h400; endfunction
+  function automatic bit m_wait();
+    if (m_st == 2) return 1;
+    if (m_st == 1) return av_write && m_slow(m_addr) && !m_ws;
+    return (av_read || av_write) && m_slow({1'b0, av_address}) && !m_ws;
+  endfunction
+  int m_err = 0;
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      m_st <= 0; m_addr <= '0; m_left <= 0; m_ws <= 0; m_gap <= 0; m_irq <= 0;
+    end else begin : m_step
+      bit w, rdv;
+      int nb;
+      w   = m_wait();
+      rdv = (m_st == 2) && !(m_slow(m_addr) && !m_gap);
+      if (av_waitrequest !== w || av_readdatavalid !== rdv || irq !== m_irq ||
+          (rdv && av_readdata !== (m_ok(m_addr) ? m_mem[m_addr[9:2]] : 32'h0))) begin
+        errors++; m_err++;
+        if (m_err <= 10)
+          $display("ERROR: Avalon_MM model t=%0t wait=%b/%b rdv=%b/%b irq=%b/%b data=%h",
+                   $time, av_waitrequest, w, av_readdatavalid, rdv, irq, m_irq, av_readdata);
+      end
+      m_ws <= (m_st != 2) && w &&
+              ((m_st == 0 && (av_read || av_write) && m_slow({1'b0, av_address})) ||
+               (m_st == 1 && av_write && m_slow(m_addr)));
+      nb = (av_burstcount == 0) ? 1 : (av_burstcount > 16) ? 16 : av_burstcount;
+      if (m_st == 0 && (av_read || av_write) && !w) begin
+        if ((av_read && av_write) || av_burstcount > 16) m_irq <= 1;
+        if (av_write) begin
+          if (m_ok({1'b0, av_address})) begin
+            for (int b = 0; b < 4; b++)
+              if (av_byteenable[b]) m_mem[av_address[9:2]][8*b +: 8] <= av_writedata[8*b +: 8];
+          end else m_irq <= 1;
+          if (nb > 1) begin m_addr <= {1'b0, av_address} + 4; m_left <= nb - 1; m_st <= 1; end
+        end else begin
+          m_addr <= {1'b0, av_address}; m_left <= nb; m_gap <= 0; m_st <= 2;
+        end
+      end else if (m_st == 1 && av_write && !w) begin
+        if (m_ok(m_addr)) begin
+          for (int b = 0; b < 4; b++)
+            if (av_byteenable[b]) m_mem[m_addr[9:2]][8*b +: 8] <= av_writedata[8*b +: 8];
+        end else m_irq <= 1;
+        m_addr <= m_addr + 4; m_left <= m_left - 1;
+        if (m_left == 1) m_st <= 0;
+      end else if (m_st == 2) begin
+        if (m_slow(m_addr) && !m_gap) m_gap <= 1;
+        else begin
+          if (!m_ok(m_addr)) m_irq <= 1;
+          m_gap <= 0; m_addr <= m_addr + 4; m_left <= m_left - 1;
+          if (m_left == 1) m_st <= 0;
+        end
+      end
+    end
+  end
+
+  // ------------------------------------------------------------------
   // in-order read-data scoreboard
   // ------------------------------------------------------------------
   logic [31:0] exp_q [0:4095];
@@ -528,6 +597,28 @@ module Avalon_MM_tb;
       end
       av_write1(32'h080, 32'h5A5A_0000, 4'b1100);
       av_read1(32'h080, 32'h5A5A_0000);
+    end
+
+    // clean-state checks the sticky irq would otherwise hide: a reset, then
+    // burstcount 17 alone must raise irq; slow-window read and write bursts
+    // exercise the wait state and the read bubble on every beat
+    begin : clean_irq
+      @(negedge clk); rst_n <= 1'b0;
+      repeat (2) @(posedge clk);
+      @(negedge clk); rst_n <= 1'b1;
+      av_write_burst(32'h0000_0300, 3, 32'h7700_0000);
+      av_read_burst(32'h0000_0300, 3, 32'h7700_0000);
+      av_write_burst(32'h0000_01F8, 4, 32'h6600_0000);   // crosses into the slow window
+      av_read_burst(32'h0000_01F8, 4, 32'h6600_0000);
+      av_write_burst(32'h0000_0100, 16, 32'h5500_0000);
+      if (irq !== 1'b0) begin errors++; $display("ERROR: irq after legal bursts"); end
+      for (int i = 0; i < 16; i++) begin exp_q[exp_n] = 32'h5500_0000 + i; exp_n++; end
+      @(negedge clk);
+      av_address <= 32'h0000_0100; av_burstcount <= 8'd17; av_read <= 1'b1; av_write <= 1'b0;
+      @(posedge clk); while (av_waitrequest) @(posedge clk);
+      @(negedge clk); av_read <= 1'b0; av_burstcount <= 8'd1;
+      repeat (20) @(posedge clk);
+      if (irq !== 1'b1) begin errors++; $display("ERROR: irq not set for burstcount 17"); end
     end
 
     if (errors == 0) $display("TEST PASSED: Avalon_MM");
