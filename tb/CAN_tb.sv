@@ -184,6 +184,9 @@ module CAN_tb;
   bit bfm_ack;                          // ACK slot was dominant
   bit bfm_lost;                         // lost arbitration
   bit bfm_err;                          // saw a dominant bit where it drove recessive
+  int bfm_shift_raw = -1;               // raw index whose edge comes late ...
+  int bfm_shift_tq = 0;                 // ... by this many tq (lasting phase shift)
+  realtime bfm_ack_t;                   // start of the ACK slot the BFM drives
   task automatic bfm_bit(input logic v, output logic seen);
     int len, j;
     len = bt();
@@ -207,6 +210,7 @@ module CAN_tb;
     bfm_ack = 0; bfm_lost = 0; bfm_err = 0; stuffs = 0;
     for (int i = 0; i < n_raw && !bfm_lost && !bfm_err; i++) begin
       if (i != bfm_skip_stuff) begin
+        if (i == bfm_shift_raw) ca(bfm_shift_tq * (cfg_brp + 1));
         bfm_bit(i == bfm_flip ? ~raw[i] : raw[i], s);
         if (raw[i] && !s && i != bfm_flip) begin
           if (raw_pos[i] >= 1 && raw_pos[i] <= n_arb) begin bfm_lost = 1; bfm_drv = 1; end
@@ -217,13 +221,14 @@ module CAN_tb;
     end
     // CRC delimiter, ACK slot, ACK delimiter, EOF; stop at the first error
     for (int t = 0; t < 10 && !bfm_lost && !bfm_err; t++) begin
+      if (t == 1) bfm_ack_t = $realtime;
       bfm_bit(t == bfm_tail_dom ? 1'b0 : 1'b1, s);
       if (t == bfm_tail_dom) bfm_err = 1;
       else if (t == 1) begin bfm_ack = !s; if (s) bfm_err = 1; end
       else if (!s) bfm_err = 1;
     end
     bfm_drv = 1;
-    bfm_flip = -1; bfm_skip_stuff = -1; bfm_tail_dom = -1;
+    bfm_flip = -1; bfm_skip_stuff = -1; bfm_tail_dom = -1; bfm_shift_raw = -1;
     if (bfm_jprev > 0) ca(bfm_jprev * (cfg_brp + 1));
     bfm_jprev = 0;
   endtask
@@ -328,6 +333,29 @@ module CAN_tb;
     return v > 8 ? 8 : v;
   endfunction
 
+  // ---------------- bit grid and edge timing ----------------
+  // Until the first bus edge after reset A's bit timing free-runs from reset:
+  // a frame A starts then begins on a bit boundary, a whole number of bit
+  // times after the first clock edge out of reset.
+  int      a_clk_n = 0;
+  bit      a_fresh = 0;
+  realtime a_fall_t = 0;                 // last falling edge of A's txd
+  int      rec_clk = 0;                  // recessive clocks on the bus so far
+  always @(posedge clk_a) begin
+    a_clk_n = rst_a ? a_clk_n + 1 : 0;
+    if (!rst_a) a_fresh = 1;
+    rec_clk = bus ? rec_clk + 1 : 0;
+  end
+  always @(negedge a_txd) a_fall_t = $realtime;
+  bit      a_lost_seen = 0;              // A lost arbitration since cleared
+  always @(posedge clk_a) if (a_arb_lost) a_lost_seen = 1;
+  always @(negedge bus) if (a_fresh && rst_a) begin
+    a_fresh = 0;
+    if (!a_txd && a_clk_n % bt() != 0)
+      fail($sformatf("A's first frame after reset starts %0d clocks after reset, not on its bit grid (%0d)",
+                     a_clk_n, bt()));
+  end
+
   // ---------------- delivery scoreboard ----------------
   frame_t a_rxq [$], b_rxq [$];
   int a_rxn = 0, b_rxn = 0, a_txn = 0, b_txn = 0;
@@ -410,6 +438,10 @@ module CAN_tb;
     m_st = 0; m_cnt = 0; m_rec = 99; m_req = 0;          // bit time may have changed
     ca(5);
     if (a_txd !== 1 || b_txd !== 1 || a_tec !== 0 || a_rec !== 0 || !a_tx_ready) fail("reset values");
+    if ({a_err_bit, a_err_stuff, a_err_crc, a_err_form, a_err_ack, a_tx_done, a_tx_aborted, a_rx_valid, a_arb_lost,
+         b_err_bit, b_err_stuff, b_err_crc, b_err_form, b_err_ack, b_tx_done, b_tx_aborted, b_rx_valid, b_arb_lost,
+         a_err_passive, a_bus_off, b_err_passive, b_bus_off} !== '0)
+      fail("event or status output set in reset");
     rst_a = 1; rst_b = 1;
     idle(12);
   endtask
@@ -505,9 +537,19 @@ module CAN_tb;
     join
     ca(2 * bt());
     bfm_sync = 1;
+    a_lost_seen = 0;
     bfm_send(mkf(29'h021, 0, 0, 1, 64'h7), 0);
     if (bfm_lost || bfm_err || !bfm_ack) fail("BFM frame at the 3rd intermission bit");
+    if (!a_lost_seen) fail("A did not join (and lose) the frame at the 3rd intermission bit");
     wait_ready(1, 0);
+    idle(11);
+    // the same with nothing pending: A and B stay receivers (their buffers
+    // still hold lower IDs, which would win arbitration if they joined)
+    bfm_send(mkf(29'h040, 0, 0, 1, 64'h8), 0);
+    ca(2 * bt());
+    bfm_sync = 1;
+    bfm_send(mkf(29'h041, 0, 0, 1, 64'h9), 0);
+    if (bfm_lost || bfm_err || !bfm_ack) fail("BFM frame at the 3rd intermission bit, nothing pending");
     idle(11);
 
     // 4. BFM frames with jitter (resynchronisation), then received by both
@@ -523,6 +565,30 @@ module CAN_tb;
     end
     bfm_jitter = 0;
     cfg_sjw = 1; reset_all();
+    // a lasting phase shift beyond SJW: one recessive-to-dominant edge comes
+    // e tq late and no later one follows before the ACK slot; A corrects at
+    // most SJW tq of it, so its ACK starts (e - SJW) tq early when e > SJW
+    // and on time when e <= SJW
+    begin : sjw_limit
+      realtime d [0:2];
+      int e [0:2];
+      e[0] = 0; e[1] = cfg_sjw + 1; e[2] = cfg_sjw + 4;
+      for (int k = 0; k < 3; k++) begin
+        f = mkf(29'h2C3 + k, 0, 0, 2, 64'h5AA5);
+        build(f, 0);
+        bfm_shift_raw = -1;
+        for (int i = n_raw - 1; i > 0 && bfm_shift_raw < 0; i--)
+          if (!raw[i] && raw[i - 1]) bfm_shift_raw = i;
+        bfm_shift_tq = e[k];
+        bfm_send(f, 0);
+        if (!bfm_ack) fail("BFM frame with a late edge not acknowledged");
+        d[k] = a_fall_t - bfm_ack_t;
+        idle(3);
+      end
+      if (d[1] != d[0] || d[0] - d[2] != 3.0 * (cfg_brp + 1) * 10.0)
+        fail($sformatf("SJW: ACK delays %0t %0t %0t for late edges of %0d %0d %0d tq",
+                       d[0], d[1], d[2], e[0], e[1], e[2]));
+    end
     hb = 4.985;                                          // B now faster than A
     for (int i = 0; i < 10; i++) begin
       if (i % 2) a_send(rnd_frame()); else b_send(rnd_frame());
@@ -586,6 +652,21 @@ module CAN_tb;
     wait_ready(1, 0);
     rst_b = 1;
     idle(11);
+    // error passive by TEC, but a receiver of the last frame: A still joins
+    // a frame that starts at its 3rd intermission bit (no suspend)
+    fork
+      bfm_send(mkf(29'h020, 0, 0, 1, 64'h5), 0);
+      begin bits(10); a_send(mkf(29'h030, 0, 0, 1, 64'h6)); end
+    join
+    if (!a_err_passive) fail("A not error passive before the intermission join");
+    ca(2 * bt());
+    bfm_sync = 1;
+    a_lost_seen = 0;
+    bfm_send(mkf(29'h021, 0, 0, 1, 64'h7), 0);
+    if (bfm_lost || bfm_err || !bfm_ack) fail("BFM frame at the 3rd intermission bit (A passive)");
+    if (!a_lost_seen) fail("error-passive receiver A did not join the frame at the 3rd intermission bit");
+    wait_ready(1, 0);
+    idle(11);
     // passive transmitter succeeds (suspend after it), then counts down
     for (int i = 0; i < 4; i++) begin a_send(rnd_frame()); b_send(rnd_frame()); wait_ready(1, 1); end
     // passive error flag at A while B transmits: local disturbance at A
@@ -623,6 +704,22 @@ module CAN_tb;
     // REC saturates at 255
     for (int i = 0; i < 140; i++) begin bfm_send(mkf(i, 0, 1, 0, 0), 1); idle(11); end
     exp_cnt(-1, 255, -1, 255);
+    // an error-passive receiver does not suspend transmission: A's frame,
+    // queued during a bad BFM frame, starts right after the intermission that
+    // follows the error delimiter (20 recessive bits from the CRC delimiter:
+    // CRC delimiter, ACK slot, ACK delimiter, 6-bit passive flag, 8-bit
+    // delimiter, 3-bit intermission), not after 8 more suspend bits
+    begin : passive_rx
+      int a_sof_gap;
+    fork
+      bfm_send(mkf(29'h45, 0, 0, 1, 64'h4), 1);
+      begin bits(10); a_send(mkf(29'h46, 0, 0, 1, 64'h6)); end
+    join
+    @(negedge a_txd) a_sof_gap = rec_clk;
+    wait_ready(1, 0);
+    if (a_sof_gap > 22 * bt())
+      fail($sformatf("passive receiver: A's frame came after %0d recessive clocks", a_sof_gap));
+    end
     reset_all();
 
     // 10. abort: buffered while the bus is busy, and abort during own frame
