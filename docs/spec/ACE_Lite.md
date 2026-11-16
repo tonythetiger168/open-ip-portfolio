@@ -211,12 +211,13 @@ transaction type in and out of range, sizes and byte lanes, and (Verilator) rand
 | "CRV ACE_Lite read" | random burst: per-beat data, `rlast`, RRESP as the scoreboard predicts | §3.2, §3.3 |
 | "ACE_Lite write" | directed burst BRESP | §3.3 |
 | "ACE_Lite read" | directed burst: per-beat data, `rlast`, RRESP | §3.2, §3.3 |
-| "ACE_Lite reset state bvalid" | `bvalid`, `rvalid`, `irq` 0 after reset | §3.6 |
+| "ACE_Lite reset state bvalid" | `bvalid`, `rvalid`, `irq` 0 and `bresp`, `rresp` OKAY in reset | §3.6 |
 | "ACE_Lite irq not asserted on SLVERR protocol error" | an out-of-range write / read pulses `irq` | §3.5 |
 | "ACE_Lite 1KB-cross read beat" | read crossing 0x3FC: OKAY beats then 0 / SLVERR | §3.3 |
 | "ACE_Lite early wlast bresp" | early `wlast` ends the burst with OKAY | §3.1 |
 | "ACE_Lite missing wlast bresp" | the beat count ends the burst with OKAY | §3.1 |
-| "ACE_Lite outputs not quiescent in reset" | reset mid-burst: `bvalid`, `rvalid`, `wready`, `irq` 0 | §3.6 |
+| "ACE_Lite outputs not quiescent in reset" | reset mid-burst: `bvalid`, `rvalid`, `wready`, `irq`, `rlast` 0 and `bresp`, `rresp` OKAY | §3.6 |
+| "ACE_Lite irq=" | every clock, `irq` equals the TB model: one pulse after the last W beat of an errored write (bad burst / size, or a beat at or past 1KB) or the last R beat of an errored read, 0 otherwise | §3.5 |
 | "A1 reset: b/rvalid low" | no `bvalid` / `rvalid` in or leaving reset | §3.6 |
 | "A2 bvalid/bresp held until bready" | B payload stable under backpressure | §3.1 |
 | "A3 rvalid/rdata/rresp held until rready" | R payload (with `rlast`) stable under backpressure | §3.2 |
