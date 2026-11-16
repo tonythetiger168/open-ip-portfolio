@@ -251,3 +251,5 @@ MIPI_SPMI | for (int i = 0; i < 32; i++) mem[i] <= 8'h00;#1 | 32 -> 33 | the res
 MIPI_SPMI | bcnt <= bcnt + 4'd1;#3 | + -> - | S_WDATA is entered with bcnt = 0; counting down 0, 15, 14, ..., 8 also reaches 8 on the 9th bit, and bcnt is cleared there
 MIPI_SPMI | nleft <= '0; rd_q <= 1'b0; long_q <= 1'b0; hi_q <= 1'b0; ack_q <= 1'b0; | 1'b0 -> 1'b1@2 | reset value; long_q is set by every extended command before S_ADDR reads it
 MIPI_SPMI | nleft <= '0; rd_q <= 1'b0; long_q <= 1'b0; hi_q <= 1'b0; ack_q <= 1'b0; | 1'b0 -> 1'b1@3 | reset value; hi_q is cleared at the end of every command frame before S_ADDR reads it
+USB2 | field_token <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; every packet start (RS_IDLE -> RS_SYNC) clears field_token before RS_DUMP or the token check reads it
+USB2 | out_tgl    <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; out_tgl only gates the OUT status stage, which needs rq = DESC / CFGGET, set only by a SETUP, and every applied SETUP sets out_tgl to 1

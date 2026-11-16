@@ -134,6 +134,26 @@ module USB2_tb;
     tx_pkt();
   endtask
 
+  // every device EOP: SE0 for exactly 2 bit times, then J for 1 bit time
+  int eop_se0 = 0, eop_j = -1;
+  always @(posedge clk) begin
+    if (dut.tx_oe && dp === 1'b0 && dm === 1'b0) eop_se0++;
+    else begin
+      if (eop_se0 > 0) begin
+        if (eop_se0 != 2 * BC) fail($sformatf("device EOP SE0 %0d clk", eop_se0));
+        eop_j = 0;
+      end
+      eop_se0 = 0;
+      if (eop_j >= 0) begin
+        if (dut.tx_oe && dp === 1'b1 && dm === 1'b0) eop_j++;
+        else begin
+          if (eop_j != BC) fail($sformatf("device EOP J %0d clk", eop_j));
+          eop_j = -1;
+        end
+      end
+    end
+  end
+
   task automatic hshake(input logic [3:0] pid);
     pk[0] = {~pid, pid}; pk_n = 1;
     tx_pkt();
@@ -371,6 +391,14 @@ module USB2_tb;
     ep1_read(); ep1_read(); ep1_read();
     ep1_read(1);                                      // no ACK: resend same data
     ep1_read(2);                                      // host NAK: resend
+    ep1_read();
+    // a packet cut by SE0 in its PID, in the handshake slot, is not an ACK:
+    // it ends the wait, so an ACK right after it is ignored and the same
+    // data goes out again on the next IN
+    token(IN, A, 1);
+    wait (dut.tx_oe === 1'b1); wait (dut.tx_oe === 1'b0);
+    f_cut = 9; hshake(ACK);
+    hshake(ACK);
     ep1_read();
     for (int r = 0; r < 4; r++) begin                 // vendor preset, all bits
       logic [31:0] v;
