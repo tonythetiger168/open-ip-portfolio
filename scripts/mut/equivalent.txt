@@ -3,9 +3,8 @@
 #   IP | stripped RTL line[#N] | from -> to | reason
 # #N picks the N-th line with that text when it occurs more than once, and
 # to@K only the K-th match of from on the line. An
-# entry that matches no mutant site fails the run (with the default operators;
-# under --ops helioslm only an entry whose line vanished does), so fix the entry when the
-# RTL changes.
+# entry that matches no mutant site of any operator set (default or
+# --ops helioslm) fails the run, so fix the entry when the RTL changes.
 ACE | line_dirty[acaddr[7:2]] <= 1'b0;#3 | 1'b0 -> 1'b1 | the line is invalidated in the same clock; dirty is only visible on a valid line
 HBM2 | if (ref_walk)      begin ref_walk <= 1'b0; dstate <= D_IDLE; end | 1'b0 -> 1'b1 | ref_walk is reloaded at every host accept before it is read again
 HBM | if (ref_walk)      begin ref_walk <= 1'b0; dstate <= D_IDLE; end | 1'b0 -> 1'b1 | ref_walk is reloaded at every host accept before it is read again
@@ -33,6 +32,10 @@ AHB | valid_q <= 1'b0;#1 | 1'b0 -> 1'b1 | a phantom read data phase in the first
 AHB | hresp     = 1'b0;#2 | 1'b0 -> 1'b1 | the default branch is the unused fourth state encoding
 Wishbone | q_rsv[0]  <= 1'b0;  q_rsv[1]  <= 1'b0; | 1'b0 -> 1'b1 | reset value of queue entries; each is loaded with the push that makes it valid
 Wishbone | cls_blk   <= 1'b0; | 1'b0 -> 1'b1 | cls_blk clears in the first clock with stb_i low, and stb_i is low while in reset
+Wishbone | q_we[0]   <= 1'b0;  q_we[1]   <= 1'b0; | 1'b0 -> 1'b1 | reset value of queue entries; each is loaded with the push that makes it valid (only dat_o while ack_o is low could differ)
+Wishbone | q_ok[0]   <= 1'b0;  q_ok[1]   <= 1'b0; | 1'b0 -> 1'b1 | reset value of queue entries; each is loaded with the push that makes it valid (only dat_o while ack_o is low could differ)
+Wishbone | q_slow[0] <= 1'b0;  q_slow[1] <= 1'b0; | 1'b0 -> 1'b1 | reset value of queue entries; q_slow[0] is read only when q_count is non-zero
+Wishbone | for (int b = 0; b < 4; b++) | 4 -> 5 | lane 4 does not exist: sel bit 4 is X and the out-of-range part select writes nothing
 ACE_Lite | werr_q  <= 1'b0; | 1'b0 -> 1'b1 | reset value; loaded at every AW accept before bresp or irq reads it
 DDR4 | ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= 1'b0; | 1'b0 -> 1'b1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
 DDR5 | ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; | 1'b0 -> 1'b1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE

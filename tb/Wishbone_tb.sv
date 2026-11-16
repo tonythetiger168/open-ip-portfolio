@@ -82,6 +82,69 @@ module Wishbone_tb;
 `endif
 
   // ------------------------------------------------------------------
+  // Cycle model of the slave from its documented behaviour (2-deep request
+  // queue, stall_o when full, fast window answers at once, slow window one
+  // extra wait state, hole 0x400-0x7FF acks with zero data and drops writes,
+  // reserved 0x800+ answers err_o + sticky irq, classic cycles accepted once
+  // per held strobe). ack_o, err_o, stall_o and irq are compared before every
+  // rising edge, dat_o with every ack, in all builds (issue #44).
+  // ------------------------------------------------------------------
+  logic        mq_we [0:1], mq_ok [0:1], mq_rsv [0:1], mq_slow [0:1];
+  logic [7:0]  mq_idx [0:1];
+  logic [3:0]  mq_sel [0:1];
+  logic [31:0] mq_d [0:1];
+  int          m_cnt = 0, m_st = 0, m_err = 0;
+  bit          m_cls = 0, m_irq = 0;
+  logic [31:0] m_mem [0:255];
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      m_cnt <= 0; m_st <= 0; m_cls <= 0; m_irq <= 0;
+    end else begin : m_step
+      bit stall, acc, resp;
+      int k;
+      int n;
+      stall = (m_cnt == 2);
+      acc   = cyc_i && stb_i && !stall && !m_cls;
+      resp  = (m_st == 0 && m_cnt != 0 && !mq_slow[0]) || m_st == 2;
+      if (ack_o !== (resp && !mq_rsv[0]) || err_o !== (resp && mq_rsv[0]) ||
+          stall_o !== stall || irq !== m_irq || rty_o !== 1'b0 ||
+          (ack_o && dat_o !== ((mq_ok[0] && !mq_we[0]) ? m_mem[mq_idx[0]] : 32'h0))) begin
+        errors++; m_err++;
+        if (m_err <= 10)
+          $display("ERROR: Wishbone model t=%0t ack=%b err=%b stall=%b/%b irq=%b/%b dat=%h",
+                   $time, ack_o, err_o, stall_o, stall, irq, m_irq, dat_o);
+      end
+      if (acc && cti_i == 3'b000) m_cls <= 1;
+      else if (!stb_i || (resp && m_cnt == 1)) m_cls <= 0;
+      case (m_st)
+        0: if (m_cnt != 0 && mq_slow[0]) m_st <= 1;
+        1: m_st <= 2;
+        default: m_st <= 0;
+      endcase
+      if (resp) begin
+        if (mq_ok[0] && mq_we[0])
+          for (int b = 0; b < 4; b++)
+            if (mq_sel[0][b]) m_mem[mq_idx[0]][8*b +: 8] <= mq_d[0][8*b +: 8];
+        if (mq_rsv[0]) m_irq <= 1;
+      end
+      n = m_cnt;
+      if (resp) begin
+        mq_we[0] <= mq_we[1]; mq_idx[0] <= mq_idx[1]; mq_sel[0] <= mq_sel[1]; mq_d[0] <= mq_d[1];
+        mq_ok[0] <= mq_ok[1]; mq_rsv[0] <= mq_rsv[1]; mq_slow[0] <= mq_slow[1];
+        n = n - 1;
+      end
+      if (acc) begin
+        k = (n == 0) ? 0 : 1;
+        mq_we[k] <= we_i; mq_idx[k] <= adr_i[9:2]; mq_sel[k] <= sel_i; mq_d[k] <= dat_i;
+        mq_ok[k] <= adr_i < 32'h400; mq_rsv[k] <= adr_i >= 32'h800;
+        mq_slow[k] <= adr_i < 32'h400 && adr_i[9];
+        n = n + 1;
+      end
+      m_cnt <= n;
+    end
+  end
+
+  // ------------------------------------------------------------------
   // in-order response scoreboard
   // ------------------------------------------------------------------
   logic [31:0] exp_data [0:511];
@@ -328,6 +391,35 @@ module Wishbone_tb;
       errors++; $display("ERROR: %0d expected responses never arrived", exp_wr - exp_rd);
     end
     if (rty_o !== 1'b0) begin errors++; $display("ERROR: rty_o must be tied 0"); end
+    // CHECK 11 (#44): hole reads return zero even where the word index
+    // aliases written storage; a fast or hole beat queued behind a slow one
+    // gets no wait state of its own; two queued reserved beats answer err_o
+    // twice and nothing after (the cycle model checks every clock)
+    wb_write(32'h0000_0044, 32'h0BAD_0044, 4'hF);
+    wb_read (32'h0000_0444, 32'h0);
+    wb_read (32'h0000_0644, 32'h0);
+    begin
+      logic [31:0] qa [4];
+      logic        qw [4];
+      qa[0] = 32'h0000_0220; qa[1] = 32'h0000_0044; qa[2] = 32'h0000_0224; qa[3] = 32'h0000_0600;
+      qw[0] = 1'b1; qw[1] = 1'b0; qw[2] = 1'b1; qw[3] = 1'b0;
+      for (i = 0; i < 4; i++) begin
+        exp_err[exp_wr] = 1'b0; exp_is_rd[exp_wr] = !qw[i];
+        exp_data[exp_wr] = (i == 1) ? 32'h0BAD_0044 : 32'h0; exp_wr++;
+        wb_issue(qa[i], 32'h9900_0000 + i, 4'hF, qw[i]);
+      end
+    end
+    wb_idle();
+    repeat (8) @(posedge clk);
+    for (i = 0; i < 2; i++) begin
+      exp_err[exp_wr] = 1'b1; exp_is_rd[exp_wr] = 1'b0; exp_data[exp_wr] = 32'h0; exp_wr++;
+      wb_issue(32'h0000_0900 + i*4, 32'h0, 4'hF, 1'b0);
+    end
+    wb_idle();
+    repeat (6) @(posedge clk);
+    if (exp_rd != exp_wr) begin
+      errors++; $display("ERROR: CHECK 11: %0d responses missing", exp_wr - exp_rd);
+    end
 
     repeat (2) @(posedge clk);
 `ifdef VERILATOR
