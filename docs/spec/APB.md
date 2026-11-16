@@ -165,10 +165,7 @@ are built only for Verilator. Assertions a_* are in `tb/cov/APB_sva.sv`.
 | "reset: irq must be 0" | in reset `irq` = 0 | §3.4 |
 | "apb: pslverr must be low while pready=0" | no PSLVERR in a wait cycle | §3.2 |
 | "apb_write: pslverr mismatch" | PSLVERR at write completion exactly for the reserved window | §3.3, §5 |
-| "apb_write: irq expected on pslverr" | `irq` with PSLVERR | §3.3 |
 | "apb_read: pslverr mismatch" | PSLVERR at read completion exactly for the reserved window | §3.3 |
-| "apb_read: data mismatch" | read data = last value written to the word (via either window) | §2, §3.3 |
-| "apb_read: irq expected on pslverr" | `irq` with PSLVERR | §3.3 |
 | "fast write: no wait state expected" | fast write completes in the first ACCESS cycle | §3.2 |
 | "fast read: no wait state expected" | fast read completes in the first ACCESS cycle | §3.2 |
 | "slow write: exactly one wait state expected" | slow write: one wait cycle | §3.2 |
@@ -209,3 +206,7 @@ are built only for Verilator. Assertions a_* are in `tb/cov/APB_sva.sv`.
 | a_err_read_zero | PSLVERR → `prdata` = 0 | §3.3 |
 | a_prdata_zero_outside_read | `prdata` = 0 in IDLE and in writes | §3.3 |
 | a_attrs_stable_in_access | captured address and direction do not change during ACCESS | §3.1 |
+| "APB model t" | every clock: `pready`, `pslverr`, `irq` as the cycle model; `prdata` at each read completion (0 for the reserved window) | §3.1–§3.4, §5 |
+| "apb_write: irq must equal pslverr at completion" | `irq` exactly with PSLVERR at write completion | §3.3 |
+| "apb_read: data mismatch (reserved reads 0)" | read data = last value written to the word; reserved reads return 0; the register file reads 0 after reset | §2, §3.3, §5 |
+| "apb_read: irq must equal pslverr at completion" | `irq` exactly with PSLVERR at read completion | §3.3 |
