@@ -220,3 +220,6 @@ I2C | scl_s <= 1'b1; scl_d <= 1'b1; sda_s <= 1'b1; sda_d <= 1'b1; | 1'b1 -> 1'b0
 MIPI_SoundWire | dyn_ok <= 1'b0; s_ok <= 1'b0; miss <= 1'b0; cw <= '0; rw <= '0; | 1'b0 -> 1'b1@2 | reset value; s_ok is read only in Y_CHECK / Y_LOCK, and the move out of Y_HUNT sets it
 MIPI_SoundWire | dyn_ok <= 1'b0; s_ok <= 1'b0; miss <= 1'b0; cw <= '0; rw <= '0; | 1'b0 -> 1'b1@1 | reset value; dyn_ok is read only in Y_CHECK, and the move out of Y_HUNT clears it
 MIPI_SoundWire | dyn_ok <= 1'b0; s_ok <= 1'b0; miss <= 1'b0; cw <= '0; rw <= '0; | 1'b0 -> 1'b1@3 | reset value; miss is read only in Y_LOCK, and the move out of Y_HUNT clears it
+AHB | write_q <= 1'b0; | 1'b0 -> 1'b1 | reset value; write_q is read only with valid_q, and every accepted transfer that sets valid_q loads it
+AHB | err_q   <= 1'b0; | 1'b0 -> 1'b1 | reset value; err_q is read only with valid_q, and every accepted transfer that sets valid_q loads it
+AHB | hreadyout = 1'b1;#3 | 1'b1 -> 1'b0 | default arm of a three-state FSM whose fourth encoding is never reached
