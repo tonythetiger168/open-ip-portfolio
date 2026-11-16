@@ -253,3 +253,7 @@ MIPI_SPMI | nleft <= '0; rd_q <= 1'b0; long_q <= 1'b0; hi_q <= 1'b0; ack_q <= 1'
 MIPI_SPMI | nleft <= '0; rd_q <= 1'b0; long_q <= 1'b0; hi_q <= 1'b0; ack_q <= 1'b0; | 1'b0 -> 1'b1@3 | reset value; hi_q is cleared at the end of every command frame before S_ADDR reads it
 USB2 | field_token <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; every packet start (RS_IDLE -> RS_SYNC) clears field_token before RS_DUMP or the token check reads it
 USB2 | out_tgl    <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; out_tgl only gates the OUT status stage, which needs rq = DESC / CFGGET, set only by a SETUP, and every applied SETUP sets out_tgl to 1
+Ethernet_AVB_TSN | if (gcl_entry == gcl_last) ent_done <= 1'b1; | 1'b1 -> 1'b0 | ent_done only stops ent_el and gcl_entry from moving; without it the last entry keeps meeting ent_nx >= ivl_cur, which also leaves both unchanged
+Ethernet_AVB_TSN | for (int c = 0; c < 4; c++) begin : b_cbs | 4 -> 5 | the extra iteration writes credit[4], which does not exist (index 0..3), so nothing is stored
+Ethernet_AVB_TSN | for (int c = 0; c < 4; c++) credit[c] <= '0; | 4 -> 5 | the extra iteration writes credit[4], which does not exist (index 0..3), so nothing is stored
+Ethernet_AVB_TSN | for (int k = 0; k < 8; k++) begin g_gates[k] <= '0; g_ivl[k] <= '0; end | 8 -> 9 | the extra iteration writes entry 8, which does not exist (index 0..7), so nothing is stored
