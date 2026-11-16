@@ -223,3 +223,10 @@ MIPI_SoundWire | dyn_ok <= 1'b0; s_ok <= 1'b0; miss <= 1'b0; cw <= '0; rw <= '0;
 AHB | write_q <= 1'b0; | 1'b0 -> 1'b1 | reset value; write_q is read only with valid_q, and every accepted transfer that sets valid_q loads it
 AHB | err_q   <= 1'b0; | 1'b0 -> 1'b1 | reset value; err_q is read only with valid_q, and every accepted transfer that sets valid_q loads it
 AHB | hreadyout = 1'b1;#3 | 1'b1 -> 1'b0 | default arm of a three-state FSM whose fourth encoding is never reached
+MDIO | mdc_s <= 1'b0; mdc_d <= 1'b0; mdio_s <= 1'b1; | 1'b0 -> 1'b1@2 | mdc_rise in the first clock out of reset needs mdc_s = 1, which is still its reset value 0; mdc_d is reloaded from mdc_s at that clock
+MDIO | read_frame <= 1'b0; read_match <= 1'b0; regad_q <= '0; | 1'b0 -> 1'b1@2 | reset value; read_match drives MDIO only from cnt 13, and cnt 6 of every frame reloads it
+MDIO | for (int i = 0; i < 32; i++) regs[i] <= 16'h0000; | 0 -> 1 | the loop then skips reg 0, which the preset 0x1140 sets in the same reset
+MDIO | read_frame <= 1'b0; | 1'b0 -> 1'b1 | cnt 1 of every frame reloads read_frame before cnt 6 reads it
+MDIO | mdc_s <= 1'b0; mdc_d <= 1'b0; mdio_s <= 1'b1; | 1'b1 -> 1'b0 | mdio_s is read only on an MDC rise, which needs mdc_s = 1 and so comes after the clock that reloads mdio_s
+MDIO | read_frame <= 1'b0; read_match <= 1'b0; regad_q <= '0; | 1'b0 -> 1'b1@1 | reset value; cnt 1 of every frame reloads read_frame before cnt 6 reads it
+MDIO | for (int i = 0; i < 32; i++) regs[i] <= 16'h0000; | 32 -> 33 | the extra iteration writes regs[32], which does not exist (the write is ignored)

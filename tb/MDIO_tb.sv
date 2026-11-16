@@ -71,6 +71,16 @@ module MDIO_tb;
   end
 `endif
 
+  // irq (all builds): one pulse per frame, high only during its last bit
+  int frames = 0, irq_rises = 0, irq_len = 0;
+  logic irq_q = 0;
+  always @(posedge clk) begin
+    if (dut.irq && !irq_q) irq_rises++;
+    irq_len = dut.irq ? irq_len + 1 : 0;
+    if (irq_len == 130) begin errors++; $display("ERROR: MDIO irq high longer than one MDC period @%0t", $time); end
+    irq_q = dut.irq;
+  end
+
   task automatic mdc_bit(input logic bit_v);
     begin
       m_low = ~bit_v; #300;         // bit 0 -> pull low, bit 1 -> release (tri1)
@@ -91,6 +101,7 @@ module MDIO_tb;
                             input logic [15:0] data);
     logic b;
     begin
+      frames++;
       preamble();
       for (int i = 0; i < 32; i++) begin
         b = (i == 0) ? 1'b0 :                    // ST = 01
@@ -112,6 +123,7 @@ module MDIO_tb;
                            output logic [15:0] data);
     logic b;
     begin
+      frames++;
       preamble();
       for (int i = 0; i < 14; i++) begin
         b = (i == 0) ? 1'b0 : (i == 1) ? 1'b1 :
@@ -135,6 +147,12 @@ module MDIO_tb;
   initial begin
     rst_n = 0; repeat(10) @(posedge clk);
     rst_n = 1; repeat(10) @(posedge clk);
+
+    // a 0 straight out of reset is not ST (no idle 1 seen yet): the ones
+    // after it are preamble, not a frame
+    mdc_bit(1'b0);
+    repeat (32) mdc_bit(1'b1);
+    if (irq_rises != 0) begin errors++; $display("ERROR: MDIO frame started without an idle 1 after reset"); end
 
     mdio_write(5'h0C, 5'h03, 16'hBEEF);
     repeat(10) @(posedge clk);
@@ -165,6 +183,7 @@ module MDIO_tb;
       errors++; $display("ERROR: MDIO wrong-PHY read drove the bus");
     end
     pre_len = 32;
+    if (irq_rises != frames) begin errors++; $display("ERROR: MDIO irq pulses %0d for %0d frames", irq_rises, frames); end
 
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ----
@@ -283,6 +302,7 @@ module MDIO_tb;
 
     // every register written and read back (alternating-bit values in
     // registers 5 and 6), and opcodes 00 / 11 addressed to another PHY
+    frames = 0; irq_rises = 0;     // (the Verilator-only phases above send other frames)
     begin : reg_sweep
       logic [15:0] v, d;
       logic [1:0]  op;
@@ -294,6 +314,7 @@ module MDIO_tb;
       end
       for (int k = 0; k < 2; k++) begin
         op = k ? 2'b11 : 2'b00;
+        frames++;
         preamble();
         for (int i = 0; i < 32; i++)
           mdc_bit((i == 0) ? 1'b0 : (i == 1) ? 1'b1 : (i == 2) ? op[1] : (i == 3) ? op[0] :
@@ -303,7 +324,35 @@ module MDIO_tb;
       end
       mdio_read(5'h0C, 5'd9, d);
       if (d !== 16'(9 * 16'h0901 + 16'h0300)) begin errors++; $display("ERROR: MDIO reg 9 changed by op %h", d); end
+      // a write to another PHY, and opcodes 00 / 11 addressed to this PHY,
+      // change nothing
+      mdio_write(5'h0D, 5'd9, 16'hDEAD);
+      for (int k = 0; k < 2; k++) begin
+        op = k ? 2'b11 : 2'b00;
+        frames++;
+        preamble();
+        for (int i = 0; i < 32; i++)
+          mdc_bit((i == 0) ? 1'b0 : (i == 1) ? 1'b1 : (i == 2) ? op[1] : (i == 3) ? op[0] :
+                  (i < 9) ? 5'h0C >> (8 - i) : (i < 14) ? 5'd9 >> (13 - i) : (i == 14) ? 1'b1 :
+                  (i == 15) ? 1'b0 : 1'b0);
+        m_low = 0; #600;
+      end
+      mdio_read(5'h0C, 5'd9, d);
+      if (d !== 16'(9 * 16'h0901 + 16'h0300)) begin errors++; $display("ERROR: MDIO reg 9 changed by another PHY's write or op 00/11 %h", d); end
     end
+    // reset with every register written: back to reset values, and the
+    // preamble straight after reset is not a frame
+    @(negedge clk) rst_n = 0;
+    repeat (3) @(negedge clk) rst_n = 1;
+    repeat (32) mdc_bit(1'b1);
+    begin : after_reset
+      logic [15:0] d;
+      mdio_read(5'h0C, 5'd1, d);
+      if (d !== 16'h0000) begin errors++; $display("ERROR: MDIO reg 1 after reset %h", d); end
+      mdio_read(5'h0C, 5'd0, d);
+      if (d !== 16'h1140) begin errors++; $display("ERROR: MDIO reg 0 after reset %h", d); end
+    end
+    if (irq_rises != frames) begin errors++; $display("ERROR: MDIO irq pulses %0d for %0d frames", irq_rises, frames); end
 
     if (errors == 0) $display("TEST PASSED: MDIO");
     else             $display("TEST FAILED: %0d errors", errors);
