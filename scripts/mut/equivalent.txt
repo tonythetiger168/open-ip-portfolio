@@ -15,6 +15,9 @@ USB2 | if (line == LN_J) rs <= RS_IDLE; | == -> != | RS_IDLE and RS_SE0 act the 
 USB2 | exp_setup  <= 1'b0; | 1'b0 -> 1'b1 | reloaded on every token before it is used
 APB | waited_q <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; reloaded at every setup phase before it is read
 APB | end else if (access && penable && !pready) begin | && -> || | sets waited_q only outside a wait state; the next setup phase reloads it before pready reads it
+APB | write_q  <= 1'b0; | 1'b0 -> 1'b1 | reset value; every SETUP cycle loads write_q before ACCESS reads it
+APB | slow_q   <= 1'b0; | 1'b0 -> 1'b1 | reset value; every SETUP cycle loads slow_q before ACCESS reads it
+APB | err_q    <= 1'b0; | 1'b0 -> 1'b1 | reset value; every SETUP cycle loads err_q before ACCESS reads it
 OCP_IP_Open_Core_Protocol | done_err <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; written on every path into O_DONE
 LIN | if (!t_hdr && t_i <= {1'b0, r_len}) t_sum <= csum_add(t_sum, t_byte); | && -> || | only changes t_sum after the checksum byte has been sent
 LIN | if (!t_hdr && t_i <= {1'b0, r_len}) t_sum <= csum_add(t_sum, t_byte); | 1'b0 -> 1'b1 | only changes t_sum after the checksum byte has been sent
