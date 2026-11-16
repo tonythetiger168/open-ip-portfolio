@@ -158,6 +158,35 @@ module I2S_Audio_tb;
       send_frame(l, r);
       send_frame(l, r);
       recv_check(l, r, depth);
+      wire_check(l, r, depth);
+    end
+  endtask
+
+  // two different frames back to back: the receiver must deliver exactly
+  // the first and then the second pair, so a word latched one bit early or
+  // late shows (#44)
+  logic [63:0] rxlog [0:15];
+  int          rxlog_n = 0;
+  always @(posedge clk) if (rx_valid && rxlog_n < 16) begin
+    rxlog[rxlog_n] = {rx_l, rx_r}; rxlog_n++;
+  end
+  task automatic pair_check(input [31:0] al, input [31:0] ar,
+                            input [31:0] bl, input [31:0] br, input [1:0] depth);
+    logic [31:0] m;
+    bit found;
+    begin
+      m = dmask(depth);
+      rxlog_n = 0;
+      send_frame(al, ar);
+      send_frame(bl, br);
+      wait_frames(2);
+      found = 1'b0;
+      for (int i = 0; i + 1 < rxlog_n; i++)
+        if ((rxlog[i][63:32] & m) === (al & m) && (rxlog[i][31:0] & m) === (ar & m) &&
+            (rxlog[i+1][63:32] & m) === (bl & m) && (rxlog[i+1][31:0] & m) === (br & m))
+          found = 1'b1;
+      chk(found, $sformatf("pair_check: frames %08x/%08x then %08x/%08x not received (fmt=%0d depth=%0d)",
+                           al & m, ar & m, bl & m, br & m, cfg_fmt, depth));
     end
   endtask
 
@@ -213,6 +242,73 @@ module I2S_Audio_tb;
     end
   end
 
+  // ------------------------- independent wire decoder (#44) --------
+  // Loopback alone cannot catch a fault that TX and RX share (both follow
+  // the same frame position). This decoder reads the serial wire the way an
+  // external codec would: on every rising edge of the bus bit clock it takes
+  // sd_out and the word clock, splits the stream into 32-bit channel slots
+  // at the word-clock changes (Philips I2S: the bit at the change still
+  // belongs to the old slot) and keeps the last complete slot per channel.
+  wire        bus_bclk = cfg_master ? bclk_out : bclk_in;
+  wire        bus_wclk = cfg_master ? wclk_out : wclk_in;
+  logic [31:0] ds_sh = '0, dec_l = '0, dec_r = '0;
+  int          ds_n = 0;
+  bit          ds_ws = 1'b0, dec_lv = 1'b0, dec_rv = 1'b0;
+  task automatic ds_finish(input bit ch);
+    if (ch) begin dec_r = ds_sh; dec_rv = (ds_n == 32); end
+    else    begin dec_l = ds_sh; dec_lv = (ds_n == 32); end
+  endtask
+  always @(posedge bus_bclk) if (rst_n) begin
+    if (bus_wclk !== ds_ws) begin
+      if (cfg_fmt == 2'd0) begin ds_sh = {ds_sh[30:0], sd_out}; ds_n++; end
+      ds_finish(ds_ws);
+      ds_n = 0; ds_ws = bus_wclk;
+      if (cfg_fmt != 2'd0) begin ds_sh = {ds_sh[30:0], sd_out}; ds_n++; end
+    end else begin
+      ds_sh = {ds_sh[30:0], sd_out}; ds_n++;
+    end
+  end
+  // the 32-bit slot a sample must produce on the wire: I2S and LJ put the
+  // sample MSB first and pad with zeros, RJ pads first and ends with the LSB
+  function automatic logic [31:0] wire_slot(input logic [31:0] v, input logic [1:0] f,
+                                            input logic [1:0] d);
+    logic [31:0] m;
+    m = dmask(d);
+    if (f == 2'd2) return v & m;
+    case (d)
+      2'd0:    return {v[15:0], 16'h0};
+      2'd1:    return {v[23:0], 8'h0};
+      default: return v;
+    endcase
+  endfunction
+  task automatic wire_check(input [31:0] l, input [31:0] r, input [1:0] depth);
+    chk(dec_lv && dec_l === wire_slot(l, cfg_fmt, depth),
+        $sformatf("wire left slot %08x exp %08x (fmt=%0d depth=%0d)", dec_l,
+                  wire_slot(l, cfg_fmt, depth), cfg_fmt, depth));
+    chk(dec_rv && dec_r === wire_slot(r, cfg_fmt, depth),
+        $sformatf("wire right slot %08x exp %08x (fmt=%0d depth=%0d)", dec_r,
+                  wire_slot(r, cfg_fmt, depth), cfg_fmt, depth));
+  endtask
+
+  // irq only for a broken frame sync: any pulse outside a dropped-bclk
+  // injection window is an error. rx_valid at most once per 64-bit frame.
+  bit irq_allow = 1'b0;
+  always @(posedge clk) if (rst_n && irq && !irq_allow) begin
+    errors++; $display("ERROR: irq without a frame-sync error (t=%0t)", $time);
+  end
+  int rxv_gap = 1000;
+  logic [4:0] cfg_seen = '0;
+  always @(posedge clk) begin
+    if (!rst_n || {cfg_master, cfg_fmt, cfg_depth} != cfg_seen || drop_pulse) rxv_gap = 1000;
+    else if (rx_valid) begin
+      if (rxv_gap < 60 * 4) begin
+        errors++; $display("ERROR: rx_valid twice in one frame (%0d clk apart, t=%0t)", rxv_gap, $time);
+      end
+      rxv_gap = 0;
+    end else if (rxv_gap < 1000) rxv_gap++;
+    cfg_seen = {cfg_master, cfg_fmt, cfg_depth};
+  end
+
   // ------------------------- stimulus ------------------------------
   int f, d;
   logic [31:0] m;
@@ -246,6 +342,8 @@ module I2S_Audio_tb;
         loopback(32'h0000_0000, m,            d[1:0]);
         loopback(m,           32'h0000_0000,  d[1:0]);
         loopback(32'hAAAA_AAAA & m, 32'h5555_5555 & m, d[1:0]);
+        pair_check(m, m, 32'h0, 32'h0, d[1:0]);
+        pair_check(32'h0, 32'h0, m, m, d[1:0]);
         $display("INFO: master loopback fmt=%0d depth=%0d done", f, d);
       end
     end
@@ -272,6 +370,7 @@ module I2S_Audio_tb;
 
     // ---- CHECK 4: error injection -- dropped bclk pulse ----------
     irq_before = irq_cnt;
+    irq_allow = 1'b1;
     @(negedge clk);
     drop_pulse = 1'b1;
     @(negedge clk); @(negedge clk); @(negedge clk); @(negedge clk);
@@ -279,6 +378,7 @@ module I2S_Audio_tb;
     drop_pulse = 1'b0;
     wait_frames(2);
     chk(irq_cnt > irq_before, "no irq on dropped bclk pulse (frame sync loss)");
+    irq_allow = 1'b0;
     // DUT must have resynchronized: loopback works again
     loopback(32'h0000_5A5A, 32'h0000_C3C3, 2'd0);
     $display("INFO: check 4 (dropped bclk injection + resync) done");
@@ -316,12 +416,14 @@ module I2S_Audio_tb;
           if ($urandom_range(0, 5) == 0) begin
             n_drop++;
             irq_before = irq_cnt;
+            irq_allow = 1'b1;
             @(negedge clk);
             drop_pulse = 1'b1;
             repeat (5) @(negedge clk);
             drop_pulse = 1'b0;
             wait_frames(2);
             chk(irq_cnt > irq_before, "CRV: no irq on dropped bclk");
+            irq_allow = 1'b0;
             loopback(dl & m, dr & m, cd);   // must resync
           end
         end else begin
