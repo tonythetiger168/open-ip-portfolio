@@ -182,6 +182,9 @@ with ERR but raise no `irq`; oversized frames and broken framing are dropped sil
 | "retx" | a NAC retransmits the last frame with the same sequence number | §3.5 |
 | "no irq on NAC retransmit exhausted" | the 4th NAC: `irq` | §3.5 |
 | "unexpected frame after NAC exhausted" | no frame after the retransmissions are exhausted | §3.5 |
+| "NAC after the retransmit budget ended answered" | a NAC once the frame is forgotten: no frame, no `irq` (every build) | §3.5 |
+| "NAC for another sequence number answered" | a NAC whose seq is not the last frame's: no frame, no `irq` (every build) | §3.5 |
+| "irq on a bad opcode" | an unknown opcode or a memory read shorter than 4 bytes gets an ERR / bad-op frame and no `irq` (every build) | §3.3 |
 | "CRV irq on clean write" | no `irq` on a good write | §3.3 |
 | "CRV irq on clean read" | no `irq` on a good read | §3.3 |
 | "CRV irq on PACP" | no `irq` on a good PACP get / set | §3.3 |
