@@ -259,6 +259,7 @@ frame's syncs and parity, every response and register bank against a model, and 
 
 | Check (TB message or assertion) | What it requires | Spec |
 |---|---|---|
+| "node" | in reset each node's `sw_dat_o`, `sw_dat_oe`, `rsp_valid`, `rsp_ack`, `rsp_nak`, `reg_we`, `reg_re` are 0 | §1 |
 | "static sync" | 0xB1 every frame | §3.2 |
 | "dynamic sync" | PRBS | §3.2 |
 | "reserved control bits" | bits 1:0 = 0 | §3.2 |
