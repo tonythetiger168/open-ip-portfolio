@@ -215,3 +215,7 @@ D_PHY | tshift <= {1'b0, tshift[7:1]};#2 | 1'b0 -> 1'b1 | LPDT: the bit shifted 
 ACE | werr_q      <= 1'b0; | 1'b0 -> 1'b1 | reset value; every AW handshake loads werr_q before W_DATA and W_RESP read it (bresp is only valid with bvalid)
 ACE | snp_shared_q<= 1'b0; | 1'b0 -> 1'b1 | reset value; every AC handshake loads snp_shared_q before S_CR shows it (crresp is only valid with crvalid)
 ACE | line_dirty[acaddr[7:2]] <= 1'b0;#2 | 1'b0 -> 1'b1 | MakeInvalid clears valid in the same clock; dirty is only read on a valid line, and every write that revalidates the line sets it
+I2C | scl_s <= 1'b1; scl_d <= 1'b1; sda_s <= 1'b1; sda_d <= 1'b1; | 1'b1 -> 1'b0@1 | in the first clock out of reset sda_s = sda_d = 1, so no START/STOP is seen, and SCL edges are ignored in ST_IDLE; scl_s is reloaded from scl at that clock
+I2C | state <= ST_IDLE; ack_low <= 1'b0; txack_done <= 1'b0; | 1'b0 -> 1'b1@2 | after a STOP txack_done is not read in ST_IDLE, and the next START clears it
+I2C | scl_s <= 1'b1; scl_d <= 1'b1; sda_s <= 1'b1; sda_d <= 1'b1; | 1'b1 -> 1'b0@2 | gives at most an SCL rise in the first clock out of reset, which ST_IDLE ignores
+I2C | scl_s <= 1'b1; scl_d <= 1'b1; sda_s <= 1'b1; sda_d <= 1'b1; | 1'b1 -> 1'b0@4 | gives at most a STOP in the first clock out of reset, which leaves ST_IDLE with SDA released, as reset does

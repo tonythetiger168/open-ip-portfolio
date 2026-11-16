@@ -20,6 +20,33 @@ module I2C_tb;
   assign sda = master_low ? 1'b0 : 1'bz;
   always @(posedge clk) if (rx_valid) rx_seen <= 1'b1;
 
+  // Independent bus monitor (all builds): START / STOP as seen on the wires.
+  // While the bus is idle (after a STOP, or since reset) the slave must not
+  // be busy, must not drive SDA and must not report a byte; outputs are
+  // checked a few clocks after the STOP (input synchroniser).
+  bit bus_active = 0;
+  int idle_clk = 0;
+  always @(negedge sda) if (scl === 1'b1) begin
+    bus_active = 1;
+    // only the master may pull SDA low while SCL is high (START)
+    if (!master_low && rst_n) begin
+      errors++; $display("ERROR: I2C slave pulled SDA low while SCL is high @%0t", $time);
+    end
+  end
+  always @(posedge sda) if (scl === 1'b1) bus_active = 0;
+  int rst_clk = 0;
+  always @(negedge clk) begin
+    idle_clk = bus_active ? 0 : idle_clk + 1;
+    rst_clk = rst_n ? 0 : rst_clk + 1;
+    if (rst_clk >= 2 && (busy !== 1'b0 || rx_valid !== 1'b0 || dut.irq !== 1'b0 || dut.ack_low !== 1'b0)) begin
+      errors++; $display("ERROR: I2C outputs not idle in reset @%0t", $time);
+    end
+    if (rst_n && idle_clk >= 4 && (busy !== 1'b0 || rx_valid !== 1'b0 || sda !== 1'b1)) begin
+      errors++;
+      $display("ERROR: I2C busy=%b rx_valid=%b sda=%b while the bus is idle @%0t", busy, rx_valid, sda, $time);
+    end
+  end
+
   task automatic i2c_start;
     begin
       master_low = 0; scl = 1; #300;
