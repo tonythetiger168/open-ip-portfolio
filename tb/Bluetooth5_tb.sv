@@ -55,6 +55,16 @@ module Bluetooth5_tb;
   int irq_cnt = 0;
   always @(posedge clk) if (irq) irq_cnt++;
 
+  // no error has happened yet in the first clocks out of any reset, so
+  // irq must stay low there
+  int rst_clk = 0;
+  always @(posedge clk) begin
+    if (!rst_n) rst_clk = 0;
+    else if (rst_clk < 100) rst_clk++;
+  end
+  always @(negedge clk)
+    if (rst_n && rst_clk < 8) check(!irq, "no irq out of reset");
+
   logic       cap [0:511];
   int         cap_n = 0;
   logic       pkt [0:511];
@@ -426,6 +436,28 @@ module Bluetooth5_tb;
     expect_irq(c0, 1, "timeout with a keepalive pending");
     wait_tx_idle;
     expect_adv;
+
+    // ---- connection 6: interval 30, shorter than an empty PDU (80 bits)
+    //      (31 clocks, so events do not line up with the 84-clock PDUs);
+    //      every event is missed, so each keepalive request made while the
+    //      previous one is still on the air waits and goes out right after
+    //      it: back-to-back packets ----
+    connect(32'h6A6B6C6D, 24'h3C3C3C, 16'd30, 16'd0, 16'd0, 8'h01, 8'd2);
+    while (!tx_act) @(negedge clk);
+    while (tx_act) @(negedge clk);
+    begin
+      int gap, ngap;
+      gap = 0; ngap = 0;
+      for (int t = 0; t < 1000; t++) begin
+        @(negedge clk);
+        if (!tx_act) gap++;
+        else if (gap > 0) begin
+          check(gap <= 2, "pending keepalive sent right after the previous one");
+          gap = 0; ngap++;
+        end
+      end
+      check(ngap >= 10, "back-to-back keepalives");
+    end
 
     // ---- reset during a transmission ----
     rst_n = 0; repeat (3) @(negedge clk); rst_n = 1;

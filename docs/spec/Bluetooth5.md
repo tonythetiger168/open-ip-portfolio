@@ -225,6 +225,7 @@ SCAN_REQ with scan_en off raises no `irq`.
 | "keepalive" | more than `latency` missed events: empty PDU each event | §3.5 |
 | "no keepalive within latency" | no transmission while missed events <= latency | §3.5 |
 | "reset outputs" | reset values | §3.6 |
+| "no irq out of reset" | `irq` stays low in the first clocks after any reset | §3.6, §5 |
 | "adv_en off" | adv_en = 0 stops ADV_IND | §3.3 |
 | "SCAN_RSP" | SCAN_REQ with scan_en gets a SCAN_RSP | §3.3 |
 | "SCAN_RSP format" | SCAN_RSP header type 4, length 16, good CRC | §3.3 |
@@ -238,6 +239,8 @@ SCAN_REQ with scan_en off raises no `irq`.
 | "no advertising while connected" | no ADV_IND in the connection state | §3.3 |
 | "oversize PDU not acknowledged" | length > 16 is dropped | §3.2 |
 | "timeout -> advertising" | `timeout` missed events drop the connection | §3.5 |
+| "pending keepalive sent right after the previous one" | a keepalive requested while a PDU is on the air waits and is sent as soon as the transmitter is free | §3.5 |
+| "back-to-back keepalives" | ...so with an interval shorter than a PDU the keepalives run back to back | §3.5 |
 | "answer at interval 0" | interval 0: an event every clock, packets still answered | §3.5 |
 | "miss counter cleared" | an event with central traffic clears the miss count | §3.5 |
 | "reset mid-TX" | reset stops a transmission at once | §3.6 |
