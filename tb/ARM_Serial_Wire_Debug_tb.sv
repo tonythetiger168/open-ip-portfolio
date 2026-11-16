@@ -130,11 +130,36 @@ module ARM_Serial_Wire_Debug_tb;
     logic s;
     for (int i = 0; i < n; i++) hcyc(1, 1, s);
   endtask
+  // Output pulses (#44): line_reset, proto_err, ack_wait, ack_fault, ap_req
+  // and ap_abort are one clock wide; in reset every output is inactive.
+  int  n_lr = 0;
+  bit  in_rst = 0;
+  logic [5:0] pul_q = '0;
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      if (in_rst && (swdio_oe !== 1'b0 || ap_req !== 1'b0 || ap_write !== 1'b0 || ap_abort !== 1'b0 ||
+                     line_reset !== 1'b0 || proto_err !== 1'b0 || ack_wait !== 1'b0 ||
+                     ack_fault !== 1'b0 || lockout !== 1'b1))
+        fail("outputs not inactive in reset");
+      in_rst = 1; pul_q = '0;
+    end else begin
+      in_rst = 0;
+      if (|({line_reset, proto_err, ack_wait, ack_fault, ap_req, ap_abort} & pul_q))
+        fail($sformatf("pulse output high two clocks in a row (%b)",
+                       {line_reset, proto_err, ack_wait, ack_fault, ap_req, ap_abort} & pul_q));
+      if (line_reset) n_lr++;
+      pul_q = {line_reset, proto_err, ack_wait, ack_fault, ap_req, ap_abort};
+    end
+  end
+
   task automatic lreset;
     lreset_n(50);
   endtask
   task automatic lreset_n(input int n);
+    int c0;
+    c0 = n_lr;
     ones(n); idle(2);
+    if (n >= 50 && n_lr != c0 + 1) fail($sformatf("line_reset pulses %0d for one line reset", n_lr - c0));
   endtask
 
   localparam logic [2:0] OK = 3'b001, WAIT = 3'b010, FAULT = 3'b100, NONE = 3'b111;
@@ -289,6 +314,10 @@ module ARM_Serial_Wire_Debug_tb;
   initial begin
     for (int i = 0; i < 1024; i++) mem[i] = $urandom;
     #33 rst_n = 1;
+    // 49 ones straight after reset are not a line reset either: a false
+    // SWCLK edge from the synchronizer reset must not count as a 1 (#44)
+    ones(49); idle(2);
+    xfer(0, 1, 2'd0, 0); expect_ack(NONE, "49 ones straight after reset");
     #50;
 
     // 1. locked out from reset: no answer until a line reset
@@ -490,6 +519,9 @@ module ARM_Serial_Wire_Debug_tb;
     m_apbank = 0; m_dpbank = 0; m_rdbuf = 0; m_last = 0; m_cdbg = 0; m_csys = 0; e_valid = 0;
     idle(2);
     if (!lockout) fail("not locked out after reset");
+    // the first line reset after reset needs two idle samples too (#44)
+    ones(50); hcyc(1, 0, s);
+    xfer(0, 1, 2'd0, 0); expect_ack(NONE, "one idle sample after the first line reset");
     lreset(); dp_rd(2'd0, ID, "after reset"); check_ctrl("after reset");
 
     $display("ok %0d wait %0d fault %0d none %0d ap %0d abort %0d", n_ok, n_wait, n_fault, n_none,

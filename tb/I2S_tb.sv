@@ -45,6 +45,18 @@ module I2S_tb;
     if ($realtime - t_fall > d_max) d_max = $realtime - t_fall;
   end
 
+  // irq is a one-clock pulse per LRCK transition (#44)
+  int irq_n = 0, lr_n = 0;
+  always @(posedge clk) if (rst_n && irq) irq_n++;
+  always @(lrck) if (rst_n) lr_n++;
+  task automatic chk_irq(input string where);
+    repeat (4) @(posedge clk);
+    if (irq_n != lr_n) begin
+      errors++; $display("ERROR: I2S %s: %0d irq pulses for %0d LRCK changes", where, irq_n, lr_n);
+    end
+    irq_n = 0; lr_n = 0;
+  endtask
+
   task automatic wr(input logic [3:0] a, input logic [15:0] d);
     begin
       @(negedge clk); wen <= 1'b1; waddr <= a; wdata <= d;
@@ -80,6 +92,9 @@ module I2S_tb;
         sdin = (k >= 1 && b < 16) ? m_tx[w][15 - b] : 1'b0;
         #HB bclk = 1;                   // rising edge k: sample sdout
         if (k >= 1 && b < 16) m_rx[w][15 - b] = sdout;
+        if (k >= 1 && b >= 16 && sdout !== 1'b0) begin   // padding bits are 0 (#44)
+          errors++; $display("ERROR: I2S padding bit %0d of word %0d is not 0", b, w);
+        end
         #HB;
       end
       bclk = 0;
@@ -106,6 +121,7 @@ module I2S_tb;
           $display("ERROR: I2S slot=%0d word %0d sdout=%h exp=%h", slot, i, m_rx[i],
                    (i % 2) ? txr : txl);
         end
+      chk_irq("frames");
       rd(4'd0, got);
       if (got !== m_tx[(nw - 1) & ~1]) begin
         errors++; $display("ERROR: I2S slot=%0d rx_left=%h exp=%h", slot, got, m_tx[(nw - 1) & ~1]);
@@ -121,6 +137,7 @@ module I2S_tb;
   initial begin
     rst_n = 0; repeat(10) @(posedge clk);
     rst_n = 1; repeat(10) @(posedge clk);
+    irq_n = 0; lr_n = 0;                // LRCK high at reset release: one frame-sync pulse (spec §3)
 
     frames(4, 16, 16'h1234, 16'hABCD);  // 16-bit slots: LSB at the LRCK edge
     frames(4, 32, 16'h55AA, 16'h0FF0);  // 32-bit slots: 16 padding bits
@@ -152,6 +169,7 @@ module I2S_tb;
     join
     if (sdout !== 1'b0) begin errors++; $display("ERROR: I2S sdout not 0 in reset"); end
     #(2 * HB) rst_n = 1'b1;
+    repeat (4) @(posedge clk); irq_n = 0; lr_n = 0;
     frames(4, 16, 16'hC3C3, 16'h3C3C);
 
     // data classes in both directions and on both channels; then slots
@@ -173,6 +191,24 @@ module I2S_tb;
     end
     $display("I2S: max SDOUT delay after BCLK fall %0.1f ns", d_max);
 
+    // quiet start (#44): reset released with LRCK low and BCLK running but
+    // no LRCK change: no irq, SDOUT stays 0 and nothing is received
+    @(negedge clk) rst_n = 1'b0;
+    lrck = 0; sdin = 1; bclk = 0;
+    #(4 * HB) rst_n = 1'b1;
+    wr(4'd0, 16'hFFFF); wr(4'd1, 16'hFFFF);
+    irq_n = 0; lr_n = 0;
+    for (int k = 0; k < 40; k++) begin
+      #HB bclk = 1;
+      if (sdout !== 1'b0) begin errors++; $display("ERROR: I2S sdout before the first LRCK change"); k = 40; end
+      #HB bclk = 0;
+    end
+    sdin = 0;
+    chk_irq("quiet start");
+    rd(4'd0, got);
+    if (got !== 16'h0) begin errors++; $display("ERROR: I2S word received before the first LRCK change (left %h)", got); end
+    rd(4'd1, got);
+    if (got !== 16'h0) begin errors++; $display("ERROR: I2S word received before the first LRCK change (right %h)", got); end
     if (errors == 0) $display("TEST PASSED: I2S");
     else             $display("TEST FAILED: %0d errors", errors);
     $finish;

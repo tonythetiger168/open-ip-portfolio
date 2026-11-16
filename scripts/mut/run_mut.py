@@ -82,7 +82,12 @@ def load_equiv():
     for raw in open(EQUIV):
         if not raw.strip() or raw.lstrip().startswith("#"):
             continue
-        ip, code, op, reason = (f.strip() for f in raw.rstrip("\n").split(" | ", 3))
+        ip, code, rest = (f.strip() for f in raw.rstrip("\n").split(" | ", 2))
+        # "from -> to | reason"; to may be empty (~ ->) or itself "|"
+        m = re.fullmatch(r"(.*?) ->(?: (.*?))? \| (.*)", rest)
+        if not m:
+            raise SystemExit(f"equivalent.txt: cannot parse: {raw.strip()}")
+        op, reason = f"{m.group(1)} -> {m.group(2) or ''}", m.group(3)
         nth = None
         m = re.fullmatch(r"(.*)#(\d+)", code)
         if m:

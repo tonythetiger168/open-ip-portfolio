@@ -22,12 +22,16 @@ module RGMII_tb;
   always #40 tx_clk = ~tx_clk;         // 12.5 MHz -> 25 MHz nibble rate
   assign rx_clk  = tx_clk;
   assign rxd     = txd;
-`ifdef VERILATOR
-  logic ctl_ovr = 1'b0;                // CRV error-injection knob (rx_ctl drop)
-  assign rx_ctl  = ctl_ovr ? 1'b0 : tx_ctl;
-`else
-  assign rx_ctl  = tx_ctl;
-`endif
+  logic ctl_ovr = 1'b0;                // error-injection knob (rx_ctl drop)
+  logic ctl_frc = 1'b0;                // error-injection knob (rx_ctl stuck high)
+  assign rx_ctl  = ctl_ovr ? 1'b0 : ctl_frc ? 1'b1 : tx_ctl;
+
+  // irq is "received data waiting and being read", checked every clock in
+  // all builds (issue #44)
+  always @(negedge clk)
+    if (dut.irq !== (rst_n && count != 5'd0 && ren)) begin
+      errors++; $display("ERROR: RGMII irq=%b count=%0d ren=%b @%0t", dut.irq, count, ren, $time);
+    end
 
 `ifdef VERILATOR
   // =====================================================================
@@ -230,7 +234,6 @@ module RGMII_tb;
       @(negedge clk); wen <= 1'b0;
       repeat (60) @(posedge clk);
     end
-`ifdef VERILATOR
     // rx_ctl lost for the low nibble (and, below, for the high nibble only):
     // the byte is discarded and the next byte still lands intact
     begin
@@ -258,7 +261,6 @@ module RGMII_tb;
         errors++; $display("ERROR: RGMII realign after lost high nibble: count=%0d got=%h", count, got);
       end
     end
-`endif
     // reset with bytes still queued for transmission
     for (int i = 0; i < 4; i++) begin
       @(negedge clk); wen <= 1'b1; waddr <= 4'd0; wdata <= 8'h5A;
@@ -269,6 +271,19 @@ module RGMII_tb;
     rst_n = 1'b1;
     repeat (40) @(posedge clk);
     if (count !== 5'd0) begin errors++; $display("ERROR: RGMII sent queued bytes after reset"); end
+
+    // reset released in the low phase of rx_clk with rx_ctl high: the first
+    // edge after reset is rising, so there is no high nibble and no byte
+    // may be stored (#44)
+    @(negedge tx_clk); #7;               // clear of the clk edges (clk rises at 5 mod 10)
+    rst_n = 1'b0; ctl_frc = 1'b1;
+    #5 rst_n = 1'b1;
+    @(posedge tx_clk); #30 ctl_frc = 1'b0;
+    repeat (20) @(posedge clk);
+    if (count !== 5'd0) begin errors++; $display("ERROR: RGMII byte stored from a lone low nibble after reset"); end
+    @(negedge clk); rst_n = 1'b0;
+    @(negedge clk); rst_n = 1'b1;
+    repeat (4) @(posedge clk);
 
     // byte classes end to end: 00, FF, 55, AA looped back and read
     begin : data_classes
