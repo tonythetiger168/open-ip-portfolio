@@ -76,12 +76,23 @@ module SAS_4__Serial_Attached_SCSI__tb;
   int oob_blen = 100;
   int bursts_seen = 0;
   always @(negedge clk) begin : oob_peer
-    static int run = 0, dly = 0, len = 0, ans = 0;
+    static int run = 0, dly = 0, len = 0, ans = 0, gap = -1, nb = 0;
     if (!rst_n || link_up) begin
-      run = 0; dly = 0; len = 0; pl_oob = 0;
+      run = 0; dly = 0; len = 0; pl_oob = 0; gap = -1; nb = 0;
     end else begin
-      if (tx_p) run++;
-      else begin
+      if (tx_p) begin
+        // spec 3.1: bursts of 106 clocks separated by 318 idle clocks
+        if (run == 0 && gap >= 0 && gap != 318) fail($sformatf("OOB idle %0d clocks, expected 318", gap));
+        run++; gap = -1;
+      end else begin
+        if (gap >= 0) gap++;
+        if (run > 0) begin
+          // (the first burst starts in the clock reset ends, before this
+          // negedge sampler sees it)
+          if (nb > 0 && run != 106) fail($sformatf("OOB burst %0d clocks, expected 106", run));
+          nb++;
+          gap = 1;
+        end
         if (run >= 64) begin
           bursts_seen++;
           ans = oob_blen;
@@ -203,6 +214,15 @@ module SAS_4__Serial_Attached_SCSI__tb;
   logic [127:0] fb [0:7];
   logic [1:0]   fs [0:7];
 
+  // after each link-up the DUT's first frame comes from its sequencer (a
+  // write): no read response is owed across a link loss (spec 3.1, 3.5)
+  bit fresh_link = 0;
+  logic link_q = 0;
+  always @(negedge clk) begin
+    if (link_up && !link_q) fresh_link = 1;
+    link_q = link_up;
+  end
+
   function automatic void check_frame(input int nb);
     logic [7:0] ty, dst, src, len;
     logic [31:0] crc;
@@ -217,6 +237,8 @@ module SAS_4__Serial_Attached_SCSI__tb;
     crc = crc_blk(32'hFFFF_FFFF, fb[1]);
     if (np == 1) crc = crc_blk(crc, fb[2]);
     if (fb[2+np][127:96] != ~crc || fb[2+np][95:0] != 0) fail("DUT frame CRC");
+    if (fresh_link && ty != T_WRITE) fail($sformatf("first DUT frame after link-up has type %h, expected a write", ty));
+    fresh_link = 0;
     case (ty)
       T_WRITE: begin
         frames_wr++;
@@ -395,9 +417,15 @@ module SAS_4__Serial_Attached_SCSI__tb;
       int n0;
       n0 = irq_n;
       refl_drop_wr = 1; wait_rsp(1, 40000); cycles(6000);
+      // the write times out (irq), and the read that follows returns the
+      // old register value (read-verify mismatch, irq)
+      if (irq_n < n0 + 2) fail($sformatf("sequencer write timeout: %0d irq, expected 2", irq_n - n0));
+      n0 = irq_n;
       refl_drop_rd = 1; cycles(12000);
+      if (irq_n == n0) fail("sequencer read timeout: no irq");
+      n0 = irq_n;
       refl_bad_rsp = 1; cycles(8000);
-      if (irq_n < n0 + 3) fail("sequencer faults: missing irq");
+      if (irq_n == n0) fail("sequencer read-verify mismatch: no irq");
       wait_rsp(3);
     end
 
@@ -434,6 +462,57 @@ module SAS_4__Serial_Attached_SCSI__tb;
     wait_link(6000);
     if (bursts_seen != 3) fail($sformatf("OOB threshold: bursts %0d exp 3", bursts_seen));
     wait_rsp(2);
+
+    // ---- block lock needs a legal control code (spec 3.2): control blocks
+    // with unknown codes do not lock, and a code seen before a bit slip
+    // does not count after it. While the DUT hunts it sends no frame.
+    for (int t = 0; t < 2; t++) begin
+      int n0;
+      hard_reset();
+      if (t == 0) begin pre_data = 3; pre_junk = 40; end
+      else begin
+        pre_zero = 300;
+        push(SH_CTRL, {CODE_IDLE, 96'd0}); push(SH_CTRL, {CODE_IDLE, 96'd0});
+        bad_sync(1);                         // slip after a legal code
+        for (int i = 0; i < 40; i++) push(SH_DATA, {$urandom, $urandom, $urandom, $urandom});
+      end
+      wait_link(6000);
+      n0 = frames_wr + frames_rd + frames_rsp;
+      cycles(40 * 130);
+      if (!link_up || frames_wr + frames_rd + frames_rsp != n0)
+        fail($sformatf("block lock without a legal control code (%s)", t ? "after a slip" : "unknown codes"));
+      wait_rsp(2);
+    end
+
+    // ---- each legal code alone is enough: SOF only, then EOF only, then
+    // data. The DUT locks and its sequencer sends frames.
+    for (int t = 0; t < 2; t++) begin
+      int n0;
+      hard_reset();
+      pre_zero = 300;
+      for (int i = 0; i < 20; i++) push(SH_CTRL, {t ? CODE_EOF : CODE_SOF, $urandom, $urandom, $urandom});
+      for (int i = 0; i < 40; i++) push(SH_DATA, {$urandom, $urandom, $urandom, $urandom});
+      wait_link(6000);
+      n0 = frames_wr + frames_rd + frames_rsp;
+      cycles(40 * 130);
+      if (frames_wr + frames_rd + frames_rsp == n0)
+        fail($sformatf("no block lock on %s control blocks", t ? "EOF" : "SOF"));
+      drain_q(); cycles(500);
+      wait_rsp(2);
+    end
+
+    // ---- reset clears every register: reg 0 read straight after block
+    // lock, before the sequencer writes it, is 0
+    hard_reset();
+    wait_link(6000);
+    wait (dut.rx_lock == 1'b1);
+    frame(T_RDREQ, 8'h0, 8'h55, 4'd0, 0);
+    begin
+      int n0;
+      n0 = rsp_to_peer;
+      drain_q(); cycles(3000);
+      if (rsp_to_peer != n0 + 1) fail("no response to the reg 0 read after reset");
+    end
 
     if (frames_wr == 0 || frames_rd == 0) fail("no sequencer traffic");
     if (errors == 0) $display("TEST PASSED: SAS_4__Serial_Attached_SCSI_");
