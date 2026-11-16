@@ -21,6 +21,19 @@ module Avalon_ST_tb;
 
   always #5 clk = ~clk;
   always @(posedge clk) if (irq) irq_seen <= 1'b1;
+  // irq and ready checked against the spec equation on every falling edge,
+  // in all builds (issue #44)
+  int m_cnt = 0;
+  always @(posedge clk or negedge rst_n)
+    if (!rst_n) m_cnt <= 0;
+    else if (av_valid && m_cnt < 16) m_cnt <= m_cnt + 1;
+  always @(negedge clk)
+    if (av_ready !== (m_cnt < 16) || count !== m_cnt[4:0] ||
+        irq !== (av_valid && (m_cnt < 16) && av_eop)) begin
+      errors++;
+      $display("ERROR: Avalon-ST model t=%0t ready=%b count=%0d/%0d irq=%b valid=%b eop=%b",
+               $time, av_ready, count, m_cnt, irq, av_valid, av_eop);
+    end
 
   task automatic send(input logic [31:0] d, input logic eop);
     begin
@@ -101,6 +114,19 @@ module Avalon_ST_tb;
       end
       @(negedge clk); ren <= 1'b0;
     end
+
+    // eop without valid, then fill to full and push eop beats that are dropped
+    @(negedge clk); av_valid <= 1'b0; av_eop <= 1'b1;
+    repeat (3) @(posedge clk);
+    @(negedge clk); av_eop <= 1'b0;
+    for (int i = 0; i < 12; i++) send(32'hA5A5_0000 + i, 1'b0);   // 4 + 12 = full
+    @(negedge clk); av_valid <= 1'b1; av_eop <= 1'b1;   // full: no irq
+    repeat (3) @(posedge clk);
+    @(negedge clk); av_valid <= 1'b0; av_eop <= 1'b0;
+    @(negedge clk); rst_n <= 1'b0;
+    repeat (2) @(posedge clk);
+    @(negedge clk); rst_n <= 1'b1;
+    repeat (2) @(posedge clk);
 
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ----

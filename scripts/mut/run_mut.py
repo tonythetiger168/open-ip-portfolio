@@ -18,6 +18,8 @@ checkers (tb/cov/<P>_sva.sv) kill more, so this is a lower bound.
   python3 scripts/mut/run_mut.py --all --min 0.8   # exit 1 below 80%
   python3 scripts/mut/run_mut.py USB --lines 213,508   # every mutant on those lines
 
+MUT_JOBS=N runs N mutants of one IP at a time (default 1).
+
 Results: work/mut/<P>.json and a table on stdout (survivors listed with
 their line, so each one is either a TB gap to close or an equivalent mutant).
 
@@ -38,6 +40,25 @@ OPS = [
     (r"1'b1", "1'b0"), (r"1'b0", "1'b1"),
     (r"(?<![<>=!-])>(?![>=])", ">="), (r">=", ">"),
     (r"\+ *1\b(?!')", "+ 2"), (r"- *1\b(?!')", "- 2"),
+]
+
+# The operator set of the HeliosLM UVM benchmark (helioslm_v5/eval/uvm_bench.py,
+# issue #44): bitwise and logical swaps, ^ -> ~^, + -> -, relational flips,
+# constant bits, a dropped ~, swapped ?: arms and a decimal constant + 1.
+# A callable replacement gets the match and returns the new text.
+OPS_HELIOSLM = [
+    (r"(?<![&])&(?![&=])", "|"),
+    (r"(?<![|])\|(?![|=])", "&"),
+    (r"(?<![\^~])\^(?![~=])", "~^"),
+    (r"(?<![+])\+(?![+:=])", "-"),
+    (r"==", "!="), (r"!=", "=="),
+    (r"(?<![<])<(?![<=])", ">="),
+    (r"(?<![>-])>(?![>=])", "<="),
+    (r"1'b0", "1'b1"), (r"1'b1", "1'b0"),
+    (r"&&", "||"), (r"\|\|", "&&"),
+    (r"(?<![\w'])~(?=[\w(])", ""),
+    (r"\?\s*(\w+)\s*:\s*(\w+)", lambda m: f"? {m.group(2)} : {m.group(1)}"),
+    (r"(?<![\w'\[:$.])(\d+)(?![\w'\]:.])", lambda m: str(int(m.group(1)) + 1)),
 ]
 
 
@@ -99,7 +120,8 @@ def code_part(line):
     return line.split("//", 1)[0]
 
 
-def sites(src):
+def sites(src, ops=None):
+    ops = ops or OPS
     out = []
     in_block = False
     for ln, line in enumerate(src.splitlines()):
@@ -120,11 +142,14 @@ def sites(src):
             continue
         # [...] index / width math: +/-1 there changes a part-select width
         idx = [(m.start(), m.end()) for m in re.finditer(r"\[[^\[\]]*\]", code)]
-        for pat, rep in OPS:
+        for pat, rep in ops:
             for m in re.finditer(pat, code):
-                if rep[0] in "+-" and any(a <= m.start() < b for a, b in idx):
+                r = rep(m) if callable(rep) else rep
+                if r[:1] in "+-" and any(a <= m.start() < b for a, b in idx):
                     continue
-                out.append((ln, m.start(), m.end(), rep))
+                if r[:1].isdigit() and any(a <= m.start() < b for a, b in idx):
+                    continue   # a constant inside [...] is a width
+                out.append((ln, m.start(), m.end(), r))
     return out
 
 
@@ -194,7 +219,7 @@ def run_one(flow, P, rtl_rel, text, timeout):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def one(flow, P, n, seed, lines=None):
+def one(flow, P, n, seed, lines=None, ops=None, even=False):
     mk = open(os.path.join(ROOT, f"Makefile.{P}")).read()
     S = re.search(r"^S\s*:?=\s*(\S+)", mk, re.M).group(1)
     rtl_rel = f"rtl/{S}_top.sv"
@@ -204,8 +229,13 @@ def one(flow, P, n, seed, lines=None):
         return {"ip": P, "error": f"baseline ({flow}) does not pass"}
     base = time.time() - t0
     timeout = max(60, 3 * base)
-    cand = sites(src)
+    cand = sites(src, ops)
     eq, stale = equiv_sites(src, cand, load_equiv().get(P, []))
+    if stale and ops not in (None, OPS):
+        # equivalent.txt is written for the default operators; another set may
+        # simply not make that mutant. Only a vanished RTL line is still stale.
+        stale = [e for e in stale if not any(
+            code_part(l).strip() == code_part(e[0]).strip() for l in src.splitlines())]
     if stale:
         return {"ip": P, "error": "equivalent.txt entries match no mutant: " +
                 "; ".join(f"{c}{'#%d' % k if k else ''} {a} -> {b}" for c, k, a, b, _, _ in stale)}
@@ -213,19 +243,27 @@ def one(flow, P, n, seed, lines=None):
     if lines:   # every mutant on the given lines, in order
         cand = [c for c in cand if c[0] + 1 in lines]
         n = len(cand)
+    elif even:   # evenly spaced over the file, in order (the HeliosLM sample)
+        if len(cand) > n:
+            cand = [cand[i * len(cand) // n] for i in range(n)] + \
+                   [c for i, c in enumerate(cand) if i % max(1, len(cand) // n)]
     else:
         random.Random(f"{seed}:{P}").shuffle(cand)
     res = []
-    for site in cand:
-        if len(res) >= n:
-            break
-        st = run_one(flow, P, rtl_rel, mutate(src, site), timeout)
-        if st == "INVALID":
-            continue
-        ln, a, b, rep = site
-        line = src.splitlines()[ln]
-        res.append({"line": ln + 1, "from": line[a:b], "to": rep, "status": st,
-                    "code": line.strip()})
+    # mutants run MUT_JOBS at a time; the first n that compile are kept, in order
+    jobs = int(os.environ.get("MUT_JOBS", "1"))
+    i = 0
+    with ThreadPoolExecutor(jobs) as ex:
+        while len(res) < n and i < len(cand):
+            batch = cand[i:i + max(jobs, n - len(res))]
+            i += len(batch)
+            for site, st in zip(batch, ex.map(lambda c: run_one(flow, P, rtl_rel, mutate(src, c), timeout), batch)):
+                if st == "INVALID" or len(res) >= n:
+                    continue
+                ln, a, b, rep = site
+                line = src.splitlines()[ln]
+                res.append({"line": ln + 1, "from": line[a:b], "to": rep, "status": st,
+                            "code": line.strip()})
     k = sum(r["status"] == "KILLED" for r in res)
     return {"ip": P, "flow": flow, "sites": len(cand), "equivalent": len(eq),
             "mutants": len(res), "killed": k,
@@ -244,6 +282,8 @@ def main():
     ap.add_argument("--shard", default="1/1", help="K/N: every N-th IP starting at the K-th")
     ap.add_argument("--lines", default="", help="comma-separated rtl line numbers: run every "
                     "mutant on those lines instead of a random sample (one IP)")
+    ap.add_argument("--ops", choices=("default", "helioslm"), default="default",
+                    help="helioslm: the operator set and even sample of the HeliosLM benchmark (issue #44)")
     ap.add_argument("--min", type=float, default=None, help="fail below this score")
     a = ap.parse_args()
     ips = a.ips or []
@@ -259,7 +299,8 @@ def main():
     tot_k = tot_m = 0
     bad = []
     with ThreadPoolExecutor(a.j) as ex:
-        for r in ex.map(lambda P: one(a.flow, P, a.n, a.seed, lines), ips):
+        for r in ex.map(lambda P: one(a.flow, P, a.n, a.seed, lines,
+                                       OPS_HELIOSLM if a.ops == "helioslm" else None, a.ops == "helioslm"), ips):
             json.dump(r, open(os.path.join(ROOT, "work", "mut", f"{r['ip']}.json"), "w"), indent=1)
             if "error" in r:
                 print(f"{r['ip']:40s} ERROR {r['error']}")
