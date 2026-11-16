@@ -207,3 +207,8 @@ CAN | f_ida <= '0; f_b12 <= 1'b0; f_ide <= 1'b0; f_rtr <= 1'b0; f_idb <= '0; f_d
 CAN | f_ida <= '0; f_b12 <= 1'b0; f_ide <= 1'b0; f_rtr <= 1'b0; f_idb <= '0; f_dlc <= '0; | 1'b0 -> 1'b1@2 | reset value; bit 13 of every frame loads f_ide, and before that pos is below both DLC ends so it is not read
 CAN | f_ida <= '0; f_b12 <= 1'b0; f_ide <= 1'b0; f_rtr <= 1'b0; f_idb <= '0; f_dlc <= '0; | 1'b0 -> 1'b1@3 | reset value; f_rtr is read only in extended frames, which load it at bit 32 before the DLC is known
 CAN | if (b == run_val) run_len <= run_len + 3'd1; | + -> - | 3-bit count from 1: +1 and -1 both reach 5 after the 4th equal bit (2,3,4,5 vs 0,7,6,5) and only == 5 is tested
+D_PHY | cur_last   <= 1'b0; | 1'b0 -> 1'b1 | reset value; every LPDT byte loads cur_last at its first bit, before bit 7 reads it
+D_PHY | tshift    <= {1'b0, tshift[7:1]};#1 | 1'b0 -> 1'b1 | the bit shifted in would reach tshift[0] only after 8 shifts; the shifter is reloaded or left (EoT uses tlast_bit) after 8
+D_PHY | tshift    <= {1'b0, tshift[7:1]};#2 | 1'b0 -> 1'b1 | the bit shifted in would reach tshift[0] only after 8 shifts; at bit 7 the next byte is loaded or EoT (tlast_bit) follows
+D_PHY | tshift <= {1'b0, tshift[7:1]};#1 | 1'b0 -> 1'b1 | escape command: the bit shifted in never reaches tshift[0] before the command ends and the next state ignores tshift
+D_PHY | tshift <= {1'b0, tshift[7:1]};#2 | 1'b0 -> 1'b1 | LPDT: the bit shifted in reaches tshift[0] only at the next byte boundary, where the pad shows buf_data[0] or the exit space

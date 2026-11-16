@@ -64,6 +64,29 @@ module D_PHY_tb;
     if (esc_done)      n_esc_done++;
   end
 
+  // ------------------------------------------------------------------
+  // always-on pad checks (spec 3.2), independent of the RX decoder
+  // ------------------------------------------------------------------
+  int  c_hs_n_clk = 0;                 // clocks since the clock lane went HS
+  logic hs_en_q = 0;                   // d_hs_en one clock earlier
+  int  quiet = 0;                      // clocks since reset / injection
+  always @(negedge clk) if (rst_n) begin
+    if (!d_hs_en && {d_hs_p, d_hs_n} !== 2'b01) fail("data lane HS pads not P=0 N=1 while HS is off");
+    if (c_hs_en !== d_hs_en) fail("clock lane HS enable differs from the data lane's");
+    if (c_hs_en) begin
+      if (c_hs_n !== !c_hs_p) fail("clock lane HS not differential");
+      if (c_hs_p !== c_hs_n_clk[0]) fail($sformatf("HS clock: c_hs_p=%b in clock %0d of the burst", c_hs_p, c_hs_n_clk));
+      c_hs_n_clk++;
+    end else c_hs_n_clk = 0;
+  end
+  // loopback: rx_hs_active follows the lane's HS enable one clock later
+  always @(posedge clk) begin
+    if (rst_n && !inj && quiet >= 2 && rx_hs_active !== hs_en_q)
+      fail($sformatf("rx_hs_active=%b, lane HS enable one clock earlier=%b", rx_hs_active, hs_en_q));
+    hs_en_q = d_hs_en;
+    quiet = (!rst_n || inj) ? 0 : quiet + 1;
+  end
+
   // compare received bytes with the module-level queue exp_q
   logic [7:0] exp_q [$];
   task automatic expect_rx(input string s);
@@ -276,6 +299,39 @@ module D_PHY_tb;
     end
     cmdq.delete();
 
+    // ---------------- LPDT bytes offered outside an LPDT escape are not taken
+    // (after an LPDT escape, in LP-11 and in an HS burst; during other escapes)
+    lpdt(1);
+    lpdt_valid = 1; lpdt_data = 8'hC3; lpdt_last = 1;
+    repeat (6) begin
+      @(posedge clk);
+      if (lpdt_ready) fail("lpdt_ready outside an LPDT escape");
+      @(negedge clk);
+    end
+    n1 = n_hs_done;
+    fork
+      hs_burst(3);
+      while (n_hs_done == n1) begin
+        @(posedge clk);
+        if (lpdt_ready) fail("lpdt_ready outside an LPDT escape");
+        @(negedge clk);
+      end
+    join
+    for (int i = 0; i < 2; i++) begin
+      n0 = n_esc_done;
+      esc(i ? 8'h46 : 8'h5A);
+      while (n_esc_done == n0) begin
+        @(posedge clk);
+        if (lpdt_ready) fail("lpdt_ready outside an LPDT escape");
+        @(negedge clk);
+      end
+      @(negedge clk); irq_clear = 1;
+      @(negedge clk); irq_clear = 0;
+    end
+    lpdt_valid = 0; lpdt_last = 0;
+    cmdq.delete();
+    hs_burst(2);                                       // no stale byte in front
+
     // ---------------- requests while busy
     n0 = n_esc_done; n1 = n_hs_done;
     @(negedge clk); hs_req = 1; esc_req = 1; esc_cmd = 8'h46;     // both at once
@@ -312,7 +368,9 @@ module D_PHY_tb;
     // HS entry
     sym(2'b01); sym(2'b01); sym(2'b10); inj_end(1, "HS request");
     sym(2'b01); sym(2'b11); inj_end(1, "HS request stop");
-    sym(2'b01); sym(2'b00); sym(2'b00); inj_end(1, "no HS-0");
+    sym(2'b01); sym(2'b00); sym(2'b00);
+    @(negedge clk); if (!irq) fail("no HS-0: irq not set in the next clock");
+    inj_end(1, "no HS-0");
     sym(2'b01); sym(2'b00); hsbit(1); inj_end(1, "HS-1 instead of HS-0");
     sym(2'b01); sym(2'b00); hsbit(0, 0); inj_end(1, "HS-0 bad differential");
     hs_entry(); hsbit(0); hsbit(0); sym(2'b11); inj_end(1, "HS dropped in sync");
