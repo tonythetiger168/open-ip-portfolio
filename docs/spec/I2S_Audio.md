@@ -222,3 +222,7 @@ then injects dropped `bclk_in` pulses and underruns, with a random phase.
 | a_rx_model | `rx_l` / `rx_r` as decoded from `sd_in` | §3.2, §3.3 |
 | a_irq_slave_only | no `irq` in master mode | §3.4 |
 | a_ready_once_per_frame | one `tx_ready` per frame | §3.3 |
+| "irq without a frame-sync error" | `irq` pulses only for a broken slave frame sync (dropped `bclk_in` pulse), never on a config change or on entering slave mode | §3.4, §3.5 |
+| "rx_valid twice in one frame" | `rx_valid` at most once per 64-bit frame | §3.3 |
+| "wire left slot" / "wire right slot" | an independent decoder of `sd_out` against the bus bit and word clocks finds each 32-bit slot as the format requires (I2S/LJ: sample MSB first then zeros; RJ: zeros then the sample) | §3.2 |
+| "pair_check" | two different frames sent back to back are received as that pair, in order | §3.3 |
