@@ -187,3 +187,4 @@ immediate checks A1.. are built only for Verilator. Assertions a_* are in `tb/co
 | a_irq_on_last | `irq` = push && `av_eop` | §3 Interrupt |
 | a_read_model | a read of a written slot returns the model's beat | §3 Read |
 | a_full_holds | once full, `count` stays DEPTH and `av_ready` stays 0 | §3 Ready, §5 |
+| "Avalon-ST model t" | every clock: `av_ready`, `count` and `irq` as the model (eop without valid and eop on a full FIFO give no `irq`) | §3 |

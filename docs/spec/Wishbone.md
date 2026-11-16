@@ -208,3 +208,5 @@ window with `irq`, a classic block cycle, reset with requests queued, data class
 | a_irq_sticky | `irq` stays 1 | §3.4 |
 | a_irq_on_err | `err_o` sets `irq` next clock | §3.4 |
 | a_irq_cause | `irq` rises only after `err_o` | §3.4 |
+| "Wishbone model t" | before every rising edge: `ack_o`, `err_o`, `stall_o`, `rty_o`, `irq` as the queue model; `dat_o` with every ack | §3.1–§3.4 |
+| "CHECK 11" | hole reads 0 over aliased storage; beats queued behind a slow one get no extra wait; queued reserved beats answer `err_o` | §3.1, §3.2 |
