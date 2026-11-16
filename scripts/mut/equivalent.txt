@@ -70,6 +70,9 @@ I2S | rx_cnt <= CW'(DW); rx_pend <= 1'b0; rx_ch_n <= 1'b0; rx_ch <= 1'b0; | 1'b0
 I2S_Audio | wire s_rise =  bclk_in & ~bclk_d; | & -> | | sd_in is sampled again in other clocks of the same bit; an I2S transmitter changes data only on falling edges, so every extra sample sees the bit already taken
 I2S_Audio | wire s_rise =  bclk_in & ~bclk_d; | ~ -> | sd_in is sampled in every high clock after the first instead of the first; an I2S transmitter holds data from falling edge to falling edge, so the value is the same
 I2S_Audio | bclk_d       <= 1'b0; | 1'b0 -> 1'b1 | reset value: the false falling edge it can make right after reset only moves the slave frame position before the first word-clock change, and that position is unsynchronized and realigned to wclk_in anyway
+MIPI_DBI__Display_Bus_Interface_ | st <= S_IDLE; cnt <= '0; bits <= '0; dum <= '0; o_rd <= 1'b0; o_last <= 1'b0; | 1'b0 -> 1'b1 | reset values of o_rd and o_last; both are loaded when an op is accepted, before any phase reads them
+MIPI_DBI__Display_Bus_Interface_ | prev_rd <= 1'b0; sh <= '0; rsh <= '0; rd_valid <= 1'b0; rd_data <= '0; | 1'b0 -> 1'b1@1 | reset value of prev_rd; the first op after reset has CSX high, which forces the dummy clocks whatever prev_rd is
+MIPI_DBI__Display_Bus_Interface_ | sda_o <= op_rd ? 1'b0 : (cfg_type == 2'd2 ? op_dc : op_data[7]); | 1'b0 -> 1'b1 | a read releases SDA (sda_oe = 0), so the sda_o level is not on the pin
 WTB | tsh    <= {B_PRE[6:0], 1'b0}; | 1'b0 -> 1'b1 | the pre-shifted LSB is never sent: tsh is reloaded after the 8th bit
 UCIe | for (int k = 15; k > 0; k--) m[528 * k +: 528] = m[528 * (k - 1) +: 528]; | > -> >= | constant function: the extra k = 0 step writes row 0, which the next statement clears
 UCIe | rsp_got <= 1'b0; | 1'b0 -> 1'b1 | reset value; cleared on every entry to ACTREQ, the only state that reads it
