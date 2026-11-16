@@ -98,6 +98,14 @@ module GMII_tb;
     end
   endtask
 `endif
+  // comb outputs (all builds): tx_er is tied low, irq = count != 0 && ren
+  always @(negedge clk) if (rst_n) begin
+    if (dut.tx_er !== 1'b0) begin errors++; $display("ERROR: GMII tx_er not 0 @%0t", $time); end
+    if (dut.irq !== ((count != 5'd0) && ren)) begin
+      errors++; $display("ERROR: GMII irq=%b with count=%0d ren=%b @%0t", dut.irq, count, ren, $time);
+    end
+  end
+
   task automatic rd(input logic [3:0] a, output logic [7:0] d);
     begin
       @(negedge clk); ren <= 1'b1; raddr <= a;
@@ -112,6 +120,7 @@ module GMII_tb;
     for (int i = 0; i < 8; i++) exp[i] = 8'h80 + i * 8'h7;
     rst_n = 0; repeat(5) @(posedge clk);
     rst_n = 1; repeat(5) @(posedge clk);
+    rd(4'd0, got);                         // read with nothing captured: no irq
 
     for (int i = 0; i < 8; i++) wr(exp[i]);
     wait (count == 5'd8);

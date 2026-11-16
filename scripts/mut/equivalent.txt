@@ -230,3 +230,6 @@ MDIO | read_frame <= 1'b0; | 1'b0 -> 1'b1 | cnt 1 of every frame reloads read_fr
 MDIO | mdc_s <= 1'b0; mdc_d <= 1'b0; mdio_s <= 1'b1; | 1'b1 -> 1'b0 | mdio_s is read only on an MDC rise, which needs mdc_s = 1 and so comes after the clock that reloads mdio_s
 MDIO | read_frame <= 1'b0; read_match <= 1'b0; regad_q <= '0; | 1'b0 -> 1'b1@1 | reset value; cnt 1 of every frame reloads read_frame before cnt 6 reads it
 MDIO | for (int i = 0; i < 32; i++) regs[i] <= 16'h0000; | 32 -> 33 | the extra iteration writes regs[32], which does not exist (the write is ignored)
+GMII | rxclk_s <= 1'b0; rxclk_d <= 1'b0; rxdv_s <= 1'b0; rxd_s <= '0; | 1'b0 -> 1'b1@1 | a capture in the first clock out of reset also needs rxdv_s, still at its reset value 0
+GMII | rxclk_s <= 1'b0; rxclk_d <= 1'b0; rxdv_s <= 1'b0; rxd_s <= '0; | 1'b0 -> 1'b1@2 | only hides an rx_clk rise in the first clock out of reset, when rxclk_s is still 0, so nothing changes
+GMII | rxclk_s <= 1'b0; rxclk_d <= 1'b0; rxdv_s <= 1'b0; rxd_s <= '0; | 1'b0 -> 1'b1@3 | a capture in the first clock out of reset also needs an rx_clk rise, and rxclk_s is still 0
