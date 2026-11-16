@@ -477,6 +477,34 @@ module UniPro_Mem_tb;
     end
     $display("check 8: NAC retransmit/exhausted done");
 
+    // ---- 8b. (every build) a NAC with no frame to resend, a NAC for
+    //      another sequence number, and bad opcodes on the memory CPort ----
+    irq_seen = 1'b0;
+    base = n_frames;
+    send_frame(1'b0, 4'hF, 4'h0, {8'h20, 4'h0, nac_seq, 112'h0}, 8'd2, 1'b0);
+    wait_clk(40);
+    if (irq_seen || n_frames != base) begin
+      errors = errors + 1; $display("ERROR: NAC after the retransmit budget ended answered");
+    end
+    send_frame(1'b0, 4'h1, 4'h1, {8'h02, 8'h00, 8'h10, 8'h04, 96'h0}, 8'd4, 1'b0);
+    wait_frames(base + 1);
+    nac_seq = fr_seq[base] + 4'd1;
+    send_frame(1'b0, 4'hF, 4'h0, {8'h20, 4'h0, nac_seq, 112'h0}, 8'd2, 1'b0);
+    wait_clk(40);
+    if (irq_seen || n_frames != base + 1) begin
+      errors = errors + 1; $display("ERROR: NAC for another sequence number answered");
+    end
+    send_frame(1'b0, 4'h1, 4'h2, {8'hF5, 8'h00, 8'h10, 8'h04, 96'h0}, 8'd4, 1'b0);
+    wait_frames(base + 2);
+    check_frame(base+1, 1'b0, 4'h1, 8'd2, {8'hE0, 8'h03, 112'h0}, "badop_mem");
+    send_frame(1'b0, 4'h1, 4'h3, {8'h02, 8'h00, 112'h0}, 8'd2, 1'b0);  // short read
+    wait_frames(base + 3);
+    check_frame(base+2, 1'b0, 4'h1, 8'd2, {8'hE0, 8'h03, 112'h0}, "badop_short_rd");
+    if (irq_seen) begin
+      errors = errors + 1; $display("ERROR: irq on a bad opcode");
+    end
+    $display("check 8b: NAC corner cases / bad opcodes done");
+
 `ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ------
     // 126 randomized transactions, single coroutine, fully inlined via the
