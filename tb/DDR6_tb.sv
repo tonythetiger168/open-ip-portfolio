@@ -5,6 +5,10 @@
 // Shared host tests in mem_tb_common.svh; the checker tb/cov/DDR6_sva.sv
 // checks every pin.
 `timescale 1ns/1ps
+`ifndef VERILATOR
+`include "DDR6_sva.sv"
+`define MEM_SVA DDR6_sva
+`endif
 module DDR6_tb;
   logic clk = 0, rst_n = 0;
   logic hvalid, hready;

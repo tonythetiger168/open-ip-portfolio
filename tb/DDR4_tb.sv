@@ -3,6 +3,10 @@
 // haddr[31:18], storage = 256 columns). Shared host tests in
 // mem_tb_common.svh; the checker tb/cov/DDR4_sva.sv checks every pin.
 `timescale 1ns/1ps
+`ifndef VERILATOR
+`include "DDR4_sva.sv"
+`define MEM_SVA DDR4_sva
+`endif
 module DDR4_tb;
   logic clk = 0, rst_n = 0;
   logic hvalid, hready;

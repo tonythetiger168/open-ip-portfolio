@@ -113,4 +113,6 @@ module LPDDR5X_sva (
   `SVA_INV(a_ck_differential, ck_c == !ck_t)
 endmodule
 
+`ifdef VERILATOR
 bind LPDDR5X_top LPDDR5X_sva u_sva (.*);
+`endif

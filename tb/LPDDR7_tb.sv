@@ -6,6 +6,11 @@
 // Shared host tests in mem_tb_common.svh; the checker tb/cov/LPDDR7_sva.sv
 // checks every pin.
 `timescale 1ns/1ps
+`ifndef VERILATOR
+`include "LPDDR7_sva.sv"
+`define MEM_SVA LPDDR7_sva
+`define MEM_SVA_INTERNAL
+`endif
 module LPDDR7_tb;
   logic clk = 0, rst_n = 0;
   logic hvalid, hready;

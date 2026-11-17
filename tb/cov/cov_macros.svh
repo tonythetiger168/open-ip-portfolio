@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Shared macros for the per-protocol coverage checkers (tb/cov/<P>_sva.sv).
-// Used only by the Verilator flow (bind + concurrent SVA + covergroups); iverilog never
-// compiles tb/cov/.
+// The Verilator flow binds the checkers (concurrent SVA + covergroups). The
+// memory-controller checkers (mem_chk.svh) also run in the Icarus sim flow,
+// instantiated by tb/mem_tb_common.svh: there the macros below become
+// procedural checks at the falling edge (+1) that print "ERROR: SVA_FAIL"
+// and count sva_n_fail, and the cover macros are empty.
 //
 // Every checker module declares `COV_CLOCKING(clk, disable_expr) first.
 //
@@ -13,6 +16,8 @@
 // Functional coverage = covergroup bins + cover properties named fc_*.
 `ifndef COV_MACROS_SVH
 `define COV_MACROS_SVH
+
+`ifdef VERILATOR
 
 `define COV_CLOCKING(CLK, DIS) \
   default clocking cov_cb @(posedge CLK); endclocking \
@@ -58,4 +63,32 @@
 // functional cover property that stays live through reset (reset scenarios)
 `define FC_RST(NAME, PROP) fc_``NAME: cover property (disable iff (1'b0) PROP);
 
+`else  // Icarus sim flow: procedural checks, no coverage
+
+`define COV_CLOCKING(CLK, DIS) \
+  wire cov_clk_w = (CLK); \
+  wire cov_dis_w = (DIS); \
+  int  sva_n_fail = 0; \
+  logic cov_in_rst_q = 1'b0; \
+  always @(posedge CLK) cov_in_rst_q <= (DIS);
+
+`define SVA_INV(NAME, EXPR) \
+  always @(negedge cov_clk_w) begin #1; \
+    if (!cov_dis_w && !(EXPR)) begin sva_n_fail++; $display("ERROR: SVA_FAIL: %s @%0t", `"NAME`", $time); end \
+  end
+
+`define SVA_IMP(NAME, ANTE, CONS) \
+  always @(negedge cov_clk_w) begin #1; \
+    if (!cov_dis_w && (ANTE) && !(CONS)) begin sva_n_fail++; $display("ERROR: SVA_FAIL: %s @%0t", `"NAME`", $time); end \
+  end
+
+`define SVA_RST(NAME, ANTE, CONS) \
+  always @(negedge cov_clk_w) begin #1; \
+    if (cov_in_rst_q && (ANTE) && !(CONS)) begin sva_n_fail++; $display("ERROR: SVA_FAIL: %s @%0t", `"NAME`", $time); end \
+  end
+
+`define FC(NAME, PROP)
+`define FC_RST(NAME, PROP)
+
+`endif
 `endif
