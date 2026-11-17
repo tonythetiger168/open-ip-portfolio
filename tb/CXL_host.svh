@@ -365,9 +365,12 @@ int           cf_line = -1;
 bit           cf_ack = 0, cf_first = 0;        // the BIConflictAck arrived; before the line's response
 int           cf_tag = -1;
 
+// DevLoad of the responses seen, per class (00 light .. 11 severe)
+int           n_dl [0:3] = '{0, 0, 0, 0};
 task automatic h_ndr(input logic [63:0] u);
   int i;
   n_ndr++;
+  n_dl[u[11:10]]++;
   ho_ndr++;
   if (u[63:32] != 0 || u[15:12] != 0 || u[7] != 0) fail($sformatf("NDR unit %h: reserved bits", u));
   i = exp_find(u[31:16], 1);
@@ -384,6 +387,7 @@ endtask
 task automatic h_drs_start(input logic [63:0] u);
   n_drs++;
   ho_drs++;
+  n_dl[u[11:10]]++;
   if (u[63:32] != 0 || u[15:13] != 0 || u[7:4] != 0) fail($sformatf("DRS unit %h: reserved bits", u));
   hd_owe = 1; hd_cnt = 0; hd_tag = u[31:16]; hd_mv = u[9:8]; hd_po = u[12];
   hd_idx = exp_find(hd_tag, 2);
