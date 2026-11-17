@@ -190,6 +190,10 @@ The TB is the bus master with the standard slot shapes (600 us reset, presence s
 | "1-Wire after mid-read reset rx" | the next byte (0x0F) is received | §3.3 |
 | "CRV presence after glitch t" | 100 us glitch from IDLE: no presence | §3.1 |
 | "CRV busy after glitch t" | ... and `busy` = 0 | §3.1 |
+| "1-Wire busy after reset" | with the bus idle high after `rst_n`, `busy` stays 0 | §3.5 |
+| "1-Wire presence after a 100 us glitch" | a low shorter than 480 us gives no presence pulse | §3.1 |
+| "1-Wire busy after a 100 us glitch" | ... and `busy` returns to 0 | §3.1 |
+| "1-Wire busy not set after a bus reset" | `busy` is 1 after a valid bus reset | §1 |
 | "CRV no presence t" | random transactions: presence | §3.2 |
 | "CRV no rx_valid t" | random command byte pulses `rx_valid` | §3.3 |
 | "CRV cmd t" | ... with the right value | §3.3 |

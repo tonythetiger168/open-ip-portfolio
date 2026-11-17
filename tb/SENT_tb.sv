@@ -393,6 +393,13 @@ module SENT_tb;
       tx_en = 1; tx_frames(3); tx_stop();
       check_ev($sformatf("pause limit %0d", i));
     end
+    // constant frame length just above the frame itself: the pause is
+    // still at least 12 ticks (sweep across the whole range of frame sums)
+    for (int L = 150; L <= 290; L += 6) begin
+      cfg_tx_pause_mode = 2; cfg_rx_pause = 1; cfg_tx_pause = 11'(L);
+      tx_en = 1; tx_frames(3); tx_stop();
+      check_ev($sformatf("constant length %0d", L));
+    end
     cfg_tx_pause_mode = 0; cfg_rx_pause = 0;
     // tick lengths: the minimum (and below it), long ticks; low part clamped
     for (int i = 0; i < 4; i++) begin

@@ -51,6 +51,12 @@ module OCP_IP_Open_Core_Protocol_tb;
   );
 
   always #5 clk = ~clk;
+  // outside a read response (the core idle or collecting write data)
+  // resp_rdata is 0
+  always @(negedge clk)
+    if (rst_n && req_ready && resp_rdata !== '0) begin
+      errors++; $display("ERROR: resp_rdata %h while idle", resp_rdata);
+    end
 
 `ifdef VERILATOR
   // =====================================================================

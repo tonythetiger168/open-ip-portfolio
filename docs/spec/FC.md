@@ -217,6 +217,10 @@ line, and frames of every kind are checked against expected-delivery queues.
 | "port A" | A's deliveries | §3.4 |
 | "port B" | B's deliveries | §3.4 |
 | "no sync after reset" | sync | §3.4 |
+| "SOF after" | an SOF follows at least six IDLE / R_RDY words after the last EOF | §3.2 |
+| "no inter-frame gap checked" | the TB saw at least one gap before an SOF | §3.2 |
+| "rx_sync after" | `rx_sync` rises only after three ordered sets, at least 80 clocks after reset or a loss of sync | §3.4 |
+| "outputs not 0 in reset" | every output is 0 while `rst_n` is low | §3.5 |
 | "B delivered nothing after a line error" | recovery after an error | §3.4 |
 | "A went past its credit" | credit limit | §3.3 |
 | "an R_RDY before sync returned credit" | R_RDY needs sync | §3.3 |
