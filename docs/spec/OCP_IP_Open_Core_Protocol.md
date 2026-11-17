@@ -227,6 +227,7 @@ traffic.
 |---|---|---|
 | "request not held stable under backpressure" | MCmd / MAddr / MData / MBurstLength held while SCmdAccept is 0 | §3.2 |
 | "desc accept timeout" | a write descriptor is taken | §3.1 |
+| "resp_rdata" | `resp_rdata` is 0 while `req_ready` is 1 (O_IDLE / O_WCOL) | §1, §3.4 |
 | "wdata accept timeout beat" | each write word is taken | §3.1 |
 | "write resp timeout" | the write completes on the CPU port | §3.4 |
 | "write resp_err" | `resp_err` of a write as expected | §3.4 |

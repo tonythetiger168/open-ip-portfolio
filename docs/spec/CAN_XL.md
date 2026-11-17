@@ -405,6 +405,8 @@ The RX and TX buffer memories are not reset.
 | "abort while receiving: no tx_aborted" | `tx_abort` while the node receives drops the frame | §3.4 |
 | "tx_aborted for a frame that completed" | a frame that completes gives `tx_done`, not `tx_aborted` | §3.4 |
 | "abort between retransmissions: no tx_aborted" | an abort during a failed attempt drops the frame after it | §3.4 |
+| "MAX_BYTES 8: a 9-byte XL frame was not rejected" | a request with more data bytes than `MAX_BYTES` gives `tx_rejected` | §3.4 |
+| "MAX_BYTES 8: a CC frame with DLC 12 was not taken" | a CC frame carries at most 8 bytes, so DLC 9..15 fits an 8-byte buffer | §3.4 |
 | a_reset_values | reset values | §3.9 |
 | a_txd_model | `txd` equals the checker's bit-level model | §3 |
 | a_rate_model | `tx_fast` / `rx_fast` as the model | §3.1, §3.3 |

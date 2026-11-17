@@ -86,6 +86,10 @@ module C_PHY_tb;
   // TX wire monitor: records each burst
   logic in_burst = 0;
   int   bursts = 0;
+  // a word is delivered only while the burst decode is active
+  always @(negedge clk) if (rst_n && rx_valid) begin
+    if (rx_active !== 1'b1) begin errors++; $display("ERROR: rx_valid outside rx_active (time %0t)", $time); end
+  end
   always @(posedge clk) begin
     if ({t_a, t_b, t_c} !== MID) begin
       if (!in_burst) got_n = 0;

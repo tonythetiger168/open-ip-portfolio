@@ -173,6 +173,14 @@ module Toggle_Mode_NAND_tb;
     program_page(2, 60, 10);
     read_page(2, 56, 16);
     read_page(5, 63, 3);
+    // a program that leaves column 0 alone must not program bytes left in
+    // the page buffer by an earlier read (the buffer starts as all 1s)
+    wbuf[0] = 8'h00; program_page(5, 0, 1);
+    read_page(5, 0, 64);
+    erase(0);
+    for (int i = 0; i < 64; i++) wbuf[i] = 8'h0F;
+    program_page(1, 10, 4);
+    read_page(1, 0, 64);
     // protected block
     for (int i = 0; i < 64; i++) wbuf[i] = 8'h00;
     program_page(13, 0, 64);

@@ -201,6 +201,7 @@ The TB loops TX into RX and injects every decoder error kind.
 | "long post-amble word" | long post-amble accepted | §3.3 |
 | "error in the irq_clear cycle wins" | set wins over clear | §3.3 |
 | "reset mid-burst" | reset | §3.4 |
+| "rx_valid outside rx_active" | a received word is delivered only while `rx_active` is high | §1, §3.2 |
 | a_reset_idle | reset values | §3.4 |
 | a_tx_no_protocol_error | transmitted bursts are legal | §3.1, §3.2 |
 | a_tx_single_postamble | one post-amble per burst | §3.2 |
