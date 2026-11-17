@@ -220,7 +220,8 @@ module USB3_2_tb;
   endtask
   // a payload of n bytes after a DP header sent with accept: mode 0 good,
   // 1 bad CRC-32, 2 aborted, 3 a K symbol inside, 4 the END set broken,
-  // 5 three zero bytes and no CRC; track: A delivers the last DP header with it
+  // 5 three zero bytes and no CRC, 6 the END set mixed (END EDB END EPF);
+  // track: A delivers the last DP header with it
   task bdpp(input int n, input int mode = 0, input bit track = 1);
     logic [31:0] c;
     logic [7:0]  x;
@@ -240,6 +241,9 @@ module USB3_2_tb;
     if (mode == 5) for (int i = 0; i < 3; i++) bq.push_back({1'b0, 8'h00});
     else for (int i = 3; i >= 0; i--) bq.push_back({1'b0, c[8 * i +: 8]});
     if (mode == 4) begin bq.push_back({1'b1, ENDS}); bq.push_back({1'b1, ENDS}); bq.push_back({1'b0, 8'h11}); end
+    else if (mode == 6) begin
+      bq.push_back({1'b1, ENDS}); bq.push_back({1'b1, EDB}); bq.push_back({1'b1, ENDS}); bq.push_back({1'b1, EPF});
+    end
     else bos(mode == 2 ? EDB : ENDS);
   endtask
   // A's transmissions: header packet sequence numbers and link commands seen
@@ -323,6 +327,31 @@ module USB3_2_tb;
     wait_clk(n);
     dr[d] = 0;
   endtask
+  // event counts per end: 0 hp_bad, 1 seq, 2 lc_bad, 3 dpp_bad, 4 frame,
+  // 5 proto, 6 overflow, 7 lbad, 8 timeout, 9 recovery, 10 frame and
+  // dpp_bad in the same clock (a payload ended by a framing error)
+  int evc [0:1][0:10];
+  initial for (int e = 0; e < 2; e++) for (int k = 0; k < 11; k++) evc[e][k] = 0;
+  always @(posedge clk)
+    for (int e = 0; e < 2; e++) begin
+      evc[e][0] += ev_hp_bad[e]; evc[e][1] += ev_seq[e]; evc[e][2] += ev_lc_bad[e]; evc[e][3] += ev_dpp_bad[e];
+      evc[e][4] += ev_frame[e]; evc[e][5] += ev_proto[e]; evc[e][6] += ev_overflow[e]; evc[e][7] += ev_lbad[e];
+      evc[e][8] += ev_timeout[e]; evc[e][9] += recovery[e]; evc[e][10] += ev_frame[e] && ev_dpp_bad[e];
+    end
+  function automatic int evsum;
+    evsum = 0;
+    for (int e = 0; e < 2; e++) for (int k = 0; k < 11; k++) evsum += evc[e][k];
+  endfunction
+  int ev0 [0:1][0:10];
+  int nerr0;
+  task automatic ev_mark;
+    for (int e = 0; e < 2; e++) for (int k = 0; k < 11; k++) ev0[e][k] = evc[e][k];
+  endtask
+  // end e's count of event k grew by n since ev_mark
+  task automatic ev_check(input int e, input int k, input int n, input string what);
+    if (evc[e][k] - ev0[e][k] != n)
+      fail($sformatf("%s: end %0d event %0d counted %0d, expected %0d", what, e, k, evc[e][k] - ev0[e][k], n));
+  endtask
   bit rec_a = 0;
   task automatic link_cycle(input int n = 5);
     @(negedge clk);
@@ -358,6 +387,13 @@ module USB3_2_tb;
     wmode = 1;
     wait_clk(5000);
     wmode = 0;
+    // a clean link raises no event; idle (nothing outstanding) past the
+    // pending timeout is no timeout either
+    drain();
+    wen[0] = 0; wen[1] = 0;
+    wait_clk(3 * PEND_TO);
+    if (evsum() != 0) fail("events on a clean link");
+    wen[0] = 1; wen[1] = 1;
     // B reads slowly, then stops past the credit timer: A recovers
     rdy_pct[1] = 10;
     wait_clk(3000);
@@ -366,7 +402,9 @@ module USB3_2_tb;
     rdy_pct[1] = 100;
     drain();
     // ---- bad header packets: LBAD, LRTY, retry
+    ev_mark();
     for (int i = 0; i < 4; i++) begin at_pkt(0, SHP, 5 + i); hit(0, 8'h20); wait_clk(400); end    // CRC-16
+    ev_check(1, 0, 4, "bad CRC-16: B ev_hp_bad"); ev_check(0, 7, 4, "bad CRC-16: A ev_lbad");
     for (int i = 0; i < 2; i++) begin at_pkt(0, SHP, 18 + i); hit(0, 8'h04); wait_clk(400); end   // CRC-5
     at_pkt(0, SHP, 9); hit(0, 8'h00, 1);                                                          // K inside
     wait_clk(400);
@@ -397,8 +435,10 @@ module USB3_2_tb;
     // ---- ordered sets broken
     at_pkt(0, SHP, 1); hit(0, SHP ^ SDP, 0);                                                      // SHP SDP
     wait_clk(400);
+    ev_mark();
     at_pkt(0, SHP, 3); hit(0, EPF ^ SHP, 0);                                                      // four SHPs
     wait_clk(400);
+    ev_check(1, 4, 1, "four SHPs: B ev_frame");
     at_pkt(0, SHP, 2); hit(0, 8'h00, 1);                                                          // a data byte
     wait_clk(400);
     at_pkt(0, SLC, 0); hit(0, 8'h00, 1);                                                          // SLC lost: SLC SLC EPF
@@ -413,8 +453,10 @@ module USB3_2_tb;
     wait_clk(300);
     at_pkt(0, ENDS, 0); hit(0, ENDS ^ EDB, 0); hit(0, ENDS ^ EDB, 0); hit(0, ENDS ^ EDB, 0);      // aborted
     wait_clk(300);
+    ev_mark();
     at_pkt(0, ENDS, 3); hit(0, 8'h00, 1);                                                         // END END END data
     wait_clk(300);
+    ev_check(1, 3, 1, "END END END data: B ev_dpp_bad"); ev_check(1, 4, 1, "END END END data: B ev_frame");
     at_pkt(0, SDP, 0); hit(0, SDP ^ SHP, 0);                                                      // SDP lost: missing payload
     wait_clk(2 * PEND_TO);
     drain();
@@ -503,17 +545,34 @@ module USB3_2_tb;
     wait_clk(200);
     // payloads broken
     allow_err = 1;
+    ev_mark(); nerr0 = nerr[0];
     bhp(5, 8'h08, 0, 1); bdpp(8, 1);            // CRC-32
     bhp(6, 8'h08, 0, 1); bdpp(8, 2);            // aborted
     bhp(7, 8'h08, 0, 1); bdpp(MAXD + 1);        // too long
     bhp(0, 8'h08, 0, 1); bdpp(0, 5);            // three zero bytes, no CRC: too short (sequence 0: the bytes before them are zero too)
     bwait();
     wait_clk(200);
+    if (nerr[0] - nerr0 != 4) fail("broken payloads: rx_err deliveries"); ev_check(0, 3, 4, "broken payloads: A ev_dpp_bad");
+    // each broken payload is delivered (as its header, with rx_err) as soon
+    // as it is known to be broken, with one ev_dpp_bad
+    ev_mark(); nerr0 = nerr[0];
     bhp(1, 8'h08, 0, 1); bdpp(8, 3);            // K inside
+    bwait(); wait_clk(40);
+    if (nerr[0] - nerr0 != 1) fail("K inside a payload: not delivered with rx_err at once"); ev_check(0, 3, 1, "K inside a payload: A ev_dpp_bad");
+    ev_check(0, 10, 1, "K inside a payload: ev_dpp_bad with the ev_frame");
+    ev_mark(); nerr0 = nerr[0];
     bhp(2, 8'h08, 0, 1); bdpp(8, 4);            // END set broken
-    bhp(3, 8'h08, 0, 1);                        // payload missing: a header packet first
+    bwait(); wait_clk(40);
+    if (nerr[0] - nerr0 != 1) fail("END set broken: not delivered with rx_err at once"); ev_check(0, 3, 1, "END set broken: A ev_dpp_bad");
+    ev_check(0, 4, 1, "END set broken: A ev_frame"); ev_check(0, 10, 1, "END set broken: ev_dpp_bad with the ev_frame");
+    ev_mark(); nerr0 = nerr[0];
+    bhp(3, 8'h08, 0, 1); bdpp(8, 6);            // END set mixed
+    bwait(); wait_clk(40);
+    if (nerr[0] - nerr0 != 1) fail("END set mixed: not delivered with rx_err at once");
+    ev_check(0, 3, 1, "END set mixed: A ev_dpp_bad"); ev_check(0, 10, 1, "END set mixed: ev_dpp_bad with the ev_frame");
+    bhp(4, 8'h08, 0, 1);                        // payload missing: a header packet first
     for (int i = 0; i < 12; i++) exp0.push_back({i == 11, bh[i]});
-    bhp(4, 8'h04, 0, 1);
+    bhp(5, 8'h04, 0, 1);
     bos(SDP); bos(ENDS);                        // a payload no DP header asked for: skipped
     bwait();
     wait_clk(300);
@@ -526,6 +585,27 @@ module USB3_2_tb;
     bq.push_back({1'b1, EPF});                                                            // K in idle
     bos(SLC); bq.push_back({1'b0, 8'h12}); bq.push_back({1'b1, SDP});                     // K inside an LC
     bwait();
+    // a K symbol inside a payload no DP header asked for: a framing error,
+    // nothing delivered
+    wait_clk(20);
+    ev_mark();
+    bos(SDP); for (int i = 0; i < 3; i++) bq.push_back({1'b0, 8'h5A}); bq.push_back({1'b1, EPF});
+    bwait();
+    wait_clk(5);
+    ev_check(0, 3, 0, "K in a skipped payload: A ev_dpp_bad"); ev_check(0, 4, 1, "K in a skipped payload: A ev_frame");
+    // and a skipped payload whose END set is mixed
+    ev_mark();
+    bos(SDP); for (int i = 0; i < 3; i++) bq.push_back({1'b0, 8'h5A});
+    bq.push_back({1'b1, ENDS}); bq.push_back({1'b1, EDB}); bq.push_back({1'b1, EPF});
+    bwait();
+    wait_clk(5);
+    ev_check(0, 3, 0, "mixed END set of a skipped payload: A ev_dpp_bad");
+    ev_mark();
+    bos(SDP); for (int i = 0; i < 3; i++) bq.push_back({1'b0, 8'h5A});
+    bq.push_back({1'b1, ENDS}); bq.push_back({1'b1, ENDS}); bq.push_back({1'b0, 8'h11});
+    bwait();
+    wait_clk(5);
+    ev_check(0, 3, 0, "broken END set of a skipped payload: A ev_dpp_bad");
     blc(11'h100);                               // (the K in the HP sent LBAD)
     bwait();
     wait_clk(300);
@@ -537,28 +617,28 @@ module USB3_2_tb;
     // overflow: A does not read; 5 header packets for 4 buffers
     rdy_pct[0] = 0;
     wait_clk(200);
-    for (int i = 0; i < 3; i++) bhp(5 + i, 8'h04, 0, 1);
+    for (int i = 0; i < 3; i++) bhp(6 + i, 8'h04, 0, 1);
     allow_err = 1;
-    bhp(8, 8'h08, 0, 1);                        // payload missing: taken as the next header starts,
+    bhp(9, 8'h08, 0, 1);                        // payload missing: taken as the next header starts,
     for (int i = 0; i < 12; i++) exp0.push_back({i == 11, bh[i]});
-    bhp(9, 8'h04);                              // which then has no buffer
-    bhp(9, 8'h08);                              // no buffer: dropped, and its payload missing
-    bhp(9, 8'h08); bdpp(4, 0, 0);               // no buffer: dropped, its payload skipped
+    bhp(10, 8'h04);                              // which then has no buffer
+    bhp(10, 8'h08);                              // no buffer: dropped, and its payload missing
+    bhp(10, 8'h08); bdpp(4, 0, 0);               // no buffer: dropped, its payload skipped
     bwait();
     wait_clk(100);
     rdy_pct[0] = 100;
     wait_clk(500);
-    // A expects 9 again; 10 is out of order: recovery (with A's packets
+    // A expects 10 again; 11 is out of order: recovery (with A's packets
     // unacknowledged)
     b_autoack = 0;
     while (u_a.t_out < 2) @(negedge clk);
-    bhp(10, 8'h04);
+    bhp(11, 8'h04);
     bwait();
     wait_rec();
     // advertisement after recovery: the BFM acknowledges two
     link_cycle();
     link[0] = 1;
-    wait_lc(11'h000);                           // A's LGOOD for the last packet it took (8: LGOOD_0)
+    wait_lc(11'h001);                           // A's LGOOD for the last packet it took (9: LGOOD_1)
     bwait();
     badv(u_a.ackd + 2);                         // acknowledges two
     bwait();
