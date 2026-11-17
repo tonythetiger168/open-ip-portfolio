@@ -66,8 +66,10 @@ module Interlaken_v1_2_tb;
     .err_crc32(err_crc32[1]), .err_crc24(err_crc24[1]), .err_proto(err_proto[1]));
 
   // error pulses of B
-  int n_esync = 0, n_escr = 0, c0;
-  always @(posedge clk) if (rst_n) begin n_esync += err_sync[1]; n_escr += err_scr[1]; end
+  int n_esync = 0, n_escr = 0, c0, n_eword = 0;
+  always @(posedge clk) if (rst_n) begin
+    n_esync += err_sync[1]; n_escr += err_scr[1]; n_eword += err_word[0] + err_word[1];
+  end
 
   // ---------------- scrambler reference (A's TX) ----------------
   // the state word of each metaframe carries the generator state: SEED in
@@ -232,6 +234,7 @@ module Interlaken_v1_2_tb;
     rst_n = 1;
     // ---- lock both ends; traffic: short packets, gaps, long packets
     wait_lock(0); wait_lock(1);
+    c0 = n_eword;
     wait_clk(2 * MCLK);
     if (peer_status[0] !== 2'b11 || peer_status[1] !== 2'b11)
       fail($sformatf("peer status %b %b after lock", peer_status[0], peer_status[1]));
@@ -249,6 +252,7 @@ module Interlaken_v1_2_tb;
     if (rx_fc[1] !== 16'hA5C3 || rx_fc[0] !== 16'h3C5A) fail($sformatf("flow control %h %h", rx_fc[1], rx_fc[0]));
     fc_hold = 0;
     if (npkt[0] == 0 || npkt[1] == 0) fail("no packets through");
+    if (n_eword != c0) fail($sformatf("%0d err_word pulses on a clean line", n_eword - c0));
 
     // ---- payload flips in protocol words, skip and diagnostic words: CRC
     // errors, the lock holds

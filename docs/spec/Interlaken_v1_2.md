@@ -334,6 +334,7 @@ metaframe lock.
 | "A: scrambler state word" | the state word of the first metaframe carries `SEED`, each later one the state (`MF` - 2) x 64 generator steps on | §3.2 |
 | "err_sync pulses for 3 missing sync words" | one `err_sync` per missing sync word while locked | §3.5 |
 | "err_scr pulses for 2 bad scrambler state words" | one `err_scr` per bad state word while locked | §3.5 |
+| "err_word pulses on a clean line" | no `err_word` at either end on a clean line after lock | §3.4 |
 | "peer status" | after both ends lock, `peer_status` = 11 | §3.2 |
 | "flow control" | `tx_fc` arrives on the far `rx_fc` | §3.3, §3.7 |
 | "no packets through" | packets cross both ways | §3.7 |

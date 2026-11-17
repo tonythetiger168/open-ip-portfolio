@@ -516,6 +516,10 @@ module GbE_DMA_tb;
       tx_tail = 0; rx_tail = 0; rx_hw = 0; tx_chk = 0; tx_posted = 0; tx_log.delete();
       tx_base = 32'hFFFF_FFC7; tx_num = 7; rx_base = 32'hFFFF_FF67; rx_num = 6;
       rst_n = 1; clks(2);
+      // the first frame after reset, RX_EN off: dropped
+      p_send(mk_frame(70, cfg_mac));
+      clks(50);
+      if (rx_drop != 16'd1) fail($sformatf("first frame after reset with RX_EN off: RX_DROP %0d, expected 1", rx_drop));
       tx_buf = 32'hFFFF_C110; tx_lo = 2'b11; tx_w1hi = 16'hFFFF;
       rx_buf_base = 32'hFFFE_0110; rx_lo = 2'b11; rx_w1hi = 16'hFFFF;
       @(negedge clk); tx_en = 1; rx_en = 1;

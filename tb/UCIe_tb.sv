@@ -78,6 +78,10 @@ module UCIe_tb;
     .state(b_st), .cap(b_cap), .tx_pend(b_pend), .ev_crc(b_crc), .ev_replay(b_rep), .ev_retrain(b_ert),
     .ev_pmnak(b_pmn), .ev_proto(b_pro), .ev_lerr(b_ler));
 
+  // ev_proto pulses per end
+  int n_pa = 0, n_pb = 0, c_pa;
+  always @(posedge clk) if (rst_n) begin n_pa += a_pro; n_pb += b_pro; end
+
   // ---------------- protocol layers ----------------
   int  p_tx = 70, p_stk = 50;
   bit  a_on = 0, b_on = 0;
@@ -287,6 +291,7 @@ module UCIe_tb;
     wait_st(ACTIVE, ACTIVE, "bring-up");
     if (a_cap != 2'b11 || b_cap != 2'b11) fail($sformatf("bring-up: cap %b / %b", a_cap, b_cap));
     run(1000, "clean");
+    if (n_pa != 0 || n_pb != 0) fail($sformatf("ev_proto on a clean link: A %0d, B %0d", n_pa, n_pb));
     dly = 6; p_tx = 100;
     run(1000, "long delay");
     dly = 2; p_tx = 70; p_cor = 5;
@@ -373,6 +378,7 @@ module UCIe_tb;
     // ---- crafted sideband messages on A (B's are not delivered)
     sinj = 1;
     wait_clk(sdly + 2);
+    c_pa = n_pa;
     js_send(8'h00, 8'h00);                           // unknown code
     js_send(8'hFF, 8'h5A);
     js_send(8'h02, 8'h03);                           // FinCap in ACTIVE
@@ -388,6 +394,7 @@ module UCIe_tb;
     js_send(8'h04, 8'h00);
     wait_clk(2);
     if (a_st != ACTIVE) fail("crafted Rsp.Active: A not ACTIVE");
+    if (n_pa - c_pa != 6) fail($sformatf("crafted messages in ACTIVE: %0d ev_proto, expected 6", n_pa - c_pa));
     sinj = 0;
     wait_st(ACTIVE, ACTIVE, "crafted Req.Active");
     run(100, "after crafted sideband");
@@ -472,6 +479,7 @@ module UCIe_tb;
     // FinCap mismatch, and messages out of place while negotiating
     sinj = 1;
     wait_clk(3);
+    c_pa = n_pa;
     js_send(8'h02, 8'h03);                           // FinCap in RESET
     js_send(8'h04, 8'h00);                           // Rsp.Active in RESET
     js_send(8'h03, 8'h00);                           // Req.Active in RESET
@@ -492,6 +500,7 @@ module UCIe_tb;
     js_send(8'h04, 8'h00);
     wait_clk(2);
     if (a_st != ACTIVE) fail("crafted bring-up: A not ACTIVE");
+    if (n_pa - c_pa != 5) fail($sformatf("crafted messages while negotiating: %0d ev_proto, expected 5", n_pa - c_pa));
     inj = 1; j_v = 1; j_f = {16'h1000 | 16'(u_a.ws - 6'd1), 512'd0, crc16({16'h1000 | 16'(u_a.ws - 6'd1), 512'd0})};
     js_send(8'h05, 8'h00);                           // Req.L1 as a flit arrives: refused
     j_v = 0; inj = 0;
@@ -499,6 +508,7 @@ module UCIe_tb;
     js_send(8'h05, 8'h00);                           // Req.L1, accepted
     wait_clk(2);
     if (a_st != L1) fail("crafted Req.L1: A not in L1");
+    c_pa = n_pa;
     js_send(8'h06, 8'h00);                           // Rsp.L1 in L1: ignored
     js_send(8'h07, 8'h00);                           // PMNAK in L1
     js_send(8'h05, 8'h00);                           // Req.L1 in L1
@@ -509,6 +519,7 @@ module UCIe_tb;
     js_send(8'h04, 8'h00);
     wait_clk(2);
     if (a_st != ACTIVE) fail("crafted L1 exit: A not ACTIVE");
+    if (n_pa - c_pa != 3) fail($sformatf("crafted messages in L1: %0d ev_proto, expected 3", n_pa - c_pa));
     poke(1);                                         // owed while a Req.L1 arrives
     js_send(8'h05, 8'h00);
     inj = 1; j_send(0, 0, 0, 1, 0, u_a.ws - 6'd1, 0, 0); inj = 0;  // B is disabled: the TB acknowledges

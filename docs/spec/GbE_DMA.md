@@ -386,6 +386,7 @@ responses in a chosen region), with TX and RX at the same time.
 | "TX_FRAMES" | `tx_frames` counts the frames sent; one `tx_irq` per frame | §3.3 |
 | "RX_DROP" | with no free descriptor 4 frames wait and the fifth is dropped; they are delivered once buffers are posted | §3.4 |
 | "a frame was not dropped with RX_EN off" | a frame received with `rx_en` = 0 is dropped; one `drop_irq` per drop | §3.4 |
+| "first frame after reset with RX_EN off: RX_DROP" | also the first frame after reset is dropped with `rx_en` = 0 | §3.4 |
 | "RX_FRAMES" | `rx_frames` counts the completed RX descriptors; one `rx_irq` per frame | §3.4 |
 | "ERR low after an SLVERR descriptor read" | an error response on a descriptor fetch sets `err` | §3.6 |
 | "no ERR interrupt" | and pulses `err_irq` | §3.6 |
