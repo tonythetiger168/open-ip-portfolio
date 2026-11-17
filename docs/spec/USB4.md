@@ -289,7 +289,7 @@ A path with egress HopID 0 never accepts a grant.
 | "A: bad credit grant" | grant = HopID 0, PDF 1, Length 4, reserved bits 0 | §3.1 |
 | "A: bad Idle" | Idle = HopID 0, PDF 0, Length 0 | §3.1 |
 | "A: data on HopID" | data packets carry the path's egress HopID | §3.2 |
-| "receive errors: ev_proto / ev_hop / ev_len", "bad grants: ev_proto / ev_hop / ev_len" | one `ev_proto` per bad HopID 0 packet or rejected grant, one `ev_hop` per packet for no path, one `ev_len` per Length 0 or over `MAXL`, and no other | §3.1, §3.2 |
+| "receive errors: ev_proto / ev_hop / ev_len", "bad grants: ev_proto / ev_hop / ev_len" | one `ev_proto` per bad HopID 0 packet (including a grant of Length 8 whose words are good grants) or rejected grant, one `ev_hop` per packet for no path, one `ev_len` per Length 0 or over `MAXL`, and no other | §3.1, §3.2 |
 | "A: padding not zero" | pad bytes are 0 | §3.1 |
 | "not drained" | all written packets reach the far end | §3.3 |
 | "only" | header single-bit errors are corrected | §3.4 |
