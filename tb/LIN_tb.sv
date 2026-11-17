@@ -103,6 +103,10 @@ module LIN_tb;
   end
   `LIN_COUNT(m, clk_m)
   `LIN_COUNT(s, clk_s)
+  // a node that reads back a wrong bit stops sending at once: txd is
+  // released in the clock err_bit pulses
+  always @(negedge clk_m) if (m_err_bit && m_txd !== 1'b1) fail("M still drives after err_bit");
+  always @(negedge clk_s) if (s_err_bit && s_txd !== 1'b1) fail("S still drives after err_bit");
 
   function automatic string cs(input cnt_t c);
     return $sformatf("pid %0d rx %0d tx %0d bit %0d sync %0d par %0d frm %0d chk %0d to %0d",
@@ -419,6 +423,27 @@ module LIN_tb;
     m_plan = P(IGN); s_plan = P(IGN);
     quiet(16);
     frame(6'h22, P(PUB, 3, 2, 1, 64'hABCDEF), P(SUB, 1, 2, 1), "after reset");
+    // reset values of every output, held in reset on a quiet bus
+    @(negedge clk_m) rst_m = 0;
+    @(negedge clk_m);
+    if (m_txd !== 1'b1 || m_pid_valid !== 1'b0 || m_tx_done !== 1'b0 || m_rx_valid !== 1'b0 ||
+        m_err_bit !== 1'b0 || m_err_sync !== 1'b0 || m_err_parity !== 1'b0 ||
+        m_err_frame !== 1'b0 || m_err_chk !== 1'b0 || m_err_timeout !== 1'b0)
+      fail("outputs in reset");
+    // released from reset while the bus is already dominant: the break is
+    // counted from the synchronised input (2 clocks), 11 bit times
+    bfm = 0;
+    repeat (20) @(negedge clk_m);
+    rst_m = 1;
+    begin
+      int n;
+      n = 0;
+      while (m_hdr_ready === 1'b1 && n < 20 * NB) begin @(negedge clk_m); n++; end
+      if (n != 11 * NB + 2) fail($sformatf("break seen %0d clocks after reset, expected %0d", n, 11 * NB + 2));
+    end
+    #(3 * TB) bfm = 1;
+    settle();
+    frame(6'h22, P(PUB, 3, 2, 1, 64'h555555), P(SUB, 1, 2, 1), "alternating data after reset");
 
     // 11. bit-time range: the shortest bit time, then the longest
     $display("[%0t] section 11", $time);

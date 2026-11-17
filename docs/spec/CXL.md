@@ -312,6 +312,8 @@ Events are one-clock pulses in the clock the problem is handled: `ev_crc` / `ev_
 
 | Check (TB message or assertion) | What it requires | Spec |
 |---|---|---|
+| "DevLoad" | each DevLoad class (00, 01, 10, 11) appears in some NDR / DRS over the run | §3.7 |
+| "snoop filter tracks more than SFE lines after opcode" | a MemRd, MemInv, MemInvNT or MemClnEvct that takes a line from Invalid with the filter full evicts a line first: `sf_cnt` stays at most SFE | §3.9 |
 | a_tx | `tx_valid` / `tx_data` equal the checker's flit model every clock | §3.2, §3.4 |
 | a_io_tx_ready | `io_tx_ready` as the model | §3.6 |
 | a_io_rx | `io_rx_valid` / `io_rx_data` / `io_rx_last` as the model | §3.6 |

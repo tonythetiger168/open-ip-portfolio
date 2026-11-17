@@ -228,6 +228,12 @@ end A against a BFM that sends any frame.
 | "NACK" | NACK PSN | §3.3 |
 | "ACK after the frame errors" | bad frames change nothing | §3.1 |
 | "A: no retransmission after the timeout" | timer retransmission | §3.2 |
+| "outputs unknown after reset" | no output is X out of reset (`rx_data` and `net_tx_data` aside) | §1 |
+| "A: ev_rto at the timeout" | the retransmit timeout pulses `ev_rto` once | §3.2 |
+| "A: ev_nack for a NACK of an outstanding packet" | a NACK for an outstanding packet pulses `ev_nack` once | §3.2 |
+| "A: the last SACK bit did not acknowledge its packet" | SACK bit W - 2 acknowledges CACK + W | §3.2 |
+| "A: SACK bit 0 did not acknowledge its packet" | SACK bit 0 acknowledges CACK + 2 | §3.2 |
+| "A: 3-byte ACK taken as a NACK" | a 3-byte frame of another type is dropped (`ev_proto`), even when its PSN is outstanding | §3.1 |
 | a_tx_ready | `tx_ready` as the model | §3.2 |
 | a_rx_valid | host receive handshake | §3.3 |
 | a_rx_byte | received bytes | §3.3 |
