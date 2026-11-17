@@ -232,6 +232,8 @@ command legality), the command port flows and AXI writes.
 | "XIP_CMDS" | stream reuse | §3.2 |
 | "XIP_BEATS" | beat count | §3.2 |
 | "JEDEC ID" | 0x9F through the command port | §3.3 |
+| "JEDEC ID during XIP" | a command issued during an XIP burst waits for the burst and returns the right ID | §3.3 |
+| "JEDEC ID racing an XIP open" | a command issued 0..7 clocks around an XIP open waits for the burst and returns the right ID | §3.3 |
 | "WEL low after write enable" | write enable | §3.3 |
 | "page program did not AND the bytes in" | page program | §3.3 |
 | "WEL high after page program" | flash state after program | §3.3 |
