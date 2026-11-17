@@ -8,7 +8,7 @@ module SPMI_top__fsm_cov (
   input logic r_rst_n,
   input logic [2:0] s_state
 );
-  // ---- FSM SPMI_top.state: 6 states, 6 arcs ----
+  // ---- FSM SPMI_top.state: 6 states, 8 arcs ----
   fsm_st__state__ST_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd0);
   fsm_st__state__ST_HEAD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd1);
   fsm_st__state__ST_ADDR: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd2);
@@ -19,6 +19,8 @@ module SPMI_top__fsm_cov (
   fsm_arc__state__ST_HEAD__ST_ADDR: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd1 ##1 s_state == 3'd2);
   fsm_arc__state__ST_HEAD__ST_IGNORE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd1 ##1 s_state == 3'd5);
   fsm_arc__state__ST_ADDR__ST_DATA: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd2 ##1 s_state == 3'd3);
+  fsm_arc__state__ST_ADDR__ST_ACKP: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd2 ##1 s_state == 3'd4);
+  fsm_arc__state__ST_ADDR__ST_IGNORE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd2 ##1 s_state == 3'd5);
   fsm_arc__state__ST_DATA__ST_ACKP: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd3 ##1 s_state == 3'd4);
   fsm_arc__state__ST_ACKP__ST_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_state == 3'd4 ##1 s_state == 3'd0);
 endmodule

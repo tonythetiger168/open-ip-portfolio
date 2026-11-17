@@ -202,6 +202,8 @@ module SDIO_tb;
       t = 0;
       while (dat_s !== 4'h0 && t < 40) begin tick_s(); t++; end
       check(dat_s === 4'h0, "read block start bits");
+      // called right after the R5 end bit (T51): start nibble on T53
+      if (t != 2) begin errors++; $display("ERROR: read block start %0d ticks after the R5 end bit, exp 2", t); end
       for (int k = 0; k < 2 * n; k++) begin
         tick_s(); nb = dat_s;
         for (int l = 0; l < 4; l++) c[l] = crc16_step(c[l], nb[l]);

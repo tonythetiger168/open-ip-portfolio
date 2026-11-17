@@ -235,6 +235,13 @@ host model keeps a reference array and checks every byte, status and event.
 | "status after two Read Status" | status | §3.1 |
 | "target errors" | no target-side errors | §3 |
 | "RE# with nothing to read" | reads only in data steps | §3.1 |
+| "CLE / ALE not dropped TP clocks after WE# high" | CLE / ALE drop exactly `TP` clocks after `we_n` rises | §3.2 |
+| "outputs in reset" | in reset: `ce_n`, `we_n`, `re_n` high, CLE, ALE, DQ drive, `done`, `rd_valid`, events low | §3.1 |
+| "shortest tWHR gap" | the earliest `re_n` fall after a command / address cycle is `TWHR` + 4 clocks after its `we_n` rise (the wait adds no slack) | §3.2 |
+| "shortest tRR gap" | the earliest `re_n` fall after `rb_n` rises is `TRR` + 5 clocks later (2 synchroniser clocks, the wait, the steps) | §3.2 |
+| "shortest tADL gap" | the earliest data-in `we_n` rise after an address cycle is `TADL` + 6 clocks after it | §3.2 |
+| "shortest done after the last RE# rise" | a command ending with a read pulses `done` at the earliest `TP` + 1 clocks after the last `re_n` rise (`re_n` high for `TP` clocks, then the end step) | §3.2 |
+| "shortest Read Page 30h to RE#" | with a target that is ready at once, the first `re_n` fall after the 30h `we_n` rise comes `TWB` + `TRR` + 7 clocks later (tWB and tRR add no slack) | §3.2 |
 | a_pins | pins as the model | §3.2 |
 | a_host | host handshakes as the model | §3.3 |
 | a_read | read bytes as the model | §3.3 |

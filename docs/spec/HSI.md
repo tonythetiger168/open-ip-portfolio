@@ -232,6 +232,7 @@ receiver, the receiver disabled, WAKE forced and a reset mid-frame are run.
 | "frame did not wait for READY" | a held frame waits for READY with WAKE high | §3.2 |
 | "breaks seen" | one `rx_break` per break | §3.3 |
 | "events: overflow" | BFM error cases give the expected event counts | §3.3 |
+| "outputs in reset" | in reset: events, `tx_busy`, `tx_done`, `rxq_valid`, DATA and FLAG low | §1 |
 | a_tx_lines | `tx_data` / `tx_flag` exactly as the checker's model | §3.1, §3.2 |
 | a_txq_ready | `txq_ready` = hold empty | §3.2 |
 | a_tx_busy | `tx_busy` as the model | §3.2 |

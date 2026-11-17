@@ -187,6 +187,7 @@ next accepted command's R5, whether or not that command executes.
 | "CRC status end bit" | the token ends with 1 | §3.5 |
 | "CRC status" | 010 for a good block, 101 for a bad one | §3.5 |
 | "read block start bits" | 0000 start on all lines | §3.6 |
+| "read block start" | the start nibble is on T53, two ticks after the R5 end bit | §3.6 |
 | "read block CRC16" | per-line CRC16 of the read block | §3.6 |
 | "read block end bits" | 1111 end | §3.6 |
 | "CMD53 write irq" | `irq` only for a bad write block | §3.5, §5 |

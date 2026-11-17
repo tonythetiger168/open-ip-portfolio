@@ -149,6 +149,7 @@ undefined until written (a 2-state simulator shows 0; the checker's shadow start
 | `mcmd` withdrawn in S_ACCEPT (`ACCEPT_DLY` 1) | not allowed by OCP; the core still leaves S_ACCEPT and answers ERR with an `irq` pulse |
 | RD right after a posted WR to the same word | returns the written data |
 | reset with a response pending | dropped; `sresp` NULL after reset |
+| reset while a request waits for `scmdaccept` | the request is dropped; a write does not reach the register file |
 
 ## 6. TB check map
 
@@ -180,6 +181,9 @@ MCmd, reset mid transaction, and (Verilator) random traffic.
 | "OCP MCmd" | unsupported MCmd answered ERR | §3.3 |
 | "OCP outputs not quiescent in reset" | in reset: `sresp` NULL, `scmdaccept`, `irq` 0 | §3.4 |
 | "OCP stale response after reset" | no response from before the reset | §3.4 |
+| "OCP irq" | `irq` (both instances) is high exactly in the clock after an accepted bad request, else 0 | §3.3 |
+| "OCP dut0 irq" | the same on `dut0` | §3.3 |
+| "OCP abort test: no accept phase" | `ACCEPT_DLY` 1: `scmdaccept` is high in the clock after the request appears | §3.1 |
 | "CRV irq never pulsed on error classes" | random error classes pulse `irq` | §3.3 |
 | "A1 reset: outputs quiescent" | in reset outputs idle | §3.4 |
 | "A2 sresp NULL unless S_RESP" | `sresp` != NULL only in S_RESP | §3.2 |

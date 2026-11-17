@@ -270,6 +270,9 @@ module HSI_tb;
     while (!tx_busy[0]) @(negedge clk);
     cycles(100);
     rst_n = 0; cycles(2);
+    if ({rx_break, err_overflow, err_stray, err_ds, err_timeout, tx_busy, tx_done, rxq_valid} !== '0 ||
+        {tx_data, tx_flag} !== '0)
+      fail("outputs in reset");
     exh[0] = ext[0]; exh[1] = ext[1];
     rst_n = 1; cycles(5);
     send(1, 2, 32'h0F0F_0F0F); send(0, 3, 32'hF0F0_F0F0);
