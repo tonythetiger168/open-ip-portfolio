@@ -25,6 +25,7 @@ The TB reads these signals (`dut.x`) and the checker binds them (`.*`). They are
 | Signal | Width | Meaning |
 |---|---|---|
 | `tick` | 1 | combinational: the clk cycle where sd_clk rises (the divider wraps); the FSM steps and samples here |
+| `ftick` | 1 | combinational: this `clk` edge is a falling edge of sd_clk (half a period after `tick`) |
 | `fast` | 1 | data-transfer rate selected (set when the R6 of CMD3 is accepted, cleared on an init restart) |
 | `state` | 3 | host FSM: 0 CTX (command out), 1 GAP, 2 RSP, 3 IDLE (between rounds), 4 WDAT, 5 RDAT |
 | `cur` | 4 | command in flight: 0 CMD0, 1 CMD8, 2 CMD55, 3 ACMD41, 4 CMD2, 5 CMD3, 6 CMD7, 7 CMD24, 8 CMD17, 9 CMD13 |
@@ -191,6 +192,7 @@ One bus bit (command / response) or one nibble (data) per sd_clk period. A comma
 | Check (TB message or assertion) | What it requires | Spec |
 |---|---|---|
 | "sd_clk period" | sd_clk period = ID_CLK_DIV during identification, SD_CLK_DIV after | §3.1 |
+| "sd_clk high time" | sd_clk falls half a period (ID_CLK_DIV / 2 or SD_CLK_DIV / 2 clocks) after it rises | §3.1 |
 | "identification at the fast rate" | CMD0..CMD3 at the identification rate | §3.1 |
 | "CMD / DAT changed while sd_clk is high" | pins change only at the falling edge | §3.1 |
 | "reset state" | reset values | §3.6 |

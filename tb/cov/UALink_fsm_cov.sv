@@ -8,12 +8,14 @@ module UALink_top__fsm_cov (
   input logic r_rst_n,
   input logic [1:0] s_es
 );
-  // ---- FSM UALink_top.es: 4 states, 4 arcs ----
+  // ---- FSM UALink_top.es: 4 states, 6 arcs ----
   fsm_st__es__E_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_es == 2'd0);
   fsm_st__es__E_DATA: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_es == 2'd1);
   fsm_st__es__E_RD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_es == 2'd2);
   fsm_st__es__E_RSP: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_es == 2'd3);
   fsm_arc__es__E_IDLE__E_DATA: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_es == 2'd0 ##1 s_es == 2'd1);
+  fsm_arc__es__E_IDLE__E_RD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_es == 2'd0 ##1 s_es == 2'd2);
+  fsm_arc__es__E_IDLE__E_RSP: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_es == 2'd0 ##1 s_es == 2'd3);
   fsm_arc__es__E_DATA__E_RSP: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_es == 2'd1 ##1 s_es == 2'd3);
   fsm_arc__es__E_RD__E_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_es == 2'd2 ##1 s_es == 2'd0);
   fsm_arc__es__E_RSP__E_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_es == 2'd3 ##1 s_es == 2'd0);

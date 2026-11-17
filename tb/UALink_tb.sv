@@ -164,6 +164,18 @@ module UALink_tb;
     end
   end
 
+  // ---------------- outputs in reset ----------------
+  // Every output is 0 while rst_n is low (§1 reset column); checked after the
+  // first release, so the time-0 reset (no negedge on rst_n) is not counted.
+  bit was_up = 0;
+  always @(posedge rst_n) was_up = 1;
+  always @(negedge clk) if (!rst_n && was_up) begin
+    #1;
+    if ({req_crd, od_crd, rd_valid, rd_tag, rd_data, rd_last, rd_status,
+         wr_valid, wr_tag, wr_status, ev_err, ev_proto} !== '0)
+      fail("output not 0 in reset");
+  end
+
   // ---------------- responses ----------------
   always @(negedge clk) if (rst_n) begin : b_chk
     logic [74:0] e;

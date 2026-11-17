@@ -26,6 +26,9 @@ module ATB_tb;
 
   always #5 clk = ~clk;
   always @(posedge clk) if (irq) irq_seen <= 1'b1;
+  // the flush handshake is always accepted (both flows)
+  always @(negedge clk)
+    if (afready !== 1'b1) begin errors++; $display("ERROR: ATB afready low (t=%0t)", $time); end
 
   task automatic send(input logic [31:0] d, input logic [6:0] id, input logic last);
     begin
