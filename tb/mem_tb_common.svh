@@ -13,6 +13,19 @@
 // hdone pulses once per RD and hrdata holds the word from the next clock.
 // A scoreboard of every written cell checks every read.
 
+`ifndef VERILATOR
+`ifdef MEM_SVA
+  // the bound checker of the coverage flow, also run here: every pin, the
+  // page / timing model and the read data (tb/cov/<P>_sva.sv)
+`ifdef MEM_SVA_INTERNAL
+  // internal command signals the checker reads (bound inside the DUT in the
+  // coverage flow)
+  `MEM_SVA u_sva (.*, .ras_n(dut.ras_n), .cas_n(dut.cas_n), .we_n(dut.we_n), .addr(dut.addr));
+`else
+  `MEM_SVA u_sva (.*);
+`endif
+`endif
+`endif
   localparam int NCELL = 1 << 16;
   logic [15:0] sb [0:NCELL-1];        // expected array contents
   logic        sbv [0:NCELL-1];       // cell has a known value
@@ -177,6 +190,11 @@
   initial begin
     common_tests();
     quiesce(); idle(20);
+`ifndef VERILATOR
+`ifdef MEM_SVA
+    errors += u_sva.sva_n_fail;
+`endif
+`endif
     if (errors == 0) $display("TEST PASSED: %m (%0d reads, %0d writes)", n_rd, n_wr);
     else             $display("TEST FAILED: %0d errors", errors);
     $finish;

@@ -344,6 +344,7 @@
 `endif
   `SVA_RST(a_reset_pins, !rst_n, !cke && !hdone && !trace_valid && q_pc == P_NOP)
 
+`ifdef VERILATOR
   // host command pairs (previous accepted command x this one; c_prev = 0
   // is the first command after reset), RD / WR column classes, write and
   // read data classes
@@ -369,6 +370,7 @@
       { bins zero = {0}; bins ones = {1}; bins alt = {2}; bins other = {3}; }
   endgroup
   cg_mem_ops u_cg_mem_ops = new;
+`endif
 
   `FC(rd_page_hit, e_rd_hit)
   `FC(rd_bank_closed, e_rd_closed)
