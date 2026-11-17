@@ -186,6 +186,7 @@ Other behaviour:
 
 | Check (TB message or assertion) | What it requires | Spec |
 |---|---|---|
+| "no restart after 1024 clocks without an ALIGNp pair: " | with ALIGNp and SYNCp alternating (never two ALIGNps in a row) the host restarts the link (COMRESET) 1024 clocks into the ALIGNp wait; run at three dword phases, one with a SYNCp on the last clock | §3.2 |
 | "unexpected FIS from host" | the host sends only the FIS the command flow allows | §3.5 |
 | "host stopped issuing commands" | the sequencer keeps running write / read pairs | §3.5 |
 | "write dword" | the Data FIS of a WRITE carries the xorshift32 data | §3.5 |

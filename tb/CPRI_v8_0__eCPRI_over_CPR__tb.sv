@@ -198,6 +198,7 @@ module CPRI_v8_0__eCPRI_over_CPR__tb;
   int         skip_comma = 0;             // hyperframes with the comma suppressed
   int         stray_at = -1;              // position of an extra comma
   int         bad_at = -1;                // position of an invalid code group
+  logic [9:0] bad_sym = 10'b1111110000;   // the invalid symbol sent at bad_at
   int         disp_at = -1;               // position of the next wrong-disparity symbol
   int         disp_n = 0;                 // wrong-disparity symbols still to send
   int         disp_k = 0;
@@ -251,7 +252,7 @@ module CPRI_v8_0__eCPRI_over_CPR__tb;
       end
       if (pw == stray_at) begin k = 1; b = K28_5; stray_at = -1; end
       if (pw == bad_at) begin
-        rx_sym = 10'b1111110000; bad_at = -1;
+        rx_sym = bad_sym; bad_at = -1;
         if (bad_clr) begin
           cpu_we = 1; cpu_addr = 4'd13; cpu_wdata = 32'h2; bad_clr = 0; clr_off = 1;
         end
@@ -411,6 +412,16 @@ module CPRI_v8_0__eCPRI_over_CPR__tb;
     cpu_rd(4'd13, r, 0); check(r == 2, "cv flag");
     cpu_wr(4'd13, 32'h1); check(irq == 1, "clearing los leaves cv");
     cpu_wr(4'd13, 32'h2); check(irq == 0, "cv cleared");
+    // only one sub-block invalid, the other valid; both keep the disparity
+    // (6b 111111 + 4b 1010, then 6b 110001 + 4b 0000)
+    for (int k = 0; k < 2; k++) begin
+      bad_sym = k ? 10'b1100010000 : 10'b1111111010;
+      wait_pos(300); bad_at = 500; wait_pos(502);
+      check(irq == 1, k ? "invalid 4b sub-block not a code violation"
+                        : "invalid 6b sub-block not a code violation");
+      cpu_wr(4'd13, 32'h2); check(irq == 0, "cv cleared after a half-invalid symbol");
+    end
+    bad_sym = 10'b1111110000;
     // wrong-disparity symbols, one at a time with the flag cleared between
     for (int k = 0; k < 20; k++) begin
       wait_pos(100 + 40 * k);
@@ -434,11 +445,13 @@ module CPRI_v8_0__eCPRI_over_CPR__tb;
     wait_pos(5);
     st_is(2'd2, "3 missed commas tolerated");
     check(irq == 0, "no loss of sync");
+    cpu_rd(4'd8, r, 0); check(r[2] == 1, "L1 sequence done before the loss of sync");
     wait_pos(500);
     skip_comma = 4;
     repeat (4) wait_pos(0);
     wait_pos(5);
     st_is(2'd0, "loss of sync after 4 missed commas");
+    cpu_rd(4'd8, r, 0); check(r[2] == 0, "L1 done not cleared at the loss of sync");
     check(irq == 1, "loss of sync irq");
     cpu_rd(4'd13, r, 0); check(r == 1, "los flag");
     cpu_wr(4'd13, 32'h1); check(irq == 0, "los cleared");

@@ -268,6 +268,7 @@ DEACTHINT, ACTIVEACK falling in RUN, and a reset with traffic in flight.
 
 | Check (TB message or assertion) | What it requires | Spec |
 |---|---|---|
+| "tx_ready wrong: port " | `tx_ready` is high exactly while the flit being filled has room for a word and has not had its second packet end (TB fill model) | §3.3 |
 | "B: word" | every word B receives was sent by A, in order, with `rx_last` / `rx_err` | §3.2, §3.5 |
 | "A: word" | the same from B to A | §3.2, §3.5 |
 | "link" | the link reaches the expected transmit / receive states | §3.1, §3.4 |
@@ -275,6 +276,7 @@ DEACTHINT, ACTIVEACK falling in RUN, and a reset with traffic in flight.
 | "credits held in STOP" | credits are 0 after DEACTIVATE -> STOP | §3.1 |
 | "transmit side not waiting in ACTIVATE" | as above, during repeated activations | §3.1 |
 | "A granted" | the receive side grants exactly `RXF` credits | §3.4 |
+| "credits granted with every buffer full: " | a bad flit that closes an open packet takes a buffer; no credit is granted while all `RXF` buffers are full | §3.4, §3.6 |
 | "A's receive side not in DEACTIVATE" | ACTIVEREQ falling moves RUN -> DEACTIVATE | §3.4 |
 | "ACTIVEACK held with no credit out" | DEACTIVATE -> STOP once every credit is back | §3.4 |
 | "A holds" | 16 grants leave 15 credits held (`ev_crd`) | §3.1, §3.6 |

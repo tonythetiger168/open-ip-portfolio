@@ -202,6 +202,8 @@ SDA released, `mem` = 0, no dynamic address, no pending IBI, `irq` = 0, IDLE.
 | "other address NACKed" | other addresses are not acknowledged | §3.2 |
 | "7E/R NACK" | 7E/R outside ENTDAA is NACKed | §3.5 |
 | "irq for 7E/R outside ENTDAA" | ...with `irq` | §3.5 |
+| "7E/R NACK after reset" | 7E/R is NACKed after a reset | §3.5 |
+| "no irq for 7E/R as the first frame after reset" | reset ends ENTDAA: 7E/R before any STOP is outside ENTDAA and raises irq | §3.5 |
 | "irq for unknown CCC" | unknown CCC: NACK and `irq` | §3.4 |
 | "no IBI without a dynamic address" | no IBI before a dynamic address | §3.6 |
 | "ENTDAA lost to the other slave" | a slave losing ENTDAA arbitration drops out | §3.5 |
