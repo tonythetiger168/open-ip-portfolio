@@ -170,6 +170,7 @@ each error kind (by mode number); a host decoder checks every echo.
 | "irq count" | one `irq` per good frame | §3.2 |
 | "busy after echo" | idle after the echo | §3.3 |
 | "mode" | each error kind sets `rx_err`, no echo, not stuck | §3.2, §5 |
+| "rsamp" | the bit clock restarts on every line change and samples `BAUD_DIV` - 1 clocks after it, then every 2 x `BAUD_DIV` clocks | §3.2 |
 | "reset state" | reset values | §3.4 |
 | "rx_err after good frames" | good frames do not set it | §3.2 |
 | "short frame rx_err not set" | a frame under 3 bytes is an error | §3.2 |

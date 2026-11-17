@@ -279,6 +279,8 @@ A reset during a hold drops the token without passing it on.
 | "backed off" | a claim from a lower address makes the station return to LISTEN | §3.6 |
 | "traffic ends claim" | any other good frame ends the claim | §3.6 |
 | "no claim when disabled" | claim_en = 0: no claim frames | §3.6 |
+| "claim window" | with no frame received, the token is taken after `CLAIM_WIN` + 1 clocks in ST_CLAIM_WAIT (counter 0 .. `CLAIM_WIN`) | §3.6 |
+| "claim window never timed" | the TB saw at least one window expire | §3.6 |
 | "holding" | the station holds the token | §3.5 |
 | "reset drops token" | `rst_n` clears `token_held` | §3.8 |
 | a_reset_outputs | in reset: `tx_en` = 0, `tx_bit` = 1, `irq` = 0, `token_held` = 0, counts 0 | §3.8 |

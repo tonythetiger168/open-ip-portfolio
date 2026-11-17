@@ -36,6 +36,37 @@ module UART_tb;
   endfunction
   task automatic cycles(input int n); repeat (n) @(negedge clk); endtask
 
+  // ---------------- second instance: DIV16 = 6 (96 clocks per bit) ----------------
+  // its own reset and loopback; a byte is requested from the release of
+  // reset, so the start bit (tick edges DIV16+1, 2*DIV16+1, ...) and every
+  // later bit have exactly known lengths
+  logic       rst2 = 0, txd2, tv2 = 1, tr2, rv2, irq2;
+  logic [7:0] rd2;
+  UART_top #(.CLK_FREQ(48_000_000), .BAUD(500_000)) dut2 (
+    .clk(clk), .rst_n(rst2), .rxd(txd2), .txd(txd2),
+    .tx_data(8'hA5), .tx_valid(tv2), .tx_ready(tr2),
+    .rx_data(rd2), .rx_valid(rv2), .irq(irq2));
+  initial begin : div6
+    int n, t0;
+    logic [7:0] b;
+    cycles(4);
+    rst2 = 1;                                  // at a negedge: edge 1 follows
+    t0 = 0;
+    while (txd2 !== 1'b0 && t0 < 10) begin @(negedge clk); t0++; end
+    @(negedge clk); tv2 = 0;
+    n = 1;
+    while (txd2 === 1'b0 && n < 400) begin @(negedge clk); n++; end
+    if (t0 != 1 || n != 96) fail($sformatf("DIV16 6: start bit after %0d clocks, %0d clocks long, expected 1 and 96", t0, n));
+    for (int i = 0; i < 8; i++) begin
+      repeat (48) @(negedge clk); b[i] = txd2; repeat (48) @(negedge clk);
+    end
+    repeat (48) @(negedge clk);
+    if (b !== 8'hA5 || txd2 !== 1'b1) fail($sformatf("DIV16 6: txd byte %h, stop %b", b, txd2));
+    n = 0;
+    while (!rv2 && n < 200) begin @(negedge clk); n++; end
+    if (!rv2 || rd2 !== 8'hA5) fail($sformatf("DIV16 6: loopback rx %b %h", rv2, rd2));
+  end
+
   // ------------------------------------------------------------ line select
   bit   loop = 1;
   logic drv = 1;

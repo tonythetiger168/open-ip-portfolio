@@ -112,6 +112,47 @@ module CAN_XL_tb;
     errors++;
     $display("ERROR: %s @%0t", m, $time);
   endfunction
+
+`ifndef VERILATOR
+  // (sim flow only: the coverage flow measures the two bus instances, and a
+  // third parameter set would add its never-used buffers as toggle holes)
+  // ---------------- smallest buffer (MAX_BYTES 8): TX size check ----------------
+  // a CC frame carries at most 8 bytes whatever its DLC, so DLC 9..15 fits an
+  // 8-byte buffer; an XL frame of 9 bytes does not. Own loop-back bus.
+  logic        c_txd, c_tx_valid = 0, c_tx_xl = 0, c_tx_rej, c_tx_rdy;
+  logic [10:0] c_tx_dlc = 0;
+  CAN_XL_top #(.MAX_BYTES(8), .FS(FS)) u_c (
+    .clk(clk_a), .rst_n(rst_a), .rxd(c_txd), .txd(c_txd), .tx_fast(), .rx_fast(),
+    .cfg_brp(cfg_brp), .cfg_tseg1(cfg_tseg1), .cfg_tseg2(cfg_tseg2), .cfg_sjw(cfg_sjw),
+    .cfg_dbrp(cfg_dbrp), .cfg_dtseg1(cfg_dtseg1), .cfg_dtseg2(cfg_dtseg2), .cfg_dsjw(cfg_dsjw),
+    .acc_code(29'd0), .acc_mask(29'd0),
+    .hb_wen(1'b0), .hb_waddr(1'b0), .hb_wdata(32'd0), .hb_raddr(1'b0), .hb_rdata(),
+    .tx_valid(c_tx_valid), .tx_ready(c_tx_rdy), .tx_xl(c_tx_xl), .tx_id(29'h123), .tx_ide(1'b0),
+    .tx_rtr(1'b0), .tx_dlc(c_tx_dlc), .tx_sdt(8'd0), .tx_sec(1'b0), .tx_vcid(8'd0),
+    .tx_af(32'd0), .tx_abort(1'b0), .tx_done(), .tx_aborted(),
+    .tx_rejected(c_tx_rej),
+    .rx_valid(), .rx_xl(), .rx_id(), .rx_ide(), .rx_rtr(),
+    .rx_dlc(), .rx_sdt(), .rx_sec(), .rx_vcid(), .rx_af(),
+    .rx_trunc(), .arb_lost(),
+    .err_bit(), .err_stuff(), .err_crc(), .err_form(),
+    .err_ack(), .pexc(), .tec(), .rec(), .err_passive(),
+    .bus_off());
+  initial begin : small_buf
+    bit rj;
+    wait (rst_a === 1'b1);
+    repeat (20) @(negedge clk_a);
+    // XL, 9 bytes (DLC 8): larger than the buffer, rejected
+    c_tx_xl = 1; c_tx_dlc = 11'd8; c_tx_valid = 1;
+    @(negedge clk_a); rj = c_tx_rej; c_tx_valid = 0;
+    repeat (3) begin @(negedge clk_a); if (c_tx_rej) rj = 1; end
+    if (!rj) fail("MAX_BYTES 8: a 9-byte XL frame was not rejected");
+    // CC, DLC 12 (8 bytes): fits
+    c_tx_xl = 0; c_tx_dlc = 11'd12; c_tx_valid = 1;
+    @(negedge clk_a); rj = c_tx_rej; c_tx_valid = 0;
+    repeat (3) begin @(negedge clk_a); if (c_tx_rej) rj = 1; end
+    if (rj || c_tx_rdy !== 1'b0) fail("MAX_BYTES 8: a CC frame with DLC 12 was not taken");
+  end
+`endif
   // a for loop: Verilator 5.020 shares a repeat count between concurrent calls
   task automatic ca(input int n); for (int i = 0; i < n; i++) @(negedge clk_a); endtask
 
