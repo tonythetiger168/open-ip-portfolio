@@ -98,6 +98,8 @@ module Toggle_Mode_NAND_tb;
   task automatic status(input logic [7:0] exp, input string what);
     begin
       cmd(8'h70);
+      wclk(2);
+      check(dq === 8'hFF, "DQ driven before the first RE# edge");
       dout(1);
       if (rbuf[0] !== exp) begin errors++; $display("ERROR: %s: status %h exp %h", what, rbuf[0], exp); end
     end
@@ -150,6 +152,7 @@ module Toggle_Mode_NAND_tb;
     check(rb_n === 1'b1 && irq === 1'b0 && dq === 8'hFF, "reset state");
     rst_n = 1;
     wclk(4);
+    status(8'hE0, "status after power-up");
 
     // ---- Read ID, with wrap ----
     cmd(8'h90); addr(8'h00); dout(7);

@@ -36,6 +36,7 @@ The checker is bound with `.*` and reads these; the FSM coverage collector binds
 | `line_j` | 1 | synchronised line is J; combinational |
 | `line_k` | 1 | synchronised line is K; combinational |
 | `line_se0` | 1 | synchronised line is SE0; combinational |
+| `rx_done` | 1 | one-clock pulse: a good frame ended on the J after its EOP |
 | `oe_q` | 1 | the engine drives D+ / D- |
 | `tedge` | 1 | last clock of a transmit bit; combinational |
 
@@ -156,6 +157,7 @@ each error kind (by mode number); a host decoder checks every echo.
 |---|---|---|
 | "no echo for pid" | good frames are echoed | §3.3 |
 | "turnaround" | echo starts 2..6.5 bits after the EOP | §3.3 |
+| "rx_done before the EOP J" | a packet ends only when the line returns to J after the EOP SE0 | §3.3 |
 | "echo SYNC bit" | SYNC sent | §3.1, §3.3 |
 | "SE1 on bus" | never both lines high | §3.3 |
 | "echo missing stuff bit" | stuffing | §3.1 |
