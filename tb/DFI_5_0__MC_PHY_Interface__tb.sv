@@ -367,6 +367,16 @@ module DFI_5_0__MC_PHY_Interface__tb;
     exp_rd = exp_wr;
     for (int i = 0; i < 64; i++) begin s_we[i] = 0; s_re[i] = 0; s_wx[i] = 0; s_rx[i] = 0; end
     repeat (20) @(negedge clk);
+    // init_start already high when reset ends: it is a request, init runs
+    begin : start_through_reset
+      int t;
+      @(negedge clk); dfi_init_start = 1; rst_n = 0; repeat (2) @(negedge clk); rst_n = 1;
+      t = 0;
+      while (!dfi_init_complete && t < 100) begin @(negedge clk); t++; end
+      if (!dfi_init_complete) fail("no init with init_start held through reset");
+      dfi_init_start = 0;
+    end
+    repeat (5) @(negedge clk);
 
     if (errors == 0) $display("TEST PASSED: DFI_5_0__MC_PHY_Interface_");
     else $display("TEST FAILED: DFI_5_0__MC_PHY_Interface_ (%0d errors)", errors);
