@@ -101,15 +101,20 @@ module QSPI_XIP_tb;
     s_rready = 0;
   endtask
 
+  int n_pcdone = 0;
+  always @(posedge clk) if (rst_n && pc_done) n_pcdone++;
   task automatic pc(input logic [7:0] c, input bit ha, input logic [23:0] a, input int nwr,
                     input logic [31:0] wd, input int nrd);
-    int t;
+    int t, d0;
     @(negedge clk);
+    d0 = n_pcdone;
     pc_cmd = c; pc_has_addr = ha; pc_addr = a; pc_nwr = 3'(nwr); pc_wdata = wd; pc_nrd = 3'(nrd);
     pc_start = 1; @(negedge clk); pc_start = 0;
     t = 0;
     while (pc_busy && t < 100000) begin @(negedge clk); t++; end
     if (pc_busy) fail($sformatf("command %h timed out", c));
+    @(negedge clk);
+    if (n_pcdone != d0 + 1) fail($sformatf("command %h: %0d PC_DONE pulses", c, n_pcdone - d0));
   endtask
 
   // an AXI write (consumed, SLVERR) with the given fields; BREADY after bw clocks
@@ -158,6 +163,20 @@ module QSPI_XIP_tb;
     quad = 1; div = 1;
     pc(8'h9F, 0, 0, 0, 0, 3);
     if (pc_rdata !== 32'h0018_40EF) fail($sformatf("JEDEC ID %h", pc_rdata));
+    // a command started during an XIP burst waits for the burst
+    fork
+      rd(32'h0000_0400, 15, 2, 1);
+      begin clks(40); pc(8'h9F, 0, 0, 0, 0, 3); end
+    join
+    if (pc_rdata !== 32'h0018_40EF) fail($sformatf("JEDEC ID during XIP %h", pc_rdata));
+    // a command requested while an XIP read is opening the stream: one of them waits
+    for (int d = 0; d < 8; d++) begin
+      fork
+        rd(32'h0000_0600 + 32'(d * 64), 1, 2, 1);
+        begin clks(d); pc(8'h9F, 0, 0, 0, 0, 3); end
+      join
+      if (pc_rdata !== 32'h0018_40EF) fail($sformatf("JEDEC ID racing an XIP open %h", pc_rdata));
+    end
     rd(32'h0000_2000, 3, 2, 1);                           // stream open
     pc(8'h06, 0, 0, 0, 0, 0);
     pc(8'h05, 0, 0, 0, 0, 1);
@@ -248,7 +267,7 @@ module QSPI_XIP_tb;
     @(negedge clk); s_arvalid = 0;
     clks(60);
     rst_n = 0; clks(3);
-    if (!csn || s_rvalid || xip_cmds != 0) fail("not idle in reset");
+    if (!csn || s_rvalid || xip_cmds != 0 || pc_busy || pc_done) fail("not idle in reset");
     rst_n = 1; clks(5);
     rd(32'h0000_0C00, 3, 2, 1);
     clks(20);

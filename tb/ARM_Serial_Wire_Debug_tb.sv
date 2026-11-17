@@ -132,7 +132,7 @@ module ARM_Serial_Wire_Debug_tb;
   endtask
   // Output pulses (#44): line_reset, proto_err, ack_wait, ack_fault, ap_req
   // and ap_abort are one clock wide; in reset every output is inactive.
-  int  n_lr = 0;
+  int  n_lr = 0, n_wp = 0, n_fp = 0;          // line_reset / ack_wait / ack_fault pulses
   bit  in_rst = 0;
   logic [5:0] pul_q = '0;
   always @(posedge clk) begin
@@ -148,6 +148,8 @@ module ARM_Serial_Wire_Debug_tb;
         fail($sformatf("pulse output high two clocks in a row (%b)",
                        {line_reset, proto_err, ack_wait, ack_fault, ap_req, ap_abort} & pul_q));
       if (line_reset) n_lr++;
+      if (ack_wait) n_wp++;
+      if (ack_fault) n_fp++;
       pul_q = {line_reset, proto_err, ack_wait, ack_fault, ap_req, ap_abort};
     end
   end
@@ -175,8 +177,9 @@ module ARM_Serial_Wire_Debug_tb;
                         input bit f_par, input bit f_stop, input bit f_park, input bit f_wpar);
     logic        s;
     logic [32:0] d;
-    int          trn;
+    int          trn, wp0, fp0;
     trn = int'(m_trn) + 1;
+    wp0 = n_wp; fp0 = n_fp;
     hcyc(1, 1, s); hcyc(1, ap, s); hcyc(1, rn, s); hcyc(1, a[0], s); hcyc(1, a[1], s);
     hcyc(1, ap ^ rn ^ a[0] ^ a[1] ^ f_par, s); hcyc(1, f_stop, s); hcyc(1, !f_park, s);
     for (int i = 0; i < trn; i++) hcyc(0, 0, s);
@@ -202,6 +205,8 @@ module ARM_Serial_Wire_Debug_tb;
       default: fail($sformatf("ACK %b", ack));
     endcase
     if ((ack == WAIT || ack == FAULT) && m_orun) m_sorun = 1;
+    if (n_wp - wp0 != int'(ack == WAIT) || n_fp - fp0 != int'(ack == FAULT))
+      fail($sformatf("ACK %b with %0d ack_wait / %0d ack_fault pulses", ack, n_wp - wp0, n_fp - fp0));
     if (!no_idle) idle($urandom_range(2, 0));
   endtask
 
@@ -456,6 +461,13 @@ module ARM_Serial_Wire_Debug_tb;
 
     // 10. protocol errors, each followed by a line reset
     xfer_f(0, 1, 2'd0, 0, 1, 0, 0, 0); expect_ack(NONE, "request parity"); lreset(); dp_rd(2'd0, ID, "after parity");
+    // after a line reset the idle cycles must be consecutive: low, high, low is not two of them
+    begin
+      logic sx;
+      ones(50); hcyc(1, 0, sx); hcyc(1, 1, sx); hcyc(1, 0, sx);
+      xfer(0, 1, 2'd0, 0); expect_ack(NONE, "request after broken idle cycles");
+      lreset(); dp_rd(2'd0, ID, "after broken idle cycles");
+    end
     xfer_f(0, 1, 2'd0, 0, 0, 1, 0, 0); expect_ack(NONE, "stop bit"); lreset(); dp_rd(2'd0, ID, "after stop");
     xfer_f(0, 1, 2'd0, 0, 0, 0, 1, 0); expect_ack(NONE, "park bit"); lreset(); dp_rd(2'd0, ID, "after park");
     // a request cut short by a line reset

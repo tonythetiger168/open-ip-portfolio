@@ -22,6 +22,7 @@ module ARM_Local_Translation_Interface_tb;
   logic clk = 0, rst_n = 0;
   always #5 clk = ~clk;
   int errors = 0;
+  int s_wait = 0;                                       // clocks with an invalidation and no snapshot tag out
   task automatic fail(input string s);
     errors++;
     $display("ERROR: %s @%0t", s, $time);
@@ -125,6 +126,14 @@ module ARM_Local_Translation_Interface_tb;
       s_on = 0;
     end
     if (lc_valid && t_out[lc_ctag]) begin t_out[lc_ctag] = 0; s_tag[lc_ctag] = 0; end
+    // inv_done follows the last snapshot tag at once (later tags do not hold it)
+    begin
+      bit any;
+      any = 0;
+      for (int i = 0; i < NCT; i++) any |= s_tag[i];
+      s_wait = (s_on && !any) ? s_wait + 1 : 0;
+      if (s_wait > 2) begin fail("inv_done late: no snapshot tag is out"); s_wait = 0; end
+    end
     if (inv_valid && inv_ready) s_snap = 1;
     // the table: as of the clock before, then this clock's writes
     for (int i = 0; i < NE; i++) begin

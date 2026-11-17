@@ -251,6 +251,7 @@ traffic in flight are included.
 | "tag" | a tag is free when handed out | §3.2, §3.3 |
 | "inv_done with no invalidation" | `inv_done` only for a taken invalidation | §3.5 |
 | "inv_done with tag" | `inv_done` only after every tag out at the invalidation came back | §3.5 |
+| "inv_done late: no snapshot tag is out" | `inv_done` at most 2 clocks after the last snapshot tag came back | §3.5 |
 | "invalidation done with the tag handed out with it still out" | the tag handed out in the invalidation clock is waited for | §3.5 |
 | "tags not all out" | with tags held, all `NCT` go out and OK answers wait | §3.2 |
 | "link closed with tags out" | `lm_open_ack` stays 1 in CLOSING until the tags are back | §3.1 |

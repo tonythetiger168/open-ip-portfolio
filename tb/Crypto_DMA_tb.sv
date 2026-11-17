@@ -177,7 +177,7 @@ module Crypto_DMA_tb;
     start = 1; @(negedge clk); start = 0;
     clks(60);
     rst_n = 0; clks(2);
-    if (busy || m_awvalid || m_arvalid || m_wvalid) fail("not idle in reset");
+    if (busy || err || err_irq || m_awvalid || m_arvalid || m_wvalid) fail("not idle in reset");
     rst_n = 1; clks(10);
     run(11, 0, 0);
     finish("Crypto_DMA");

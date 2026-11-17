@@ -277,6 +277,7 @@ module Ethernet_RS_FEC_tb;
     else if ($fopen("../tb/Ethernet_RS_FEC_vec.hex", "r") != 0) $readmemh("../tb/Ethernet_RS_FEC_vec.hex", vec);
     else $readmemh("../../../../tb/Ethernet_RS_FEC_vec.hex", vec);
     repeat (3) @(negedge clk);
+    if (e_out_valid || e_out_first || d_out_valid || d_out_first || d_out_bad) fail("outputs not 0 in reset");
     rst_n = 1;
     vec_cases();
     $display("vectors: %0d cases", nvec);
@@ -315,6 +316,7 @@ module Ethernet_RS_FEC_tb;
       end
     join
     @(negedge clk);
+    if (e_out_valid || e_out_first || d_out_valid || d_out_first || d_out_bad) fail("outputs not 0 in reset");
     e_got.delete(); d_exp.delete(); v_exp.delete(); ebc = 0; dbc = 0; ign_ev = 0;
     rst_n = 1;
     loop(10, 30);
