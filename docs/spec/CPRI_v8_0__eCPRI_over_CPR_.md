@@ -249,12 +249,17 @@ None.
 | "cv flag" | register 13 bit 1 | §3.6 |
 | "clearing los leaves cv" | write-1-to-clear per bit | §3.6 |
 | "cv cleared" | as above | §3.6 |
+| "invalid 6b sub-block not a code violation" | 6b 111111 with a valid 4b part is still not a code group | §3.6 |
+| "invalid 4b sub-block not a code violation" | a valid 6b part with 4b 0000 is still not a code group | §3.6 |
+| "cv cleared after a half-invalid symbol" | as above | §3.6 |
 | "disparity error irq" | a code group at the wrong running disparity sets CV | §3.6 |
 | "cv cleared after a disparity error" | the receive disparity recovers | §3.6 |
 | "violation set wins over clear" | a violation in the clearing clock keeps the flag | §3.6 |
 | "cleared" | clear works afterwards | §3.6 |
 | "no loss of sync" | 3 missed commas in a row are tolerated | §3.2 |
+| "L1 sequence done before the loss of sync" | register 8 bit 2 set by the completed L1 sequence | §3.3 |
 | "loss of sync irq" | the 4th missed comma: HUNT and the LOS flag | §3.2 |
+| "L1 done not cleared at the loss of sync" | the loss of sync clears the L1 done bit | §3.2 |
 | "los flag" | register 13 bit 0 | §3.6 |
 | "los cleared" | as above | §3.6 |
 | "reset clears irq" | reset values | §3.7 |

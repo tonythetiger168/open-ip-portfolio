@@ -236,7 +236,10 @@ The layer pulses `recovery` once, moves to REC and stops sending, until `link_up
 | "end" | every packet written at one end is delivered once, in order, at the other (header, payload, `rx_err` only for payload faults); link up at the end | §3.3, §3.4 |
 | "A sent no link command" | the expected link command is sent | §3.2 |
 | "not drained" | everything is delivered despite channel errors | §3.3 |
-| "A did not ask for recovery" | a timeout or protocol fault pulses `recovery` | §3.5 |
+| "A did not ask for recovery" | a timeout or protocol fault pulses `recovery` (a bad link command within 50 clocks, not through a timer) | §3.5 |
+| "link not up for the out-of-order LGOOD" | the out-of-order test starts with A's link up | §3.5 |
+| "link not advertising for the LGOOD beyond those sent" | that test starts in the advertisement phase | §3.5 |
+| "LGOOD out of order: A ev_proto", "LCRD with the wrong letter: A ev_proto", "advertisement with one credit too many: A ev_proto", "advertisement LGOOD beyond those sent: A ev_proto", "LBAD with nothing sent: A ev_proto" | each such link command pulses `ev_proto` once (with recovery) | §3.5 |
 | "events on a clean link" | no event and no `recovery` on either end over clean traffic, nor while idle with nothing outstanding past PEND_TO | §3.5 |
 | "bad CRC-16: B ev_hp_bad", "bad CRC-16: A ev_lbad" | each broken header packet: one `ev_hp_bad` at the receiver, one `ev_lbad` at the sender | §3.3 |
 | "four SHPs: B ev_frame" | a fourth start symbol in place of EPF is a framing error | §3.2 |

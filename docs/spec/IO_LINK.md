@@ -317,6 +317,7 @@ transmission is not seen.
 | "host read after collision" | the buffer holds the received octet | §3.1 |
 | "M host read" | host reads of the master's buffer | §3.1 |
 | "outputs in reset" | reset values | §3.7 |
+| "master status not 0 in reset" | `m_err_timeout`, `m_err_uart`, `m_err_cks`, `m_cks`, `m_cnt` are 0 in reset | §1 |
 | "first message after reset started" | a request after reset starts within 3 bit times | §3.4 |
 | a_tx_en | `tx_en` as the checker's model | §3.3..§3.6 |
 | a_txd | `txd` while driving | §3.2..§3.6 |

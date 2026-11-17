@@ -48,6 +48,8 @@ encoding.
 | Signal | Width | Meaning |
 |---|---|---|
 | `state` | 4 | 0 IDLE, 1 AKE_INIT, 2 AKE_CERT, 3 PAIR_TX, 4 PAIR_RX, 5 LC_TX, 6 LC_WAIT, 7 SKE_TX, 8 RPT_WAIT, 9 AUTH |
+| `rtx` | 64 | transmitter nonce sent in AKE_Init; the TB checks it is the next xorshift64 value |
+| `lc_r_n` | 64 | locality challenge L; the TB checks it is the next xorshift64 value |
 
 ## 2. Registers
 
@@ -242,6 +244,9 @@ cleared only by a new session, so after CTRL bit 2 `pix_ready` stays low with `i
 
 | Check (TB message or assertion) | What it requires | Spec |
 |---|---|---|
+| "rtx is not the next xorshift64 value" | rtx is the nonce register one step past its value (section 3.1 model from the seed) | §3.1 |
+| "L is not the next xorshift64 value" | the same for the locality challenge L | §3.1 |
+| "no nonces checked" | the TB saw rtx and L change | §3.1 |
 | "TX message held" | a transmitted message stays until `txm_ready` | §3.2 |
 | "receiver channel ready" | `rxm_ready` exactly in the wait states | §3.2 |
 | "AKE_Init upper half" | AKE_Init data[127:64] = 0 | §3.2 |

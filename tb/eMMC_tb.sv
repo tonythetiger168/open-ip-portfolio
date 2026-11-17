@@ -271,6 +271,25 @@ module eMMC_tb;
     pins_q = {dut.cmd_oe_p, dut.cmd_out_p, dut.dat0_oe_p, dut.dat0_out_p};
   end
 
+  // after a write's busy release the host waits 6 more ticks, then sends
+  // CMD17: count ticks from the release to the CMD start bit (release
+  // tick, 6 gap ticks, the start bit at the next)
+  int bz_t = -1, n_bz = 0;
+  logic cmdoe_q = 0;
+  always @(negedge clk) begin
+    if (!rst_n) bz_t = -1;
+    else begin
+      if (dut.state == 3'd4 && dut.dphase == 3'd5 && !dut.busy_rel && dut.tick && dat[0] === 1'b1) bz_t = 0;
+      else if (bz_t >= 0 && dut.tick) bz_t++;
+      if (dut.cmd_oe_p && !cmdoe_q && bz_t >= 0) begin
+        n_bz++;
+        check(bz_t == 7, $sformatf("CMD17 %0d ticks after the busy release, expected 7", bz_t));
+        bz_t = -1;
+      end
+    end
+    cmdoe_q = dut.cmd_oe_p;
+  end
+
   task automatic wait_rounds(input int n, input string what);
     int t, m0;
     m0 = dut.match_cnt; t = 0;

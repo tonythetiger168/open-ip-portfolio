@@ -209,6 +209,7 @@ None. The AUX reply timeout (200 clocks) and the retry limit (3) are fixed.
 
 | Check (TB message or assertion) | What it requires | Spec |
 |---|---|---|
+| "aux_tx_p not 1 with the pair released" | `aux_tx_p` is 1 whenever `aux_tx_en` is 0, also after an unplug aborts a transfer | §3.3, §3.7 |
 | "anchor K28.5 RD" | (TB self-check of its own 8b/10b reference against standard code words) | §3.1 |
 | "anchor K28.5 RD+" | as above | §3.1 |
 | "anchor D10.2" | as above | §3.1 |
