@@ -13,7 +13,7 @@ core TB and every assertion of its checker, with the spec section that defines i
 `python3 scripts/spec/gen_spec.py --check` (run in CI) fails when a port, parameter,
 assertion or TB message is not covered.
 
-Progress: 167 of 179 IPs.
+Progress: 151 of 154 IPs.
 
 | IP |
 |---|
@@ -31,7 +31,6 @@ Progress: 167 of 179 IPs.
 | [AXI4](AXI4.md) |
 | [AXI4_Lite](AXI4_Lite.md) |
 | [AXI_Stream](AXI_Stream.md) |
-| [Audio_DSP](Audio_DSP.md) |
 | [Avalon_MM](Avalon_MM.md) |
 | [Avalon_ST](Avalon_ST.md) |
 | [Bluetooth5](Bluetooth5.md) |
@@ -39,9 +38,7 @@ Progress: 167 of 179 IPs.
 | [CAN_XL](CAN_XL.md) |
 | [CCIX_Cache_Coherent_Interconnect](CCIX_Cache_Coherent_Interconnect.md) |
 | [CHI](CHI.md) |
-| [CI_Plus_Host](CI_Plus_Host.md) |
 | [CPRI_v8_0__eCPRI_over_CPR_](CPRI_v8_0__eCPRI_over_CPR_.md) |
-| [CPU_Cluster](CPU_Cluster.md) |
 | [CSE](CSE.md) |
 | [CSI_2](CSI_2.md) |
 | [CXL](CXL.md) |
@@ -57,12 +54,10 @@ Progress: 167 of 179 IPs.
 | [DDR6](DDR6.md) |
 | [DDR7](DDR7.md) |
 | [DFI_5_0__MC_PHY_Interface_](DFI_5_0__MC_PHY_Interface_.md) |
-| [DMA](DMA.md) |
 | [DSI](DSI.md) |
 | [D_PHY](D_PHY.md) |
 | [DigRF](DigRF.md) |
 | [DisplayPort2](DisplayPort2.md) |
-| [Display_Controller](Display_Controller.md) |
 | [ETHERCAT](ETHERCAT.md) |
 | [Ethernet](Ethernet.md) |
 | [Ethernet_AVB_TSN](Ethernet_AVB_TSN.md) |
@@ -76,7 +71,6 @@ Progress: 167 of 179 IPs.
 | [GDDR7_Lite](GDDR7_Lite.md) |
 | [GMII](GMII.md) |
 | [GPIO](GPIO.md) |
-| [GPU](GPU.md) |
 | [GbE_DMA](GbE_DMA.md) |
 | [HBM](HBM.md) |
 | [HBM2](HBM2.md) |
@@ -95,9 +89,7 @@ Progress: 167 of 179 IPs.
 | [I2S_DMA](I2S_DMA.md) |
 | [I3C](I3C.md) |
 | [IO_LINK](IO_LINK.md) |
-| [ISP](ISP.md) |
 | [Interlaken_v1_2](Interlaken_v1_2.md) |
-| [Interrupt_Controller](Interrupt_Controller.md) |
 | [JESD204C](JESD204C.md) |
 | [JTAG](JTAG.md) |
 | [LIN](LIN.md) |
@@ -121,8 +113,6 @@ Progress: 167 of 179 IPs.
 | [ML_DSA](ML_DSA.md) |
 | [ML_KEM](ML_KEM.md) |
 | [M_PHY](M_PHY.md) |
-| [Modem](Modem.md) |
-| [NPU](NPU.md) |
 | [NVMe](NVMe.md) |
 | [OBI](OBI.md) |
 | [OCP](OCP.md) |
@@ -148,17 +138,12 @@ Progress: 167 of 179 IPs.
 | [SGMII](SGMII.md) |
 | [SHA3](SHA3.md) |
 | [SMBus](SMBus.md) |
-| [SMMU](SMMU.md) |
 | [SPDM](SPDM.md) |
 | [SPI](SPI.md) |
 | [SPI_Host](SPI_Host.md) |
 | [SPMI](SPMI.md) |
-| [Sensor_Hub](Sensor_Hub.md) |
-| [Smartcard_7816](Smartcard_7816.md) |
 | [TRNG](TRNG.md) |
-| [TSP](TSP.md) |
 | [TileLink__TL_UL_TL_C_](TileLink__TL_UL_TL_C_.md) |
-| [Timer_WDT](Timer_WDT.md) |
 | [Toggle_Mode_NAND](Toggle_Mode_NAND.md) |
 | [UALink](UALink.md) |
 | [UART](UART.md) |
@@ -175,7 +160,6 @@ Progress: 167 of 179 IPs.
 | [USB_Type_C_Port_Controller](USB_Type_C_Port_Controller.md) |
 | [UniPro](UniPro.md) |
 | [UniPro_Mem](UniPro_Mem.md) |
-| [Video_Codec](Video_Codec.md) |
 | [WTB](WTB.md) |
 | [Wishbone](Wishbone.md) |
 | [XGMII](XGMII.md) |

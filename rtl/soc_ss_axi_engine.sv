@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // ============================================================================
-// soc_ss_axi_engine: shared AXI4 manager data mover of the phone SoC
-// subsystem IPs (DMA, CPU_Cluster, GPU, NPU, ISP, Video_Codec,
-// Display_Controller, Audio_DSP, Modem, Sensor_Hub).
+// soc_ss_axi_engine: shared AXI4 manager data mover of the DMA host IPs
+// (Crypto_DMA, GbE_DMA, I2S_DMA, SDMMC_ADMA).
 // ----------------------------------------------------------------------------
 //  - One job: read LEN 32-bit words from SRC (when RD_EN) into the read
 //    stream, and write LEN words taken from the write stream to DST (when
