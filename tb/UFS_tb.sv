@@ -165,8 +165,13 @@ module UFS_tb;
       send_word(bad_second ? 32'hBC3C_5A5B : TRAIN, 0);
       line_idle();
       repeat (4) @(posedge clk);
-      if (!bad_second) check(link_s === 1'b1, "LINKUP not reached after training exchange");
-      else             check(link_s === 1'b0, "LINKUP on a bad second training dword");
+      if (!bad_second) begin
+        check(link_s === 1'b1, "LINKUP not reached after training exchange");
+        // nothing was asked yet: the line stays idle high after LINKUP
+        cnt = 0;
+        repeat (600) begin @(posedge clk); #1; if (tx_p !== 1'b1) cnt++; end
+        check(cnt == 0, "TX not idle after LINKUP");
+      end else check(link_s === 1'b0, "LINKUP on a bad second training dword");
     end
   endtask
 

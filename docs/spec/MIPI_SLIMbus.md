@@ -244,6 +244,9 @@ slower CLK, and device and framer resets.
 | "rx_err" | reserved TAG bits flagged once | §3.4 |
 | "one missed frame sync lost the lock" | one miss tolerated | §3.3 |
 | "two missed frame syncs kept the lock" | two misses lose lock | §3.3 |
+| "one missed frame sync right after locking lost the lock" | the miss count starts at 0 when the frame lock is taken | §3.2 |
+| "lost_sync longer than one clock" | `lost_sync` is a one-clock pulse | §1 |
+| "fi_valid longer than one clock" | `fi_valid` is a one-clock pulse | §1 |
 | "bad FI did not drop only the superframe lock" | FI error drops `sf_locked` only | §3.3 |
 | "devices kept the lock after a framer reset" | devices relock after a framer reset | §3.3 |
 | a_cfg_err | `cfg_err` as the checker's model | §3.4 |

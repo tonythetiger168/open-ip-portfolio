@@ -309,6 +309,8 @@ module Ethernet_tb;
     if (expect_hold != (n_pause[0] == np + 1)) fail("PAUSE seen / not seen");
     if (expect_hold && tx_start_t[0] - t0 < q * 64 * bt - 20 * bt)
       fail($sformatf("A started a frame %0d ns after a PAUSE of %0d", tx_start_t[0] - t0, q));
+    if (expect_hold && tx_start_t[0] - t0 > q * 64 * bt + 20 * bt)
+      fail($sformatf("A held its frame %0d ns for a PAUSE of %0d", tx_start_t[0] - t0, q));
     if (!expect_hold && tx_start_t[0] - t0 > 20 * bt)
       fail("A held its frame for a PAUSE it should ignore");
   endtask

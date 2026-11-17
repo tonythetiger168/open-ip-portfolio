@@ -278,6 +278,7 @@ None. `cfg_*` should be stable while a burst is running.
 | "link did not go quiet" | both lanes stop after the traffic | §3.2 |
 | "late response not flagged" | a response after the timeout is a framing error | §3.5, §5 |
 | "only" | every injected receive error is flagged | §5 |
+| "lane N: K sync symbols before the first frame" | a burst opens with `cfg_sync` K28.5 symbols (at least one) before its first frame | §3.2 |
 | a_tx_bit | each `tx_p` bit equals the checker's transmit model | §3.1..§3.4 |
 | a_tx_on | `tx_on` during a burst | §3.2 |
 | a_tx_off | `tx_p` = 0 when the lane is stopped | §3.2 |
