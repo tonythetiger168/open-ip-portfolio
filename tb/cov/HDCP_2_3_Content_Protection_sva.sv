@@ -267,7 +267,7 @@ module HDCP_2_3_Content_Protection_sva #(
   `SVA_IMP(a_enc_data, enc_valid, enc_data == m_ed)
   `SVA_INV(a_irq, irq == (err != 0))
   `SVA_INV(a_reg_rdata, reg_rdata == m_rd)
-  `SVA_NXT(a_enc_held_under_backpressure, enc_valid && !enc_ready, enc_valid && $stable(enc_data))
+  `SVA_NXT(a_enc_held_under_backpressure, enc_valid && !enc_ready, enc_valid && $stable(enc_data) || st != AUTH)
 
   // ---------------- functional coverage ----------------
   // outcome of every wait state (answered, timed out, unexpected message

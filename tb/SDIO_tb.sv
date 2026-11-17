@@ -155,7 +155,7 @@ module SDIO_tb;
   endtask
 
   // ---------------- data blocks ----------------
-  task automatic send_block(input int n, input int bad);   // bad: 1 CRC, 2 end bits
+  task automatic send_block(input int n, input int bad);   // bad: 1 CRC (line 2), 2 end bits, 3..6 CRC of line bad - 3
     logic [15:0] c [0:3];
     begin
       for (int l = 0; l < 4; l++) c[l] = 0;
@@ -168,6 +168,7 @@ module SDIO_tb;
         tick();
       end
       if (bad == 1) c[2] = c[2] ^ 16'h0100;
+      if (bad >= 3) c[bad - 3] = c[bad - 3] ^ 16'h0100;
       for (int i = 15; i >= 0; i--) begin
         for (int l = 0; l < 4; l++) h_dat[l] = c[l][i];
         tick();
@@ -304,6 +305,7 @@ module SDIO_tb;
       for (int k = 0; k < 32; k++) blk[k] = 8'hA5;
       cmd53_write(40, 8, 1, 1); cmd53_read(40, 8, 1);
       cmd53_write(40, 8, 1, 2); cmd53_read(40, 8, 1);
+      for (int l = 0; l < 4; l++) begin cmd53_write(40, 8, 1, 3 + l); cmd53_read(40, 8, 1); end   // a bad CRC16 on each line
       // a write block that never comes
       cmd_r5(6'd53, a53(1, 1, 0, 1, 10, 2), 8'h10, 8'h00, "write without block");
       irq_seen = 0;
