@@ -189,6 +189,7 @@ credit past 15, and a reset with traffic in flight. A reference memory predicts 
 
 | Check (TB message or assertion) | What it requires | Spec |
 |---|---|---|
+| "output not 0 in reset" | every output is 0 while `rst_n` is low (checked after the first release) | §1 |
 | "read response with none expected" | no read response beyond the expected ones | §3.2 |
 | "RD tag" | each read response beat: tag, data, last, status as predicted, in order | §3.2, §3.4 |
 | "write response with none expected" | no write response beyond the expected ones | §3.2 |

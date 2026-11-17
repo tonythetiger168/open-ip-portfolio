@@ -154,6 +154,34 @@ module HDCP_2_3_Content_Protection_tb;
     if (!cond) begin errors++; $display("ERROR: %s (t=%0t)", msg, $time); end
   endtask
 
+  // nonce source model (spec 3.1): xorshift64 from the seed, one step per
+  // clock; rtx and L take the value one step past the register, i.e. the
+  // model's value right after that clock edge
+  function automatic logic [63:0] m_xs64(input logic [63:0] v);
+    logic [63:0] x;
+    x = v; x = x ^ (x >> 12); x = x ^ (x << 25); x = x ^ (x >> 27);
+    return x;
+  endfunction
+  logic [63:0] m_rng = 64'h9E37_79B9_7F4A_7C15, rtx_q = '0, lc_q = '0;
+  int n_nonce = 0;
+  always @(posedge clk or negedge rst_n)
+    if (!rst_n) m_rng <= 64'h9E37_79B9_7F4A_7C15;
+    else        m_rng <= m_xs64(m_rng);
+  // A reset clears rtx and L; forget the old values so the cleared ones are not
+  // taken for new nonces (rst_n may already be high again at this negedge).
+  always @(negedge rst_n) begin rtx_q = '0; lc_q = '0; end
+  always @(negedge clk) begin
+    if (rst_n && dut.rtx !== rtx_q) begin
+      n_nonce++;
+      chk(dut.rtx === m_rng, "rtx is not the next xorshift64 value");
+    end
+    if (rst_n && dut.lc_r_n !== lc_q) begin
+      n_nonce++;
+      chk(dut.lc_r_n === m_rng, "L is not the next xorshift64 value");
+    end
+    rtx_q = dut.rtx; lc_q = dut.lc_r_n;
+  end
+
   task automatic reg_write(input logic [2:0] a, input logic [7:0] d);
     @(negedge clk);
     reg_addr = a; reg_wdata = d; reg_we = 1'b1;
@@ -461,6 +489,7 @@ module HDCP_2_3_Content_Protection_tb;
     auth(1, 0, 0);
     tx_direct = 0;
 
+    chk(n_nonce >= 2, "no nonces checked");
     if (errors == 0) $display("TEST PASSED: HDCP_2_3_Content_Protection");
     else             $display("TEST FAILED: %0d errors", errors);
     $finish;

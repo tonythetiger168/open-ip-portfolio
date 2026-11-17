@@ -27,6 +27,7 @@ The TB reads these through `dut.`, and the SVA checker binds them. A re-implemen
 | `state` | 3 | host FSM: 0 H_CTX, 1 H_GAP, 2 H_RSP, 3 H_IDLE, 4 H_WDAT, 5 H_RDAT, 6 H_PWR |
 | `cur` | 3 | command in flight: 0 CMD0, 1 CMD1, 2 CMD2, 3 CMD3, 4 CMD24, 5 CMD17, 6 CMD7 |
 | `dphase` | 3 | data sub-phase: 0 START, 1 DATA, 2 CRC, 3 END, 4 TOK, 5 BUSY |
+| `busy_rel` | 1 | in BUSY: DAT0 has been seen high (busy released); the 6-tick gap runs |
 | `bit_cnt` | 9 | bit counter of the current frame or data phase |
 | `cmd_oe_r` | 1 | FSM's next CMD drive enable (set at a tick) |
 | `cmd_out_r` | 1 | FSM's next CMD value |
@@ -234,6 +235,7 @@ A reset at any point, including mid-transfer or during power-up, restarts the po
 | "RST_n low time" | `emmc_rst_n` rises `RST_LOW` clocks after `rst_n` rises | §3.2 |
 | "CLK period" | CLK period is `ID_CLK_DIV` before CMD7 and `CLK_DIV` from CMD7 | §3.1 |
 | "identification at the fast rate" | CMD0-CMD3 are sent at the identification rate | §3.1 |
+| "CMD17" | after a write, CMD17 starts 7 ticks after the tick that sees the busy release (6 gap ticks) | §3.6 |
 | "CMD / DAT0 changed while CLK is high" | pins change only at CLK falling edges | §3.1 |
 | "reset state" | reset values | §3.9 |
 | "power-up sequence" | RST_n low, tRSCA wait, 74 clocks, then CMD0 | §3.2 |

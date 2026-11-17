@@ -253,6 +253,8 @@ module SD_tb;
         seen = 1; pcnt = 0;
       end
       if (dut.state == 3'd0 && dut.cur <= 4'd5) check(!dut.fast, "identification at the fast rate");
+      // 50 % duty: sd_clk falls half a period after it rises
+      if (dut.ftick && seen) check(pcnt == (dut.fast ? 2 : 64), "sd_clk high time");
     end
     if ({dut.cmd_oe_p, dut.cmd_out_p, dut.dat_oe_p, dut.dat_out_p} !== pins_q && rst_n)
       check(sd_clk === 1'b0, "CMD / DAT changed while sd_clk is high");

@@ -192,6 +192,7 @@ immediate checks A1..A7 are built only for Verilator. Assertions a_* are in `tb/
 | "A4 irq == push&atlast" | `irq` only on a push with `atlast` | §3 Interrupt |
 | "A5 count +1 or flush-to-0" | `count` changes only by +1 or to 0 | §3 Count |
 | "A6 afready constant high" | `afready` = 1 | §1 |
+| "ATB afready low" | `afready` = 1 on every clock | §1 |
 | "A7 full: only flush changes count" | while not ready, `count` changes only to 0 | §3 Full |
 | a_reset_empty | in reset `count` = 0 and `last_id` = 0 | §3 Reset |
 | a_flush_always_ready | `afready` always 1 | §1 |

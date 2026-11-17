@@ -46,6 +46,9 @@ The TB reads these by name to steer its stimulus; a re-implementation must have 
 | `rqr` | `log2(RQ)`+1 | request queue read pointer; `rqw - rqr` = requests held |
 | `rq_g` | `log2(RQ)`+1 | request credits the sender holds (granted, not yet used) |
 | `w_v` | 2 | write buffer b is allocated (between its DBID response and its completion) |
+| `w_txn` | 2 x 8 | TxnID of the write in buffer b |
+| `w_need` | 2 x 4 | data beats (DataID) buffer b expects |
+| `w_got` | 2 x 4 | data beats buffer b has received |
 | `w_comp` | 2 | write buffer b owes a Comp (all its data is in) |
 | `c_rsp` | 4 | TXRSP credits held |
 | `beat` | 2 | CompData beats already sent for the head read |
@@ -220,6 +223,8 @@ CompData.
 
 | Check (TB message or assertion) | What it requires | Spec |
 |---|---|---|
+| "host holds" | the node never grants more RXREQ credits than `RQ` slots or more RXDAT credits than `NDC` | §3.1 |
+| "reset cut test: no partly received write" | the TB caught a write with some of its beats received, before the reset | §3.7 |
 | "RSP for TxnID" | every RSP answers an outstanding transaction | §3.3 |
 | "RSP TgtID" | RSP TgtID = the request's SrcID | §3.3 |
 | "TxnID" | per transaction: the right RSP opcode / RespErr in order (no RSP for an unordered read, DBIDResp then Comp after the data, CompDBIDResp, Comp NDERR), CompData only after ReadReceipt, DAT RespErr, DataID order, data | §3.3, §3.4, §3.6 |
