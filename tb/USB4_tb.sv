@@ -508,9 +508,11 @@ module USB4_tb;
     bgrant(11'h0F0, 3);
     bgrant(11'h7FE, 8'(2 + RXB + 1));
     bgrant(11'h000, 3);
+    bhdr(1, 0, 8'd8);                             // Length 8, both words good grants
+    repeat (2) begin bq.push_back(8'h00); bq.push_back(8'h01); bq.push_back(8'h00); bq.push_back(8'h03); end
     bwait();
     wait_clk(50);
-    ev_check(5, 0, 0, "bad grants");
+    ev_check(6, 0, 0, "bad grants");
     // both paths with credit: round robin
     bgrant(11'h001, 4); bgrant(11'h7FE, 4);
     bwait();
