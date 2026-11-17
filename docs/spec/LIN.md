@@ -245,6 +245,9 @@ ways, ignored and late decisions, timeouts, every error injection, glitches and 
 | "nodes not idle" | every frame ends | §3 |
 | "undecided frame not dropped" | an undecided frame is ignored | §3.2 |
 | "M bit time" | auto-baud saturation | §3.1 |
+| "outputs in reset" | in reset `txd` is released and every pulse output is 0 | §3.5 |
+| "break seen" | released from reset on a dominant bus, the break is detected 11 bit times + 2 synchroniser clocks later | §3.1, §3.5 |
+| "M still drives after err_bit" / "S still drives after err_bit" | `txd` is released in the clock `err_bit` pulses | §3.4 |
 | a_reset_values | reset values | §3.5 |
 | a_txd_model | `txd` as the model | §3.4 |
 | a_hdr_ready_model | `hdr_ready` as the model | §3.4 |

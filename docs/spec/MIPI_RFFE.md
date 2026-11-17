@@ -167,6 +167,7 @@ unsupported commands, an aborting SSC, back-to-back sequences and a reset while 
 | "reg" | register file as the shadow model | §3.2, §3.3 |
 | "reset state" | `irq` 0, released | §3.5 |
 | "SDATA pulse with SCLK high taken as SSC" | not an SSC | §3.1 |
+| "SDATA fall in the SCLK low phase taken as SSC" | SDATA falling with SCLK low but no rise in that low phase is not an SSC: the write in progress still lands | §3.1 |
 | "drive kept through reset" | reset releases SDATA | §3.5 |
 | a_reset_released | in reset: released, no `irq` | §3.5 |
 | a_irq_model | `irq` exactly as the checker's model | §3.2, §3.3 |

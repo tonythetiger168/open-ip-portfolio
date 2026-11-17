@@ -259,3 +259,21 @@ Ethernet_AVB_TSN | for (int c = 0; c < 4; c++) credit[c] <= '0; | 4 -> 5 | the e
 Ethernet_AVB_TSN | for (int k = 0; k < 8; k++) begin g_gates[k] <= '0; g_ivl[k] <= '0; end | 8 -> 9 | the extra iteration writes entry 8, which does not exist (index 0..7), so nothing is stored
 ACE_Lite | werr_q  <= (awburst != BURST_INCR) || (awsize > 3'd2) || (|awaddr[AW-1:10]); | | -> & | a start address at or past 1KB also makes the first W beat out of range (w_oor), which sets werr_q, drops the write and raises irq at the last beat; bresp is only seen after that
 UniPro_Mem | r_tc <= 1'b0; r_cport <= 4'h0; r_len <= 8'h0; | 1'b0 -> 1'b1@1 | reset value; r_tc is read only when a complete good frame is enqueued, and that frame's header byte has set it
+LIN | drv <= 1'b1; hdr_id_q <= '0; tx_pend <= 1'b0; sp_ok <= 1'b0; | 1'b0 -> 1'b1@1 | reset value; tx_pend is used only together with sp_ok, which is set after a PID, and the break before that PID clears tx_pend
+MIPI_RFFE | state <= S_IDLE; ssc_arm <= 1'b0; sh <= '0; bcnt <= '0; addr <= '0; | 1'b0 -> 1'b1@1 | reset value; sdat_d resets to 0, so SDATA can only fall after a rise has been seen, and a rise with SCLK low arms ssc_arm anyway while SCLK high clears it
+MIPI_RFFE | ssc_arm <= 1'b0; state <= S_CMD; bcnt <= '0; sh <= '0; err <= 1'b0; | 1'b0 -> 1'b1@1 | SDATA is low at the end of an SSC, so the next fall needs a rise first, which re-arms ssc_arm in both versions; SCLK high clears it
+MIPI_RFFE | nleft <= '0; rd_q <= 1'b0; rbyte <= '0; drv_en <= 1'b0; drv_val <= 1'b0; | 1'b0 -> 1'b1@3 | reset value; drv_val reaches SDATA only with drv_en, and every S_RDATA branch that sets drv_en also sets drv_val
+MIPI_RFFE | bcnt <= bcnt + 4'd1;#2 | + -> - | S_ADDR is entered with bcnt = 0; counting down 0, 15, ..., 8 also reaches 8 on the 9th bit, and bcnt is cleared there
+MIPI_RFFE | nleft <= '0; rd_q <= 1'b0; rbyte <= '0; drv_en <= 1'b0; drv_val <= 1'b0; | 1'b0 -> 1'b1@1 | reset value; rd_q is set by every extended command before S_ADDR reads it
+Ethernet_RS_FEC | for (int o = 0; o < 10; o++) y[o] = ^(x & m[10*o +: 10]); | 10 -> 11 | loop bound +1 only writes y[10], past the end of the 10-bit result, which is dropped
+Ethernet_RS_FEC | for (int j = 0; j < 300; j++) sn[j] = ^({d_in_data, so} & m_syn[620*j +: 620]); | 300 -> 301 | loop bound +1 only writes sn[300], past the end of the 300-bit syndrome
+Ethernet_RS_FEC | for (int j = 0; j < 160; j++) p1r[j] <= ^(p1r & m_upl[160*j +: 160]); | 160 -> 161 | loop bound +1 only writes p1r[160], past the end of the 160-bit register
+Ethernet_RS_FEC | for (int j = 0; j < 160; j++) p1r[j] <= ^(p1r & m_upl[160*j +: 160]); | 0 -> 1 | row 0 of M_UPL is the unit vector for bit 0, so skipping j = 0 leaves p1r[0] at the value the update would give
+Ethernet_RS_FEC | for (int j = 0; j < 150; j++) p2w[j] <= ^(p1om & m_scw[150*j +: 150]); | 150 -> 151 | loop bound +1 only writes p2w[150], past the end of the 150-bit register
+Ethernet_RS_FEC | for (int j = 0; j < 320; j++) begin | 320 -> 321 | loop bound +1 only writes bit 320 of the 320-bit Chien vectors, past the end
+UEC | wire  [SW:0]   s_cnt = (SW+1)'(snext - sbase); | 1 -> 2@1 | a wider cast is cut back to SW + 1 bits by the assignment
+UEC | slen[snext[SW-1:0]] <= (PW+1)'(wpos) + 1'b1; | 1 -> 2@1 | a wider cast is cut back to PW + 1 bits by the assignment; wpos + 1 is at most MAXP and fits
+UEC | p_cnt <= net_rx_last ? '0 : &p_cnt ? p_cnt : p_cnt + 1'b1; | ? p_cnt : p_cnt -> ? p_cnt : p_cnt | the swap exchanges two identical words, the line does not change
+LIN | if (!rst_n) begin rx_m <= 1'b1; rx_s <= 1'b1; rx_d <= 1'b1; end | 1'b1 -> 1'b0@2 | reset value; rx_s is reloaded from rx_m (reset 1) in the first clock, so dom_cnt and the break timing are the same, and the extra fall in that clock meets the frame FSM in IDLE, where fall does nothing
+LIN | if (!rst_n) begin rx_m <= 1'b1; rx_s <= 1'b1; rx_d <= 1'b1; end | 1'b1 -> 1'b0@3 | reset value; rx_d is used only in fall = rx_d && !rx_s, and in the first clock rx_s is still its reset 1, so fall is 0 either way
+LIN | drv <= 1'b1; hdr_id_q <= '0; tx_pend <= 1'b0; sp_ok <= 1'b0; | 1'b0 -> 1'b1@2 | reset value; sp_ok is read only together with tx_pend, which is set in F_RSP, and every way into F_RSP (a PID) clears sp_ok

@@ -64,6 +64,61 @@ module SAS_tb;
   int irqs = 0;
   always @(posedge clk) if (irq) irqs++;
 
+  function automatic logic [31:0] tb_xs32(input logic [31:0] x);
+    logic [31:0] y;
+    y = x ^ (x << 13);
+    y = y ^ (y >> 17);
+    return y ^ (y << 5);
+  endfunction
+
+  // OOB line shape of both initiators (raw clocks, not scaled by BIT_CLKS):
+  // every burst is 106 clocks of 1, every idle between two bursts 318
+  // clocks of 0
+  int   ob_run [0:1], ob_bursts [0:1];
+  logic ob_prev [0:1];
+  task automatic oob_step(input int i, input logic line, input logic rdy);
+    if (!rst_n || rdy) begin ob_run[i] = 0; ob_bursts[i] = 0; ob_prev[i] = 1'b0; end
+    else begin
+      if (line !== ob_prev[i]) begin
+        if (ob_prev[i] === 1'b1) begin
+          check(ob_run[i] == 106, "OOB burst length");
+          ob_bursts[i]++;
+        end else if (ob_bursts[i] > 0) check(ob_run[i] == 318, "OOB idle length");
+        ob_run[i] = 0;
+      end
+      ob_run[i]++;
+      ob_prev[i] = line;
+    end
+  endtask
+  always @(posedge clk) begin
+    oob_step(0, tx_p, dut.phy_ready);
+    oob_step(1, tx2_p, dut2.phy_ready);
+  end
+
+  // the half-rate initiator holds every line bit for 2 clocks
+  int   h2_run = 0;
+  logic h2_prev = 1'b0;
+  bit   h2_first = 1;
+  always @(posedge clk)
+    if (!rst_n || !dut2.phy_ready) begin h2_run = 0; h2_first = 1; end
+    else begin
+      if (h2_run > 0 && tx2_p !== h2_prev) begin
+        if (!h2_first) check(h2_run % 2 == 0, "half-rate bit lasts 2 clocks");
+        h2_first = 0;
+        h2_run = 0;
+      end
+      h2_run++;
+      h2_prev = tx2_p;
+    end
+
+  // on the clean loopback the frames follow the sequencer exactly: write
+  // (register a, value d), read request (a), read response (from a, d),
+  // then a + 1 and d = xorshift32(d), from a = 0, d = 0x5A5AC3C3 at reset
+  bit          seq_on = 1;
+  int          sq_k = 0, sq_n = 0;
+  logic [3:0]  sq_a = 0;
+  logic [31:0] sq_d = 32'h5A5AC3C3;
+
   // ------------------------------------------------------------------
   // monitor of the DUT's frames (once the PHY is ready)
   // ------------------------------------------------------------------
@@ -97,6 +152,18 @@ module SAS_tb;
             mon_pay[mon_cnt % 1024] = m_dw[1];
             mon_cnt++;
             m_bits = -1;
+            if (seq_on) begin
+              case (sq_k)
+                0: check(m_dw[0] == {8'd1, 8'h01, 4'h0, sq_a, 8'h01} && m_dw[1] == sq_d,
+                         "sequencer write frame");
+                1: check(m_dw[0] == {8'd0, 8'h02, 4'h0, sq_a, 8'h01}, "sequencer read request");
+                default: check(m_dw[0] == {8'd1, 8'h83, 8'h01, 4'h0, sq_a} && m_dw[1] == sq_d,
+                               "read response frame");
+              endcase
+              sq_n++;
+              if (sq_k == 2) begin sq_k = 0; sq_a++; sq_d = tb_xs32(sq_d); end
+              else sq_k++;
+            end
           end
         end
       end
@@ -110,6 +177,9 @@ module SAS_tb;
     for (int i = 31; i >= 0; i--) begin @(negedge clk); inj_bit = d[i]; end
   endtask
 
+  // irqs counted from the EOF dword to the end of the ALIGN after it (-1:
+  // the frame had no EOF)
+  int eof_i0, eof_irqs;
   // mode: 0 good, 1 bad CRC, 2 bad EOF; npay dwords sent (len field given)
   task automatic inject(input logic [7:0] len, type_, dst, src, input int npay,
                         input logic [31:0] p0, input int mode, input bit rel = 1,
@@ -124,11 +194,15 @@ module SAS_tb;
       p = (i == 0) ? p0 : $urandom;
       c = crc32_dw(c, p); drive_dw(p);
     end
+    eof_irqs = -1;
     if (len <= 16) begin
       drive_dw(mode == 1 ? c : ~c);
+      eof_i0 = irqs;
       drive_dw(mode == 2 ? SOF : EOF);
     end
-    drive_dw(ALIGN); drive_dw(ALIGN);
+    drive_dw(ALIGN);
+    if (len <= 16) eof_irqs = irqs - eof_i0;
+    drive_dw(ALIGN);
     if (rel) begin @(negedge clk); inj_en = 0; end
   endtask
 
@@ -147,6 +221,11 @@ module SAS_tb;
   task automatic expect_irq(input int i0, input string what);
     repeat (3) @(posedge clk);
     check(irqs > i0, {what, ": irq"});
+  endtask
+
+  // a frame rejected at its EOF raises irq right there, not later
+  task automatic expect_eof_irq(input string what);
+    check(eof_irqs > 0, {what, ": irq at EOF"});
   endtask
 
   task automatic do_reset();
@@ -176,6 +255,8 @@ module SAS_tb;
 
     // ---- clean loopback transactions ----
     wait_ok(20, "clean");
+    seq_on = 0;
+    check(sq_n >= 60, "sequencer frames checked");
     check(dut.mm_cnt == 0 && irqs == 0, "clean: no mismatch / irq");
     check(mon_cnt > 50, "frames decoded");
 
@@ -204,14 +285,14 @@ module SAS_tb;
       inject(8'd1, 8'h01, 8'($urandom % 16), 8'($urandom), 1, $urandom, 0);
     end
     i0 = irqs; inject(8'd2, 8'h01, 8'd3, 8'h22, 2, $urandom, 1);  expect_irq(i0, "bad CRC");
-    i0 = irqs; inject(8'd1, 8'h01, 8'd3, 8'h22, 1, $urandom, 2);  expect_irq(i0, "bad EOF");
+    i0 = irqs; inject(8'd1, 8'h01, 8'd3, 8'h22, 1, $urandom, 2);  expect_irq(i0, "bad EOF"); expect_eof_irq("bad EOF");
     i0 = irqs; inject(8'd17, 8'h01, 8'd3, 8'h22, 0, 0, 0);        expect_irq(i0, "oversize");
     i0 = irqs; inject(8'hFF, 8'hFF, 8'hFF, 8'hFF, 0, 0, 0);       expect_irq(i0, "oversize 2");
-    i0 = irqs; inject(8'd0, 8'h01, 8'd3, 8'h22, 0, 0, 0);         expect_irq(i0, "write without payload");
-    i0 = irqs; inject(8'd1, 8'h01, 8'd16, 8'h22, 1, $urandom, 0); expect_irq(i0, "write register 16");
-    i0 = irqs; inject(8'd0, 8'h02, 8'hF0, 8'h22, 0, 0, 0);        expect_irq(i0, "read register F0");
-    i0 = irqs; inject(8'd0, 8'h83, 8'd3, 8'h22, 0, 0, 0);         expect_irq(i0, "empty read response");
-    i0 = irqs; inject(8'd1, 8'h7C, 8'd3, 8'h22, 1, $urandom, 0);  expect_irq(i0, "unknown type");
+    i0 = irqs; inject(8'd0, 8'h01, 8'd3, 8'h22, 0, 0, 0);         expect_irq(i0, "write without payload"); expect_eof_irq("write without payload");
+    i0 = irqs; inject(8'd1, 8'h01, 8'd16, 8'h22, 1, $urandom, 0); expect_irq(i0, "write register 16"); expect_eof_irq("write register 16");
+    i0 = irqs; inject(8'd0, 8'h02, 8'hF0, 8'h22, 0, 0, 0);        expect_irq(i0, "read register F0"); expect_eof_irq("read register F0");
+    i0 = irqs; inject(8'd0, 8'h83, 8'd3, 8'h22, 0, 0, 0);         expect_irq(i0, "empty read response"); expect_eof_irq("empty read response");
+    i0 = irqs; inject(8'd1, 8'h7C, 8'd3, 8'h22, 1, $urandom, 0);  expect_irq(i0, "unknown type"); expect_eof_irq("unknown type");
     v = $urandom;
     i0 = irqs; inject(8'd16, 8'h01, 8'd12, 8'h5A, 16, v, 0);
     repeat (5) @(posedge clk);
