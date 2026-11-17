@@ -194,6 +194,8 @@ powered cables and random scenarios, and reads the registers.
 | Check (TB message or assertion) | What it requires | Spec |
 |---|---|---|
 | "reg read" | register read value | §3.4 |
+| "attach after " | `attached` rises exactly 101 clocks after one CC pin starts to show Rd (the same pin, no fault level): one clock to ATTACHWAIT, then 100 debounce clocks | §3.1 |
+| "no attach after 101 clocks of Rd" | and not later | §3.1 |
 | "A1 reset: outputs quiescent" | outputs 0 in reset | §3.5 |
 | "A2 state encoding legal" | `state` <= 2 | §3.1 |
 | "A3 vbus_en == attached&&src" | `vbus_en` = attached and source role | §3.3 |

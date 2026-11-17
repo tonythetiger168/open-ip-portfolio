@@ -173,6 +173,7 @@ model with a 50-cycle timeout on every handshake.
 | "source echo exp" | `d_source` = `a_source` | §3.2 |
 | "size echo exp" | `d_size` = `a_size` | §3.2 |
 | "Get d_opcode exp AccessAckData got" | Get answered with opcode 1 | §3.2 |
+| "d_data " | `d_data` is 0 on an AccessAck (Put) and on an error response | §3.2, §3.3 |
 | "Get data" | Get returns the register-file word (PutFull, PutPartial merge; error requests leave it intact) | §3.2, §3.3 |
 | "Put d_opcode exp AccessAck got" | Put answered with opcode 0 | §3.2 |
 | "bad reset state d_valid" | after reset `d_valid` = 0 and `irq` = 0 | §3.4 |
@@ -190,6 +191,7 @@ model with a 50-cycle timeout on every handshake.
 | "TL reset state d_valid" | reset with a pending response: `d_valid` = 0, `irq` = 0, `a_ready` = 1 | §3.4 |
 | "CRV irq not sticky after error injections" | `irq` stays 1 through random traffic after errors | §3.3 |
 | "A1 reset: idle, ready, no irq" | reset state | §3.4 |
+| "D channel fields not 0 in reset" | `d_opcode`, `d_size`, `d_source`, `d_data`, `d_error` are 0 in reset (§1 reset column) | §1 |
 | "A2 d_valid == S_RESP" | `d_valid` is the RESP state | §3.1 |
 | "A3 a_ready rule" | `a_ready` = IDLE or `d_ready` | §3.1 |
 | "A4 D outputs mirror regs" | D outputs are the `d_*_q` registers | §1 |

@@ -418,6 +418,8 @@ module IO_LINK_tb;
     cyc(3);
     if (M.u.tx_en || D.u.tx_en || M.busy || M.done || D.wq || D.msg || M.u.txd !== 1'b1)
       fail("outputs in reset");
+    if (M.u.m_err_timeout || M.u.m_err_uart || M.u.m_err_cks || M.u.m_cks !== 0 || M.u.m_cnt !== 0)
+      fail("master status not 0 in reset");
     m_start = 0;
     cyc(3); rst_n = 1; cyc(10);
     xfer("after reset", 8'h80);
