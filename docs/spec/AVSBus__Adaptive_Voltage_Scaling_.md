@@ -156,6 +156,8 @@ CRCs, unknown commands and out-of-range codes, directed and random, plus a reset
 
 | Check (TB message or assertion) | What it requires | Spec |
 |---|---|---|
+| "AVSBus TIMEOUT 100: frame dropped " | the same with `TIMEOUT` 100 (a second instance on its own copy of the data line): 104 clocks | §3.5 |
+| "AVSBus frame dropped " | an abandoned frame returns to IDLE exactly 1028 clocks after the last `sclk` rise: `TIMEOUT` (1024) plus the 3-flop synchronizer and edge detect | §3.5 |
 | "AVSBus GET readback CRC mismatch: data" | GET readback CRC-4 matches its data | §3.3 |
 | "AVSBus ramp did not complete (busy stuck)" | the ramp reaches the target | §3.4 |
 | "AVSBus SET" | a SET is ACKed | §3.2 |
