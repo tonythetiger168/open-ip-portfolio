@@ -4,6 +4,10 @@
 // Shared host tests in mem_tb_common.svh; the checker tb/cov/DDR_sva.sv
 // checks every pin.
 `timescale 1ns/1ps
+`ifndef VERILATOR
+`include "DDR_sva.sv"
+`define MEM_SVA DDR_sva
+`endif
 module DDR_tb;
   logic clk = 0, rst_n = 0;
   logic hvalid, hready;

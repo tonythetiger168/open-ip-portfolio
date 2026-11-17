@@ -62,4 +62,6 @@ module HBM_sva (
   `SVA_INV(a_ck_differential, ck_c == !ck_t)
 endmodule
 
+`ifdef VERILATOR
 bind HBM_top HBM_sva u_sva (.*);
+`endif

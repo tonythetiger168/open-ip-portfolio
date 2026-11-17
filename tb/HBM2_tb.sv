@@ -5,6 +5,10 @@
 // Shared host tests in mem_tb_common.svh; the checker tb/cov/HBM2_sva.sv
 // checks every pin.
 `timescale 1ns/1ps
+`ifndef VERILATOR
+`include "HBM2_sva.sv"
+`define MEM_SVA HBM2_sva
+`endif
 module HBM2_tb;
   logic clk = 0, rst_n = 0;
   logic hvalid, hready;

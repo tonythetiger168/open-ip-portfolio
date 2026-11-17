@@ -63,4 +63,6 @@ module DDR_sva (
   `SVA_INV(a_ck_differential, ck_c == !ck_t)
 endmodule
 
+`ifdef VERILATOR
 bind DDR_top DDR_sva u_sva (.*);
+`endif

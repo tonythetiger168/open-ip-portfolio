@@ -94,4 +94,6 @@ module LPDDR_sva (
   `SVA_INV(a_ck_differential, ck_c == !ck_t)
 endmodule
 
+`ifdef VERILATOR
 bind LPDDR_top LPDDR_sva u_sva (.*);
+`endif

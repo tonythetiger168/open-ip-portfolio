@@ -24,7 +24,8 @@ module DDR7_sva (
   localparam int CL = 30, TRCD = 18, TRP = 18, TRC = 68, TRAS = 44, TRFC = 290, TREFI = 9360;
   localparam int REF_MIN = TREFI - TRAS - TRP - 4;
   localparam int REF_MAX = TREFI + 5 * 2 * (TRC + TRP + TRCD + CL) + TRAS + TRP + 8;
-  localparam int BUSY_MAX = 2 * (TRC + TRP + TRCD + CL) + TRAS + TRP + TRFC + 8;
+  // a RD or a WR to a full buffer first drains up to 4 posted writes (as REF_MAX)
+  localparam int BUSY_MAX = 5 * 2 * (TRC + TRP + TRCD + CL) + TRAS + TRP + TRFC + 8;
   localparam logic [2:0] P_NOP = 0, P_ACT = 1, P_RD = 2, P_WR = 3, P_PRE = 4, P_PREA = 5,
                          P_REF = 6, P_BAD = 7;
 
@@ -101,4 +102,6 @@ module DDR7_sva (
   `SVA_INV(a_ck_differential, ck_c == !ck_t)
 endmodule
 
+`ifdef VERILATOR
 bind DDR7_top DDR7_sva u_sva (.*);
+`endif

@@ -3,6 +3,10 @@
 // haddr[31:18], storage = 256 columns per channel). Shared host tests in
 // mem_tb_common.svh; the checker tb/cov/DDR5_sva.sv checks every pin.
 `timescale 1ns/1ps
+`ifndef VERILATOR
+`include "DDR5_sva.sv"
+`define MEM_SVA DDR5_sva
+`endif
 module DDR5_tb;
   logic clk = 0, rst_n = 0;
   logic hvalid, hready;

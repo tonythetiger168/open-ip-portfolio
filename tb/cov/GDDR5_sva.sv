@@ -72,4 +72,6 @@ module GDDR5_sva (
   `SVA_INV(a_ck_differential, ck_c == !ck_t)
 endmodule
 
+`ifdef VERILATOR
 bind GDDR5_top GDDR5_sva u_sva (.*);
+`endif

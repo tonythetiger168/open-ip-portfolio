@@ -123,4 +123,6 @@ module LPDDR7_sva (
   `SVA_INV(a_ck_differential, ck_c == !ck_t)
 endmodule
 
+`ifdef VERILATOR
 bind LPDDR7_top LPDDR7_sva u_sva (.*);
+`endif
