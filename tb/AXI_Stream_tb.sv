@@ -21,6 +21,12 @@ module AXI_Stream_tb;
 
   always #5 clk = ~clk;
   always @(posedge clk) if (irq) irq_seen <= 1'b1;
+  // irq is exactly an accepted tlast beat (every build; inputs change at
+  // negedges, so they are settled at the posedge)
+  always @(posedge clk)
+    if (rst_n && irq !== (tvalid && tready && tlast)) begin
+      errors++; $display("ERROR: AXIS irq=%b with tvalid=%b tready=%b tlast=%b", irq, tvalid, tready, tlast);
+    end
 
   task automatic send(input logic [31:0] d, input logic last);
     begin

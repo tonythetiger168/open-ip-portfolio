@@ -280,6 +280,8 @@ module CXL_tb;
     // an RwD that would take a line from Invalid with the filter full
     begin : b_sf
       int n;
+      logic [3:0] sf_ops [0:3];
+      sf_ops[0] = 4'd1; sf_ops[1] = 4'd0; sf_ops[2] = 4'd9; sf_ops[3] = 4'd10;
       n = 0;
       for (int l = 0; l < LINES; l++) if (rmt[l] != 2'b00) n++;
       p_out = 0;
@@ -288,6 +290,19 @@ module CXL_tb;
           f_off = l; f_mf = 0; f_mv = 2; send_req(4'd1); n++;
           drain("filling the snoop filter");
         end
+      // MemRd, MemInv, MemInvNT, MemClnEvct taking a line from Invalid with
+      // the filter full: a line is evicted first (BISnp), so no more than
+      // SFE lines are tracked
+      foreach (sf_ops[j]) begin
+        for (int l = 0; l < LINES; l++)
+          if (rmt[l] == 2'b00 && f_off != -60) begin
+            f_off = l; f_mf = 0; f_mv = 2; send_req(sf_ops[j]);
+            drain("a request with the snoop filter full");
+            f_off = -60;
+          end
+        if (sf_cnt > SFE) fail($sformatf("snoop filter tracks more than SFE lines after opcode %0d", sf_ops[j]));
+        f_off = -100;
+      end
       for (int l = 0; l < LINES; l++)
         if (rmt[l] == 2'b00 && f_off != -50) begin
           f_off = l; f_mf = 0; f_mv = 3;
@@ -377,6 +392,8 @@ module CXL_tb;
       end
     f_off = -100; f_po = -1; f_dp = -1;
     drain("data patterns");
+    // every DevLoad class came up (11: RQD - 1 or more requests waiting)
+    for (int k = 0; k < 4; k++) if (n_dl[k] == 0) fail($sformatf("DevLoad %b never reported", 2'(k)));
 
     if (errors == 0)
       $display("TEST PASSED: CXL (%0d flits in, %0d NDR, %0d DRS, %0d BISnp, %0d BIConflictAck, %0d+%0d CXL.io flits)",

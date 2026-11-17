@@ -224,6 +224,16 @@ module SPI_tb;
     for (int i = 0; i < 3; i++) begin #40 sclk = 1'b1; #40 sclk = 1'b0; end
     rd(4'd0, got);
     if (got !== 8'h00) begin errors++; $display("ERROR: SPI deselected SCLK shifted rx=%h", got); end
+    // local port map: only address 0 loads the TX byte; address 1 reads it
+    // back and every other address reads 0
+    wr(4'd0, 8'h5A);
+    for (int a = 1; a < 16; a++) wr(4'(a), ~8'(a));
+    rd(4'd1, got);
+    if (got !== 8'h5A) begin errors++; $display("ERROR: SPI TX byte read back %h exp 5A", got); end
+    for (int a = 2; a < 16; a++) begin
+      rd(4'(a), got);
+      if (got !== 8'h00) begin errors++; $display("ERROR: SPI read of address %0d got %h exp 00", a, got); end
+    end
     // reset in the middle of a byte
     csn = 1'b0;
     for (int i = 0; i < 3; i++) begin mosi = 1'b1; #40 sclk = 1'b1; #40 sclk = 1'b0; end

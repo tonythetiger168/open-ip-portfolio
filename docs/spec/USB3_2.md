@@ -237,6 +237,18 @@ The layer pulses `recovery` once, moves to REC and stops sending, until `link_up
 | "A sent no link command" | the expected link command is sent | §3.2 |
 | "not drained" | everything is delivered despite channel errors | §3.3 |
 | "A did not ask for recovery" | a timeout or protocol fault pulses `recovery` | §3.5 |
+| "events on a clean link" | no event and no `recovery` on either end over clean traffic, nor while idle with nothing outstanding past PEND_TO | §3.5 |
+| "bad CRC-16: B ev_hp_bad", "bad CRC-16: A ev_lbad" | each broken header packet: one `ev_hp_bad` at the receiver, one `ev_lbad` at the sender | §3.3 |
+| "four SHPs: B ev_frame" | a fourth start symbol in place of EPF is a framing error | §3.2 |
+| "END END END data: B ev_dpp_bad", "END END END data: B ev_frame" | a data byte inside the end set: the payload fails and a framing error | §3.4 |
+| "K in a skipped payload: A ev_dpp_bad", "K in a skipped payload: A ev_frame" | a K symbol inside a payload no DP header asked for is a framing error only | §3.4 |
+| "mixed END set of a skipped payload: A ev_dpp_bad" | so is a mixed end set after a payload no DP header asked for | §3.4 |
+| "broken END set of a skipped payload: A ev_dpp_bad" | and a data byte inside its end set | §3.4 |
+| "broken payloads: rx_err deliveries", "broken payloads: A ev_dpp_bad" | a bad CRC-32, an aborted, a too long and a too short payload: each delivered as its header with `rx_err`, one `ev_dpp_bad` each | §3.4 |
+| "K inside a payload: not delivered with rx_err at once", "K inside a payload: A ev_dpp_bad" | a K symbol inside a payload ends it at once: the header with `rx_err`, one `ev_dpp_bad` | §3.4 |
+| "END set broken: not delivered with rx_err at once", "END set broken: A ev_dpp_bad", "END set broken: A ev_frame" | a data byte inside the end set ends the payload at once: the header with `rx_err`, one `ev_dpp_bad`, one `ev_frame` | §3.4 |
+| "END set mixed: not delivered with rx_err at once", "END set mixed: A ev_dpp_bad" | an end set mixing END and EDB ends the payload at once: the header with `rx_err`, one `ev_dpp_bad` | §3.4 |
+| "...: ev_dpp_bad with the ev_frame" | a payload ended by a framing error (K inside, end set broken or mixed) pulses `ev_dpp_bad` in the same clock as `ev_frame` | §3.4 |
 | a_tx_sym | `{tx_k, tx_sym}` equals the reference model every clock | §3 |
 | a_tx_ready | `tx_ready` as the model | §3.3 |
 | a_ll_up | `ll_up` = state UP | §3.2 |

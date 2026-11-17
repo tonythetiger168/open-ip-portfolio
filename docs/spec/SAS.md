@@ -199,6 +199,14 @@ Other behaviour:
 | "read timeout irq" | no read response within the timeout: irq | §3.4 |
 | "half-rate initiator verified" | BIT_CLKS = 2 works end to end | §3.5 |
 | "half-rate initiator recovered" | BIT_CLKS = 2 recovers after errors | §3.5 |
+| "OOB burst length" | every OOB burst on `tx_p` is 106 clocks of 1, at any BIT_CLKS | §3.1 |
+| "OOB idle length" | every OOB idle between two bursts is 318 clocks of 0 | §3.1 |
+| "half-rate bit lasts 2 clocks" | with BIT_CLKS = 2 every line bit lasts 2 clocks | §3.5 |
+| "sequencer write frame" | on a clean loopback the next frame is the write of register a, value d (a = 0, d = 0x5A5AC3C3 after reset) | §3.4 |
+| "sequencer read request" | then the read request of register a | §3.4 |
+| "read response frame" | then the read response from register a carrying d; a + 1 and d = xorshift32(d) for the next transaction | §3.4 |
+| "sequencer frames checked" | the clean phase checked at least 60 frames | §3.4 |
+| "...: irq at EOF" | a frame rejected at its EOF (bad EOF, missing payload, bad register, empty read response, unknown type) raises irq within the next dword | §5 |
 | a_reset_line | in reset: `tx_p` = 0, `tx_n` = 1, no irq, `phy_ready` = 0 | §3.6 |
 | a_tx_p | `tx_p` equals the reference model's line bit every clock | §3.1, §3.2 |
 | a_tx_n | `tx_n` = !`tx_p` | §1 |

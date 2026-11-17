@@ -66,6 +66,34 @@ module ACE_Lite_tb;
 
   always @(posedge clk) if (irq) irq_seen++;
 
+  // irq model (every build): one pulse in the clock after the last W beat
+  // of an errored write (bad AWBURST / AWSIZE, or any beat at or past 1KB)
+  // or after the last R beat of a read whose last beat is SLVERR
+  logic        m_irq = 0, m_werr = 0;
+  logic [31:0] m_wa = 0;
+  logic [7:0]  m_wlen = 0, m_wbeat = 0;
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) m_irq <= 1'b0;
+    else begin : b_irq_model
+      logic e;
+      e = 1'b0;
+      if (irq !== m_irq) begin
+        errors++; $display("ERROR: ACE_Lite irq=%b, model expects %b @%0t", irq, m_irq, $time);
+      end
+      if (wvalid && wready) begin
+        if (|m_wa[31:10]) m_werr = 1'b1;
+        if (wlast || m_wbeat == m_wlen) e = m_werr;
+        m_wa = m_wa + 32'd4; m_wbeat = m_wbeat + 8'd1;
+      end
+      if (awvalid && awready) begin
+        m_wa = awaddr; m_wlen = awlen; m_wbeat = 8'd0;
+        m_werr = (awburst != 2'b01) || (awsize > 3'd2) || (|awaddr[31:10]);
+      end
+      if (rvalid && rready && rlast && rresp == 2'b10) e = 1'b1;
+      m_irq <= e;
+    end
+  end
+
 `ifdef VERILATOR
   // =====================================================================
   // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)
@@ -331,7 +359,7 @@ module ACE_Lite_tb;
     // ---------------- 1. reset state check ----------------
     rst_n = 0; repeat (4) @(posedge clk);
     @(negedge clk);
-    if (bvalid !== 0 || rvalid !== 0 || irq !== 0) begin
+    if (bvalid !== 0 || rvalid !== 0 || irq !== 0 || bresp !== 2'b00 || rresp !== 2'b00) begin
       errors++;
       $display("ERROR: ACE_Lite reset state bvalid=%b rvalid=%b irq=%b", bvalid, rvalid, irq);
     end
@@ -439,7 +467,8 @@ module ACE_Lite_tb;
     @(posedge clk); @(negedge clk) wvalid = 0;
     rst_n = 0;
     @(negedge clk);
-    if (bvalid !== 0 || rvalid !== 0 || wready !== 0 || irq !== 0) begin
+    if (bvalid !== 0 || rvalid !== 0 || wready !== 0 || irq !== 0 ||
+        bresp !== 2'b00 || rresp !== 2'b00 || rlast !== 1'b0) begin
       errors++; $display("ERROR: ACE_Lite outputs not quiescent in reset");
     end
     rst_n = 1;

@@ -201,6 +201,8 @@ immediate checks A1..A7 are built only for Verilator (`ifdef VERILATOR`). Assert
 | "SPI 2-byte frame rx" | 16 bits under one `csn`: `rx_q` holds the last 8 bits | §3.3 |
 | "SPI deselected SCLK shifted rx" | `sclk` pulses with `csn` high do not shift `rx_q` | §3.3 |
 | "SPI not idle in reset" | in reset `irq` = 0 and `rdata` = 0 | §3.5 |
+| "SPI TX byte read back" | writes to addresses 1..15 are ignored, and `raddr` = 1 reads the TX byte (every build) | §3.4, §5 |
+| "SPI read of address" | `raddr` = 2..15 reads 0 (every build) | §3.4, §5 |
 | "CRV MISO" | random TX byte comes out on `miso` | §3.2 |
 | "CRV MOSI" | random MOSI byte lands in `rx_q` | §3.1 |
 | "CRV post-abort MISO" | after a random abort, the next frame sends the full TX byte | §3.3 |

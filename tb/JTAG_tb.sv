@@ -105,10 +105,20 @@ module JTAG_tb;
     end
   endtask
 
+  // TDO sampled in this cycle came from a falling edge outside Shift-IR /
+  // Shift-DR, so it must be 0
+  task automatic quiet(input string w);
+    if (tdo_s !== 1'b0) begin errors++; $display("ERROR: JTAG tdo not 0 outside Shift (%s)", w); end
+  endtask
+
   task automatic goto_rti;
     begin
-      for (int i = 0; i < 5; i++) jcyc(1'b1, 1'b0);   // TLR
+      for (int i = 0; i < 5; i++) begin
+        jcyc(1'b1, 1'b0);                             // TLR
+        if (i > 0) quiet("Test-Logic-Reset");
+      end
       jcyc(1'b0, 1'b0);                               // RTI
+      quiet("Test-Logic-Reset");
     end
   endtask
 
@@ -117,14 +127,19 @@ module JTAG_tb;
     begin
       jcyc(1'b1, 1'b0);                 // SEL_DR
       jcyc(1'b1, 1'b0);                 // SEL_IR
+      quiet("Select-DR-Scan");
       jcyc(1'b0, 1'b0);                 // -> CAP_IR
+      quiet("Select-IR-Scan");
       jcyc(1'b0, 1'b0);                 // CAP_IR: capture 0101, -> SH_IR
+      quiet("Capture-IR");
       jcyc(1'b0, op[0]);                // shift 1
       jcyc(1'b0, op[1]);                // shift 2
       jcyc(1'b0, op[2]);                // shift 3
       jcyc(1'b1, op[3]);                // shift 4 + exit
       jcyc(1'b1, 1'b0);                 // UPD_IR
+      quiet("Exit1-IR");
       jcyc(1'b0, 1'b0);                 // RTI
+      quiet("Update-IR");
     end
   endtask
 
@@ -134,13 +149,17 @@ module JTAG_tb;
     begin
       jcyc(1'b1, 1'b0);                 // SEL_DR
       jcyc(1'b0, 1'b0);                 // -> CAP_DR
+      quiet("Select-DR-Scan");
       jcyc(1'b0, 1'b0);                 // CAP_DR: capture, -> SH_DR
+      quiet("Capture-DR");
       for (int k = 0; k < n; k++) begin
         jcyc(k == n-1, din[k]);         // shift bit k; TDO sampled = bit k
         tmp[k] = tdo_s;
       end
       jcyc(1'b1, 1'b0);                 // EX1_DR -> UPD_DR
+      quiet("Exit1-DR");
       jcyc(1'b0, 1'b0);                 // -> RTI
+      quiet("Update-DR");
       dout = tmp;
     end
   endtask
@@ -149,7 +168,9 @@ module JTAG_tb;
   initial begin
     rst_n = 0;
     #1 trst_n = 0;                         // power-on TAP reset (edge)
-    #199;
+    #100;
+    if (tdo !== 1'b0) begin errors++; $display("ERROR: JTAG tdo not 0 in TAP reset"); end
+    #99;
     rst_n = 1; trst_n = 1;
     #500;
 
