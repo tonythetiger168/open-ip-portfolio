@@ -275,6 +275,9 @@ module MIPI_I3C_tb;
     check(sda === 1'b1 && !dyn_addr_valid && !irq, "reset mid-read");
     for (int i = 0; i < 16; i++) model[i] = 0;
     m_scl = 1; m_od_low = 0; #100 rst_n = 1; #200;
+    // reset leaves ENTDAA too: 7E/R as the first frame (no STOP yet) is an error
+    m_start; m_wbyte({7'h7E, 1'b1}, ack); check(!ack, "7E/R NACK after reset"); m_stop;
+    check(irq, "no irq for 7E/R as the first frame after reset");
     rd_regs(SADDR, 4'd0, 2);                  // register file cleared
     ibi_data = 8'h00;
 

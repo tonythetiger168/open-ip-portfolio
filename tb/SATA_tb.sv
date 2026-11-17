@@ -140,6 +140,8 @@ module SATA_tb;
       kn_collide = 0, kn_abort = 0, kn_hold = 0, kn_withdraw = 0, kn_stat_hold = 0,
       kn_garbage = 0, kn_rok_garbage = 0, kn_id_sts_err = 0,
       kn_wsts_err = 0, kn_wsts_mute = 0, kn_rsts_err = 0, kn_rsts_mute = 0, kn_rsts_short = 0;
+  bit alt_al = 0, alt_nx = 0;
+          // ALIGNp / SYNCp alternating: never two ALIGNps in a row
   bit mute_req = 0;                   // idle the line for the dword after the first ALIGNp
   int d_mute_n = 0;
   int hold_n, stat_n, wt_n, sync_n;
@@ -240,7 +242,10 @@ module SATA_tb;
   // device transmit: next dword
   task automatic dev_next(output logic [31:0] dw);
     dw = P_SYNC;
-    if (!linked) dw = P_ALIGN;
+    if (!linked) begin
+      dw = alt_al && alt_nx ? P_SYNC : P_ALIGN;
+      if (alt_al) alt_nx = !alt_nx;
+    end
     else if (dtx == 0) begin
       if (drx == 1) dw = P_RRDY;
       else if (drx == 2) dw = P_RIP;
@@ -354,7 +359,7 @@ module SATA_tb;
         h_bit++;
         if (h_bit == 32) begin h_bit = 0; dev_rx(h_sr); end
       end
-      if (!linked && h_aligns >= 2 && d_aligns_sent >= 4) linked = 1;
+      if (!linked && !alt_al && h_aligns >= 2 && d_aligns_sent >= 4) linked = 1;
     end
   end
 
@@ -368,9 +373,12 @@ module SATA_tb;
   endtask
 
   // bring the link up; mode: 0 normal, 1 no COMINIT once, 2 no COMWAKE once,
-  // 3 no ALIGNp once, 4 bad patterns first
+  // 3 no ALIGNp once, 4 bad patterns first, 5 / 6 ALIGNp and SYNCp
+  // alternating once (never two ALIGNps in a row; 6 shifted by one dword,
+  // 7 by 29 clocks so that a SYNCp after an ALIGNp lands on the last clock)
   task automatic bring_up(input int mode = 0);
     int c;
+    realtime t0;
     d_stream = 0;
     @(negedge clk); rx_p = 0; rx_n = 0;
     dev_reset_link();
@@ -399,6 +407,23 @@ module SATA_tb;
     line_idle(5);
     if (mode == 3) begin                            // no ALIGNp: host restarts
       c = n_comreset; wait (n_comreset > c);
+      oob(48);
+      c = n_comwake; wait (n_comwake > c);
+      oob(16);
+      line_idle(5);
+    end
+    if (mode >= 5 && mode <= 7) begin              // no ALIGNp pair: host restarts
+      line_idle(mode == 6 ? 32 : mode == 7 ? 29 : 0);   // dword phases: 7 puts a SYNCp on the last clock
+      alt_al = 1; alt_nx = 1;
+      d_sr = P_ALIGN; d_bit = 0; d_stream = 1;
+      wait (h_aligns > 0); t0 = $realtime;
+      c = n_comreset; wait (n_comreset > c);
+      // the host gives up 1024 clocks into the ALIGNp wait (plus the COMRESET it sends)
+      if ($realtime - t0 > 1600 * 10)
+        fail($sformatf("no restart after 1024 clocks without an ALIGNp pair: %0t", $realtime - t0));
+      d_stream = 0; alt_al = 0;
+      dev_reset_link();
+      line_idle(100);
       oob(48);
       c = n_comwake; wait (n_comwake > c);
       oob(16);
@@ -528,6 +553,12 @@ module SATA_tb;
     wait_cmds(6);
     if (last_lba !== 0) fail("max LBA 0");
     bring_up(3);                                    // (loss inside bring_up)
+    wait_cmds(2);
+    bring_up(5);
+    wait_cmds(2);
+    bring_up(6);
+    wait_cmds(2);
+    bring_up(7);
     wait_cmds(2);
 
     // ---------------- reset while the link is up
