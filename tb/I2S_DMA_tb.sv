@@ -147,8 +147,14 @@ module I2S_DMA_tb;
 
   initial begin
     clks(3);
+    // no job before the first START: RX_EN and XFER_LEN set from reset on,
+    // frames running
+    xfer_len = 16'd4; rx_en = 1;
     rst_n = 1;
     clks(2);
+    wait_frame(cur_frame() + 3);
+    if (busy || frames != 0 || rx_overrun != 0) fail("frames counted before any START");
+    rx_en = 0; xfer_len = 0;
     run(1, 1, 0, 0, 0);
     run(1, 0, 1, 0, 0);
     run(16, 1, 1, 0, 0);

@@ -88,7 +88,10 @@ module SPI_Host_tb;
   endtask
 
   initial begin
-    clks(3); rst_n = 1; clks(5);
+    clks(3);
+    if (busy) fail("busy in reset");
+    if (done || rx_data !== 8'h00) fail("done or RX_DATA not 0 in reset");
+    rst_n = 1; clks(5);
     // SPI_top, mode 0
     for (int k = 0; k < 12; k++) begin
       int n;
@@ -151,6 +154,7 @@ module SPI_Host_tb;
     clks(139890);
     rst_n = 0; clks(2);
     if (busy) fail("busy in reset");
+    if (done || rx_data !== 8'h00) fail("done or RX_DATA not 0 in reset");
     rst_n = 1; div = 3; clks(5);
     if (errors == 0) $display("TEST PASSED: SPI_Host");
     else $display("TEST FAILED: SPI_Host (%0d errors)", errors);

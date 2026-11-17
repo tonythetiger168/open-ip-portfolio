@@ -452,3 +452,4 @@ Error codes (`tx_code` / `rx_code`):
 | a_end_block | END blocks are last with 0 bytes | §3.3 |
 | a_clr_clears | the clock after `clr`: no keys, no Secure streams, no output valid | §3.1 |
 | a_reset | reset values | §3.6 |
+| "txo_bad / txo_cm / rx_done / rx_err not 0 in reset" | `txo_bad`, `txo_cm`, `rx_done`, `rx_err` 0 while `!rst_n` | §3.6 |

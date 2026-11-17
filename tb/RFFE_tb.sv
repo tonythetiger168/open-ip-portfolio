@@ -266,7 +266,8 @@ module RFFE_tb;
   initial begin
     for (int i = 0; i < 32; i++) begin m5[i] = 0; m2[i] = 0; end
     for (int i = 0; i < 256; i++) m9[i] = 8'(i * 11 + 3);
-    #22 rst_n = 1; s_rst_n = 1;
+    #22 if (sclk !== 1'b0 || sdata_o !== 1'b0 || sdata_oe !== 1'b0) fail("master bus outputs not 0 in reset");
+    rst_n = 1; s_rst_n = 1;
     cycles(10);
     // 1. every command type to every slave, random bus speeds and write delays
     for (int r = 0; r < 4; r++) begin
@@ -306,6 +307,7 @@ module RFFE_tb;
       allow_cont = 1;
       rst_n = 0; s_rst_n = 0;
       cycles(3);
+      if (sclk !== 1'b0 || sdata_o !== 1'b0 || sdata_oe !== 1'b0) fail("master bus outputs not 0 in reset");
       // the queues restart empty; the slave files keep their contents
       rqh = rqt; dq_h = dq_t; wqh = wqt; wr_valid = 0;
       for (int i = 0; i < 256; i++) m9[i] = u_s9.mem[i];

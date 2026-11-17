@@ -160,6 +160,13 @@ module M_PHY_tb;
     check(irq === 1'b1, "unsupported K-code raises irq");
     clear_irq();
     check(irq === 1'b0, "irq_clear");
+    // an unsupported K-code buffered behind a word is dropped when that word
+    // ends: the buffer is empty (tx_ready) in the first IDLE clock
+    push(8'hBC, 1); push(8'h05, 1);
+    while (dut.tstate != 0) @(negedge clk);
+    check(tx_ready === 1'b1, "unsupported K-code not dropped at the end of the word");
+    wait_quiet();
+    clear_irq();
     // an unsupported K-code waiting while the line is idle
     push(8'h00, 1);
     wait_quiet();

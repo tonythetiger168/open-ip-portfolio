@@ -89,6 +89,7 @@ names (width as seen by the checker).
 |---|---|---|
 | `u_mac` | 1 | instance of the core's sub-module, probed hierarchically |
 | `tx_valid` | 1 | core-internal signal read by name by the checker |
+| `rx_free` | $clog2(RXF_BYTES / 4) + 1 | free words in the RX FIFO; the TB waits for 0 to drain the FIFO in the middle of a frame |
 | `tx_ready` | 1 | core-internal signal read by name by the checker |
 | `tx_last` | 1 | core-internal signal read by name by the checker |
 | `rx_valid` | 1 | core-internal signal read by name by the checker |
@@ -431,6 +432,7 @@ From `tb/cov/GbE_DMA_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
 |---|---|---|
 | "bad-length TX descriptor write-back" | fails when `w !== {1'b1, 1'b0, 1'b0, 1'b1, 12'd0, 16'(len)}` (`tb/GbE_DMA_tb.sv` line 241) | §3 |
 | "FIFO full: RX_DROP" | fails when `rx_drop != d0 + 1` (`tb/GbE_DMA_tb.sv` line 433) | §3 |
+| "FIFO full mid-frame: RX_DROP" | fails when `rx_drop != d0 + 1` (`tb/GbE_DMA_tb.sv` line 457): a frame that hit a full RX FIFO is dropped even if the FIFO drains before its end | §3 |
 | "40000-byte frame: RX_DROP" | fails when `rx_drop != d0 + 1` (`tb/GbE_DMA_tb.sv` line 479) | §3 |
 | "drop run: RX_DROP" | fails when `rx_drop != 16'(n0 + 65540)` (`tb/GbE_DMA_tb.sv` line 546) | §3 |
 | "long runs: rings not drained" | fails when `tx_head != tx_tail \|\| rx_head != rx_tail` (`tb/GbE_DMA_tb.sv` line 547) | §3 |

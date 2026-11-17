@@ -83,6 +83,18 @@ module USB4_tb;
   // path p (to the BFM)
   localparam int EP = 0, BP = 4, AX = 6;
   logic [8:0] q0 [$], q1 [$], q2 [$], q3 [$], q4 [$], q5 [$], q6 [$], q7 [$];
+  // event pulses of A
+  int n_proto = 0, n_hop = 0, n_len = 0;
+  always @(posedge clk) if (rst_n) begin
+    n_proto += ev_proto[0]; n_hop += ev_hop[0]; n_len += ev_len[0];
+  end
+  int e_proto, e_hop, e_len;
+  task automatic ev_mark; e_proto = n_proto; e_hop = n_hop; e_len = n_len; endtask
+  task automatic ev_check(input int p, input int h, input int l, input string what);
+    if (n_proto - e_proto != p || n_hop - e_hop != h || n_len - e_len != l)
+      fail($sformatf("%s: ev_proto / ev_hop / ev_len %0d %0d %0d, expected %0d %0d %0d", what,
+                     n_proto - e_proto, n_hop - e_hop, n_len - e_len, p, h, l));
+  endtask
   task automatic qpush(input int i, input logic [8:0] x);
     case (i)
       0: q0.push_back(x); 1: q1.push_back(x); 2: q2.push_back(x); 3: q3.push_back(x);
@@ -451,6 +463,7 @@ module USB4_tb;
     wait_clk(50);
     if (!sync[0]) fail("A lost SYNC on single-bit errors");
     // receive errors, each skipped by its length
+    ev_mark();
     bhdr(4'h2, 0, 0);                             // HopID 0, unknown PDF
     bhdr(4'h0, 0, 8'd4); bbytes(4);               // Idle with a length
     bgrant(11'h001, 2, 0, 0, 8'd8);               // grant of the wrong length
@@ -462,6 +475,7 @@ module USB4_tb;
     bdata(11'h2AA, 5, 0);
     bwait();
     wait_clk(50);
+    ev_check(3, 1, 4, "receive errors");   // Length 0, MAXL + 1, 255, 254: ev_len
     // overflow: A does not read; RXB + 1 packets on path 0
     rdy_pct[0] = 0;
     wait_clk(20);
@@ -488,6 +502,7 @@ module USB4_tb;
     if (a_data[0] != 2) fail("A did not use the new credit");
     // bad grants: reserved bits, middle byte, no such HopID, more than RXB
     // ahead, HopID 0
+    ev_mark();
     bgrant(11'h001, 3, 5'h10);
     bgrant(11'h001, 3, 0, 8'h01);
     bgrant(11'h0F0, 3);
@@ -495,6 +510,7 @@ module USB4_tb;
     bgrant(11'h000, 3);
     bwait();
     wait_clk(50);
+    ev_check(5, 0, 0, "bad grants");
     // both paths with credit: round robin
     bgrant(11'h001, 4); bgrant(11'h7FE, 4);
     bwait();
