@@ -8,15 +8,29 @@ module I3C_tb;
   logic scl = 1;
   logic master_low = 0;
   logic [7:0] tx_byte, rx_byte;
-  logic rx_valid, int_n, busy;
+  logic rx_valid, int_n, busy, irq;
   int errors = 0;
 
   I3C_top #(.I3C_ADDR(7'h2A)) dut (
     .clk(clk), .rst_n(rst_n), .sda(sda), .scl(scl),
     .tx_byte(tx_byte), .rx_byte(rx_byte), .rx_valid(rx_valid),
-    .int_n(int_n), .busy(busy), .irq());
+    .int_n(int_n), .busy(busy), .irq(irq));
 
   always #5 clk = ~clk;
+
+  // always-on output checks (both builds): rx_valid is a one-clock pulse
+  // inside a transfer, irq follows it, and every pulse is counted
+  logic rxv_q = 1'b0;
+  int   n_rxv = 0;
+  always @(posedge clk) begin
+    if (rst_n) begin
+      if (rx_valid === 1'b1 && rxv_q) begin errors++; $display("ERROR: I3C rx_valid longer than one clock"); end
+      if (rx_valid === 1'b1 && busy !== 1'b1) begin errors++; $display("ERROR: I3C rx_valid outside a transfer"); end
+      if (irq !== rx_valid) begin errors++; $display("ERROR: I3C irq differs from rx_valid"); end
+      if (rx_valid === 1'b1) n_rxv++;
+    end
+    rxv_q = rx_valid === 1'b1;
+  end
   assign sda = master_low ? 1'b0 : 1'bz;
 
   task automatic i3c_start;
@@ -151,7 +165,9 @@ module I3C_tb;
   initial begin
     tx_byte = 8'h73;   // v2.5.1: MSB=0 locks the first-byte MSB fix
     rst_n = 0; repeat(10) @(posedge clk);
-    rst_n = 1; repeat(10) @(posedge clk);
+    rst_n = 1;
+    repeat (10) @(posedge clk)
+      if (busy !== 1'b0) begin errors++; $display("ERROR: I3C busy after reset on an idle bus"); end
     if (int_n !== 1'b1) begin errors++; $display("ERROR: I3C int_n not idle-high"); end
 
     // write 0x5A -> IBI should assert after STOP
@@ -164,6 +180,7 @@ module I3C_tb;
     repeat(5) @(posedge clk);
     if (rx_byte !== 8'h5A) begin errors++; $display("ERROR: I3C rx=%h exp=5A", rx_byte); end
     if (int_n !== 1'b0) begin errors++; $display("ERROR: I3C IBI (int_n) not asserted after write"); end
+    if (n_rxv != 1) begin errors++; $display("ERROR: I3C rx_valid pulses for one data byte: %0d", n_rxv); end
 
     // read clears IBI via START
     i3c_start;

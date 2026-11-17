@@ -265,6 +265,7 @@ queued, and errors are counted exactly per node.
 | "no integration on the BFM sync frame" | integration | §3.4 |
 | "no integration after the master restarted" | integration | §3.4 |
 | "B did not integrate after its reset" | integration after reset | §3.4, §3.6 |
+| "outputs in reset" | in reset: `tx_ready` 1 (transmit buffer empty), `txd` 1, `tx_en`, `synced`, `tx_done`, `rx_valid` 0 | §1 |
 | a_reset_values | reset values | §3.6 |
 | a_txd_model | `txd` / `tx_en` as the model | §3.1, §3.3 |
 | a_tx_ready_model | `tx_ready` | §3.3 |

@@ -156,16 +156,28 @@ module DigRF_tb;
   // on each lane from its burst start: valid codes, right disparity
   for (genvar s = 0; s < 2; s++) begin : g_line
     logic [9:0] sh;
-    int  ph;
-    bit  rd, on_q;
+    logic [10:0] e5, e1;
+    int  ph, nk5;
+    bit  rd, on_q, lead;
     always @(negedge clk) if (!rst_n) on_q = 0; else begin
       if (!tx_on[s] && tx_p[s]) fail($sformatf("lane %0d high while stopped", s));
       if (tx_on[s]) begin
-        if (!on_q) begin ph = 0; rd = 0; end
+        if (!on_q) begin ph = 0; rd = 0; nk5 = 0; lead = 1; end
         sh = {sh[8:0], tx_p[s]}; ph++;
         if (ph == 10) begin
           ph = 0;
           if (!vtab[{rd, sh}]) fail($sformatf("lane %0d sent %b, not a code for RD%s", s, sh, rd ? "+" : "-"));
+          // the burst opens with cfg_sync K28.5 (at least one): a frame
+          // (K28.1) that is waiting goes out right after them
+          e5 = tenc(8'hBC, 1, rd); e1 = tenc(8'h3C, 1, rd);
+          if (lead) begin
+            if (sh == e5[9:0]) nk5++;
+            else begin
+              lead = 0;
+              if (sh == e1[9:0] && nk5 < (cfg_sync[s] == 0 ? 1 : int'(cfg_sync[s])))
+                fail($sformatf("lane %0d: %0d sync symbols before the first frame, cfg_sync %0d", s, nk5, cfg_sync[s]));
+            end
+          end
           rd = rdn[{rd, sh}];
         end
       end

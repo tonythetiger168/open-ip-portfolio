@@ -290,6 +290,11 @@ module FlexRay_tb;
     end
     use_config(k);
     #(100);
+    // in reset: the transmit buffer is empty and the line released
+    if ({a_tx_ready, b_tx_ready, c_tx_ready} !== 3'b111 || {a_txd, b_txd, c_txd} !== 3'b111 ||
+        {a_en, b_en, c_en} !== 3'b000 || {a_synced, b_synced, c_synced} !== 3'b000 ||
+        {a_tx_done, b_tx_done, c_tx_done, a_rx_valid, b_rx_valid, c_rx_valid} !== 6'b0)
+      fail($sformatf("%s: outputs in reset", what));
     rst_a = 1; rst_b = 1; rst_c = 1;
     g = 0;
     while (!(a_synced && b_synced && c_synced) && g < 6) begin at_cycle_start(); g++; end

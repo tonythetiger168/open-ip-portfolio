@@ -220,6 +220,7 @@ Corner cases:
 | "response CRC32 mismatch" | sent CRC-32 over HDR and payload | §3.2 |
 | "response EOF marker mismatch" | sent frames end with EOF 0x55465302 | §3.2 |
 | "LINKUP not reached after training exchange" | two aligned TRAIN dwords give LINKUP | §3.1 |
+| "TX not idle after LINKUP" | with no command sent, `tx_p` stays idle high after LINKUP | §3.1 |
 | "LINKUP on a bad second training dword" | the second dword must be TRAIN exactly 32 bits later | §3.1 |
 | "RESPONSE UPIU header" | RESPONSE header {0x81, tag, lun, 1} | §3.3 |
 | "RESPONSE status/sense" | GOOD = 0, CHECK = 0x00050001 | §3.3 |

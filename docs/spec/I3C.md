@@ -236,6 +236,11 @@ The TB's "ACK" is SDA = 0 at the 9th rise.
 | "A6 rx_byte stable" | `rx_byte` changes only with `rx_valid` | §3.4 |
 | "A7 rx_valid implies busy" | `rx_valid` only during a transfer | §3.4 |
 | "A8 IBI pending only in IDLE" | `int_n` low only while `state` is IDLE | §3.1 |
+| "I3C rx_valid longer than one clock" | `rx_valid` is a one-clock pulse (every build) | §3.4 |
+| "I3C rx_valid outside a transfer" | `rx_valid` only while `busy` (every build) | §3.4 |
+| "I3C irq differs from rx_valid" | `irq` = `rx_valid` | §1 |
+| "I3C busy after reset on an idle bus" | leaving reset with SCL and SDA high starts nothing | §3.1 |
+| "I3C rx_valid pulses for one data byte" | one written data byte gives exactly one `rx_valid` pulse | §3.4 |
 | a_reset_quiet | in reset: IDLE, outputs quiet, `int_n` = 1 | §3.6 |
 | a_state_legal | `state` <= IGNORE | §1 |
 | a_irq_is_rx_valid | `irq` = `rx_valid` | §1 |

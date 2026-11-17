@@ -117,6 +117,31 @@ module OCP_tb;
   logic irq_mon = 1'b0;
   always @(posedge clk) if (irq) irq_mon <= 1'b1;
 
+  // irq is a one-clock pulse, high exactly in the clock after a bad
+  // request is accepted (posted WR: bad address; others: bad address or
+  // unsupported MCmd). Checked on both instances for the whole run.
+  function automatic bit ocp_bad(input logic [2:0] c, input logic [AW-1:0] a);
+    bit ab;
+    ab = (a[AW-1:10] != '0) || (a[1:0] != 2'b00);
+    return (c == MCMD_WR) ? ab
+         : (ab || !((c == MCMD_RD) || (c == MCMD_WRNP)));
+  endfunction
+  logic irq_exp = 1'b0, irq0_exp = 1'b0;
+  always @(posedge clk or negedge rst_n)
+    if (!rst_n) begin irq_exp <= 1'b0; irq0_exp <= 1'b0; end
+    else begin
+      irq_exp  <= scmdaccept && (mcmd != MCMD_IDLE) && ocp_bad(mcmd, maddr);
+      irq0_exp <= s0_acc && (m0_cmd != MCMD_IDLE) && ocp_bad(m0_cmd, m0_addr);
+    end
+  always @(negedge clk) if (rst_n) begin
+    if (irq !== irq_exp) begin
+      errors++; $display("ERROR: OCP irq=%b exp %b @%0t", irq, irq_exp, $time);
+    end
+    if (s0_irq !== irq0_exp) begin
+      errors++; $display("ERROR: OCP dut0 irq=%b exp %b @%0t", s0_irq, irq0_exp, $time);
+    end
+  end
+
 `ifdef VERILATOR
   // =====================================================================
   // v2.5 CRV instrumentation (tool build only; iverilog path unchanged)
@@ -425,6 +450,18 @@ module OCP_tb;
     repeat (4) @(posedge clk);
     if (sresp !== 2'b00) begin errors++; $display("ERROR: OCP stale response after reset"); end
     ocp_read(32'h004, 32'hA500_0001, 2'b01, 2'b01);       // regfile survives reset
+
+    // a write aborted by reset before SCmdAccept must not land
+    @(negedge clk);
+    mcmd <= MCMD_WR; maddr <= 32'h004; mdata <= 32'h0BAD_0004; mbyteen <= 4'hF;
+    mthreadid <= 2'b00;
+    @(negedge clk);                                    // accept is due next edge
+    if (scmdaccept !== 1'b1) begin errors++; $display("ERROR: OCP abort test: no accept phase"); end
+    rst_n = 0; mcmd <= MCMD_IDLE;
+    @(negedge clk);
+    rst_n = 1;
+    repeat (2) @(posedge clk);
+    ocp_read(32'h004, 32'hA500_0001, 2'b00, 2'b01);       // aborted write not applied
 
 
 `ifdef VERILATOR

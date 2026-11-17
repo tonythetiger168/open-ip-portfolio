@@ -60,6 +60,11 @@ module ONFI_tb;
   int         t_we = 0, t_re = 0, t_lastca = -1000, t_rdy = -1000, cyc = 0, n_we_lo = 0, n_re_lo = 0;
   int         t_hi_we = 100, t_hi_re = 100;
   int         n_bad = 0;
+  // shortest gaps seen: RE# after a command / address cycle (tWHR), RE#
+  // after R/B# rose (tRR), first data-in after an address cycle (tADL)
+  int         g_whr = 1 << 30, g_rr = 1 << 30, g_adl = 1 << 30, g_done = 1 << 30, g_wb = 1 << 30;
+  int         t_c30 = -1;                         // WE# rise of the last 30h (Read Page confirm)
+  logic       p_cle = 0, p_ale = 0;
   logic [7:0] dev_status;
   assign dev_status = {1'b1, rb_n, rb_n, st_noise[4:1], t_fail};
 
@@ -135,6 +140,12 @@ module ONFI_tb;
         if (!re_n && cyc - t_re < TP) fail("RE# high too short");
         if (re_n && cyc - t_re < TP) fail("RE# low too short");
         if (!re_n && cyc - t_lastca < TWHR) fail("tWHR");
+        if (!re_n && t_c30 >= 0) begin
+          if (cyc - t_c30 < g_wb) g_wb = cyc - t_c30;
+          t_c30 = -1;
+        end
+        if (!re_n && t_lastca > t_re && t_lastca > t_rdy && cyc - t_lastca < g_whr) g_whr = cyc - t_lastca;
+        if (!re_n && t_rdy > t_re && t_rdy > t_lastca && cyc - t_rdy < g_rr) g_rr = cyc - t_rdy;
         if (!re_n && cyc - t_rdy < TRR) fail("tRR");
         if (!re_n && !rb_n && mode != 3) fail("RE# while busy");
         t_re = cyc;
@@ -150,6 +161,7 @@ module ONFI_tb;
             8'h70: mode = 3;
             8'h00: begin mode = 4; na = 0; end
             8'h30: begin
+              t_c30 = cyc;
               if (mode != 4 || na != 5) fail($sformatf("30h after %0d address cycles", na));
               go_busy(1);
             end
@@ -177,6 +189,7 @@ module ONFI_tb;
           else if (!(mode == 4 || mode == 6 || mode == 7 || mode == 10)) fail("address cycle out of place");
         end else begin
           if (cyc - t_lastca < TADL && nd == 0) fail("tADL");
+          if (nd == 0 && cyc - t_lastca < g_adl) g_adl = cyc - t_lastca;
           if (mode == 6) begin
             k = {ab[1], ab[0]};
             k = (k + nd) % PSZ;
@@ -191,6 +204,11 @@ module ONFI_tb;
         end
       end
       if (re_n && !p_re) ptr++;
+      // CLE / ALE drop TP clocks after WE# rises
+      if (((p_cle && !cle) || (p_ale && !ale)) && cyc - t_we != TP) fail("CLE / ALE not dropped TP clocks after WE# high");
+      p_cle = cle; p_ale = ale;
+      // a command that ends with a read: done after RE# high for TP clocks
+      if (done && re_n && cyc - t_re < g_done) g_done = cyc - t_re;
       p_we = we_n; p_re = re_n;
       if (rb_n && !p_rb) t_rdy = cyc;
       p_rb = rb_n;
@@ -410,12 +428,22 @@ module ONFI_tb;
     rst_n = 0;
     wq.delete();
     wait_clk(3);
+    if (ce_n !== 1'b1 || cle !== 1'b0 || ale !== 1'b0 || we_n !== 1'b1 || re_n !== 1'b1 || dq_oe !== 1'b0 ||
+        done !== 1'b0 || rd_valid !== 1'b0 || ev_fail !== 1'b0 || ev_timeout !== 1'b0)
+      fail("outputs in reset");
     rst_n = 1;
     wait_clk(3);
     run(0, 0, 0, 0, 0, 0, -1);
     for (int i = 0; i < 20; i++) rnd_cmd();
 
     if (n_bad != 0) fail("target errors");
+    // the waits are not longer than they must be: the earliest RE# / data
+    // cycle comes the wait plus the fixed steps after the cycle before it
+    if (g_whr != TWHR + 4) fail($sformatf("shortest tWHR gap %0d clocks, expected %0d", g_whr, TWHR + 4));
+    if (g_rr != TRR + 5) fail($sformatf("shortest tRR gap %0d clocks, expected %0d", g_rr, TRR + 5));
+    if (g_wb != TWB + TRR + 7) fail($sformatf("shortest Read Page 30h to RE# %0d clocks, expected %0d", g_wb, TWB + TRR + 7));
+    if (g_done != TP + 1) fail($sformatf("shortest done after the last RE# rise %0d clocks, expected %0d", g_done, TP + 1));
+    if (g_adl != TADL + 6) fail($sformatf("shortest tADL gap %0d clocks, expected %0d", g_adl, TADL + 6));
     if (errors == 0) $display("TEST PASSED: ONFI (%0d commands, %0d bytes read)", n_cmds, n_bytes);
     else $display("TEST FAILED: ONFI (%0d errors)", errors);
     $finish;
