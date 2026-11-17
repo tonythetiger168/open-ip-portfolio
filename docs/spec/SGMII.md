@@ -265,6 +265,8 @@ other modes is ignored. Rate adaptation is not done: `speed` is reported only.
 | "partner restart not seen" | three zero config words restart | §3.6 |
 | "changed abilities: lp" | changed abilities restart and resolve the new word | §3.6 |
 | "idle detect not reached" | IDLE_DETECT after complete acknowledge | §3.6 |
+| "PCS ability word" | the first config word after the restart zeros carries `0001` (SGMII) or `ADV` (1000BASE-X), ACK aside | §3.6 |
+| "PCS sends ACK" | no ACK in the config word while the partner keeps sending restart zeros | §3.6 |
 | "outputs in reset" | reset values | §3.8 |
 | a_tx_valid | every `tx_code` is valid for the running disparity | §3.1 |
 | a_tx_comma_even | commas on even positions | §3.2 |

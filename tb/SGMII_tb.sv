@@ -237,6 +237,8 @@ module SGMII_tb;
   int          mos = 0;                  // position in an ordered set (0: none)
   logic [7:0]  mc1 = 0, mlo = 0;
   logic [15:0] m_last = 0, m_cfg_seen = 0;
+  bit          m_first = 0;
+  int          m_p0 = 0;
   int          m_ncfg = 0, m_nack = 0, m_nidle = 0, m_ncfg0 = 0;
   bit          m_c1 = 0;                 // the last /C/ was /C1/
   int          m_cfgs = 0, m_idles = 0;
@@ -300,6 +302,17 @@ module SGMII_tb;
         if ({b, mlo} == m_last) begin m_ncfg++; if ({b, mlo} & ACK) m_nack++; end
         else begin m_ncfg = 1; m_nack = ({b, mlo} & ACK) ? 1 : 0; end
         m_last = {b, mlo};
+        // the first word after the restart zeros carries the PCS's abilities
+        // (0001 in SGMII, else ADV); ACK may already be set
+        if ({b, mlo} == 0) m_first = 1;
+        else if (m_first) begin
+          m_first = 0;
+          if (({b, mlo} & ~ACK) !== (mode_sgmii ? 16'h0001 : adv & ~ACK))
+            fail($sformatf("PCS ability word %h, ADV %h", {b, mlo}, adv));
+        end
+        // no ACK while the partner has been sending restart zeros for a while
+        m_p0 = (pa == 0) ? m_p0 + 1 : 0;
+        if (({b, mlo} & ACK) && m_p0 > 8) fail($sformatf("PCS sends ACK %h to a restarting partner", {b, mlo}));
         m_ncfg0 = {b, mlo} == 0 ? m_ncfg0 + 1 : 0;
       end else if (k && b == KS) begin
         if (!meven) fail("/S/ on an odd position");

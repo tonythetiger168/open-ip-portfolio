@@ -395,6 +395,9 @@ module Ethernet_tb;
     cycles(150);
     rst_n = 0;
     cycles(3);
+    for (int i = 0; i < 2; i++)
+      if (rx_valid[i] !== 0 || rx_last[i] !== 0 || rx_frag[i] !== 0 || rx_stat[i] !== 0)
+        fail($sformatf("MAC %0d: rx outputs not 0 in reset", i));
     for (int i = 0; i < 2; i++) begin fh[i] = ft[i]; bp[i] = ft[i]; eh[i] = et[i]; ah[i] = at[i]; end
     rst_n = 1;
     cycles(20);

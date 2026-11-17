@@ -172,6 +172,7 @@ predicts every read.
 |---|---|---|
 | "read page" | page data | §3.1, §3.3 |
 | "dqs does not echo re_n" | DQS echo | §3.3 |
+| "DQ driven before the first RE# edge" | after 70h the device drives DQ only from the first RE# falling edge | §3.3 |
 | "rb_n stuck busy" | operations end | §3.1 |
 | "program: busy" | busy during program | §3.1 |
 | "reset state" | reset values | §3.5 |

@@ -189,6 +189,7 @@ fault kind (each followed by a reset).
 | "lp ack release" | ack falls | §3.4 |
 | "reset state" | reset values | §3.5 |
 | "short init_start: init_complete high" | one-cycle complete after a short start | §3.3 |
+| "no init with init_start held through reset" | `dfi_init_start` already high when reset ends is a request: initialisation runs | §3.3 |
 | a_reset_outputs | reset values | §3.5 |
 | a_init_complete | `dfi_init_complete` as the model | §3.3 |
 | a_lp_ack | `dfi_lp_ctrl_ack` as the model | §3.4 |
