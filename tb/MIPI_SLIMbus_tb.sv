@@ -129,6 +129,13 @@ module MIPI_SLIMbus_tb;
   bit          allow_skip = 0, allow_rxerr = 0;
   bit [N-1:0]  took = 0;
   always @(posedge clk) took <= tx_valid & tx_ready;
+  // lost_sync and fi_valid are one-clock pulses
+  logic [N-1:0] ls_q = '0, fv_q = '0;
+  always @(posedge clk) begin
+    if (rst_n && (lost_sync & ls_q) != '0) fail("lost_sync longer than one clock");
+    if (rst_n && (fi_valid & fv_q) != '0) fail("fi_valid longer than one clock");
+    ls_q <= lost_sync; fv_q <= fi_valid;
+  end
   function automatic logic [31:0] lmask(input logic [2:0] l, input logic [31:0] d);
     return l >= 4 ? d : d & ((32'd1 << (8 * l)) - 1);
   endfunction
@@ -256,6 +263,12 @@ module MIPI_SLIMbus_tb;
     force_cells(0, 8'b0000_0000, 4);
     frames(1);
     if (locked[1] || locked[2]) fail("two missed frame syncs kept the lock");
+    // one missed frame sync right after the frame lock is taken is survived
+    // too (the next frame sync is the first one checked in lock)
+    while (!(locked[1] && locked[2])) @(negedge clk);
+    force_cells(0, 8'b0000_0000, 4);
+    frames(1);
+    if (locked[1] !== 1'b1 || locked[2] !== 1'b1) fail("one missed frame sync right after locking lost the lock");
     sync_chk = 1;
     wait_lock(400_000);
     frames(10);

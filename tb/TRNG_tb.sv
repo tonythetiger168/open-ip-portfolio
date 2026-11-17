@@ -116,6 +116,7 @@ module TRNG_tb;
   bit          expf [0:63];
   int          eh = 0, et = 0;
   int          nwords = 0, nseeds = 0, nrdy = 0, nsmp = 0, nfail = 0;
+  int          sgap = -1;           // clocks since the last sample of this run (-1: none)
   function automatic bit live(input logic [2:0] s);
     live = s == S_START || s == S_RUN || s == S_HASH || s == S_OUT;
   endfunction
@@ -129,6 +130,7 @@ module TRNG_tb;
     if (raw_valid && !cfg_src && raw_bit != rh2) fail("raw sample is not the synchronized ring oscillator XOR");
     rh2 = rh1; rh1 = rh0; rh0 = rst_n ? ^ro_in : 1'b0;
     if (!rst_n) begin
+      sgap = -1;
       pend = 0; eh = 0; et = 0; cn = 0; m_rf = 0; m_af = 0; m_alr = 0; m_ala = 0; m_rhw = 0; m_ahw = 0;
       if (state != S_IDLE || alert || alert_rct || alert_apt || raw_valid || ent_valid || seed_rdy || rct_hw != 0)
         fail("outputs in reset");
@@ -151,6 +153,16 @@ module TRNG_tb;
       if (rct_fails != 8'(m_rf) || apt_fails != 8'(m_af)) fail("failure counters");
       if (alert_rct != m_alr || alert_apt != m_ala) fail("sticky alert flags");
       if (raw_valid && !live(state)) fail("raw sample while stopped");
+      // while running, samples come every smp_div + 1 clocks
+      if (!live(state)) sgap = -1;
+      else begin
+        if (sgap >= 0) sgap++;
+        if (raw_valid) begin
+          if (sgap > 0 && sgap != int'(smp_div) + 1)
+            fail($sformatf("sample spacing %0d clocks, expected %0d", sgap, int'(smp_div) + 1));
+          sgap = 0;
+        end
+      end
       if (es_ok != (state == S_RUN || state == S_HASH || state == S_OUT)) fail("es_ok");
       if (es_fips != (es_ok && cfg_fips)) fail("es_fips");
       if (ent_valid != (state == S_OUT)) fail("ent_valid");

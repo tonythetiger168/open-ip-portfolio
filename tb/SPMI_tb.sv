@@ -8,18 +8,32 @@ module SPMI_tb;
   logic m_low = 0;
   logic [7:0] rx_byte, rx_addr;
   logic [7:0] tx_byte = 8'hC2;   // v2.5.1: LSB=0 locks the bus-wedge fix
-  logic rx_valid, busy;
+  logic rx_valid, busy, irq;
   logic rx_seen = 0;
   int errors = 0;
 
   SPMI_top #(.SPMI_ADDR(4'h5)) dut (
     .clk(clk), .rst_n(rst_n), .sdata(sdata), .sclk(sclk),
     .rx_byte(rx_byte), .rx_addr(rx_addr), .rx_valid(rx_valid),
-    .tx_byte(tx_byte), .busy(busy), .irq());
+    .tx_byte(tx_byte), .busy(busy), .irq(irq));
 
   always #5 clk = ~clk;
   assign sdata = m_low ? 1'b0 : 1'bz;
   always @(posedge clk) if (rx_valid) rx_seen <= 1'b1;
+  // always-on output checks (both builds): rx_valid is a one-clock pulse
+  // inside a frame, irq follows it, busy is low only in IDLE / IGNORE
+  logic rxv_q = 1'b0;
+  int   n_rxv = 0;
+  always @(posedge clk) begin
+    if (rst_n) begin
+      if (rx_valid === 1'b1 && rxv_q) begin errors++; $display("ERROR: SPMI rx_valid longer than one clock"); end
+      if (rx_valid === 1'b1 && busy !== 1'b1) begin errors++; $display("ERROR: SPMI rx_valid outside a frame"); end
+      if (irq !== rx_valid) begin errors++; $display("ERROR: SPMI irq differs from rx_valid"); end
+      if (busy !== (dut.state != 3'd0 && dut.state != 3'd5)) begin errors++; $display("ERROR: SPMI busy does not follow the state"); end
+      if (rx_valid === 1'b1) n_rxv++;
+    end
+    rxv_q = rx_valid === 1'b1;
+  end
 
   task automatic ssc;
     begin m_low = 0; sclk = 1; #300;       // SCLK high first
@@ -147,10 +161,13 @@ module SPMI_tb;
   logic [7:0] rb;
   initial begin
     rst_n = 0; repeat(10) @(posedge clk);
-    rst_n = 1; repeat(10) @(posedge clk);
+    rst_n = 1;
+    repeat (10) @(posedge clk)
+      if (busy !== 1'b0) begin errors++; $display("ERROR: SPMI busy after reset on an idle bus"); end
 
     spmi_write(4'h5, 8'h03, 8'h5A);
     repeat(5) @(posedge clk);
+    if (n_rxv != 1) begin errors++; $display("ERROR: SPMI rx_valid pulses for one write: %0d", n_rxv); end
     if (!rx_seen) begin errors++; $display("ERROR: SPMI rx_valid never pulsed"); end
     if (rx_byte !== 8'h5A) begin errors++; $display("ERROR: SPMI rx=%h exp=5A", rx_byte); end
     if (rx_addr !== 8'h03) begin errors++; $display("ERROR: SPMI rx_addr=%h exp=03", rx_addr); end

@@ -232,6 +232,7 @@ frame size up to past the VLAN maximum, promiscuous mode and resets are run.
 | "traffic did not drain: fh" | every frame sent and received | §3.2, §3.3 |
 | "PAUSE seen / not seen" | the PAUSE frame is recognised | §3.3, §3.4 |
 | "A started a frame" | no new frame for quanta x 64 byte times | §3.4 |
+| "A held its frame" | nor longer than quanta x 64 byte times (within 20 byte times): the quanta come from bytes 16-17 | §3.4 |
 | "A held its frame for a PAUSE it should ignore" | no hold with `cfg_pause_en` 0 or a bad FCS | §3.4 |
 | a_tx_ready | `tx_ready` in DATA at byte edges | §3.2 |
 | a_gtx | `gtx_en` / `gtx_er` / `gtxd` exactly as the checker's model | §3.2 |

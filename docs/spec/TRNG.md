@@ -272,6 +272,7 @@ and a reset mid-output.
 | "failure counters" | `rct_fails` / `apt_fails` as the model | §3.3 |
 | "sticky alert flags" | `alert_rct` / `alert_apt` as the model | §3.3 |
 | "raw sample while stopped" | no samples in IDLE / FAIL | §3.2 |
+| "sample spacing" | while running, a sample every `smp_div` + 1 clocks | §3.2 |
 | "es_ok" | `es_ok` in RUN / HASH / OUT | §3.1 |
 | "es_fips" | `es_fips` = `es_ok` and FIPS | §3.6 |
 | "ent_valid" | `ent_valid` exactly in OUT | §3.6 |

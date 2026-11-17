@@ -208,6 +208,12 @@ messages and A1..A7 are built only for Verilator. Assertions a_* are in `tb/cov/
 | "A5 drive only in ACKP/IDLE-drain" | `sd_oe` only in ACKP or IDLE (the bit after the frame) | §3.3, §3.4 |
 | "A6 rx_byte stable" | `rx_byte` changes only with `rx_valid` | §3.3 |
 | "A7 rx_valid implies busy" | `rx_valid` only during a frame | §3.3 |
+| "SPMI rx_valid longer than one clock" | `rx_valid` is a one-clock pulse (every build) | §3.3 |
+| "SPMI rx_valid outside a frame" | `rx_valid` only while `busy` (every build) | §3.3 |
+| "SPMI irq differs from rx_valid" | `irq` = `rx_valid` | §1 |
+| "SPMI busy does not follow the state" | `busy` low exactly in IDLE and IGNORE (every build) | §1 |
+| "SPMI busy after reset on an idle bus" | leaving reset on an idle bus starts nothing | §3.1 |
+| "SPMI rx_valid pulses for one write" | one register write gives exactly one `rx_valid` pulse | §3.3 |
 | a_reset_released | in reset SDATA released, `busy` and `rx_valid` 0 | §3.5 |
 | a_drive_model | `sd_oe` equals an independent frame model (ACK and read bits) | §3.3, §3.4 |
 | a_rx_valid_model | `rx_valid` equals the model | §3.3 |
