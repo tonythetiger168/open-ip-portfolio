@@ -43,6 +43,8 @@ module DisplayPort2_tb;
   endfunction
 
   task automatic cycles(input int n); repeat (n) @(negedge clk); endtask
+  // the released AUX pair idles with aux_tx_p 1 (also after an unplug abort)
+  always @(negedge clk) if (rst_n && aux_tx_en === 1'b0 && aux_tx_p !== 1'b1) fail("aux_tx_p not 1 with the pair released");
 
   // ------------------------------------------------------------ 8b/10b tables
   // standard tables, {RD- code, RD+ code}, bits abcdei / fghj

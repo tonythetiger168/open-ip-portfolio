@@ -97,6 +97,9 @@ module CHI_tb;
   always @(posedge clk) if (rst_n) begin
     if (rxreqlcrdv) h_rq++;
     if (rxdatlcrdv) h_dc++;
+    // the node never grants more credits than it has slots / data buffers
+    if (h_rq > RQ) fail($sformatf("host holds %0d RXREQ credits, more than %0d slots", h_rq, RQ));
+    if (h_dc > NDC) fail($sformatf("host holds %0d RXDAT credits, more than NDC %0d", h_dc, NDC));
     if (ev_err) n_err++;
     if (ev_proto) n_proto++;
     if (txrspflitv) begin : b_rsp
@@ -452,6 +455,48 @@ module CHI_tb;
       drain("pattern reads");
     end
     f_dp = -1;
+
+    // a write cut by a reset: a late data beat for it is a protocol error
+    begin : b_cut
+      int t, cs;
+      logic [7:0] dbid;
+      logic [1:0] id;
+      logic [3:0] nd;
+      p_dsend = 3; no_ilv = 1;
+      send_req(3, 6, 0, 0);                         // full line: four beats
+      t = 0; cs = -1;
+      while (cs < 0 && t < 20000) begin
+        @(negedge clk); t++;
+        for (int k = 0; k < 2; k++)
+          if (cs < 0 && dut.w_v[k] && dut.w_got[k] != 0 && dut.w_got[k] != dut.w_need[k]) cs = k;
+      end
+      if (cs < 0) fail("reset cut test: no partly received write");
+      else begin
+        dbid = {cs[0], dut.w_txn[cs][6:0]};
+        nd = dut.w_need[cs] & ~dut.w_got[cs];
+        id = nd[0] ? 2'd0 : nd[1] ? 2'd1 : nd[2] ? 2'd2 : 2'd3;
+        stop = 1;
+        rst_n = 0;
+        while (bg_busy) @(negedge clk);
+        wait_clk(3);
+        for (int i = 0; i < LINES * 64; i++) rm[i] = 0;
+        for (int l = 0; l < LINES; l++) busy[l] = 0;
+        for (int tt = 0; tt < 256; tt++) begin t_v[tt] = 0; done_after_data[tt] = 0; end
+        q_dbid.delete(); q_id.delete(); q_be.delete(); q_d.delete(); q_op.delete();
+        n_out = 0; h_rq = 0; h_dc = 0; g_rsp = 0; g_dat = 0;
+        x_err = 0; x_proto = 0; n_err = 0; n_proto = 0;
+        rxreqflitv = 0;
+        stop = 0; p_dsend = 100;
+        rst_n = 1;
+        while (h_dc == 0) @(negedge clk);
+        q_dbid.push_back(dbid); q_id.push_back(id); q_be.push_back(16'hFFFF);
+        q_d.push_back({$urandom, $urandom, $urandom, $urandom}); q_op.push_back(4'h3);
+        x_proto++;
+        while (q_dbid.size() != 0) @(negedge clk);
+        drain("reset cut");
+      end
+      no_ilv = 0;
+    end
 
     if (errors == 0) $display("TEST PASSED: CHI (%0d transactions, %0d RSP, %0d DAT flits)", n_txn, n_rsp, n_dat);
     else $display("TEST FAILED: CHI (%0d errors)", errors);

@@ -76,6 +76,23 @@ module USB_Type_C_Port_Controller_tb;
     end
   endtask
 
+  // ---- attach debounce: attached rises exactly when one CC pin has shown
+  // Rd (the same pin, no fault level) for the debounce time ----
+  int  rd_run = 0;          // clocks the same single-Rd candidate has been seen
+  bit  rd_pin = 0;
+  always @(posedge clk) begin
+    if (!rst_n || attached) rd_run = 0;
+    else if (((cc1 == CC_RD) ^ (cc2 == CC_RD)) && cc1 != CC_BAD && cc2 != CC_BAD &&
+             (rd_run == 0 || (cc2 == CC_RD) == rd_pin)) begin
+      if (rd_run == 0) rd_pin = (cc2 == CC_RD);
+      rd_run++;
+    end else rd_run = 0;
+  end
+  // UNATTACHED -> ATTACHWAIT takes one clock, then DEBOUNCE_ATTACH (100) clocks
+  always @(posedge attached)
+    chk(rd_run == 101, $sformatf("attach after %0d clocks of Rd, expected 101", rd_run));
+  always @(negedge clk) if (rst_n && rd_run > 101 && !attached) chk(0, "no attach after 101 clocks of Rd");
+
 `ifdef VERILATOR
   // =====================================================================
   // v2.5 CRV instrumentation (Verilator only; iverilog path unchanged)

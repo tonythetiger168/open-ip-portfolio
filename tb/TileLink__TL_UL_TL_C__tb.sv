@@ -36,6 +36,14 @@ module TileLink__TL_UL_TL_C__tb;
 
   always #5 clk = ~clk;
 
+  // D channel fields 0 in reset (sampled one clock into the reset)
+  logic rst_q1 = 1'b1;
+  always @(negedge clk) begin
+    if (!rst_n && !rst_q1 && {d_opcode, d_size, d_source, d_data, d_error} !== '0) begin
+      errors++; $display("ERROR: D channel fields not 0 in reset @%0t", $time);
+    end
+    rst_q1 = rst_n;
+  end
 `ifdef VERILATOR
   // =====================================================================
   // v2.5 CRV instrumentation (tool build only; iverilog path unchanged)
@@ -156,6 +164,9 @@ module TileLink__TL_UL_TL_C__tb;
         end
         if (d_size !== size) begin
           errors++; $display("ERROR: size echo exp %0d got %0d", size, d_size);
+        end
+        if ((exp_err || op != 3'd4) && d_data !== 32'd0) begin
+          errors++; $display("ERROR: d_data %h on an AccessAck or error response, expected 0", d_data);
         end
         if (!exp_err) begin
           if (op == 3'd4) begin

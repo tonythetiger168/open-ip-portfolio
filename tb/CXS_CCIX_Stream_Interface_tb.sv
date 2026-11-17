@@ -84,6 +84,24 @@ module CXS_CCIX_Stream_Interface_tb;
     i_rreq[1] = bfm_t ? 1'b0 : ctreq[0];
   end
 
+  // ---------------- transmit flit fill model ----------------
+  // words in the flit being filled, packets ended in it, a packet open; a
+  // flit leaves when cxs_tx_valid rises (never in a clock that takes a word).
+  // tx_ready: room for a word and the flit not closed by a second packet end.
+  int m_fw [2] = '{0, 0}, m_ne [2] = '{0, 0};
+  bit m_ip [2] = '{0, 0}, m_hs [2] = '{0, 0}, m_hl [2] = '{0, 0};
+  always @(posedge clk) for (int e = 0; e < 2; e++) begin
+    m_hs[e] = tx_valid[e] && tx_ready[e]; m_hl[e] = tx_last[e];
+  end
+  always @(negedge clk) for (int e = 0; e < 2; e++) begin
+    if (!rst_n) begin m_fw[e] = 0; m_ne[e] = 0; m_ip[e] = 0; end
+    else if (ctv[e]) begin m_fw[e] = 0; m_ne[e] = 0; end
+    else if (m_hs[e]) begin m_fw[e]++; if (m_hl[e]) m_ne[e]++; m_ip[e] = !m_hl[e]; end
+    m_hs[e] = 0;
+    if (rst_n && tx_ready[e] !== (m_fw[e] != 4 && !(m_fw[e] != 0 && !m_ip[e] && m_ne[e] == 2)))
+      fail($sformatf("tx_ready wrong: port %0d ready %b with %0d words, %0d packets ended", e, tx_ready[e], m_fw[e], m_ne[e]));
+  end
+
   // ---------------- events ----------------
   int n_crd = 0, n_cntl = 0, x_crd = 0, x_cntl = 0;
   always @(posedge clk) if (rst_n) begin
@@ -295,6 +313,18 @@ module CXS_CCIX_Stream_Interface_tb;
     bf_bad(cn(1, 0, 0, 1, 0, 0, 0), 1);                  // END and START on its words
     bf_good(cn(1, 2, 0, 0, 0, 0, 0), 4'b1100, 4'b0000, 4'b0000);
     bf_bad(cn(0, 0, 0, 2, 1, 1, 0), 1);                  // END twice on a word
+    // a bad flit that closes an open packet fills the last buffer: no credit
+    // may be granted while every buffer is full
+    while (b_cr != RXF || x1.size() != 0) @(negedge clk);
+    p_rx = 0;
+    wait_clk(2);
+    bf_good(cn(1, 3, 0, 0, 0, 0, 0), 4'b1000, 4'b0000, 4'b0000);   // a packet open
+    for (int i = 0; i < RXF - 2; i++)
+      bf_good(cn(0, 0, 0, 0, 0, 0, 0), 4'b1111, 4'b0000, 4'b0000);
+    bf_bad(cn(1, 1, 0, 0, 0, 0, 0), 1);                  // START with it open
+    wait_clk(10);
+    if (b_cr != 0) fail($sformatf("credits granted with every buffer full: %0d", b_cr));
+    p_rx = 70;
     // a flit without a credit, a credit returned beyond those granted
     while (b_cr != RXF || x1.size() != 0) @(negedge clk);
     p_rx = 0;
