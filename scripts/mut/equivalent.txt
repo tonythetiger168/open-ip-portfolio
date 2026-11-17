@@ -278,3 +278,5 @@ LIN | if (!rst_n) begin rx_m <= 1'b1; rx_s <= 1'b1; rx_d <= 1'b1; end | 1'b1 -> 
 LIN | if (!rst_n) begin rx_m <= 1'b1; rx_s <= 1'b1; rx_d <= 1'b1; end | 1'b1 -> 1'b0@3 | reset value; rx_d is used only in fall = rx_d && !rx_s, and in the first clock rx_s is still its reset 1, so fall is 0 either way
 LIN | drv <= 1'b1; hdr_id_q <= '0; tx_pend <= 1'b0; sp_ok <= 1'b0; | 1'b0 -> 1'b1@2 | reset value; sp_ok is read only together with tx_pend, which is set in F_RSP, and every way into F_RSP (a PID) clears sp_ok
 USB3_2 | ev_lbad <= 1'b1; lrty_p <= 1'b1; rp_req <= 1'b1; ptmr <= '0; lbn <= lbn + 2'd1; | + -> - | lbn is only compared with 2 and cleared by LGOOD and on the link's advertisement; counting down (0, 3, 2) also reaches 2 at the third LBAD in a row
+CXL | if (t_last) begin drs_v <= 1'b0; drs_hs <= 1'b0; end | 1'b0 -> 1'b1@2 | drs_hs is read only together with drs_v, which this clears, and loading the next DRS (drs_v set) clears drs_hs too
+CXL | r_left >= (QW+1)'(RQD - 1) ? 2'b11 : 2'b10; | 1 -> 2@1 | a wider cast of the constant RQD - 1: the compare with r_left gives the same result
