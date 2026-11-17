@@ -65,6 +65,25 @@ module Interlaken_v1_2_tb;
     .peer_status(peer_status[1]), .err_word(err_word[1]), .err_sync(err_sync[1]), .err_scr(err_scr[1]),
     .err_crc32(err_crc32[1]), .err_crc24(err_crc24[1]), .err_proto(err_proto[1]));
 
+  // error pulses of B
+  int n_esync = 0, n_escr = 0, c0;
+  always @(posedge clk) if (rst_n) begin n_esync += err_sync[1]; n_escr += err_scr[1]; end
+
+  // ---------------- scrambler reference (A's TX) ----------------
+  // the state word of each metaframe carries the generator state: SEED in
+  // the first one, then (MF - 2) * 64 steps of x^58 + x^39 + 1 per metaframe
+  function automatic logic [57:0] g_step(input logic [57:0] g, input int n);
+    for (int i = 0; i < n; i++) g = {g[56:0], g[57] ^ g[38]};
+    return g;
+  endfunction
+  logic [57:0] g_ref;
+  always @(posedge clk)
+    if (!rst_n) g_ref = 58'h155_5555_0000_FFFF;
+    else if (u_a.tc == 7'd0 && u_a.tw == 1) begin
+      if (u_a.tscr !== g_ref) fail($sformatf("A: scrambler state word %h, expected %h", u_a.tscr, g_ref));
+      g_ref = g_step(g_ref, (MF - 2) * 64);
+    end
+
   // ---------------- host drivers ----------------
   // a word offered stays offered until taken; between words a gap of a
   // random number of clocks may follow
@@ -291,9 +310,11 @@ module Interlaken_v1_2_tb;
     // ---- sync words hit: 3 in a row keep the lock, 4 drop it; while
     // testing one drops the test
     dirty[1] = 1;
+    c0 = n_esync;
     for (int i = 0; i < 3; i++) flip_pos(0, 30);
     wait_clk(2 * MCLK);
     if (!sync_lock[1]) fail("lock lost after 3 sync words");
+    if (n_esync - c0 != 3) fail($sformatf("%0d err_sync pulses for 3 missing sync words", n_esync - c0));
     for (int i = 0; i < 4; i++) flip_pos(0, 30);
     wait_clk(WCLK);
     if (sync_lock[1]) fail("still locked after 4 sync words");
@@ -302,10 +323,12 @@ module Interlaken_v1_2_tb;
     clean_b();
     // ---- scrambler state words hit: 2 in a row keep the lock, 3 drop it
     dirty[1] = 1;
+    c0 = n_escr;
     flip_pos(1, 40);                            // the state field
     flip_pos(1, 1, 2);                          // the framing bits: a data word
     wait_clk(2 * MCLK);
     if (!sync_lock[1]) fail("lock lost after 2 scrambler state words");
+    if (n_escr - c0 != 2) fail($sformatf("%0d err_scr pulses for 2 bad scrambler state words", n_escr - c0));
     for (int i = 0; i < 3; i++) flip_pos(1, 40);
     wait_clk(WCLK);
     if (sync_lock[1]) fail("still locked after 3 scrambler state words");

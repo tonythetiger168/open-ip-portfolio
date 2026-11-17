@@ -271,6 +271,8 @@ cleared only by a new session, so after CTRL bit 2 `pix_ready` stays low with `i
 | "ERR exhausted" | ERR bit 5 | §3.4 |
 | "STATUS exhausted" | STATUS bit 5 | §3.5 |
 | "no more pixels" | no word taken once exhausted | §3.4 |
+| "word held without enc_ready" | `enc_valid` stays high until `enc_ready` | §3.4 |
+| "word waiting at a new session not dropped" | leaving AUTH (new session) drops a word still waiting for `enc_ready` | §3.4 |
 | "new session clears the error" | CTRL.start clears ERR, fail and exhausted | §3.5 |
 | a_reset_outputs | reset values | §3.6 |
 | a_txm_valid | `txm_valid` equals the checker's model | §3.2 |

@@ -212,6 +212,7 @@ and resets mid-sequence.
 | Check (TB message or assertion) | What it requires | Spec |
 |---|---|---|
 | "SDATA driven by two" | the master never drives while a slave does | §3.4 |
+| "master bus outputs not 0 in reset" | `sclk`, `sdata_o`, `sdata_oe` 0 while `!rst_n` | §3.5 |
 | "SCLK high for" | SCLK high exactly one half period | §3.2 |
 | "read byte" | each read byte as the slave's register | §3.4 |
 | "read" | read count and parity flags as expected | §3.4 |

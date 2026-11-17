@@ -434,6 +434,30 @@ module GbE_DMA_tb;
       for (int k = 0; k < 2; k++) post_rx(1600);
       rx_collect(rx_chk + rx_q.size());
     end
+    // the RX FIFO fills in the middle of a frame and drains again before the
+    // frame ends: the frame is still dropped
+    begin
+      int d0, f;
+      bit st;
+      d0 = rx_drop; st = mem.stall; mem.stall = 0;
+      for (int k = 0; k < 2; k++) begin
+        f = mk_frame(1500, cfg_mac);
+        rx_q.push_back(f); rx_stq.push_back(4'd0);
+        p_send(f);
+      end
+      f = mk_frame(1500, cfg_mac);
+      fork
+        p_send(f);
+        begin
+          while (dut.rx_free != '0) @(negedge clk);
+          post_rx(1600); post_rx(1600);
+        end
+      join
+      clks(50);
+      if (rx_drop != d0 + 1) fail($sformatf("FIFO full mid-frame: RX_DROP %0d, expected %0d", rx_drop, d0 + 1));
+      rx_collect(rx_chk + rx_q.size());
+      mem.stall = st;
+    end
     if (tx_q.size() != 0) fail("TX frames left over");
     if (rx_q.size() != 0) fail("RX frames left over");
     // TX and RX both pending at the IDLE step: RX first (TX enabled on the

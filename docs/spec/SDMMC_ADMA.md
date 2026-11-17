@@ -421,6 +421,7 @@ of 64 to 512 bytes over 1 to 5 tran descriptors with nop and link descriptors.
 | "sd_clk ran with the buffer full" | with AW held off during an 8-block read, `sd_clk` stops | §3.1, §3.4 |
 | "HOLD low with the buffer full" | internal `hold` = 1 while it is stopped | §3.4 |
 | "no response: C_ERR" | no response gives exactly `c_err` = 00001 | §3.2 |
+| "CMD13 during a read: C_ERR" | a non-data command may run while a read runs; its error (here a bad response CRC, `c_err` = 00010) is the command's only and the transfer ends with `d_err` = 0 | §3.2 |
 | "response CRC: C_ERR" | a bad CRC7 gives exactly 00010 | §3.2 |
 | "busy timeout: C_ERR" | endless busy with `dto` = 300 gives exactly 10000 | §3.2 |
 | "read CRC: D_ERR" | a read CRC16 error sets `d_err[1]` and `xfer_err` | §3.4 |
@@ -481,4 +482,6 @@ From `tb/cov/SDMMC_ADMA_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such a
 | "4-byte blocks: stopped at" | fails when `!blk_done[15]` (`tb/SDMMC_ADMA_tb.sv` line 465) | §3 |
 | "longest data timeout: D_ERR" | fails when `dat_busy \|\| !d_err[0]` (`tb/SDMMC_ADMA_tb.sv` line 479) | §3 |
 | "longest busy timeout: C_ERR" | fails when `cmd_busy \|\| c_err !== 5'b10000` (`tb/SDMMC_ADMA_tb.sv` line 484) | §3 |
-| "not idle in reset" | fails when `dat_busy \|\| cmd_busy` (`tb/SDMMC_ADMA_tb.sv` line 494) | §3 |
+| "not idle in reset" | fails when `dat_busy \|\| cmd_busy` (`tb/SDMMC_ADMA_tb.sv` line 509) | §3 |
+| "XFER_DONE / XFER_ERR / DMA_INT not 0 in reset" | fails when `xfer_done \|\| xfer_err \|\| dma_int` while `!rst_n` | §3 |
+| "XFER_ERR without XFER_DONE" | `xfer_err` only with `xfer_done` | §1 |

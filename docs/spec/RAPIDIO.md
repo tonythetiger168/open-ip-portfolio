@@ -322,6 +322,7 @@ None.
 | "one-octet packet after a request" | also a one-octet one | §3.1 |
 | "packet while our doorbell goes out" | dropped while our doorbell is sent | §3.1 |
 | "reset values" | reset values | §3.9 |
+| "rx_rep with no packet after reset" | no `rx_rep` in the clocks after reset, before any packet | §3.9 |
 | "reset values in a packet" | a reset inside a packet | §3.9 |
 | a_tx_valid | `tx_valid` as the checker's model | §3.2 |
 | a_tx_data | every transmitted octet as the model | §3.2..§3.7 |
