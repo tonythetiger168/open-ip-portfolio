@@ -387,6 +387,10 @@ messages, and a reset with traffic in flight.
 | "L1 refused, but not ACTIVE" | after Rsp.PMNAK both stay ACTIVE | §3.4 |
 | "crafted Req.Active: A not in ACTREQ" | Req.Active in ACTIVE -> ACTREQ | §3.2 |
 | "crafted Rsp.Active: A not ACTIVE" | Rsp.Active completes ACTREQ -> ACTIVE | §3.2 |
+| "ev_proto on a clean link: A" | no `ev_proto` at either end from reset through the first clean traffic | §3.7 |
+| "crafted messages in ACTIVE" | in ACTIVE, an unknown code, FinCap, Rsp.Active, Rsp.L1 and PMNAK without a request each give one `ev_proto` (6) | §3.7 |
+| "crafted messages while negotiating" | FinCap, Rsp.Active and Req.Active in RESET, Req.Active and AdvCap in LINKERROR each give one `ev_proto` (5) | §3.7 |
+| "crafted messages in L1" | PMNAK and Req.L1 in L1 and a main-band flit in L1 each give one `ev_proto` (3) | §3.7 |
 | "crafted: too few flits outstanding" | ACK outside the outstanding range is ignored | §3.6 |
 | "Retry off, bad CRC: A not in LINKERROR" | bad CRC without Retry -> LINKERROR | §3.6 |
 | "Retry off with corruption: no LINKERROR" | the same with a corrupting physical layer | §3.6 |
