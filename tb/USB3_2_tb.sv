@@ -96,7 +96,7 @@ module USB3_2_tb;
   logic [7:0] wbuf [0:1][0:127];
   int         wn [0:1], wpos [0:1], wgap [0:1], nrx [0:1], nerr [0:1];
   bit         wen [0:1], wtk [0:1];
-  int         gap_max = 30, rdy_pct [0:1], wmode = 0;   // wmode 1: long writes only
+  int         gap_max = 30, rdy_pct [0:1], wmode = 0;   // wmode 1: long writes only, 2: DP headers with empty payloads
   bit         allow_err = 0;
   int         drop_err [0:1];                       // payloads cut by a link drop, per receiving end
   initial begin drop_err[0] = 0; drop_err[1] = 0; end
@@ -122,11 +122,12 @@ module USB3_2_tb;
   task new_unit(input int p);
     int r, s;
     r = $urandom % 100;
-    if (wmode == 1 || r < 4) wn[p] = PL + 1 + $urandom % 20;          // cut
+    if (wmode == 2) wn[p] = 12;                                        // DP, empty payload
+    else if (wmode == 1 || r < 4) wn[p] = PL + 1 + $urandom % 20;     // cut
     else if (r < 70) wn[p] = 12 + $urandom % (MAXD + 1);               // DP
     else wn[p] = 1 + $urandom % 16;                                    // other / short
     for (int i = 0; i < wn[p]; i++) wbuf[p][i] = $urandom;
-    if (r < 70 || wmode == 1) wbuf[p][0][4:0] = 5'b01000;
+    if (r < 70 || wmode != 0) wbuf[p][0][4:0] = 5'b01000;
     else if (wbuf[p][0][4:0] == 5'b01000) wbuf[p][0][4:0] = 5'b00100;
     s = 0;
     while (wn[p] - s > PL) begin expect_pkt(p, s, PL); s += PL; end
@@ -683,22 +684,38 @@ module USB3_2_tb;
     bwait();
     wait_up(0);
     wait_clk(1000);
-    // LGOODs and LCRDs out of order
+    // LGOODs and LCRDs out of order (from a fresh advertisement, link up)
+    link_cycle(); link[0] = 1; wait_clk(30);
+    badv(u_a.nsent - 1); bwait(); wait_up(0);
     while (u_a.t_out == 0) @(negedge clk);
     wen[0] = 0;
+    if (u_a.ll != 2) fail("link not up for the out-of-order LGOOD");
+    ev_mark(); rec_a = 0;
     blgood(u_a.ackd + 3);
     bwait();
-    wait_rec();
+    wait_rec(50);                               // at once, not by a timer
+    ev_check(0, 5, 1, "LGOOD out of order: A ev_proto");
     link_cycle(); link[0] = 1; wait_clk(30);
     badv(u_a.nsent - 1); bwait(); wait_up(0);
     while (wpos[0] != 0) @(negedge clk);         // the writer may have been mid-packet
+    ev_mark();
     blcrd(2);                                   // wrong letter
     bwait();
-    wait_rec();
+    wait_rec(50);                               // at once, not by a timer
+    ev_check(0, 5, 1, "LCRD with the wrong letter: A ev_proto");
     link_cycle(); link[0] = 1; wait_clk(30);
+    ev_mark();
     badv(u_a.nsent - 1, 5);   // one too many
     bwait();
-    wait_rec();
+    wait_rec(50);                               // at once, not by a timer
+    ev_check(0, 5, 1, "advertisement with one credit too many: A ev_proto");
+    link_cycle(); link[0] = 1; wait_clk(30);
+    if (u_a.ll != 1) fail("link not advertising for the LGOOD beyond those sent");
+    ev_mark();
+    blgood(u_a.ackd + u_a.t_out + 1);           // acknowledges one more than sent
+    bwait();
+    wait_rec(50);
+    ev_check(0, 5, 1, "advertisement LGOOD beyond those sent: A ev_proto");
     // LBADs: with nothing sent; retry; three in a row
     link_cycle(); link[0] = 1; wait_clk(30);
     badv(u_a.ackd); bwait(); wait_up(0);
@@ -706,13 +723,17 @@ module USB3_2_tb;
     for (int k = 0; k < 500 || u_a.t_out != 0; k++)
       if (u_a.t_out != 0) begin blgood(u_a.ackd + 1); bwait(); end
       else @(negedge clk);
+    ev_mark(); rec_a = 0;
     blc(11'h180);                               // nothing sent
     bwait();
-    wait_rec();
+    wait_rec(50);
+    ev_check(0, 5, 1, "LBAD with nothing sent: A ev_proto");
     link_cycle(); link[0] = 1; wait_clk(30);
     badv(u_a.ackd); bwait(); wait_up(0);
+    wmode = 2;                                  // DP headers with empty payloads: retried
     wen[0] = 1;
     while (u_a.t_out < 2) @(negedge clk);
+    wmode = 0;
     blc(11'h180);
     bwait();
     wait_lc(11'h100);
