@@ -218,6 +218,7 @@ SCAN_REQ with scan_en off raises no `irq`.
 | "ADV_IND expected" | an ADV_IND every ADV_INTV + 1 clocks while advertising | §3.3 |
 | "ADV_IND format" | good CRC, header type 0, length 16 | §3.1, §3.3 |
 | "ADV_IND payload" | the payload is the 16 config bytes | §3.3 |
+| "first ADV_IND before ADV_INTV after reset" | the first ADV_IND starts no earlier than ADV_INTV clocks after reset | §3.3 |
 | "connected" | a 15-byte CONNECT_REQ enters the connection state | §3.4 |
 | "no answer to a bad PDU" | a data PDU with reserved LLID gets no answer | §3.5 |
 | "irq on a bad data PDU" | ...and one `irq` | §5 |

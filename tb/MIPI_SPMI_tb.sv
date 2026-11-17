@@ -206,6 +206,11 @@ module MIPI_SPMI_tb;
     // register 0 write, own and broadcast; broadcast register write
     reg0_write(USID, 7'h55, 0); reg_read(USID, 5'd0);
     reg0_write(4'h0, 7'h2A, 0); reg_read(USID, 5'd0);
+    // SDATA high before SCLK falls, then low: no rising edge while SCLK is
+    // low, so this is not a sequence start and the command bits after it
+    // must be ignored (reg 0 keeps 2A).
+    m_sclk = 1; m_oe = 1; m_val = 1; #HALF; m_sclk = 0; #HALF; m_val = 0; #HALF;
+    m_cmd(USID, {1'b1, 7'h3C}, 0); m_bp; m_idle(4); reg_read(USID, 5'd0);
     reg_write(4'h0, 5'd9, 8'hB9, 0, 0); reg_read(USID, 5'd9);
 
     // other slaves' traffic is ignored silently

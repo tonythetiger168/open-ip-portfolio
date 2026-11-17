@@ -375,3 +375,33 @@ DFI_5_0__MC_PHY_Interface_ | for (int i = 0; i < T_RDDATA_EN; i++) re_a[i] <= 8'
 Ethernet_AVB_TSN | + (time_adj ? {{32{time_adj_ns[31]}}, time_adj_ns} : 64'd0); | 32 -> 33 | a 33rd sign bit makes 65 bits; the 64-bit sum drops it, leaving the same sign extension
 Ethernet_AVB_TSN | for (int c = 0; c < 4; c++) cbs_credit[20*c +: 20] = credit[c]; | 4 -> 5 | the fifth pass writes bits 99:80 of the 80-bit cbs_credit, out of range and ignored
 DFI_5_0__MC_PHY_Interface_ | for (int i = 0; i < T_RDDATA_EN; i++) re_a[i] <= 8'd0; | 0 -> 1 | as above: re_a[0] is loaded with its re_v bit, and its read data only reaches dfi_rddata behind that valid bit
+SATA | for (int i = 0; i < 8; i++) if (rbuf[i + 1] != wbuf[i]) rd_bad = 1'b1; | 8 -> 9 | the ninth pass compares rbuf[9] and wbuf[8], both out of range (X): the if is never taken
+AHB | slow_q  <= 1'b0; | 1'b0 -> 1'b1 | slow_q is only used together with valid_q (0 after reset), and is loaded with the transfer that sets valid_q
+I2C | rw <= 1'b0; ack_low <= 1'b0; txack_done <= 1'b0; | 1'b0 -> 1'b1@1 | rw is loaded from the address byte before any data phase reads it
+I2C | rw <= 1'b0; ack_low <= 1'b0; txack_done <= 1'b0; | 1'b0 -> 1'b1@3 | txack_done is cleared at every START before it is read
+MIPI_DBI__Display_Bus_Interface_ | sh <= {sh[6:0], 1'b0}; | 1'b0 -> 1'b1 | the fill bit enters bit 0 and a byte takes 7 shifts after its first bit, so it never reaches sh[7] before the next load
+UART | tshift <= {1'b0, tshift[7:1]};#1 | 1'b0 -> 1'b1 | 8 shifts per frame and txd takes tshift[0] before each shift; the fill bits would reach bit 0 only at the stop bit, which drives 1 instead
+UART | tshift <= {1'b0, tshift[7:1]};#2 | 1'b0 -> 1'b1 | 8 shifts per frame and txd takes tshift[0] before each shift; the fill bits would reach bit 0 only at the stop bit, which drives 1 instead
+SMBus | active <= 1'b0; rep <= 1'b0; drop <= 1'b0; tx <= 1'b0; mack <= 1'b0; pre <= 1'b0; ara <= 1'b0; | 1'b0 -> 1'b1@2 | every bus event is gated by active (0 after reset); the START that sets active clears rep and drop
+SMBus | active <= 1'b0; rep <= 1'b0; drop <= 1'b0; tx <= 1'b0; mack <= 1'b0; pre <= 1'b0; ara <= 1'b0; | 1'b0 -> 1'b1@3 | as @2: drop is cleared by the first START
+SMBus | active <= 1'b0; rep <= 1'b0; drop <= 1'b0; tx <= 1'b0; mack <= 1'b0; pre <= 1'b0; ara <= 1'b0; | 1'b0 -> 1'b1@4 | as @2: the START that sets active clears tx
+SMBus | active <= 1'b0; rep <= 1'b0; drop <= 1'b0; tx <= 1'b0; mack <= 1'b0; pre <= 1'b0; ara <= 1'b0; | 1'b0 -> 1'b1@5 | mack is written on the ACK bit of every sent byte before ev_ackend reads it
+SMBus | active <= 1'b0; rep <= 1'b0; drop <= 1'b0; tx <= 1'b0; mack <= 1'b0; pre <= 1'b0; ara <= 1'b0; | 1'b0 -> 1'b1@6 | as @2: the START that sets active sets pre
+SMBus | active <= 1'b0; rep <= 1'b0; drop <= 1'b0; tx <= 1'b0; mack <= 1'b0; pre <= 1'b0; ara <= 1'b0; | 1'b0 -> 1'b1@7 | as @2: the START that sets active clears ara
+SMBus | else if (start || stop)  hcnt <= '0; | || -> && | the hold counter (HOLD clocks after an SCL fall) has always run out by a START or STOP, which need SCL high for longer than HOLD; pre also masks the first fall_h after a START
+Ethernet_PCS | for (int k = 0; k < 32; k++) begin#1 | 32 -> 33 | the 33rd pass writes bits 329:320 of the 320-bit tea / teb_d, out of range and ignored
+ML_KEM | hst <= K_IDLE; kst <= '0; kpos <= '0; krnd <= '0; ksqz <= 1'b0; kseg <= '0; kidx <= '0; kout <= '0; | 1'b0 -> 1'b1 | ksqz is written whenever the sponge enters K_PERM, before K_PERM's last round reads it
+QSPI_XIP | io_o = {2'b11, 1'b0, osh[31]}; io_oe = 4'b1101; | 1'b0 -> 1'b1 | io_o[1] is never driven: IO1 is an input in every phase that drives io_o (io_oe[1] is 0)
+QSPI_XIP | rb_valid <= 1'b0; rb_data <= '0; | 1'b0 -> 1'b1 | the byte taken in the first clock after reset only advances wb_n, which restarts at 0 when an XIP read command opens; no word is complete
+Ethernet_RS_FEC | for (int i = 0; i < 46; i++) | 46 -> 47 | the 47th pass writes bits 469:460 of the 460-bit nd, out of range and ignored
+I2C_Host | sta_q <= 1'b0; wr_q <= 1'b0; rd_q <= 1'b0; sto_q <= 1'b0; nack_q <= 1'b0; | 1'b0 -> 1'b1 | all five are loaded when a command is accepted in S_IDLE, before any other state reads them
+I2C_Host | sh <= '0; rx_data <= '0; rx_ack <= 1'b0; bus_held <= 1'b0; done <= 1'b0; sda_s <= 1'b1; | 1'b1 -> 1'b0 | sda_s is resampled from SDA every clock and only read in S_BIT / S_ACK, never in the first clock
+I2C_Host | if (wr_q) sh <= {sh[6:0], 1'b0}; | 1'b0 -> 1'b1 | 7 shifts per written byte after its first bit: the fill bit never reaches sh[7] before the next load
+Crypto_DMA | g_seen <= 1'b0; r_seen <= 1'b0; w_seen <= 1'b0; ax_err <= 1'b0; drop <= 1'b0; | 1'b0 -> 1'b1@1 | reloaded at go; until then run is 0, which masks fin, rs_ready and the engine's write stream, and in_valid is 0 either way
+Crypto_DMA | g_seen <= 1'b0; r_seen <= 1'b0; w_seen <= 1'b0; ax_err <= 1'b0; drop <= 1'b0; | 1'b0 -> 1'b1@2 | reloaded at go; until then run is 0, which masks fin, rs_ready and the engine's write stream, and in_valid is 0 either way
+Crypto_DMA | g_seen <= 1'b0; r_seen <= 1'b0; w_seen <= 1'b0; ax_err <= 1'b0; drop <= 1'b0; | 1'b0 -> 1'b1@3 | reloaded at go; until then run is 0, which masks fin, rs_ready and the engine's write stream, and in_valid is 0 either way
+Crypto_DMA | g_seen <= 1'b0; r_seen <= 1'b0; w_seen <= 1'b0; ax_err <= 1'b0; drop <= 1'b0; | 1'b0 -> 1'b1@5 | reloaded at go; until then run is 0, which masks fin, rs_ready and the engine's write stream, and in_valid is 0 either way
+DisplayPort2 | op_done    <= 1'b0;#2 | 1'b0 -> 1'b1 | while the sink is unplugged the link FSM is held in LT_IDLE, which never reads op_done; in the first clock after the replug the AUX FSM clears it
+CAN_XL | f_xl <= 1'b0; f_fdf <= 1'b0; f_ide <= 1'b0; f_trunc <= 1'b0; | 1'b0 -> 1'b1@2 | SOF value of f_fdf; f_fdf is read only at bit 15 of a base-format frame, and bit 14 of the same frame always writes it first
+CAN_XL | f_xl <= 1'b0; f_fdf <= 1'b0; f_ide <= 1'b0; f_trunc <= 1'b0; | 1'b0 -> 1'b1@3 | SOF value of f_ide; the IDE bit (bit 13) writes it before any read: the header chain up to bit 13 does not look at f_ide, and known / dat_st are only used past bit 18
+CAN_XL | cnt <= '0; flag_passive <= 1'b0; rec_run <= '0; occ <= '0; | 1'b0 -> 1'b1@1 | reset value of flag_passive; it is read only in M_EFLAG, and the one way into M_EFLAG (an error) writes it from err_passive in the same clock
