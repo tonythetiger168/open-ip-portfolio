@@ -299,3 +299,7 @@ eUSB2 | stuff_p    <= 1'b0;#2 | 1'b0 -> 1'b1 | stuff_p is read only in P_RUN, an
 eUSB2 | stuff_p    <= 1'b0;#3 | 1'b0 -> 1'b1 | stuff_p is read only in P_RUN, and every entry into P_RUN (end of SYNC) clears it
 eUSB2 | stuff_p    <= 1'b0;#4 | 1'b0 -> 1'b1 | stuff_p is read only in P_RUN, and every entry into P_RUN (end of SYNC) clears it
 UFS | tx_ser <= 1'b1; tx_req <= 1'b0; tx_total <= '0; | 1'b1 -> 1'b0@1 | reset value; tx_ser reaches tx_p only in LP_LINKUP, and the free-running bit_tick sets it to 1 in TX_IDLE long before link training can finish
+SDIO | wr_ok       <= 1'b0; | 1'b0 -> 1'b1 | reset value; wr_ok is read only for the CRC status token, which is always preceded by the end-nibble tick that loads it
+SDIO | for (int l = 0; l < 4;   l++) begin crc16_l[l] <= '0; crc16_rx[l] <= '0; end | 4 -> 5 | the extra pass writes index 4 of the 0..3 arrays, which is out of range and has no effect
+SDIO | for (int l = 0; l < 4;   l++) begin crc16_l[l] <= '0; crc16_rx[l] <= '0; end | < -> >= | reset values; crc16_l is cleared in S_RSP before every data phase and crc16_rx is fully shifted in (16 bits) before it is compared
+SDIO | for (int l = 0; l < 4;   l++) begin crc16_l[l] <= '0; crc16_rx[l] <= '0; end | 0 -> 1 | reset values; crc16_l is cleared in S_RSP before every data phase and crc16_rx is fully shifted in (16 bits) before it is compared
