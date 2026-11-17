@@ -177,6 +177,7 @@ immediate checks A1.. are built only for Verilator. Assertions a_* are in `tb/co
 | "A1 reset: count zero" | `count` = 0 in reset | §3 Reset |
 | "A2 count within depth" | `count` ≤ 16 | §3 Count |
 | "A3 tready == not full" | `tready` = (`count` < 16) | §3 Ready |
+| "AXIS irq=" | every clock and in every build, `irq` = `tvalid` && `tready` && `tlast` | §3 Interrupt |
 | "A4 irq == push&tlast" | `irq` only in a push clock with `tlast` | §3 Interrupt |
 | "A5 count steps by <=1" | `count` changes by 0 or +1 per clock | §3 Count |
 | "A6 count changes only via push" | `count` changes only after a clock with `tready` = 1 | §3 Push |

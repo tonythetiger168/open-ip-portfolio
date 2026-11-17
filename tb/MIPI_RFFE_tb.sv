@@ -223,6 +223,24 @@ module MIPI_RFFE_tb;
     m_idle(2);
     if (dut.state !== 3'd0) begin errors++; $display("ERROR: SDATA pulse with SCLK high taken as SSC"); end
     compare_all();
+    // SDATA falling while SCLK is low, with no rise in that low phase, is
+    // not an SSC: a register write whose 1 bits drop back to 0 in the low
+    // half of every bit still lands
+    begin
+      logic [12:0] f;
+      logic [8:0]  g;
+      m_ssc;
+      f = {USID, 3'b010, 5'd9, ~^{USID, 3'b010, 5'd9}};
+      g = {8'hC5, ~^8'hC5};
+      for (int i = 21; i >= 0; i--) begin
+        m_sclk = 1; m_oe = 1; m_val = (i > 8) ? f[i - 9] : g[i]; #HALF;
+        m_sclk = 0; #(HALF / 2); m_val = 0; #(HALF / 2);
+      end
+      m_bp; m_idle(2);
+      smem[9] = 8'hC5;
+      if (dut.mem[9] !== 8'hC5) begin errors++; $display("ERROR: SDATA fall in the SCLK low phase taken as SSC"); end
+      compare_all();
+    end
 
     // reset while the slave drives read data
     m_ssc; m_cmd(USID, {3'b011, 5'd1}, 0); m_bp; m_oe = 0;

@@ -309,6 +309,11 @@ module UEC_tb;
   endtask
   int n_ev [0:4];
   initial for (int i = 0; i < 5; i++) n_ev[i] = 0;
+  int ea [0:4];                                  // A's events alone
+  initial for (int i = 0; i < 5; i++) ea[i] = 0;
+  always @(posedge clk) begin
+    ea[0] += ev_rto[0]; ea[1] += ev_nack[0]; ea[2] += ev_dup[0]; ea[3] += ev_nobuf[0]; ea[4] += ev_proto[0];
+  end
   always @(posedge clk) begin
     n_ev[0] += ev_rto[0] + ev_rto[1]; n_ev[1] += ev_nack[0] + ev_nack[1]; n_ev[2] += ev_dup[0] + ev_dup[1];
     n_ev[3] += ev_nobuf[0] + ev_nobuf[1]; n_ev[4] += ev_proto[0] + ev_proto[1];
@@ -349,6 +354,8 @@ module UEC_tb;
     wait_clk(3);
     rst_n = 1;
     wait_clk(3);
+    if ($isunknown({tx_ready, rx_valid, rx_last, ntv, ntl, outst, ev_rto, ev_nack, ev_dup, ev_nobuf, ev_proto}))
+      fail("outputs unknown after reset");
     // clean network
     open_pdc(16'h1234, 16'hFFF0);
     traffic(3000, "clean");
@@ -497,10 +504,20 @@ module UEC_tb;
     for (int i = 0; i < W; i++) a_write(1 + $urandom % MAXP);
     bg_n = 2;                                    // waits for room
     for (int i = 1; i <= W; i++) a_expect(s + 16'(i));
-    a_expect(s + 1, 2 * RTO);                    // timeout: all again
+    begin : b_rto
+      int e;
+      e = ea[0];
+      a_expect(s + 1, 2 * RTO);                  // timeout: all again
+      if (ea[0] != e + 1) fail("A: ev_rto at the timeout");
+    end
     for (int i = 2; i <= W; i++) a_expect(s + 16'(i));
-    bnack(s + 3);
-    a_expect(s + 3);
+    begin : b_nack
+      int e;
+      e = ea[1];
+      bnack(s + 3);
+      a_expect(s + 3);
+      if (ea[1] != e + 1) fail("A: ev_nack for a NACK of an outstanding packet");
+    end
     back(s, 8'b010);                             // SACK: s + 3 only (s + 2 + 1)
     bnack(s + 3);                                // acknowledged, not yet out of the window
     back(s - 5);                                 // late
@@ -575,6 +592,28 @@ module UEC_tb;
     bwait();
     wait_clk(20);
     if (outst[0] != 0) fail($sformatf("A: %0d outstanding after the held packets", outst[0]));
+    // a 3-byte frame that is not a NACK, naming an outstanding PSN, is
+    // dropped (ev_proto), not taken as a NACK; then SACK bit 0 (CACK + 2)
+    // and the last one, W - 2 (CACK + W), acknowledge their packets
+    s = s + 3;
+    for (int i = 0; i < W; i++) a_write(1 + $urandom % MAXP);
+    for (int i = 0; i < W; i++) a_expect(s + 16'(i));
+    begin : b_sack
+      int e1, e4;
+      e1 = ea[1]; e4 = ea[4];
+      bq.push_back({1'b0, 8'h20}); bq.push_back({1'b0, 8'(16'(s + 1) >> 8)}); bq.push_back({1'b1, 8'(s + 1)});
+      bwait(); wait_clk(5);
+      if (ea[1] != e1 || ea[4] != e4 + 1) fail("A: 3-byte ACK taken as a NACK");
+    end
+    back(s - 1, 8'(1 | 1 << (W - 2)));
+    back(s);
+    bwait();
+    wait_clk(20);
+    if (outst[0] != 2) fail("A: SACK bit 0 did not acknowledge its packet");
+    back(s + 16'(W - 2));
+    bwait();
+    wait_clk(20);
+    if (outst[0] != 0) fail("A: the last SACK bit did not acknowledge its packet");
     // closed with a frame on the way out, a frame coming in and a gap in
     // what was received
     bdata(r + 1, 2);

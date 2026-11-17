@@ -87,9 +87,9 @@ module Ethernet_RS_FEC_tb;
   logic [5440:0] dx;
   logic [5:0]    vx;
   always @(posedge clk) if (rst_n && d_out_valid && d_out_ready) begin
-    if (d_out_first != (dbc == 0)) fail($sformatf("d_out_first %b at beat %0d", d_out_first, dbc));
+    if (d_out_first !== (dbc == 0)) fail($sformatf("d_out_first %b at beat %0d", d_out_first, dbc));
     if (dbc == 0) dbad = d_out_bad;
-    else if (d_out_bad != dbad) fail("d_out_bad changes inside a codeword");
+    else if (d_out_bad !== dbad) fail("d_out_bad changes inside a codeword");
     dacc[320*dbc +: 320] = d_out_data;
     dbc++;
     if (dbc == 17) begin
@@ -97,11 +97,11 @@ module Ethernet_RS_FEC_tb;
       if (d_exp.size() == 0) fail("decoder: unexpected codeword");
       else begin
         dx = d_exp.pop_front();
-        if (dx[5440] != dbad) fail($sformatf("decoder codeword %0d: bad %b want %b", n_dec, dbad, dx[5440]));
-        if (dx[5439:0] != dacc) begin
+        if (dx[5440] !== dbad) fail($sformatf("decoder codeword %0d: bad %b want %b", n_dec, dbad, dx[5440]));
+        if (dx[5439:0] !== dacc) begin
           fail($sformatf("decoder codeword %0d: data mismatch", n_dec));
           for (int i = 0; i < 544; i++)
-            if (dx[10*i +: 10] != dacc[10*i +: 10])
+            if (dx[10*i +: 10] !== dacc[10*i +: 10])
               $display("   symbol %0d: got %h want %h", i, dacc[10*i +: 10], dx[10*i +: 10]);
         end
       end
