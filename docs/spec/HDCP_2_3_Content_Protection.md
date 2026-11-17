@@ -283,4 +283,4 @@ cleared only by a new session, so after CTRL bit 2 `pix_ready` stays low with `i
 | a_enc_data | `enc_data` as the model | §3.4 |
 | a_irq | `irq` as the model | §5 |
 | a_reg_rdata | `reg_rdata` as the model | §3.5 |
-| a_enc_held_under_backpressure | `enc_data` stable while `enc_valid` && !`enc_ready` | §3.4 |
+| a_enc_held_under_backpressure | `enc_data` stable while `enc_valid` && !`enc_ready`, unless a new session leaves AUTH (the word is dropped) | §3.4 |
