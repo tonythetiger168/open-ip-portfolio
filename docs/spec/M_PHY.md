@@ -220,6 +220,7 @@ during a burst are outside the contract (the RX re-hunts).
 | "reset state" | reset values | §3.7 |
 | "burst queued in the gap" | a burst offered during the inter-burst gap waits and arrives whole | §3.2 |
 | "unsupported K-code raises irq" | a K-code outside the 12 allowed ones is dropped with `irq` | §3.1, §5 |
+| "unsupported K-code not dropped at the end of the word" | a buffered unsupported K-code is dropped at the end of the word: `tx_ready` in the first IDLE clock | §3.2 |
 | "irq_clear" | `irq_clear` clears `irq` | §5 |
 | "unsupported K-code at idle raises irq" | also when the TX is idle | §3.2 |
 | "HIBERN8 entered" | `hibern8`, DIF-Z on the line, `rx_hibern` at the far end | §3.4, §3.6 |

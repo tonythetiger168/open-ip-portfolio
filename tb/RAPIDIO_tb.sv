@@ -372,7 +372,8 @@ module RAPIDIO_tb;
   initial begin
     for (int i = 0; i < 1024; i++) gm[i] = 0;
     g_lock = 16'hFFFF; g_tag = 0; g_id = 0; g_obp = 0;
-    cyc(3); rst_n = 1; cyc(2);
+    cyc(3); rst_n = 1;
+    repeat (3) begin cyc(1); if (rx_rep) fail("rx_rep with no packet after reset"); end
     if (base_id !== 0) fail("base ID after reset");
     @(negedge clk) id_load = 1;
     @(negedge clk) id_load = 0; g_id = cfg_base_id; cfg_base_id = $urandom;
@@ -626,7 +627,8 @@ module RAPIDIO_tb;
     rst_n = 0; cyc(3);
     if (tx_valid || busy || rx_rep || ob_busy || base_id !== 0) fail("reset values");
     tpn = 0;                                                         // the cut response
-    rst_n = 1; cyc(3);
+    rst_n = 1;
+    repeat (3) begin cyc(1); if (rx_rep) fail("rx_rep with no packet after reset"); end
     g_id = 0; g_lock = 16'hFFFF; g_tag = 0; g_obp = 0;
     rq_swrite(0, 0, 256); finish();                                  // long: reset lands inside it
     fork

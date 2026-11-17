@@ -234,6 +234,7 @@ end A against a BFM that sends any frame.
 | "A: the last SACK bit did not acknowledge its packet" | SACK bit W - 2 acknowledges CACK + W | §3.2 |
 | "A: SACK bit 0 did not acknowledge its packet" | SACK bit 0 acknowledges CACK + 2 | §3.2 |
 | "A: 3-byte ACK taken as a NACK" | a 3-byte frame of another type is dropped (`ev_proto`), even when its PSN is outstanding | §3.1 |
+| "A: unknown type in the shape of a DATA frame not dropped with ev_proto" | a frame of an unknown type is dropped (`ev_proto`) even when its PSN, LEN and length would make a good DATA frame | §3.1 |
 | a_tx_ready | `tx_ready` as the model | §3.2 |
 | a_rx_valid | host receive handshake | §3.3 |
 | a_rx_byte | received bytes | §3.3 |

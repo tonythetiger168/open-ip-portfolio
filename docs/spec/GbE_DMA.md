@@ -89,6 +89,7 @@ names (width as seen by the checker).
 |---|---|---|
 | `u_mac` | 1 | instance of the core's sub-module, probed hierarchically |
 | `tx_valid` | 1 | core-internal signal read by name by the checker |
+| `rx_free` | $clog2(RXF_BYTES / 4) + 1 | free words in the RX FIFO; the TB waits for 0 to drain the FIFO in the middle of a frame |
 | `tx_ready` | 1 | core-internal signal read by name by the checker |
 | `tx_last` | 1 | core-internal signal read by name by the checker |
 | `rx_valid` | 1 | core-internal signal read by name by the checker |
@@ -385,6 +386,7 @@ responses in a chosen region), with TX and RX at the same time.
 | "TX_FRAMES" | `tx_frames` counts the frames sent; one `tx_irq` per frame | §3.3 |
 | "RX_DROP" | with no free descriptor 4 frames wait and the fifth is dropped; they are delivered once buffers are posted | §3.4 |
 | "a frame was not dropped with RX_EN off" | a frame received with `rx_en` = 0 is dropped; one `drop_irq` per drop | §3.4 |
+| "first frame after reset with RX_EN off: RX_DROP" | also the first frame after reset is dropped with `rx_en` = 0 | §3.4 |
 | "RX_FRAMES" | `rx_frames` counts the completed RX descriptors; one `rx_irq` per frame | §3.4 |
 | "ERR low after an SLVERR descriptor read" | an error response on a descriptor fetch sets `err` | §3.6 |
 | "no ERR interrupt" | and pulses `err_irq` | §3.6 |
@@ -431,6 +433,7 @@ From `tb/cov/GbE_DMA_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
 |---|---|---|
 | "bad-length TX descriptor write-back" | fails when `w !== {1'b1, 1'b0, 1'b0, 1'b1, 12'd0, 16'(len)}` (`tb/GbE_DMA_tb.sv` line 241) | §3 |
 | "FIFO full: RX_DROP" | fails when `rx_drop != d0 + 1` (`tb/GbE_DMA_tb.sv` line 433) | §3 |
+| "FIFO full mid-frame: RX_DROP" | fails when `rx_drop != d0 + 1` (`tb/GbE_DMA_tb.sv` line 457): a frame that hit a full RX FIFO is dropped even if the FIFO drains before its end | §3 |
 | "40000-byte frame: RX_DROP" | fails when `rx_drop != d0 + 1` (`tb/GbE_DMA_tb.sv` line 479) | §3 |
 | "drop run: RX_DROP" | fails when `rx_drop != 16'(n0 + 65540)` (`tb/GbE_DMA_tb.sv` line 546) | §3 |
 | "long runs: rings not drained" | fails when `tx_head != tx_tail \|\| rx_head != rx_tail` (`tb/GbE_DMA_tb.sv` line 547) | §3 |

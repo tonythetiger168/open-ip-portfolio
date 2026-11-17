@@ -434,6 +434,30 @@ module GbE_DMA_tb;
       for (int k = 0; k < 2; k++) post_rx(1600);
       rx_collect(rx_chk + rx_q.size());
     end
+    // the RX FIFO fills in the middle of a frame and drains again before the
+    // frame ends: the frame is still dropped
+    begin
+      int d0, f;
+      bit st;
+      d0 = rx_drop; st = mem.stall; mem.stall = 0;
+      for (int k = 0; k < 2; k++) begin
+        f = mk_frame(1500, cfg_mac);
+        rx_q.push_back(f); rx_stq.push_back(4'd0);
+        p_send(f);
+      end
+      f = mk_frame(1500, cfg_mac);
+      fork
+        p_send(f);
+        begin
+          while (dut.rx_free != '0) @(negedge clk);
+          post_rx(1600); post_rx(1600);
+        end
+      join
+      clks(50);
+      if (rx_drop != d0 + 1) fail($sformatf("FIFO full mid-frame: RX_DROP %0d, expected %0d", rx_drop, d0 + 1));
+      rx_collect(rx_chk + rx_q.size());
+      mem.stall = st;
+    end
     if (tx_q.size() != 0) fail("TX frames left over");
     if (rx_q.size() != 0) fail("RX frames left over");
     // TX and RX both pending at the IDLE step: RX first (TX enabled on the
@@ -492,6 +516,10 @@ module GbE_DMA_tb;
       tx_tail = 0; rx_tail = 0; rx_hw = 0; tx_chk = 0; tx_posted = 0; tx_log.delete();
       tx_base = 32'hFFFF_FFC7; tx_num = 7; rx_base = 32'hFFFF_FF67; rx_num = 6;
       rst_n = 1; clks(2);
+      // the first frame after reset, RX_EN off: dropped
+      p_send(mk_frame(70, cfg_mac));
+      clks(50);
+      if (rx_drop != 16'd1) fail($sformatf("first frame after reset with RX_EN off: RX_DROP %0d, expected 1", rx_drop));
       tx_buf = 32'hFFFF_C110; tx_lo = 2'b11; tx_w1hi = 16'hFFFF;
       rx_buf_base = 32'hFFFE_0110; rx_lo = 2'b11; rx_w1hi = 16'hFFFF;
       @(negedge clk); tx_en = 1; rx_en = 1;
