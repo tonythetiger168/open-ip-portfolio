@@ -224,7 +224,8 @@ module eMMC_tb;
   assign dat[7:1] = up_oe ? 7'h00 : 7'hzz;
   // second host at other clock dividers, free-running
   logic rst2 = 0;
-  eMMC_top #(.CLK_DIV(4), .ID_CLK_DIV(16), .RST_LOW(8), .RST_WAIT(100),
+  // RST_WAIT above both timeouts: the long timer is sized by tRSCA
+  eMMC_top #(.CLK_DIV(4), .ID_CLK_DIV(16), .RST_LOW(8), .RST_WAIT(400),
              .RD_TIMEOUT(RD_TO), .BUSY_TIMEOUT(BUSY_TO))
     dut2 (.clk(clk), .rst_n(rst2), .emmc_clk(emmc_clk2), .cmd(cmd2), .dat(dat2),
           .emmc_rst_n(emmc_rst_n2), .irq(irq2));
@@ -254,6 +255,10 @@ module eMMC_tb;
   always @(posedge rst_n) t_rel = $realtime;
   // RST_n rises at the 8th clk edge after rst_n (rst_n moves at a negedge)
   always @(posedge emmc_rst_n) check($realtime - t_rel == 75.0, "RST_n low time");
+  // tRSCA of the second host: RST_WAIT (400) clocks from RST_n high to the 74 clocks
+  realtime t_rel2;
+  always @(posedge emmc_rst_n2) t_rel2 = $realtime;
+  always @(dut2.pwr) if (dut2.pwr == 2'd2) check($realtime - t_rel2 == 4000.0, "second host tRSCA (RST_WAIT 400)");
   logic [3:0] pins_q;
   always @(negedge clk) begin
     if (!rst_n) begin pcnt = 0; seen = 0; end
@@ -340,6 +345,8 @@ module eMMC_tb;
     // rounds 0..4 ran: block 0 holds round 4, blocks 1..3 rounds 1..3
     for (int b = 0; b < 4; b++) check(card.mem[b] == pat(8'(b == 0 ? 4 : b)), "card store contents");
     check(card.bad_frames == 0 && card.unselected == 0, "host command frames / selection");
+    check({dut.err_crc7, dut.err_crc16, dut.err_timeout, dut.err_cmp, dut.err_status} == 5'b0,
+          "error flags set without a fault");
 
     // ---- data-phase faults (host stays initialised) ----
     fault(card.F_CRC7, 24, "R1 CRC7 (CMD24)");      check(dut.err_crc7, "err_crc7");   wait_rounds(1, "after CRC7");

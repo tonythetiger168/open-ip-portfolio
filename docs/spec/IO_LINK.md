@@ -284,6 +284,7 @@ transmission is not seen.
 | "M: no m_done" | every master request ends with `m_done` | §3.4 |
 | "M: busy with m_done" | `m_busy` falls with `m_done` | §3.4 |
 | "start while busy: page octet" | `m_start` while busy is ignored | §3.4 |
+| "WURQ: master not busy while driving the pulse" | `m_busy` is high for the whole wake-up pulse | §3.3 |
 | "WURQ: m_done flags" | a wake-up request ends with `m_done` and no error | §3.3 |
 | "WURQ not detected" | the device sees the master's wake-up request | §3.3 |
 | "WURQ: the break octet was reported" | the break octet it causes is not reported | §3.3 |

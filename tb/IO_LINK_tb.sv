@@ -265,6 +265,7 @@ module IO_LINK_tb;
     $display("[%0t] 5. wake-up", $time);
     b0 = D.n_wq;
     @(negedge clk) m_wurq = 1; @(negedge clk) m_wurq = 0;
+    cyc(5); if (!M.busy) fail("WURQ: master not busy while driving the pulse");
     while (!M.done) @(negedge clk);
     if (M.busy || M.etmo || M.euart || M.ecks) fail("WURQ: m_done flags");
     cyc(20);

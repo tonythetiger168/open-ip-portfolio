@@ -185,7 +185,6 @@ module MDIO_tb;
     pre_len = 32;
     if (irq_rises != frames) begin errors++; $display("ERROR: MDIO irq pulses %0d for %0d frames", irq_rises, frames); end
 
-`ifdef VERILATOR
     // ---- v2.5 CRV random phase (directed tests above untouched) ----
     // 120 randomized frames against a shadow register model:
     //  ~45% random write (data corners 0000/FFFF biased), ~25% read-back,
@@ -197,10 +196,12 @@ module MDIO_tb;
       logic [15:0] d, rd_c;
       logic [4:0]  ra, pa;
       int roll;
-      int n_wr = 0, n_rd = 0, n_rw = 0, n_ww = 0, n_wr_rd = 0;
+      int n_wr, n_rd, n_rw, n_ww, n_wr_rd;
+      n_wr = 0; n_rd = 0; n_rw = 0; n_ww = 0; n_wr_rd = 0;
       for (int i = 0; i < 32; i++) model[i] = 16'h0000;
       model[0] = 16'h1140;                       // PHY ID preset
-      model[3] = 16'hBEEF;                       // directed-phase write
+      model[3] = 16'hBEEF;                       // directed-phase writes
+      model[5] = 16'h1234; model[6] = 16'h5678;  // back-to-back writes
       for (int t = 0; t < 120; t++) begin
         pre_len = $urandom_range(1, 32);
         roll = $urandom_range(0, 19);
@@ -256,9 +257,7 @@ module MDIO_tb;
       $display("CRV: 120 frames (wr=%0d rd=%0d rw=%0d wrong_phy_wr=%0d wrong_phy_rd=%0d)",
                n_wr, n_rd, n_rw, n_ww, n_wr_rd);
     end
-`endif
 
-`ifdef VERILATOR
     // ---- frame-level corner cases ----
     begin
       logic [15:0] r0;
@@ -270,7 +269,7 @@ module MDIO_tb;
         mdc_bit(1'b0); mdc_bit(1'b1);
         mdc_bit(op[1]); mdc_bit(op[0]);
         for (int i = 4; i >= 0; i--) mdc_bit(5'h0C >> i); // PHYAD 0C
-        for (int i = 0; i < 5; i++) mdc_bit(i inside {2, 3, 4});  // REGAD 07
+        for (int i = 0; i < 5; i++) mdc_bit(i >= 2);  // REGAD 07
         mdc_bit(1'b1); mdc_bit(1'b0);
         for (int i = 0; i < 16; i++) mdc_bit(i[0]);
         m_low = 0; #600;
@@ -298,7 +297,6 @@ module MDIO_tb;
       mdio_read(5'h0C, 5'h00, rdata);
       if (rdata !== 16'h1140) begin errors++; $display("ERROR: MDIO reg0 after reset got=%h", rdata); end
     end
-`endif
 
     // every register written and read back (alternating-bit values in
     // registers 5 and 6), and opcodes 00 / 11 addressed to another PHY
@@ -379,7 +377,7 @@ module MDIO_tb;
   end
 `else
   initial begin
-    #8_000_000; $display("TIMEOUT"); $finish;
+    #40_000_000; $display("TIMEOUT"); $finish;
   end
 `endif
 endmodule

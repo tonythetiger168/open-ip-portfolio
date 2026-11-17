@@ -275,6 +275,11 @@ module eUSB2_tb;
       send_byte(8'hC3); send_byte(cmd); send_byte(8'h67);
       send_byte(crc8_b(crc8_b(8'hFF, cmd), 8'h67)); send_eop;
       repeat (3) drive(1'b1, 1'b0);
+      // short sync (3 zeros before the 1) is not a sync: the write behind it is ignored
+      repeat (3) send_bit(1'b0); send_bit(1'b1); ones_tb = 0;
+      send_byte(8'hC3); send_byte(cmd); send_byte(8'h99);
+      send_byte(crc8_b(crc8_b(8'hFF, cmd), 8'h99)); send_eop;
+      repeat (3) drive(1'b1, 1'b0);
       // response whose CRC ends in six 1s: stuffed bit before the EOP
       ctrl_read(3'd2, 8'h67);
       // runt packet: sync + 3 bits, no irq

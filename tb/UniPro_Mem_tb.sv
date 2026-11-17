@@ -240,6 +240,7 @@ module UniPro_Mem_tb;
     end
   endtask
 
+  bit no_sof = 0;
   task automatic send_frame(input logic        tc,
                             input logic [3:0]  cport,
                             input logic [3:0]  seq,
@@ -262,7 +263,7 @@ module UniPro_Mem_tb;
       if (bad_crc) c = c ^ 16'h5A5A;
       fb[3+plen] = c[15:8];
       fb[4+plen] = c[7:0];
-      send_sym(SYM_ESC);
+      send_sym(no_sof ? 8'h55 : SYM_ESC);   // no_sof: a plain byte, then a bare COF
       send_sym(SYM_COF);
       for (int i = 0; i < 21; i = i + 1) begin
         if (i < 5 + plen) begin
@@ -932,9 +933,9 @@ module UniPro_Mem_tb;
         check_frame(n0,     1'b0, 4'hF, 8'd3, {8'h91, 8'h05, av, 104'h0}, "attr pattern set");
         check_frame(n0 + 1, 1'b0, 4'hF, 8'd3, {8'h90, 8'h05, av, 104'h0}, "attr pattern get");
       end
-      for (int v = 0; v < 2; v++) begin
+      for (int v = 0; v < 3; v++) begin   // v 2: ESC / COF data bytes, escaped both ways
         logic [31:0] w;
-        w = v == 0 ? 32'h5555_5555 : 32'hAAAA_AAAA;
+        w = v == 0 ? 32'h5555_5555 : v == 1 ? 32'hAAAA_AAAA : 32'hC09D_9DC0;
         n0 = n_frames;
         send_frame(1'b0, 4'h1, 4'h0, {8'h01, 8'h00, 8'hF4, 8'h0C, w, w, w}, 8'd16, 1'b0);
         wait_frames(n0 + 1);
@@ -949,6 +950,10 @@ module UniPro_Mem_tb;
       // memory request with a wild length (out of bounds)
       n0 = n_frames;
       send_frame(1'b0, 4'h1, 4'h0, {8'h01, 120'h0}, 8'hE0, 1'b0);
+      // while discarding, a COF without ESC in front does not start a frame
+      no_sof = 1;
+      send_frame(1'b0, 4'hF, 4'hA, {8'h10, 8'h01, 112'h0}, 8'd2, 1'b0);
+      no_sof = 0;
       send_frame(1'b0, 4'hF, 4'h1, {8'h10, 8'hE0, 112'h0}, 8'd2, 1'b0);
       send_frame(1'b0, 4'h1, 4'h2, {8'h02, 8'h00, 8'h00, 8'hF2, 96'h0}, 8'd4, 1'b0);
       // PACP set that is too short (bad op); unknown CPort on TC0; PACP get

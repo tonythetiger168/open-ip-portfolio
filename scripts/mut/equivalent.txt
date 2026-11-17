@@ -355,3 +355,23 @@ DisplayPort2 | if (k && d5 == 5'd28 && rd && (d3 == 3'd1 || d3 == 3'd2 || d3 == 
 ETHERCAT | for (int i = 0; i < 5; i++) begin pd[i] <= '0; rd_[i] <= '0; end | < -> >= | the delay line shifts every clock; tx_d has no reset value (§1 "-") while tx_dv is 0, and the FCS check only uses rd_ once 5 octets of the frame are in (n_oct 5)
 ETHERCAT | for (int i = 0; i < 5; i++) begin pd[i] <= '0; rd_[i] <= '0; end | 0 -> 1 | as above: stage 0 is overwritten in the first clock and never read before
 OBI | for (int i = 0; i < NOUT; i++) begin f_data[i] <= '0; f_err[i] <= 1'b0; f_id[i] <= '0; end | < -> >= | no entry cleared: a FIFO entry is written before rvalid can expose it, so its reset value is never seen
+SHA3 | c[64 * x +: 64] = s[64 * x +: 64] ^ s[64 * (x + 5) +: 64] ^ s[64 * (x + 10) +: 64] ^ s[64 * (x + 15) +: 64] ^ s[64 * (x + 20) +: 64]; | ^ -> ~^@1 | every column parity C[x] is inverted, and D[x] = C[x-1] ^ rot(C[x+1], 1) cancels the inversion
+SHA3 | c[64 * x +: 64] = s[64 * x +: 64] ^ s[64 * (x + 5) +: 64] ^ s[64 * (x + 10) +: 64] ^ s[64 * (x + 15) +: 64] ^ s[64 * (x + 20) +: 64]; | ^ -> ~^@2 | every column parity C[x] is inverted, and D[x] = C[x-1] ^ rot(C[x+1], 1) cancels the inversion
+SHA3 | c[64 * x +: 64] = s[64 * x +: 64] ^ s[64 * (x + 5) +: 64] ^ s[64 * (x + 10) +: 64] ^ s[64 * (x + 15) +: 64] ^ s[64 * (x + 20) +: 64]; | ^ -> ~^@3 | every column parity C[x] is inverted, and D[x] = C[x-1] ^ rot(C[x+1], 1) cancels the inversion
+SHA3 | c[64 * x +: 64] = s[64 * x +: 64] ^ s[64 * (x + 5) +: 64] ^ s[64 * (x + 10) +: 64] ^ s[64 * (x + 15) +: 64] ^ s[64 * (x + 20) +: 64]; | ^ -> ~^@4 | every column parity C[x] is inverted, and D[x] = C[x-1] ^ rot(C[x+1], 1) cancels the inversion
+DFI_5_0__MC_PHY_Interface_ | for (int b = 0; b < 8; b++) bank_row[b] <= 2'd0; | 8 -> 9 | bank_row has 8 entries: the write to bank_row[8] is out of range and ignored
+DFI_5_0__MC_PHY_Interface_ | for (int b = 0; b < 8; b++) bank_row[b] <= 2'd0; | < -> >= | bank_row is only read for reads / writes to an open bank, and ACT loads it when it opens the bank
+DFI_5_0__MC_PHY_Interface_ | for (int b = 0; b < 8; b++) bank_row[b] <= 2'd0; | 0 -> 1 | bank_row is only read for reads / writes to an open bank, and ACT loads it when it opens the bank
+MIPI_SPMI | state <= S_IDLE; ssc_arm <= 1'b0; sh <= '0; bcnt <= '0; addr <= '0; | 1'b0 -> 1'b1 | the SDATA synchroniser resets to 0, so the first possible SDATA fall is preceded by an SDATA rise that arms the detector anyway (or by SCLK high, which disarms it)
+PTP | l3 <= 8'd14; l4 <= '0; p0 <= '0; p_known <= 1'b0; | 1'b0 -> 1'b1 | p_known is cleared at every start of frame (SFD) before the parser can use it
+ACE_Lite | rerr_q  <= (arburst != BURST_INCR) || (arsize > 3'd2) || (|araddr[AW-1:10]); | | -> & | r_oor flags every beat whose own address is past 1KB; an INCR burst only climbs, so it can leave that range only by wrapping at the top, where all the upper bits are 1 and the & form agrees
+AES_GCM | sbox = x ^ SB[7:0]; | ^ -> ~^ | inside `ifdef FORMAL: the identity S-box of the formal run, not compiled for simulation or synthesis
+Bluetooth5 | gnt_data <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value of a grant pulse: in the first clock it only clears data_tx_req, which is already 0 after reset
+Bluetooth5 | rx_seen        <= 1'b0; | 1'b0 -> 1'b1 | rx_seen is cleared again when a connection is entered, before the first connection event reads it
+Ethernet_AVB_TSN | gcl_running <= 1'b0; gcl_entry <= '0; cyc_el <= '0; ent_el <= '0; ent_done <= 1'b0; | 1'b0 -> 1'b1@2 | ent_done is cleared when the schedule starts and only read while it runs
+Ethernet_AVB_TSN | n = {{2{credit[c][19]}}, credit[c]}; | 2 -> 3 | a third sign bit makes 23 bits; assigned to the 22-bit n the top bit is dropped, leaving the same sign extension
+Bluetooth5 | gnt_scan <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value of a grant pulse: in the first clock it only clears scan_tx_req, which is already 0 after reset
+DFI_5_0__MC_PHY_Interface_ | for (int i = 0; i < T_RDDATA_EN; i++) re_a[i] <= 8'd0; | < -> >= | an re_a entry is loaded in the same clock as its re_v bit, and its read data only reaches dfi_rddata behind that valid bit
+Ethernet_AVB_TSN | + (time_adj ? {{32{time_adj_ns[31]}}, time_adj_ns} : 64'd0); | 32 -> 33 | a 33rd sign bit makes 65 bits; the 64-bit sum drops it, leaving the same sign extension
+Ethernet_AVB_TSN | for (int c = 0; c < 4; c++) cbs_credit[20*c +: 20] = credit[c]; | 4 -> 5 | the fifth pass writes bits 99:80 of the 80-bit cbs_credit, out of range and ignored
+DFI_5_0__MC_PHY_Interface_ | for (int i = 0; i < T_RDDATA_EN; i++) re_a[i] <= 8'd0; | 0 -> 1 | as above: re_a[0] is loaded with its re_v bit, and its read data only reaches dfi_rddata behind that valid bit

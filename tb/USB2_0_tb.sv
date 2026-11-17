@@ -45,6 +45,12 @@ module USB2_0_tb;
       errors++; $display("ERROR: rsamp %b at bit clock %0d (time %0t)", dut.rsamp, mrc, $time);
     end
 
+  // a packet is received only on the J that ends its EOP, never during the SE0
+  always @(negedge clk)
+    if (rst_n && dut.rx_done && !(dp === 1'b1 && dm === 1'b0)) begin
+      errors++; $display("ERROR: rx_done before the EOP J (time %0t)", $time);
+    end
+
   int irq_cnt = 0;
   always @(posedge clk) if (irq) irq_cnt++;
 

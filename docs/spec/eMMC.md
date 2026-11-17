@@ -233,6 +233,7 @@ A reset at any point, including mid-transfer or during power-up, restarts the po
 | Check (TB message or assertion) | What it requires | Spec |
 |---|---|---|
 | "RST_n low time" | `emmc_rst_n` rises `RST_LOW` clocks after `rst_n` rises | §3.2 |
+| "second host tRSCA (RST_WAIT 400)" | with `RST_WAIT` above both timeouts the power-up wait is still exactly `RST_WAIT` clocks (long timer wide enough) | §3.2 |
 | "CLK period" | CLK period is `ID_CLK_DIV` before CMD7 and `CLK_DIV` from CMD7 | §3.1 |
 | "identification at the fast rate" | CMD0-CMD3 are sent at the identification rate | §3.1 |
 | "CMD17" | after a write, CMD17 starts 7 ticks after the tick that sees the busy release (6 gap ticks) | §3.6 |
@@ -242,6 +243,7 @@ A reset at any point, including mid-transfer or during power-up, restarts the po
 | "CID / selected" | CID captured and card selected | §3.3 |
 | "card store contents" | blocks hold the patterns of the last rounds written to them | §3.6 |
 | "host command frames / selection" | well-formed commands; CMD24/CMD17 only after CMD7 | §3.3, §3.4 |
+| "error flags set without a fault" | `err_crc7`, `err_crc16`, `err_timeout`, `err_cmp`, `err_status` stay 0 through clean rounds | §3.5 |
 | "err_crc7" | framing / CRC faults set `err_crc7` | §3.8 |
 | "err_status" | card-status errors set `err_status` | §3.8 |
 | "err_timeout" | timeouts set `err_timeout` | §3.8 |
