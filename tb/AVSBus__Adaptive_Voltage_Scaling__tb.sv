@@ -16,6 +16,8 @@ module AVSBus__Adaptive_Voltage_Scaling__tb;
 
   logic clk = 0, rst_n = 0;
   logic sclk = 0;
+  realtime t_srise = 0;
+  always @(posedge sclk) t_srise = $realtime;
   tri1  sdat;                 // bus line with pull-up
   logic mst_oe = 0, mst_bit = 0;
   logic [11:0] vdac;
@@ -32,6 +34,19 @@ module AVSBus__Adaptive_Voltage_Scaling__tb;
     .sclk(sclk), .sdat(sdat),
     .vdac(vdac), .busy(busy), .irq(irq)
   );
+
+`ifndef VERILATOR
+  // a second slave with a short TIMEOUT (not a power of two) on its own copy
+  // of the data line: it sees every frame and is only checked for the drop time
+  tri1 sdat2;
+  assign sdat2 = (mst_oe && !mst_bit) ? 1'b0 : 1'bz;
+  wire [11:0] vdac2;
+  wire        busy2, irq2;
+  AVSBus__Adaptive_Voltage_Scaling__top #(.TIMEOUT(100)) dut2 (
+    .clk(clk), .rst_n(rst_n), .sclk(sclk), .sdat(sdat2),
+    .vdac(vdac2), .busy(busy2), .irq(irq2)
+  );
+`endif
 
   always #5 clk = ~clk;
   always @(posedge clk) if (irq) irq_seen++;
@@ -421,7 +436,22 @@ module AVSBus__Adaptive_Voltage_Scaling__tb;
     avs_tx_bit(1'b1);
     for (int i = 0; i < 12; i++) avs_tx_bit(i[0]);
     mst_oe = 0;
-    #12000;                                       // > TIMEOUT clk cycles idle
+    // the frame is dropped exactly TIMEOUT clocks after the last sclk rise
+    // is seen (3-flop synchronizer + edge detect)
+    begin : b_to
+      int n;
+`ifndef VERILATOR
+      n = 0;
+      while (dut2.avstate != 3'd0 && n < 3000) begin @(posedge clk); n++; end
+      n = int'(($time - t_srise) / 10);
+      if (n != 104) begin errors++; $display("ERROR: AVSBus TIMEOUT 100: frame dropped %0d clk after the last sclk rise, expected 104", n); end
+`endif
+      n = 0;
+      while (dut.avstate != 3'd0 && n < 3000) begin @(posedge clk); n++; end
+      n = int'(($time - t_srise) / 10);
+      if (n != 1028) begin errors++; $display("ERROR: AVSBus frame dropped %0d clk after the last sclk rise, expected 1028 (TIMEOUT + 4)", n); end
+    end
+    #2000;
     set_and_verify(12'd77);
 
     // ---------------- reset while ramping ----------------------------------
