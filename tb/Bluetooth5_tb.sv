@@ -300,6 +300,10 @@ module Bluetooth5_tb;
     rst_n = 1;
 
     // ---- advertising with the reset payload, then a new payload ----
+    // the first ADV_IND comes one full ADV_INTV after reset, not at once
+    c0 = 0;
+    while (!tx_act && c0 < 3 * ADV_INTV) begin @(negedge clk); c0++; end
+    check(c0 >= ADV_INTV, "first ADV_IND before ADV_INTV after reset");
     expect_adv;
     for (int i = 0; i < 16; i++) begin
       adv_model[i] = (i == 0) ? 8'hFF : (i == 1) ? 8'h00 : 8'($urandom);

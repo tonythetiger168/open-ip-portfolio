@@ -151,7 +151,9 @@ module I2C_Host_tb;
 
   initial begin
     int s0, p0;
-    clks(3); rst_n = 1; clks(5);
+    clks(3);
+    if (bus_held || busy || done || rx_ack || rx_data != 0 || scl !== 1'b1) fail("not idle in reset");
+    rst_n = 1; clks(5);
     s0 = 0; p0 = 0;
     for (int k = 0; k < 10; k++) begin
       prescale = 2 + $urandom % 8;
@@ -184,7 +186,7 @@ module I2C_Host_tb;
     prescale = 16'hFFFF; cmd(1, 0, 0, 0, 0, 8'h00);
     prescale = 3; clks(5);
     rst_n = 0; clks(2);
-    if (bus_held || busy || scl !== 1'b1) fail("not idle in reset");
+    if (bus_held || busy || done || rx_ack || rx_data != 0 || scl !== 1'b1) fail("not idle in reset");
     rst_n = 1; clks(5);
     $display("I2C_Host: %0d STARTs, %0d STOPs, %0d bytes on the wire", n_start, n_stop, mon_bytes.size());
     if (errors == 0) $display("TEST PASSED: I2C_Host");

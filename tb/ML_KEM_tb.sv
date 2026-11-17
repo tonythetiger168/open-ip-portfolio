@@ -28,6 +28,12 @@ module ML_KEM_tb;
   logic [31:0] hr_data;
   logic        hr_ready = 0;
   ML_KEM_top dut (.*);
+  // done and err are one-clock pulses
+  logic done_q = 0, err_q = 0;
+  always @(posedge clk) begin
+    if (rst_n && ((done && done_q) || (err && err_q))) fail("done / err high for more than one clock");
+    done_q <= rst_n && done; err_q <= rst_n && err;
+  end
 
   logic [31:0] vec [0:200000];
   int vp = 0;

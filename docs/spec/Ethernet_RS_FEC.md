@@ -343,3 +343,4 @@ decode to a wrong codeword without detection. Lambda(0) is a product of discrepa
 | a_chien2_free | pass 2 is free (or on its last beat) when loaded | §3.3 |
 | a_buffer_slot | the slot being written is never the one pass 2 reads | §3.3 |
 | a_reset | reset values | §3.6 |
+| "outputs not 0 in reset" | `e_out_valid`, `e_out_first`, `d_out_valid`, `d_out_first`, `d_out_bad` 0 while `!rst_n` | §3.6 |

@@ -186,13 +186,14 @@ module SATA_tb;
   // sector store: 8 dwords per LBA
   logic [31:0] sect [0:63][0:7];
 
+  int rdbad_w = 0;                      // nonzero: the data dword build_rd corrupts
   task automatic build_rd(input logic [5:0] l);
     int fw, fb;
     f[0] = 32'h0000_0046; flen = 9;
     for (int i = 0; i < 8; i++) f[i + 1] = sect[l][i];
     if (kn_rdbad > 0) begin
       kn_rdbad--;
-      fw = 1 + $urandom % 8; fb = $urandom % 32;
+      fw = (rdbad_w != 0) ? rdbad_w : 1 + $urandom % 8; fb = $urandom % 32;
       f[fw][fb] = !f[fw][fb];
     end
   endtask
@@ -520,6 +521,10 @@ module SATA_tb;
     i0 = irq_cnt; kn_rsts_short = 1; wait_cmds(3); expect_irq(i0, 1, "short read status D2H");
     i0 = irq_cnt; kn_data_short = 1; wait_cmds(3); expect_irq(i0, 1, "short Data FIS");
     i0 = irq_cnt; kn_rdbad = 1; wait_cmds(3); expect_irq(i0, 1, "read data mismatch");
+    for (int w = 1; w <= 8; w += 7) begin   // first and last data dword
+      rdbad_w = w; i0 = irq_cnt; kn_rdbad = 1; wait_cmds(3); expect_irq(i0, 1, "read data mismatch at an end dword");
+    end
+    rdbad_w = 0;
     i0 = irq_cnt; kn_wsts_err = 1; wait_cmds(3); expect_irq(i0, 1, "write status error");
     i0 = irq_cnt; kn_wsts_mute = 1; wait_cmds(3); expect_irq(i0, 1, "write status timeout");
     i0 = irq_cnt; kn_rsts_err = 1; wait_cmds(3); expect_irq(i0, 1, "read status error");

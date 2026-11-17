@@ -262,6 +262,7 @@ None. The parameter set is chosen per operation with `pset`.
 | "host port open while busy" | host port closed while busy | §3.2 |
 | "timeout" | each operation completes | §3.4 |
 | "busy after done" | `busy` low with `done` | §3.1 |
+| "done / err high for more than one clock" | `done` and `err` are one-clock pulses | §1, §3.1 |
 | "reserved op not refused" | op 3: `err` | §3.1 |
 | "reserved pset not refused" | pset 3: `err` | §3.1 |
 | "host word" | outputs (keys, ciphertext, shared secret) equal the vector | §3.3, §3.4 |
