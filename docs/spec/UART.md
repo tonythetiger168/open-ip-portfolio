@@ -216,6 +216,9 @@ Messages are printed by `tb/UART_tb.sv` as `ERROR: <message>`; assertions are in
 | Check (TB message or assertion) | What it requires | Spec |
 |---|---|---|
 | "reset values" | during and right after reset: `txd` = 1, `tx_ready` = 1, `rx_valid` = 0, `irq` = 0, `rx_data` = 0 | §1, §3.4 |
+| "DIV16 6: start bit after" | `DIV16` 6 instance, byte requested from reset: the start bit begins at edge 1 and lasts 96 clocks | §3.1, §3.2 |
+| "DIV16 6: txd byte" | ... then 8 data bits and the stop bit of 96 clocks each | §3.1, §3.2 |
+| "DIV16 6: loopback rx" | ... and the same instance receives the byte | §3.3 |
 | "txd start bit" | half a bit after a falling edge on `txd`, `txd` is still 0 | §3.2 |
 | "txd byte" | the 8 bits sampled at bit middles equal the accepted byte, LSB first | §3.2 |
 | "txd stop bit" | the 10th bit is 1 | §3.2 |

@@ -82,6 +82,20 @@ module USB_tb;
   bit         f_badsync = 0;
   logic       lvl;
 
+  // device EOP: SE0 for exactly 2 bit times, then J for 1 bit time, then release
+  int eo_se0 = 0, eo_j = 0, n_eop = 0;
+  always @(negedge clk)
+    if (!rst_n) begin eo_se0 = 0; eo_j = 0; end
+    else if (dut.tx_oe) begin
+      if (dp === 1'b0 && dm === 1'b0) eo_se0++;
+      else if (eo_se0 > 0) eo_j++;
+    end else if (eo_se0 > 0) begin
+      n_eop++;
+      if (eo_se0 != 2 * BC || eo_j != BC)
+        fail($sformatf("device EOP: SE0 %0d clocks, J %0d clocks, expected %0d and %0d", eo_se0, eo_j, 2 * BC, BC));
+      eo_se0 = 0; eo_j = 0;
+    end
+
   task automatic line_bit(input logic b);
     if (!b) lvl = !lvl;
     @(negedge clk); h_oe = 1; h_dp = lvl; h_dm = !lvl;

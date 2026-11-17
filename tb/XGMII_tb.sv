@@ -22,13 +22,9 @@ module XGMII_tb;
   always #40 tx_clk = ~tx_clk;
   assign rx_clk = tx_clk;
   assign rxd    = txd;
-`ifdef VERILATOR
   logic       rxc_ovr = 1'b0;          // CRV error-injection knob (control col)
   logic [3:0] rxc_force = 4'h0;        // directed: mark extra lanes as control
   assign rxc = rxc_ovr ? 4'hF : (txc | rxc_force);
-`else
-  assign rxc    = txc;
-`endif
 
 `ifdef VERILATOR
   // =====================================================================
@@ -88,15 +84,13 @@ module XGMII_tb;
       @(negedge clk); wen <= 1'b0;
     end
   endtask
-`ifdef VERILATOR
-  // CRV-only: write to an arbitrary address (non-0 writes must be ignored)
+  // write to an arbitrary address (non-0 writes must be ignored)
   task automatic wr_a(input logic [3:0] a, input logic [7:0] d);
     begin
       @(negedge clk); wen <= 1'b1; waddr <= a; wdata <= d;
       @(negedge clk); wen <= 1'b0;
     end
   endtask
-`endif
   task automatic rd(input logic [3:0] a, output logic [7:0] d);
     begin
       @(negedge clk); ren <= 1'b1; raddr <= a;
@@ -195,8 +189,8 @@ module XGMII_tb;
     end
 `endif
 
-`ifdef VERILATOR
     // ---- end-of-frame partial columns, lane compaction, overflow, reset ----
+    // (both flows)
     begin
       int c0;
       logic [7:0] fb [0:5];
@@ -275,7 +269,6 @@ module XGMII_tb;
       repeat (80) @(posedge clk);
       if (count !== 5'd0) begin errors++; $display("ERROR: XGMII sent queued bytes after reset"); end
     end
-`endif
 
     // alternating-bit bytes on lane 0 of two full columns, read back
     begin : data_classes

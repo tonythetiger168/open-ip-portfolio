@@ -28,6 +28,23 @@ module USB2_0_tb;
   assign dp = h_oe ? h_dp : 1'bz;
   assign dm = h_oe ? h_dm : 1'bz;
 
+  // receive bit clock (spec 3.2): restarts at every line change (after the
+  // two input flops) and samples BAUD_DIV - 1 clocks after it, then every
+  // 2 x BAUD_DIV clocks without a change
+  logic [2:0] mp = 3'b111, mm = 3'b000;
+  int mrc = 0;
+  wire mchg = (mp[1] != mp[2]) || (mm[1] != mm[2]);
+  always @(posedge clk or negedge rst_n)
+    if (!rst_n) begin mp <= 3'b111; mm <= 3'b000; mrc <= 0; end
+    else begin
+      mp <= {mp[1:0], dp}; mm <= {mm[1:0], dm};
+      mrc <= (mchg || mrc == 2 * 20 - 1) ? 0 : mrc + 1;
+    end
+  always @(negedge clk)
+    if (rst_n && dut.rsamp !== (!mchg && mrc == 20 - 1)) begin
+      errors++; $display("ERROR: rsamp %b at bit clock %0d (time %0t)", dut.rsamp, mrc, $time);
+    end
+
   int irq_cnt = 0;
   always @(posedge clk) if (irq) irq_cnt++;
 
@@ -206,6 +223,7 @@ module USB2_0_tb;
       #(2 * BIT);
       c0 = irq_cnt;
       send(pid, len, mode);
+      sync_zeros = 7;                               // recovery uses a normal SYNC
       #(30 * BIT);
       if (irq_cnt != c0) begin errors++; $display("ERROR: mode %0d frame echoed", mode); end
       if (dut.rx_err !== 1'b1) begin errors++; $display("ERROR: mode %0d rx_err not set", mode); end
@@ -255,6 +273,8 @@ module USB2_0_tb;
     bad(4'h3, 3, 5);                                // SE0 in SYNC
     bad(4'h3, 3, 6);                                // K after SE0
     bad(4'h3, 3, 7);                                // short SYNC
+    sync_zeros = 3; bad(4'h3, 3, 0);                // SYNC with 3 zeros: too short
+    sync_zeros = 4; bad(4'h3, 3, 0);                // SYNC with 4 zeros: too short
     bad(4'h3, MAXB + 1, 0);                         // too long
     // PID only, no CRC: too short
     begin

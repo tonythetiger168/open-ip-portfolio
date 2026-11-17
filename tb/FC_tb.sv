@@ -110,6 +110,44 @@ module FC_tb;
   endtask
   always @(negedge clk) if (rst_n) begin mon(0); mon(1); end
 
+  // inter-frame gap: SOF only after six IDLE / R_RDY words. ts enters GAP
+  // while the EOF's last character goes out (10 clocks), then 6 x 40 clocks.
+  int gap_n [2] = '{0, 0};
+  int n_gap = 0;
+  task automatic gap_step(input int p, input logic [2:0] ts);
+    if (ts == 3'd0) gap_n[p]++;
+    else begin
+      if (gap_n[p] > 0 && ts == 3'd1) begin
+        n_gap++;
+        if (gap_n[p] < 10 + 6 * 40)
+          fail($sformatf("port %0d: SOF after %0d clocks of gap, expected at least 250", p, gap_n[p]));
+      end
+      gap_n[p] = 0;
+    end
+  endtask
+  // every output is 0 while rst_n is low
+  always @(negedge clk) if (!rst_n) begin
+    #1;
+    if (!rst_n) if (tx_done !== 0 || tx_underrun !== 0 || rx_valid !== 0 || rx_last !== 0 || rx_frag !== 0
+        || rx_sync !== 0 || err_code !== 0 || err_word !== 0 || credit_used !== 0 || rx_data !== 0
+        || rx_stat !== 0 || a_tx !== 0 || b_tx !== 0)
+      fail("outputs not 0 in reset");
+  end
+  // rx_sync needs three good ordered sets: after reset or a loss of sync it
+  // stays low for at least two whole words (80 clocks)
+  int unsync [2] = '{0, 0};
+  always @(negedge clk) if (!rst_n) unsync = '{0, 0};
+  else for (int p = 0; p < 2; p++) begin
+    if (!rx_sync[p]) unsync[p]++;
+    else begin
+      if (unsync[p] > 0 && unsync[p] < 80)
+        fail($sformatf("port %0d: rx_sync after %0d clocks, before three ordered sets", p, unsync[p]));
+      unsync[p] = 0;
+    end
+  end
+  always @(negedge clk) if (!rst_n) gap_n = '{0, 0};
+  else begin gap_step(0, u_a.ts); gap_step(1, u_b.ts); end
+
   // ---------------- host drivers ----------------
   // per port: {underrun marker, sofi, eoft, last, data}; a frame with an
   // underrun ends with the marker instead of a last byte
@@ -477,6 +515,7 @@ module FC_tb;
     both_random(4, 100);
     drain();
 
+    if (n_gap == 0) fail("no inter-frame gap checked");
     if (errors == 0) $display("TEST PASSED: FC");
     else $display("TEST FAILED: FC (%0d errors)", errors);
     $finish;

@@ -209,6 +209,32 @@ module WTB_tb;
     check(mon_cnt >= mon_rd + n, {tag, ": frames sent"});
   endtask
 
+  // claim window: with no frame received while waiting, the station
+  // takes the token on the CLAIM_WIN-th clock after the claim frame
+  // (counter 0..CLAIM_WIN: CLAIM_WIN + 1 clocks in ST_CLAIM_WAIT)
+  localparam int CLAIM_WIN = 150;       // the core's default (section 4)
+  int  cw_n = 0, n_cw = 0;
+  bit  cw_rx = 0;
+  logic [2:0] ss_q = 3'd0;
+  always @(negedge clk) begin
+    if (!rst_n) begin cw_n = 0; cw_rx = 0; end
+    else begin
+      if (dut.sstate == 3'd3) begin
+        cw_n++;
+        if (dut.rx_done) cw_rx = 1;
+      end else begin
+        if (ss_q == 3'd3 && dut.sstate == 3'd1 && !cw_rx) begin
+          n_cw++;
+          if (cw_n != CLAIM_WIN + 1) begin
+            errors++; $display("ERROR: claim window %0d clocks, expected %0d", cw_n, CLAIM_WIN + 1);
+          end
+        end
+        cw_n = 0; cw_rx = 0;
+      end
+    end
+    ss_q = dut.sstate;
+  end
+
   task automatic expect_frame(input logic [7:0] fc, da, input string tag);
     wait_frames(1, tag);
     check(mon_fc[mon_rd[7:0]] == fc, {tag, ": FC"});
@@ -438,6 +464,7 @@ module WTB_tb;
     ctrl(0, 511);
     repeat (400) @(negedge clk);
     check(mon_cnt == mon_rd, "no claim when disabled");
+    check(n_cw >= 1, "claim window never timed");
 
     // ---- reset mid-hold ----
     push_words(4);

@@ -33,6 +33,16 @@ module CSE_tb;
 
   always #5 clk = ~clk;
   always @(posedge clk) if (irq) irq_seen <= 1;
+  // irq is a one-clock pulse exactly in the clock after a key write or a
+  // start while busy (the violations); never otherwise
+  logic irq_exp = 1'b0;
+  always @(posedge clk or negedge rst_n)
+    if (!rst_n) irq_exp <= 1'b0;
+    else        irq_exp <= busy && (key_we || start);
+  always @(negedge clk)
+    if (rst_n && irq !== irq_exp) begin
+      errors++; $display("ERROR: irq %b, expected %b (time %0t)", irq, irq_exp, $time);
+    end
 
   task automatic check(input bit cond, input string msg);
     if (!cond) begin errors++; $display("ERROR: %s (time %0t)", msg, $time); end

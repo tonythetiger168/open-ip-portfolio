@@ -180,6 +180,7 @@ None.
 | "reset state" | reset values | §3.4 |
 | "random round trip" | decrypt(encrypt(x)) == x for random keys and blocks | §3.1, §3.2 |
 | "violations ignored with irq" | `start` / `key_we` while busy pulse `irq` and change nothing | §3.3 |
+| "irq" | `irq` is high exactly in the clock after a `start` or `key_we` while busy, else 0 | §3.3 |
 | "start with key write: old key used" | a key word written in the `start` clock is not used by that operation | §3.3 |
 | "the next operation uses the new key word" | ...but by the next one | §3.3 |
 | "reset while busy" | reset aborts the operation | §3.4 |

@@ -169,6 +169,7 @@ Pads released (`tx_oe` = 0), `irq` = 0, address 0, unconfigured, toggles 0, EP1 
 |---|---|---|
 | "device PID check" | every device packet has a valid PID / check nibble | §3.2 |
 | "device CRC16" | every device data packet has the right CRC16 | §3.2 |
+| "device EOP: SE0" | the device EOP is SE0 for 2 bit times and J for 1 bit time before `tx_oe` drops | §3.1 |
 | "descriptor length" | descriptor data truncated to wLength and the descriptor size | §3.4 |
 | "status stage not zero length" | the status stage IN is a zero-length packet | §3.4 |
 | "get_status" | GET_STATUS returns two zero bytes | §3.4 |

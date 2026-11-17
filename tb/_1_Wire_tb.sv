@@ -118,10 +118,27 @@ module _1_Wire_tb;
   initial begin
     tx_byte = 8'h5A;
     rst_n = 0; repeat(10) @(posedge clk);
-    rst_n = 1; repeat(10) @(posedge clk);
+    @(negedge clk) rst_n = 1;
+    // bus idle high out of reset: the core stays idle
+    repeat (10) begin
+      @(posedge clk); #1;
+      if (busy !== 1'b0) begin errors++; $display("ERROR: 1-Wire busy after reset"); end
+    end
+
+    // a 100 us low glitch is no reset: no presence, back to idle
+    m_low = 1; `OW_DLY(100*US*10);
+    m_low = 0;
+    begin : glitch_chk
+      int lo;
+      lo = 0;
+      repeat (300*US) begin @(posedge clk); #1; if (dq !== 1'b1) lo++; end
+      if (lo != 0) begin errors++; $display("ERROR: 1-Wire presence after a 100 us glitch"); end
+      if (busy !== 1'b0) begin errors++; $display("ERROR: 1-Wire busy after a 100 us glitch"); end
+    end
 
     ow_reset(presence);
     if (!presence) begin errors++; $display("ERROR: 1-Wire no presence pulse"); end
+    if (busy !== 1'b1) begin errors++; $display("ERROR: 1-Wire busy not set after a bus reset"); end
 
     // send command 0xCC (Skip ROM), LSB first
     begin : send_cmd
