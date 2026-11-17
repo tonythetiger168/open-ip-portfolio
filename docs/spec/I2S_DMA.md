@@ -281,6 +281,7 @@ overruns.
 
 | Check (TB message or assertion) | What it requires | Spec |
 |---|---|---|
+| "frames counted before any START" | no receive, `frames` or `rx_overrun` change before the first START, even with `rx_en` and `xfer_len` set from reset | §3.2 |
 | "job timed out" | every job ends | §3.4 |
 | "ERR" | `err` is 1 exactly when an error response was injected | §3.4 |
 | "ERR interrupt count" | one `err_irq` per failed job | §3.4 |

@@ -890,6 +890,7 @@ module PCIe_CXL_IDE_tb;
     idle_tx(); idle_rx();
     load_vecs();
     repeat (3) @(negedge clk);
+    if (txo_bad || txo_cm || rx_done || rx_err) fail("txo_bad / txo_cm / rx_done / rx_err not 0 in reset");
     rst_n = 1'b1;
     repeat (2) @(negedge clk);
     // known answers, with gaps and back-pressure from case 20 on
@@ -926,6 +927,7 @@ module PCIe_CXL_IDE_tb;
     while (int'(u_dut.t) != 4) @(negedge clk);
     rst_n = 1'b0;
     repeat (3) @(negedge clk);
+    if (txo_bad || txo_cm || rx_done || rx_err) fail("txo_bad / txo_cm / rx_done / rx_err not 0 in reset");
     rst_n = 1'b1;
     wait_bg();
     // configuration and inputs back to zero

@@ -212,5 +212,6 @@ From `tb/cov/SPI_Host_sva.sv` (macros in `tb/cov/cov_macros.svh`; names such as
 
 | Check (TB message) | What it requires | Spec |
 |---|---|---|
-| "SCLK moved when CPOL changed during a frame" | fails when `sclk !== 1'b0` (`tb/SPI_Host_tb.sv` line 149) | §3 |
-| "busy in reset" | fails when `busy` (`tb/SPI_Host_tb.sv` line 153) | §3 |
+| "SCLK moved when CPOL changed during a frame" | fails when `sclk !== 1'b0` (`tb/SPI_Host_tb.sv` line 152) | §3 |
+| "busy in reset" | fails when `busy` (`tb/SPI_Host_tb.sv` lines 92, 156) | §3 |
+| "done or RX_DATA not 0 in reset" | fails when `done \|\| rx_data !== 8'h00` (`tb/SPI_Host_tb.sv` lines 93, 157) | §3 |

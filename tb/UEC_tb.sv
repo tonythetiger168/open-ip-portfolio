@@ -477,6 +477,18 @@ module UEC_tb;
     bdata(r, 3, 0, MAXP + 1);
     bdata(r, 3, 0, 4);
     bdata(r, 5, 0, 4);
+    // an unknown type in the shape of a good DATA frame (expected PSN, LEN 3):
+    // dropped with ev_proto, not taken as DATA
+    begin : b_type
+      int e4;
+      bwait(); wait_clk(5);
+      e4 = ea[4];
+      bq.push_back({1'b0, 8'h40}); bq.push_back({1'b0, r[15:8]}); bq.push_back({1'b0, r[7:0]});
+      bq.push_back({1'b0, 8'd3});
+      for (int i = 0; i < 3; i++) bq.push_back({i == 2, 8'($urandom)});
+      bwait(); wait_clk(5);
+      if (ea[4] != e4 + 1) fail("A: unknown type in the shape of a DATA frame not dropped with ev_proto");
+    end
     b_bytes(40, 8'h10);
     bq.push_back({1'b0, 8'h10}); bq.push_back({1'b0, r[15:8]}); bq.push_back({1'b0, r[7:0]});
     bq.push_back({1'b0, 8'(MAXP + 1)});

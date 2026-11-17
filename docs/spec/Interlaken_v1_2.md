@@ -50,7 +50,8 @@ asynchronously by `rst_n` low. Bit numbers of a 67-bit word: 66 inversion flag, 
 
 ### Internal signals used by the verification
 
-The TB reads these from the B end (`u_b`) to aim bit flips at chosen words and bits; fsm_cov
+The TB reads these from the B end (`u_b`) to aim bit flips at chosen words and bits, and `tc`, `tw`,
+`tscr` from the A end (`u_a`) to check the scrambler state words; fsm_cov
 binds `ws` and `ms`. A re-implementation must keep these names and meanings.
 
 | Signal | Width | Meaning |
@@ -63,6 +64,9 @@ binds `ws` and `ms`. A re-implementation must keep these names and meanings.
 | `rf1`, `rf0` | 1 each | framing bits 65 and 64 of the word being received |
 | `r_inpkt` | 1 | the receiver is inside a packet |
 | `rh_v` | 1 | a received data word is held, waiting for the next protocol word |
+| `tc` | 7 | (A end, TX) bit counter of the word on the line; a new word is built at 0 |
+| `tw` | $clog2(`MF`) | (A end, TX) metaframe position of the word built at `tc` = 0 |
+| `tscr` | 58 | (A end, TX) scrambler generator state; the state word sends it |
 
 ## 2. Registers
 
@@ -327,6 +331,10 @@ metaframe lock.
 |---|---|---|
 | "end" | per end: every received word is the next one the other end sent (data, SOP, EOP, bytes, channel), no `rx_err` on a clean line, and `sync_lock` is reached in time | §3.6, §3.7 |
 | "B kept the lock" | a bit or word shift of the line drops `sync_lock` | §3.5 |
+| "A: scrambler state word" | the state word of the first metaframe carries `SEED`, each later one the state (`MF` - 2) x 64 generator steps on | §3.2 |
+| "err_sync pulses for 3 missing sync words" | one `err_sync` per missing sync word while locked | §3.5 |
+| "err_scr pulses for 2 bad scrambler state words" | one `err_scr` per bad state word while locked | §3.5 |
+| "err_word pulses on a clean line" | no `err_word` at either end on a clean line after lock | §3.4 |
 | "peer status" | after both ends lock, `peer_status` = 11 | §3.2 |
 | "flow control" | `tx_fc` arrives on the far `rx_fc` | §3.3, §3.7 |
 | "no packets through" | packets cross both ways | §3.7 |

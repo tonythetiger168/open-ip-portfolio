@@ -424,9 +424,15 @@ module HDCP_2_3_Content_Protection_tb;
     auth(0, 0, 0);
     for (int i = 0; i < 16; i++) begin reg_write(3'd4, 8'(i)); reg_read(3'd7, r); chk(r == ks[8*i +: 8], "ks byte"); end
     stream(300, 1);
+    // a word still waiting for enc_ready when a new session starts is dropped
+    enc_ready = 0;
+    @(negedge clk); pix_valid = 1; @(negedge clk); pix_valid = 0;
+    @(negedge clk); chk(enc_valid, "word held without enc_ready");
     // CTRL.start while authenticated: a new session with a new rtx
     reg_write(3'd0, 8'h00);
     auth(1, 0, 0);                                   // repeater
+    chk(!enc_valid, "word waiting at a new session not dropped");
+    enc_ready = 1;
     stream(50, 1);
     // ---- start ignored while busy ----
     start;

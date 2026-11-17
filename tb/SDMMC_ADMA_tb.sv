@@ -174,11 +174,14 @@ module SDMMC_ADMA_tb;
   endtask
   bit xfer_err_seen;
   always @(posedge clk) if (xfer_done) xfer_err_seen = xfer_err;
+  always @(posedge clk) if (rst_n && xfer_err && !xfer_done) fail("XFER_ERR without XFER_DONE");
 
   initial begin
     logic [4:0] e;
     for (int i = 0; i < 64 * 512; i++) card.mem[i] = $urandom;
-    clks(3); rst_n = 1; clks(5);
+    clks(3);
+    if (xfer_done || xfer_err || dma_int) fail("XFER_DONE / XFER_ERR / DMA_INT not 0 in reset");
+    rst_n = 1; clks(5);
     clk_en = 1; clks(200);
     // ------------------------------------------------ SD
     cmd_ok(0, 0, R0);
@@ -467,6 +470,19 @@ module SDMMC_ADMA_tb;
       wait_xfer(); cmd_ok(12, 0, R1B);
       clks(1000);
     end
+    // a non-data command that fails while a read runs: only the command
+    // reports it, the transfer ends clean (checked by xfer)
+    fork
+      xfer(1, 4, 4, 512);
+      begin
+        logic [4:0] e2;
+        wait (dat_busy); while (cmd_busy) @(negedge clk);
+        clks(50);
+        card.f_rcrc = 1;
+        sdcmd(13, {rca, 16'h0}, R48, 1, 0, e2);
+        if (e2 !== 5'b00010) fail($sformatf("CMD13 during a read: C_ERR %b", e2));
+      end
+    join
     cmd_ok(16, 512, R48);
     if ($test$plusargs("cov_long")) begin
       // the longest timeouts (DTO 2^24 - 1 SD_CLK periods): a read with no
@@ -492,6 +508,7 @@ module SDMMC_ADMA_tb;
     clks(500);
     rst_n = 0; clks(3);
     if (dat_busy || cmd_busy) fail("not idle in reset");
+    if (xfer_done || xfer_err || dma_int) fail("XFER_DONE / XFER_ERR / DMA_INT not 0 in reset");
     rst_n = 1; clks(10);
     bus_w = 0; adma_addr = 0; clks(5);
     errors += card.errors;
