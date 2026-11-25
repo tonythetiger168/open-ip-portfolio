@@ -64,7 +64,7 @@ module LPDDR6_top #(
   logic [13:0] ref_cnt;
   logic [3:0]  ref_bank;
 
-  typedef enum logic [2:0] {D_IDLE, D_ACT, D_RFC, D_RD, D_CAS, D_WR, D_PRE} d_t;
+  typedef enum logic [2:0] {D_IDLE, D_ACT, D_RD, D_CAS, D_WR, D_PRE} d_t;
   d_t dstate;
   logic [31:0] cur_addr;
   // channel of the incoming / current command (NCH==1 ignores haddr[8],
@@ -233,7 +233,8 @@ module LPDDR6_top #(
             if (ref_walk) begin                 // REF once tRP is met
               if (rp_ok && ca_ok) begin
                 ras_n <= 1'b0; cas_n <= 1'b0; we_n <= 1'b1; ba <= ref_tgt;
-                timer <= 9'(TRFC - 3); dstate <= D_RFC;
+                rp_t[ref_tgt] <= 9'(TRFC - 1);   // per-entry refresh: only this entry
+                ref_walk <= 1'b0; dstate <= D_IDLE;   // waits tRFC (its next ACT / REF waits rp_t)
               end
             end
             else if (auto_rd || auto_wr || auto_act) dstate <= D_ACT;   // D_ACT waits tRP
@@ -254,12 +255,6 @@ module LPDDR6_top #(
             else if (auto_wr) dstate <= D_WR;
             else begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
             auto_rd <= 1'b0; auto_wr <= 1'b0;
-          end
-        end
-        D_RFC: begin
-          ras_n <= 1'b1;
-          if (timer == 0) begin
-            ref_walk <= 1'b0; dstate <= D_IDLE;   // tRFC done
           end
         end
         D_RD: if (rcd_ok && rd_ok) begin

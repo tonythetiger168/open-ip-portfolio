@@ -111,6 +111,7 @@
 
   longint      n, t_ref, t_refend, t_rdpin;
   longint      t_act [0:NB-1], t_pre [0:NB-1], t_wrp [0:NB-1];
+  longint      t_refb [0:NB-1];     // per-entry refresh: end of the entry's tRFC
   longint      t_wrlast, t_caslast;      // last WR / last RD or WR on the pins
   logic        open_m [0:NB-1];
   logic [13:0] row_m [0:NB-1];
@@ -153,7 +154,7 @@
       c_acc = 0; c_rdv = 0; c_cmd = 0; c_prev = 0; c_last = 0; c_col = 0; c_wd = 0; c_rdd = 0;
       for (int b = 0; b < NB; b++) begin
         open_m[b] = 0; row_m[b] = 0; t_act[b] = -1000000; t_pre[b] = -1000000;
-        t_wrp[b] = -1000000;
+        t_wrp[b] = -1000000; t_refb[b] = -1000000;
       end
       {v_stray, v_closed, v_act_open, v_trcd, v_trp, v_trc, v_tras, v_trfc, v_ref_open,
        v_paddr, v_wdata, v_trace, v_hdone, v_lat, v_rdata, v_incomplete, v_stuck,
@@ -192,7 +193,13 @@
       ta = drn ? `MEM_CHK_DRAIN_A : op_a;
       b = bank_of(ta);
       is_cmd = q_pc != P_NOP;
+`ifdef MEM_CHK_REF_PB
+      // per-entry refresh: only the refreshed entry is busy for tRFC (an ACT
+      // or the next REF to it); the other entries keep working
+      if ((q_pc == P_ACT && n < t_refb[b]) || (q_pc == P_REF && n < t_refb[tb])) v_trfc = 1;
+`else
       if (is_cmd && n < t_refend) v_trfc = 1;
+`endif
       // a RD / WR page hit goes straight to its burst
       if ((q_pc == P_ACT || q_pc == P_PRE) && op_v && !drn && op_hit && !s_rw &&
           (op_c == 3'd2 || op_c == 3'd3) && `MEM_CHK_HIT_KEEP) v_reopen = 1;
@@ -269,7 +276,7 @@
             if (open_m[tb]) v_ref_open = 1;
             if (n - t_pre[tb] < TRP) v_trp = 1;
             for (int i = 0; i < NB; i++) if (i != tb && open_m[i]) e_refpb_others_open = 1;
-            rb_m = rb_m + 1;
+            rb_m = rb_m + 1; t_refb[tb] = n + TRFC;
           end else
           for (int i = 0; i < NB; i++) begin
             if (open_m[i]) v_ref_open = 1;

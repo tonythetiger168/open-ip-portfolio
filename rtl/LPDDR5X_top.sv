@@ -226,7 +226,8 @@ module LPDDR5X_top #(
             if (ref_walk) begin                 // REF once tRP is met
               if (rp_ok) begin
                 ras_n <= 1'b0; cas_n <= 1'b0; we_n <= 1'b1; ba <= ref_tgt;
-                timer <= 9'(TRFC - 3); dstate <= D_RCD;
+                rp_t[ref_tgt] <= 9'(TRFC - 1);   // per-entry refresh: only this entry
+                ref_walk <= 1'b0; dstate <= D_IDLE;   // waits tRFC (its next ACT / REF waits rp_t)
               end
             end
             else if (auto_rd || auto_wr || auto_act) dstate <= D_ACT;   // D_ACT waits tRP
@@ -248,8 +249,7 @@ module LPDDR5X_top #(
         D_RCD: begin
           ras_n <= 1'b1;
           if (timer == 0) begin
-            if (ref_walk)      begin ref_walk <= 1'b0; dstate <= D_IDLE; end
-            else if (auto_rd)  begin auto_rd <= 1'b0; dstate <= D_RD; end
+            if (auto_rd)  begin auto_rd <= 1'b0; dstate <= D_RD; end
             else if (auto_wr)  begin auto_wr <= 1'b0; dstate <= D_WR; end
             else begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
           end
