@@ -50,7 +50,8 @@ module HBM2_top #(
   logic [NB-1:0] bank_open;
   logic [8:0] rp_t [0:NB-1], ras_t [0:NB-1], rc_t [0:NB-1];
   logic [8:0] timer;
-  logic [6:0] wtr_t, ccd_t;            // WR-to-RD and CAS-to-CAS down-counters
+  localparam int WTRW = $clog2(WR2RD);
+  logic [WTRW-1:0] wtr_t;              // WR-to-RD down-counter
   logic [13:0] ref_cnt;
   logic [5:0]  ref_bank;             // next entry to refresh
 
@@ -83,24 +84,26 @@ module HBM2_top #(
   wire act_ok = rp_z[act_bank] && (rc_t[act_bank] == 0);
   wire a_open = bank_open[a_bank];  // RD/WR carry only the column (as on main)
   wire a_hit = a_open && (open_row[a_bank] == haddr[31:18]);   // ACT: row already open
-  wire rd_ok = (wtr_t == 0) && (ccd_t == 0);   // a RD may go on the pins now
-  wire wr_ok = (ccd_t == 0);                   // a WR may go on the pins now
+  // a RD may go on the pins once tWTR is met. tCCD = TBURST = 2 never binds:
+  // the single engine spaces two CAS commands by 3 clocks or more (the
+  // checker still checks it).
+  wire rd_ok = (wtr_t == 0);
 
   assign ck_t = clk;  assign ck_c = ~clk;  assign cke = rst_n;
   assign dqs  = 2'bzz;
   assign hready = (dstate == D_IDLE) && (ref_cnt != 0);   // a due refresh goes first
   assign hdone  = (dstate == D_CAS) && (timer == 0) && rd_pending;
-  assign trace_valid = (dstate == D_ACT && act_ok) || (dstate == D_RD && rd_ok) || (dstate == D_WR && wr_ok);
+  assign trace_valid = (dstate == D_ACT && act_ok) || (dstate == D_RD && rd_ok) || (dstate == D_WR);
   assign trace_cmd   = (dstate == D_ACT) ? 3'd1 : (dstate == D_RD) ? 3'd2 : 3'd3;
   assign trace_addr  = cur_addr;
   // each channel owns dq[16*g +: 16]; only the addressed one drives a write
   for (genvar g = 0; g < NCH; g++) begin : g_dq
-    assign dq[16*g +: 16] = (dstate == D_WR && wr_ok && c_ch == g) ? wr_data : 16'hzzzz;
+    assign dq[16*g +: 16] = (dstate == D_WR && c_ch == g) ? wr_data : 16'hzzzz;
   end
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      dstate <= D_IDLE; timer <= '0; wtr_t <= '0; ccd_t <= '0; ref_cnt <= TREFI[13:0];
+      dstate <= D_IDLE; timer <= '0; wtr_t <= '0; ref_cnt <= TREFI[13:0];
       auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0;
       cur_addr <= '0; wr_data <= '0; rd_pending <= 1'b0;
       ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= 1'b0;
@@ -115,7 +118,6 @@ module HBM2_top #(
       if (dstate != D_PRE) pre_done <= 1'b0;
       if (timer != 0) timer <= timer - 1'b1;
       if (wtr_t != 0) wtr_t <= wtr_t - 1'b1;
-      if (ccd_t != 0) ccd_t <= ccd_t - 1'b1;
       if (ref_cnt != 0) ref_cnt <= ref_cnt - 1'b1;
       for (int i = 0; i < NB; i++) begin
         if (rp_t[i]  != 0) rp_t[i]  <= rp_t[i]  - 1'b1;
@@ -220,16 +222,15 @@ module HBM2_top #(
         D_RD: if (rd_ok) begin              // tWTR and tCCD met
           cas_n <= 1'b0; we_n <= 1'b1;
           addr <= {9'b0, cur_addr[7:0]};
-          ccd_t <= 7'(TBURST - 1);
           dstate <= D_CAS; timer <= CL[8:0];
         end
-        D_WR: if (wr_ok) begin
+        D_WR: begin
           cas_n <= 1'b0; we_n <= 1'b0;
           addr <= {9'b0, cur_addr[7:0]};
           mem[{c_ch, cur_addr[7:0]}] <= wr_data;
           // complete once on the pins: D_CAS exits next clock (no CL wait)
-          if (ras_t[cur_bank] < 9'(WR2PRE - 1)) ras_t[cur_bank] <= 9'(WR2PRE - 1);
-          wtr_t <= 7'(WR2RD - 1); ccd_t <= 7'(TBURST - 1);
+          ras_t[cur_bank] <= 9'(WR2PRE - 1);   // WR2PRE > tRAS - tRCD: never shorter than tRAS
+          wtr_t <= WTRW'(WR2RD - 1);
           dstate <= D_CAS; timer <= '0;
         end
         D_CAS: begin

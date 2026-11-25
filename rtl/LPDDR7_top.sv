@@ -57,7 +57,10 @@ module LPDDR7_top #(
   logic [1:0]  hit_cnt [0:NB-1];        // adaptive-page evidence
   logic [8:0] rp_t [0:NB-1], ras_t [0:NB-1], rc_t [0:NB-1];
   logic [8:0] timer;
-  logic [6:0] wtr_t, ccd_t;            // WR-to-RD and CAS-to-CAS down-counters
+  localparam int WTRW = $clog2(WR2RD);
+  logic [WTRW-1:0] wtr_t;              // WR-to-RD down-counter
+  localparam int CCDW = $clog2(TBURST);
+  logic [CCDW-1:0] ccd_t;              // CAS-to-CAS down-counter
   logic [13:0] ref_cnt;
   logic [2:0]  ref_bank;
 
@@ -264,7 +267,7 @@ module LPDDR7_top #(
         D_RD: if (rd_ok) begin              // tWTR and tCCD met
           cas_n <= 1'b0; we_n <= 1'b1; ba <= cur_bank;
           addr <= {9'b0, cur_addr[7:0]};
-          ccd_t <= 7'(TBURST - 1);
+          ccd_t <= CCDW'(TBURST - 1);
           dstate <= D_CAS; timer <= CL[8:0];
         end
         D_WR: if (wr_ok) begin
@@ -272,8 +275,8 @@ module LPDDR7_top #(
           addr <= {9'b0, cur_addr[7:0]};
           mem[{c_ch, cur_addr[7:0]}] <= wr_data;
           // complete once on the pins: D_CAS exits next clock (no CL wait)
-          if (ras_t[cur_bank] < 9'(WR2PRE - 1)) ras_t[cur_bank] <= 9'(WR2PRE - 1);
-          wtr_t <= 7'(WR2RD - 1); ccd_t <= 7'(TBURST - 1);
+          ras_t[cur_bank] <= 9'(WR2PRE - 1);   // WR2PRE > tRAS - tRCD: never shorter than tRAS
+          wtr_t <= WTRW'(WR2RD - 1); ccd_t <= CCDW'(TBURST - 1);
           dstate <= D_CAS; timer <= '0;
         end
         D_CAS: begin

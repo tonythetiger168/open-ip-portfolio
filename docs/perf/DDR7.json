@@ -6,6 +6,7 @@
  "timing_clk": {
   "CL": 30,
   "CWL": 28,
+  "TBURST": 8,
   "TRCD": 18,
   "TRP": 18,
   "TRAS": 44,

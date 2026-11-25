@@ -8,7 +8,7 @@ module HBM3E_top__fsm_cov (
   input logic r_rst_n,
   input logic [2:0] s_dstate
 );
-  // ---- FSM HBM3E_top.dstate: 7 states, 17 arcs ----
+  // ---- FSM HBM3E_top.dstate: 7 states, 16 arcs ----
   fsm_st__dstate__D_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd0);
   fsm_st__dstate__D_ACT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd1);
   fsm_st__dstate__D_RCD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd2);
@@ -31,7 +31,6 @@ module HBM3E_top__fsm_cov (
   fsm_arc__dstate__D_WR__D_CAS: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd5 ##1 s_dstate == 3'd4);
   fsm_arc__dstate__D_PRE__D_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd6 ##1 s_dstate == 3'd0);
   fsm_arc__dstate__D_PRE__D_ACT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd6 ##1 s_dstate == 3'd1);
-  fsm_arc__dstate__D_PRE__D_RCD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd6 ##1 s_dstate == 3'd2);
   fsm_arc__dstate__D_PRE__D_PRE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd6 ##1 s_dstate == 3'd6);
 endmodule
 

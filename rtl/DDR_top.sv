@@ -60,7 +60,10 @@ module DDR_top #(
   logic [NB-1:0] bank_open;
   logic [4:0] rp_t [0:NB-1], ras_t [0:NB-1], rc_t [0:NB-1];
   logic [6:0] timer;
-  logic [6:0] wtr_t, ccd_t;            // WR-to-RD and CAS-to-CAS down-counters
+  localparam int WTRW = $clog2(WR2RD);
+  logic [WTRW-1:0] wtr_t;              // WR-to-RD down-counter
+  localparam int CCDW = $clog2(TBURST);
+  logic [CCDW-1:0] ccd_t;              // CAS-to-CAS down-counter
   logic [11:0] ref_cnt;
 
   typedef enum logic [2:0] {D_IDLE, D_ACT, D_RCD, D_RD, D_CAS, D_WR, D_PRE} d_t;
@@ -73,7 +76,6 @@ module DDR_top #(
   logic        rd_pending, ref_walk;
   logic        auto_act, pre_done, ref_req;
   logic        auto_rd, auto_wr;
-  logic        pre_need;             // the command's bank was open: PRE it
 
   wire [0:0] a_bank = haddr[8];
   // per-bank timer-expired vectors: PRE waits tRAS, ACT waits tRP and tRC
@@ -109,7 +111,7 @@ module DDR_top #(
       dstate <= D_IDLE; timer <= '0; wtr_t <= '0; ccd_t <= '0; ref_cnt <= TREFI[11:0];
       auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0;
       cur_addr <= '0; wr_data <= '0; rd_pending <= 1'b0;
-      ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= 1'b0;
+      ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0;
       cur_bank <= '0; act_bank <= '0;
       ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1; addr <= '0; hrdata <= '0;
       for (int i = 0; i < NB; i++) begin
@@ -134,7 +136,7 @@ module DDR_top #(
           if (hvalid && ref_cnt != 0) begin
             cur_addr <= haddr; wr_data <= hwdata; cur_bank <= a_bank;
             rd_pending <= (hcmd == 3'd2); ref_walk <= 1'b0; auto_act <= 1'b0;
-            auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= bank_open[a_bank];
+            auto_rd <= 1'b0; auto_wr <= 1'b0;
             case (hcmd)
               3'd1: begin
                 act_bank <= a_bank;
@@ -181,8 +183,9 @@ module DDR_top #(
             dstate <= D_PRE;
           end else if (!pre_done) begin
             // PRE/PREA waits for tRAS, and tRP counts from the real issue
-            if (!ref_walk && !pre_need) pre_done <= 1'b1;   // bank already closed
-            else if (pre_ok) begin
+            // (only an open bank or a refresh gets here: a closed one goes
+            // straight to D_ACT)
+            if (pre_ok) begin
               ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0; addr[10] <= ref_walk;
               if (ref_walk) for (int i = 0; i < NB; i++) rp_t[i] <= 5'(TRP - 1);
               else rp_t[pre_tgt] <= 5'(TRP - 1);
@@ -223,7 +226,7 @@ module DDR_top #(
         D_RD: if (rd_ok) begin              // tWTR and tCCD met
           cas_n <= 1'b0; we_n <= 1'b1;
           addr <= {9'b0, cur_addr[7:0]};
-          ccd_t <= 7'(TBURST - 1);
+          ccd_t <= CCDW'(TBURST - 1);
           dstate <= D_CAS; timer <= CL[6:0];
         end
         D_WR: if (wr_ok) begin
@@ -231,8 +234,8 @@ module DDR_top #(
           addr <= {9'b0, cur_addr[7:0]};
           mem[{c_ch, cur_addr[7:0]}] <= wr_data;
           // complete once on the pins: D_CAS exits next clock (no CL wait)
-          if (ras_t[cur_bank] < 5'(WR2PRE - 1)) ras_t[cur_bank] <= 5'(WR2PRE - 1);
-          wtr_t <= 7'(WR2RD - 1); ccd_t <= 7'(TBURST - 1);
+          ras_t[cur_bank] <= 5'(WR2PRE - 1);   // WR2PRE > tRAS - tRCD: never shorter than tRAS
+          wtr_t <= WTRW'(WR2RD - 1); ccd_t <= CCDW'(TBURST - 1);
           dstate <= D_CAS; timer <= '0;
         end
         D_CAS: begin

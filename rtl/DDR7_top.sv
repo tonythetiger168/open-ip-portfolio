@@ -60,7 +60,10 @@ module DDR7_top #(
   logic [NB-1:0] bank_open;
   logic [8:0] rp_t [0:NB-1], ras_t [0:NB-1], rc_t [0:NB-1];
   logic [8:0] timer;
-  logic [6:0] wtr_t, ccd_t;            // WR-to-RD and CAS-to-CAS down-counters
+  localparam int WTRW = $clog2(WR2RD);
+  logic [WTRW-1:0] wtr_t;              // WR-to-RD down-counter
+  localparam int CCDW = $clog2(TBURST);
+  logic [CCDW-1:0] ccd_t;              // CAS-to-CAS down-counter
   logic [13:0] ref_cnt;
 
   typedef enum logic [2:0] {D_IDLE, D_ACT, D_RCD, D_RD, D_CAS, D_WR, D_PRE, D_DRN} d_t;
@@ -75,7 +78,6 @@ module DDR7_top #(
   logic        rd_pending, ref_walk;
   logic        auto_act, pre_done, ref_req;
   logic        auto_rd, auto_wr;
-  logic        pre_need;             // the command's bank was open: PRE it
 
   // write-back merge buffer, oldest entry at index 0
   logic        wb_v [0:WBN-1];
@@ -136,7 +138,7 @@ module DDR7_top #(
       dstate <= D_IDLE; timer <= '0; wtr_t <= '0; ccd_t <= '0; ref_cnt <= TREFI[13:0];
       auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0;
       cur_addr <= '0; wr_data <= '0; rd_pending <= 1'b0;
-      ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= 1'b0;
+      ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0;
       cur_bank <= '0; act_bank <= '0;
       wb_n <= '0; h_pend <= 1'b0; h_rd <= 1'b0; evicted <= 1'b0; draining <= 1'b0;
       h_addr <= '0; h_data <= '0;
@@ -164,7 +166,7 @@ module DDR7_top #(
           if (hvalid && ref_cnt != 0) begin
             cur_addr <= haddr; wr_data <= hwdata; cur_bank <= a_bank;
             rd_pending <= (hcmd == 3'd2); ref_walk <= 1'b0; auto_act <= 1'b0;
-            auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= bank_open[a_bank];
+            auto_rd <= 1'b0; auto_wr <= 1'b0;
             case (hcmd)
               3'd1: begin
                 act_bank <= a_bank;
@@ -224,8 +226,9 @@ module DDR7_top #(
             dstate <= D_PRE;
           end else if (!pre_done) begin
             // PRE/PREA waits for tRAS, and tRP counts from the real issue
-            if (!ref_walk && !pre_need) pre_done <= 1'b1;   // bank already closed
-            else if (pre_ok) begin
+            // (only an open bank or a refresh gets here: a closed one goes
+            // straight to D_ACT)
+            if (pre_ok) begin
               ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0; addr[10] <= ref_walk;
               if (ref_walk) for (int i = 0; i < NB; i++) rp_t[i] <= 9'(TRP - 1);
               else rp_t[pre_tgt] <= 9'(TRP - 1);
@@ -270,7 +273,7 @@ module DDR7_top #(
             dstate <= D_IDLE;                 // a due refresh is taken there
           end else begin
             cur_addr <= x_addr; wr_data <= x_data; cur_bank <= x_bank; act_bank <= x_bank;
-            draining <= x_wb; rd_pending <= !x_wb; pre_need <= bank_open[x_bank];
+            draining <= x_wb; rd_pending <= !x_wb;
             auto_act <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0;
             if (x_hit) if (x_wb) dstate <= D_WR; else dstate <= D_RD;
             else begin
@@ -284,7 +287,7 @@ module DDR7_top #(
         D_RD: if (rd_ok) begin              // tWTR and tCCD met
           cas_n <= 1'b0; we_n <= 1'b1;
           addr <= {9'b0, cur_addr[7:0]};
-          ccd_t <= 7'(TBURST - 1);
+          ccd_t <= CCDW'(TBURST - 1);
           dstate <= D_CAS; timer <= CL[8:0];
         end
         D_WR: if (wr_ok) begin
@@ -292,8 +295,8 @@ module DDR7_top #(
           addr <= {9'b0, cur_addr[7:0]};
           mem[{c_ch, cur_addr[7:0]}] <= wr_data;
           // complete once on the pins: D_CAS exits next clock (no CL wait)
-          if (ras_t[cur_bank] < 9'(WR2PRE - 1)) ras_t[cur_bank] <= 9'(WR2PRE - 1);
-          wtr_t <= 7'(WR2RD - 1); ccd_t <= 7'(TBURST - 1);
+          ras_t[cur_bank] <= 9'(WR2PRE - 1);   // WR2PRE > tRAS - tRCD: never shorter than tRAS
+          wtr_t <= WTRW'(WR2RD - 1); ccd_t <= CCDW'(TBURST - 1);
           dstate <= D_CAS; timer <= '0;
         end
         D_CAS: begin
