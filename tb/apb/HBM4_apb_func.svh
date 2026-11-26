@@ -9,5 +9,11 @@ endfunction
 function automatic int cellof(input logic [31:0] a);
   cellof = {a[11:8], a[7:0]};
 endfunction
+// DRAM device (tb/mem_dev.svh): the core keeps no array of its own
+localparam int NCH = 16;
+`define MEM_DEV_RD ({ras_n, cas_n, we_n} == 3'b101)
+`define MEM_DEV_WR ({ras_n, cas_n, we_n} == 3'b100)
+`define MEM_DEV_CL 14
+`define MEM_DEV_CH(a) int'(a[11:8])
 `include "apb/mem_apb_common.svh"
 task automatic ip_func; mem_func(); endtask

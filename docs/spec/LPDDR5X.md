@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # LPDDR5X: design specification
 
-DVFS-era mobile controller with two frequency-set-point latency files (FSP0: CL 22, FSP1: CL 14). A write to the FSP-OP mailbox column 0xF1 switches the active file for all later commands. The mailbox write is a controller register write: no DRAM traffic, array and page state untouched. 8 bank entries, per-bank refresh rotation; commands reach the pins as framed beats on the 7-bit CA bus. Otherwise the open-page engine of DDR4. Core `LPDDR5X_top` (`rtl/LPDDR5X_top.sv`), testbench `tb/LPDDR5X_tb.sv` (shared body
+DVFS-era mobile controller with two frequency-set-point latency files (FSP0: CL 22, FSP1: CL 14). A write to the FSP-OP mailbox column 0xF1 switches the active file for all later commands. The mailbox write is a controller register write: no DRAM traffic, array and page state untouched. 8 bank entries, per-bank refresh rotation; commands reach the pins as framed beats on the 7-bit CA bus. Otherwise the open-page engine of DDR4. The core holds no data: write words go out on `dq` and read words come back on `dq` from the DRAM device, which the testbenches model (`tb/mem_dev.svh`). Core `LPDDR5X_top` (`rtl/LPDDR5X_top.sv`), testbench `tb/LPDDR5X_tb.sv` (shared body
 `tb/mem_tb_common.svh`), checker `tb/cov/LPDDR5X_sva.sv` (shared model `tb/cov/mem_chk.svh`). The host
 contract and the checker are shared by the whole memory-controller family; [DDR4.md](DDR4.md) is
 the baseline the others are described against.
@@ -44,6 +44,7 @@ The TB reads these by name; a re-implementation must have them.
 | `ref_cnt` | 14 | refresh down-counter: clocks until the next refresh is due; loaded with TREFI at reset and when a refresh starts, decremented every clock, `hready` = 0 while it is 0. The TB waits for exact values of it to make a refresh fall due during a command |
 | `ras_n`, `cas_n`, `we_n` | 1 each | internal DDR-style command bus: one command per clock, encoded as in [DDR4.md](DDR4.md) §3.3 (011 ACT, 101 RD, 100 WR, 010 PRE, 001 REF, 111 NOP). The bound checker checks every command on it and the CA frames against it |
 | `addr` | 17 | internal command address: ACT row in [13:0], RD / WR column in [7:0] |
+| `fsp` | 1 | FSP-OP in use (0: CL 22, 1: CL 14). The TB's DRAM device follows it for its read latency, as a real device follows its own FSP setting |
 | `ref_bank` | 3 | entry the next per-bank refresh targets (0 to 7, entry numbering of §3.2); the TB opens that entry just before a refresh falls due, so the refresh PRE must wait out its tRAS |
 
 ## 2. Registers
@@ -136,8 +137,9 @@ only when that command's work is complete on the pins (an engine may wait longer
 `hready` is also 0 while a refresh is due or running (§3.6), so a refresh never drops a host
 command. `hready` is never low for more than BUSY_MAX clocks in a row (§3.5).
 
-A RD returns the word last written to the storage cell its address maps to (§3.2), or 0 if that
-cell was never written (the array is zeroed once at time 0 and is not cleared by `rst_n`).
+A RD returns the word the device drives on `dq` for it (§3.7). With the TB's device that is the
+word last written to the storage cell the address maps to (§3.2), or 0 if that cell was never
+written (the device array starts zeroed and keeps its data through `rst_n`).
 
 ### 3.2 Address map and storage
 
@@ -148,7 +150,7 @@ cell was never written (the array is zeroed once at time 0 and is not cleared by
 | channel | `haddr[8]` | 2 channels (NCH = 2) |
 | column | `haddr[7:0]` | 256 columns |
 
-Bank entry = {channel, bank} (8 entries, numbered channel x 4 + bank). Storage is 256 16-bit words
+Bank entry = {channel, bank} (8 entries, numbered channel x 4 + bank). The core holds no data; the TB's device (`tb/mem_dev.svh`) stores 256 16-bit words
 per channel indexed by the column (cell = {channel, column}); banks and rows alias onto it.
 
 Column 0xF1 is the FSP-OP mailbox for writes (§3.4).
@@ -222,11 +224,12 @@ be activated again. REF-to-REF spacing stays within REF_MIN .. REF_MAX.
 ### 3.7 Data
 
 Write: the write word is driven on `dq[16 x ch +: 16]` of the command's channel in the clock
-before the WR pin command (the clock of its trace announcement) and the cell is written; `dq` is
+before the WR pin command (the clock of its trace announcement), where the device stores it; `dq` is
 high-Z in every other clock (the other channels' lanes too).
 
-Read: the RD pin command is on the pins in clock t; `hdone` = 1 in clock t + CL; `hrdata` holds
-the cell's word from clock t + CL + 1 until the next read completes.
+Read: the RD pin command is on the pins in clock t; the device drives the word on
+`dq[16 x ch +: 16]` in clock t + CL, where `hdone` = 1, and the core takes it at the end of that
+clock: `hrdata` holds it from clock t + CL + 1 until the next read completes.
 
 ### 3.8 Trace port
 
@@ -237,8 +240,7 @@ does not announce PRE, PREA or REF).
 ### 3.9 Reset
 
 `rst_n` low: idle, every bank closed and every timer 0, `ref_cnt` = TREFI, `hready` = 1, command
-bus NOP, `cs_n` = 1, `ca` = 0, `addr` = 0, `hrdata` = 0, `hdone` = 0, `trace_valid` = 0, `cke` = 0, `dq` released. The
-storage array keeps its contents. `ref_bank` = 0. FSP0.
+bus NOP, `cs_n` = 1, `ca` = 0, `addr` = 0, `hrdata` = 0, `hdone` = 0, `trace_valid` = 0, `cke` = 0, `dq` released. The DRAM device keeps its array. `ref_bank` = 0. FSP0.
 
 ## 4. Parameters
 
@@ -256,8 +258,8 @@ storage array keeps its contents. `ref_bank` = 0. FSP0.
 | PRE of a closed bank | no pin command; `hready` returns once that bank's tRP (from an earlier PRE) has passed |
 | refresh due during a command | the command finishes first; the refresh follows before `hready` |
 | a stream of no-op commands | cannot hold off a refresh (`hready` drops when it is due) |
-| two addresses with the same storage cell | aliasing (§3.2) |
-| reset with a command in flight | the command is lost; a WR may or may not have reached the array |
+| two addresses with the same storage cell | the same cell of the TB's device (aliasing, §3.2) |
+| reset with a command in flight | the command is lost; a WR may or may not have reached the device |
 | refresh | closes only the bank it refreshes (if open); other pages stay open |
 | WR to column 0xF1 | FSP change only; no pin traffic, array unchanged |
 

@@ -14,7 +14,7 @@ Protocol IP `DDR4_AXI`, version 1.0. Apache-2.0.
 
 ## Overview
 
-DDR4_AXI: DDR4_top memory controller with an AXI4 subordinate port The unchanged DDR4_top core behind ddr_axi_slv (see that file for the AXI rules: INCR / FIXED / WRAP, AxSIZE 0..2, WSTRB read-modify-write, SLVERR on AxSIZE > 2 or a misplaced WLAST, one transaction at a time). DDR4_top keeps 256 16-bit columns per channel: with NCH = 1 halfword h of the AXI address space aliases onto column h[7:0].
+DDR4_AXI: DDR4_top memory controller with an AXI4 subordinate port The unchanged DDR4_top core behind ddr_axi_slv (see that file for the AXI rules: INCR / FIXED / WRAP, AxSIZE 0..2, WSTRB read-modify-write, SLVERR on AxSIZE > 2 or a misplaced WLAST, one transaction at a time). DDR4_top addresses 256 16-bit columns per channel (the data lives in the DRAM on the dq pins): with NCH = 1 halfword h of the AXI address space aliases onto column h[7:0].
 
 The AXI4 subordinate port (s_*) and the DRAM pins pass through the wrapper unchanged; the registers only read the front end's counters.
 Halfword h = addr[31:1] reaches the core as haddr = {h[24:11], 7'b0, h[10:0]}: column h[7:0], bank h[10:9], row h[24:11]. The core keeps 256 columns of 16 bits, so the AXI space aliases above 512 bytes.

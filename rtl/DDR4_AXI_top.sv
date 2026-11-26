@@ -5,8 +5,9 @@
 // The unchanged DDR4_top core behind ddr_axi_slv (see that file for the
 // AXI rules: INCR / FIXED / WRAP, AxSIZE 0..2, WSTRB read-modify-write,
 // SLVERR on AxSIZE > 2 or a misplaced WLAST, one transaction at a time).
-// DDR4_top keeps 256 16-bit columns per channel: with NCH = 1 halfword h of
-// the AXI address space aliases onto column h[7:0].
+// DDR4_top addresses 256 16-bit columns per channel (the data lives in the
+// DRAM on the dq pins): with NCH = 1 halfword h of the AXI address space
+// aliases onto column h[7:0].
 // ============================================================================
 module DDR4_AXI_top #(
   parameter int NCH = 1

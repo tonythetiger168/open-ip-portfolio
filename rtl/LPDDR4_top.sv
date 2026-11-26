@@ -10,6 +10,8 @@
 // array and the page state alone. Commands reach the pins as framed
 // beats on the 6-bit CA bus (see below). Self-contained; contract
 // identical to DDR_top.
+// The core holds no data: write words leave on dq, and the read word is
+// taken from dq CL clocks after the RD command (the DRAM drives it).
 // ============================================================================
 module LPDDR4_top #(
   parameter int NCH = 2
@@ -42,14 +44,6 @@ module LPDDR4_top #(
   localparam int CHW = (NCH <= 2) ? 1 : $clog2(NCH);   // channel select: haddr[8 +: CHW]
   localparam int NB = 8;
 
-  logic [15:0] mem [0:(1<<CHW)*256-1];   // NCH ch x 256 col
-  // array contents are not cleared by rst_n (a DRAM keeps its data);
-  // zero them once for deterministic simulation
-  // sim-only clear; yosys (SYNTHESIS) would unroll it into one assignment per
-  // line, which takes minutes and GBs for no netlist change
-`ifndef SYNTHESIS
-  initial for (int i = 0; i <= (1<<CHW)*256-1; i++) mem[i] = '0;
-`endif
   logic [13:0] open_row [0:NB-1];
   logic [NB-1:0] bank_open;
   logic [8:0] rp_t [0:NB-1], ras_t [0:NB-1], rc_t [0:NB-1];
@@ -260,13 +254,12 @@ module LPDDR4_top #(
         D_WR: begin
           cas_n <= 1'b0; we_n <= 1'b0; ba <= cur_bank;
           addr <= {9'b0, cur_addr[7:0]};
-          mem[{c_ch, cur_addr[7:0]}] <= wr_data;
           dstate <= D_CAS; timer <= 9'(CL);
         end
         D_CAS: begin
           cas_n <= 1'b1; we_n <= 1'b1;
           if (timer == 0) begin
-            if (rd_pending) hrdata <= mem[{c_ch, cur_addr[7:0]}];
+            if (rd_pending) hrdata <= dq[16*c_ch +: 16];   // the device's read word
             rd_pending <= 1'b0;
             begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
           end

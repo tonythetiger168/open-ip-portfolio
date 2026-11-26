@@ -72,6 +72,11 @@ module LPDDR4_tb;
     end
   endtask
 
+  // DRAM device (tb/mem_dev.svh): the core keeps no array of its own
+  `define MEM_DEV_RD (!cs_n && ca[5:3] == 3'd2)
+  `define MEM_DEV_WR (!cs_n && ca[5:3] == 3'd3)
+  `define MEM_DEV_CL (dut.fset ? 22 : 15)
+  `define MEM_DEV_CH(a) int'(a[8])
   `include "mem_tb_common.svh"
 
   initial begin

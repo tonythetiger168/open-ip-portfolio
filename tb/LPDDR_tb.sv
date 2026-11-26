@@ -49,6 +49,10 @@ module LPDDR_tb;
     near_refresh(REFI / 2); near_refresh(10); idle(300); rd(mk(0, 5, 8'h62));
   endtask
 
+  // DRAM device (tb/mem_dev.svh): the core keeps no array of its own
+  `define MEM_DEV_RD ({ras_n, cas_n, we_n} == 3'b101)
+  `define MEM_DEV_WR ({ras_n, cas_n, we_n} == 3'b100)
+  `define MEM_DEV_CL 3
   `include "mem_tb_common.svh"
 
   initial begin

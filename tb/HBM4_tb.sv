@@ -52,6 +52,11 @@ module HBM4_tb;
     idle(REFI * 70);
   endtask
 
+  // DRAM device (tb/mem_dev.svh): the core keeps no array of its own
+  `define MEM_DEV_RD ({ras_n, cas_n, we_n} == 3'b101)
+  `define MEM_DEV_WR ({ras_n, cas_n, we_n} == 3'b100)
+  `define MEM_DEV_CL 14
+  `define MEM_DEV_CH(a) int'(a[11:8])
   `include "mem_tb_common.svh"
 
   initial begin

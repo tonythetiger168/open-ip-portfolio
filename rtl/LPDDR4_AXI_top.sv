@@ -5,10 +5,10 @@
 // The unchanged LPDDR4_top core behind ddr_axi_slv (see that file for the
 // AXI rules: INCR / FIXED / WRAP, AxSIZE 0..2, WSTRB read-modify-write,
 // SLVERR on AxSIZE > 2 or a misplaced WLAST, one transaction at a time).
-// LPDDR4_top keeps 256 16-bit columns per channel (NCH = 2: halfword h maps
-// onto channel h[8], column h[7:0]). A write to column 0xF0 is the core's
-// MR7 frequency-set write (bit 0 of the halfword: 0 set A, 1 set B); it does
-// not change the array.
+// LPDDR4_top addresses 256 16-bit columns per channel (NCH = 2: halfword h
+// maps onto channel h[8], column h[7:0]); the data lives in the DRAM on the
+// dq pins. A write to column 0xF0 is the core's MR7 frequency-set write (bit
+// 0 of the halfword: 0 set A, 1 set B); it does not reach the DRAM.
 // ============================================================================
 module LPDDR4_AXI_top #(
   parameter int NCH = 2

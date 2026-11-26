@@ -15,7 +15,7 @@ Protocol IP `HBM5`, version 2.0. Apache-2.0.
 
 ## Overview
 
-HBM5 (projected) -- INDEPENDENT design IP #20/20. Architecture thesis: refresh-centric design. Fine-granularity refresh: the refresh interval is sliced 8 ways (each slice refreshes ONE bank), so a refresh costs tRFC_PB=40 cycles every SLICE=195 cycles instead of tRFC=170 every 1560 -- refresh-induced latency jitter is bounded and frequent, and at most one bank is ever closed by it. 128 page entries ({ch haddr[11:8], pc haddr[14:12]}); the refresh pointer rotates over all 128 and PREs an entry only if it is open. Open-page. Contract identical to DDR_top. Timings projected.
+HBM5 (projected) -- INDEPENDENT design IP #20/20. Architecture thesis: refresh-centric design. Fine-granularity refresh: the refresh interval is sliced 8 ways (each slice refreshes ONE bank), so a refresh costs tRFC_PB=40 cycles every SLICE=195 cycles instead of tRFC=170 every 1560 -- refresh-induced latency jitter is bounded and frequent, and at most one bank is ever closed by it. 128 page entries ({ch haddr[11:8], pc haddr[14:12]}); the refresh pointer rotates over all 128 and PREs an entry only if it is open. Open-page. Contract identical to DDR_top. Timings projected. The core holds no data: write words leave on dq, and the read word is taken from dq CL clocks after the RD command (the DRAM drives it).
 
 ck_t, ck_c, cke, addr, ras_n, cas_n, we_n, dq and dqs are the DRAM pins and trace_valid, trace_cmd and trace_addr the command trace (one clock before each command on the pins); they pass through unchanged.
 Address map and behaviour of the core: fine-granularity-refresh controller (128 page entries {channel haddr[11:8], pc haddr[14:12]}, row = haddr[31:18], storage = 256 columns per channel); one entry refreshed per SLICE = tREFI/8 = 195 clocks.
@@ -208,7 +208,7 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/HBM5_top.sv` | pass | 92/92 (+3 excl.) | 1846/1846 (+30 excl.) | 24/24 | 24/24 | 66/66 |
+| core `rtl/HBM5_top.sv` | pass | 90/90 (+3 excl.) | 1846/1846 (+30 excl.) | 24/24 | 24/24 | 66/66 |
 | wrapper `rtl/HBM5_apb.sv` | pass | 33/33 | 1290/1290 (+12 excl.) | n/a | 11/11 | 42/42 |
 
 ## Performance

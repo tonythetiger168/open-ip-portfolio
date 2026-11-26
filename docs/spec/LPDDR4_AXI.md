@@ -62,6 +62,14 @@ asynchronously by `rst_n` low. *Host* signals are the core's `hvalid` / `hready`
 | `n_err` | output | 16 | SLVERR responses (wraps) | - | `clk` | 0 |
 | `err_irq` | output | 1 | one-clock pulse with each SLVERR response handshake | high | `clk` | 0 |
 
+### Internal signals used by the verification
+
+The TB reads these by name; a re-implementation must have them.
+
+| Signal | Width | Meaning |
+|---|---|---|
+| `u_core` | - | the `LPDDR4_top` instance; the TB's DRAM device follows its `fset` (frequency set, see [LPDDR4.md](LPDDR4.md)) for its read latency |
+
 ## 2. Registers
 
 <!-- AUTO:registers -->
@@ -141,7 +149,7 @@ Halfword h = {`addr[31:2]`, half} where half = 0 for bits [15:0] and 1 for bits 
 word (`addr[1:0]` is ignored). The host address is `haddr` = {h[24:11], 7'b0, h[10:0]}: column
 h[7:0], channel h[8], bank h[10:9], row h[24:11]. Storage is the core's: NCH = 2: halfword h maps onto channel h[8], column h[7:0], so 512 halfwords (1 KB) of the AXI space are distinct and everything above aliases.
 
-LPDDR4 specific: a WR to column 0xF0 is the core's MR7 frequency-set write (bit 0 of the halfword: 0 set A, 1 set B) and does not change the array; see the core page.
+LPDDR4 specific: a WR to column 0xF0 is the core's MR7 frequency-set write (bit 0 of the halfword: 0 set A, 1 set B) and does not reach the DRAM; see the core page. The core holds no data: storage is the DRAM device on the `dq` pins (`tb/mem_dev.svh` in the TBs, cells indexed by {channel, column}).
 
 ### 3.3 Read
 
@@ -204,7 +212,7 @@ too ([LPDDR4.md](LPDDR4.md)).
 
 Messages are printed by `tb/LPDDR4_AXI_tb.sv` (shared body `tb/ddr_axi_tb.svh`) as `ERROR: <message>`.
 The TB sends random INCR / FIXED / WRAP bursts of 1 to 32 beats, AxSIZE 0 to 2, random strobes and
-IDs, random BREADY / RREADY stalls, against a model of the core's halfword array, plus SLVERR
+IDs, random BREADY / RREADY stalls, against a model of the TB device's halfword array, plus SLVERR
 cases (AxSIZE = 3 read and write, early WLAST).
 
 | Check (TB message or assertion) | What it requires | Spec |

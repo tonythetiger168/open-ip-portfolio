@@ -15,7 +15,7 @@ Protocol IP `HBM4`, version 2.0. Apache-2.0.
 
 ## Overview
 
-HBM4 (projected) -- INDEPENDENT design IP #19/20. Architecture thesis: two-level hierarchy. 8 pseudo-channels per channel: page entry = {ch haddr[11:8], pc haddr[14:12]} (128 entries); the pcs form 2 pc-groups (group = pc[2] = haddr[14]) with group-aware ACT spacing (tRRD_L=9 after an ACT in the same group, tRRD_S=5 across). An ACT-only command completes once its ACT is on the pins (tRCD is held per entry and enforced at the RD / WR), so back-to-back ACTs are spaced by tRRD alone. Per-entry refresh rotates over all 128. Distinct from HBM3 (flat 16, single tRRD) and HBM5 (refresh-centric). Contract identical to DDR_top. Timings projected.
+HBM4 (projected) -- INDEPENDENT design IP #19/20. Architecture thesis: two-level hierarchy. 8 pseudo-channels per channel: page entry = {ch haddr[11:8], pc haddr[14:12]} (128 entries); the pcs form 2 pc-groups (group = pc[2] = haddr[14]) with group-aware ACT spacing (tRRD_L=9 after an ACT in the same group, tRRD_S=5 across). An ACT-only command completes once its ACT is on the pins (tRCD is held per entry and enforced at the RD / WR), so back-to-back ACTs are spaced by tRRD alone. Per-entry refresh rotates over all 128. Distinct from HBM3 (flat 16, single tRRD) and HBM5 (refresh-centric). Contract identical to DDR_top. Timings projected. The core holds no data: write words leave on dq, and the read word is taken from dq CL clocks after the RD command (the DRAM drives it).
 
 ck_t, ck_c, cke, addr, ras_n, cas_n, we_n, dq and dqs are the DRAM pins and trace_valid, trace_cmd and trace_addr the command trace (one clock before each command on the pins); they pass through unchanged.
 Address map and behaviour of the core: two-level pseudo-channel controller (128 page entries {channel haddr[11:8], pc haddr[14:12]}, 2 pc-groups by haddr[14], row = haddr[31:18], storage = 256 columns per channel); group-aware tRRD; per-entry refresh.
@@ -208,7 +208,7 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/HBM4_top.sv` | pass | 103/103 (+3 excl.) | 1866/1866 (+20 excl.) | 24/24 | 25/25 | 68/68 |
+| core `rtl/HBM4_top.sv` | pass | 101/101 (+3 excl.) | 1866/1866 (+20 excl.) | 24/24 | 25/25 | 68/68 |
 | wrapper `rtl/HBM4_apb.sv` | pass | 33/33 | 1290/1290 (+12 excl.) | n/a | 11/11 | 42/42 |
 
 ## Performance
