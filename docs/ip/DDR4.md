@@ -15,7 +15,7 @@ Protocol IP `DDR4`, version 2.0. Apache-2.0.
 
 ## Overview
 
-DDR4 -- INDEPENDENT design IP #2/20. Architecture thesis: the classic 4-bank open-page controller, in-order single engine. Banks indexed by {ch, haddr[10:9]}; per-bank open-row with miss-detect (auto PRE+ACT); all-bank refresh; AL=0; fixed BL. This is the family baseline every other IP differentiates from. Self-contained. External contract: identical to DDR (legacy) -- see DDR_top header.
+DDR4 -- INDEPENDENT design IP #2/20. Architecture thesis: the classic 4-bank open-page controller, in-order single engine. Banks indexed by {ch, haddr[10:9]}; per-bank open-row with miss-detect (auto PRE+ACT); all-bank refresh; AL=0; fixed BL. This is the family baseline every other IP differentiates from. External contract: identical to DDR (legacy) -- see DDR_top header, except that the core holds no data: write words leave on dq, and the read word is taken from dq CL clocks after the RD command (the DRAM drives it).
 
 ck_t, ck_c, cke, addr, ras_n, cas_n, we_n, dq and dqs are the DRAM pins and trace_valid, trace_cmd and trace_addr the command trace (one clock before each command on the pins); they pass through unchanged.
 Address map and behaviour of the core: 4-bank open-page controller (banks = haddr[10:9], row = haddr[31:18], storage = 256 columns).
