@@ -17,6 +17,7 @@
 //   `MEM_DEV_CL    read latency in clocks (default CL)
 //   `MEM_DEV_CH(a) channel of host address a (default 0)
 //   `MEM_DEV_W     word width per channel (default 16)
+//   `MEM_DEV_WMASK bits of the word a WR stores (narrow modes; default all)
 //   `MEM_DEV_DQ    the dq net (default dq), `MEM_DEV_TA the trace address
 //                  (default trace_addr)
 // Address: the controllers have no bank / channel pins, so, as the checkers
@@ -40,6 +41,9 @@
 `endif
 `ifndef MEM_DEV_W
 `define MEM_DEV_W 16
+`endif
+`ifndef MEM_DEV_WMASK
+`define MEM_DEV_WMASK {`MEM_DEV_W{1'b1}}
 `endif
 `ifndef MEM_DEV_DQ
 `define MEM_DEV_DQ dq
@@ -82,7 +86,8 @@
     end else begin
       c  = cellof(dev_ta_q) % DEV_NCELL;
       ch = `MEM_DEV_CH(dev_ta_q);
-      if (`MEM_DEV_WR) dev_arr[c] = dev_dq_q[`MEM_DEV_W*ch +: `MEM_DEV_W];
+      if (`MEM_DEV_WR)
+        dev_arr[c] = (dev_arr[c] & ~(`MEM_DEV_WMASK)) | (dev_dq_q[`MEM_DEV_W*ch +: `MEM_DEV_W] & (`MEM_DEV_WMASK));
       if (`MEM_DEV_RD) begin
         if (`MEM_DEV_CL <= 1) begin
           dev_oe <= 1'b1; dev_word <= dev_arr[c]; dev_lane <= ch;

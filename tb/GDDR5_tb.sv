@@ -41,6 +41,10 @@ module GDDR5_tb;
     wr(mk(3, 7, 8'h10), 16'h1010); rd(mk(4, 7, 8'h10));
   endtask
 
+  // DRAM device (tb/mem_dev.svh): the core keeps no array of its own
+  `define MEM_DEV_RD ({ras_n, cas_n, we_n} == 3'b101)
+  `define MEM_DEV_WR ({ras_n, cas_n, we_n} == 3'b100)
+  `define MEM_DEV_CL 13
   `include "mem_tb_common.svh"
 
   initial begin
