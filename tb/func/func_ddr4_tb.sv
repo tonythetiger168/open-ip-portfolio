@@ -7,6 +7,8 @@
 // bank of ACT / RD / WR is taken from the trace port, which carries the
 // host address one clock before the command, and a single-bank PRE closes
 // the bank of the host command in flight.
+// DDR4_top keeps no array: the TB's device drives the read word on DQ
+// (FUNC_DEV_DRIVE in func_mem_model.svh).
 //   make -f Makefile.DDR4 func
 `timescale 1ns/1ps
 module func_ddr4_tb;
@@ -33,6 +35,7 @@ module func_ddr4_tb;
   function automatic bit is_mrw(input logic [2:0] c, input logic [31:0] a); return 0; endfunction
   task automatic mrw(input logic [15:0] d); endtask
 
+  `define FUNC_DEV_DRIVE
   `include "func_mem_model.svh"
 
   // bank of the host command in flight (target of a single-bank PRE)
@@ -73,9 +76,10 @@ module func_ddr4_tb;
       // a trace is followed by its command on the next clock
       if (p_tv && {ras_n, cas_n, we_n} != (p_tc == 3'd1 ? 3'b011 : p_tc == 3'd2 ? 3'b101 : 3'b100))
         fail("trace not followed by its command");
-      // DQ is driven only in the clock before a WR command
+      // DQ is driven by the controller only in the clock before a WR command
+      // (f_oe: the device itself drives a read word now)
       if (p_dqd) chk({ras_n, cas_n, we_n} == 3'b100, "DQ driven without a WR");
-      p_dqd = (dq !== 16'hzzzz);
+      p_dqd = !f_oe && (dq !== 16'hzzzz);
       if (p_dqd) chk(trace_valid && trace_cmd == 3'd3 && !$isunknown(dq), "DQ driven outside a write");
       p_dq = dq; p_tv = trace_valid; p_tc = trace_cmd; p_ta = trace_addr;
     end

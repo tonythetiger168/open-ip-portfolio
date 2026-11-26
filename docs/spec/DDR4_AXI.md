@@ -141,7 +141,7 @@ check.
 
 Halfword h = {`addr[31:2]`, half} where half = 0 for bits [15:0] and 1 for bits [31:16] of the
 word (`addr[1:0]` is ignored). The host address is `haddr` = {h[24:11], 7'b0, h[10:0]}: column
-h[7:0], channel h[8], bank h[10:9], row h[24:11]. Storage is the core's: NCH = 1: the channel bit is ignored, so only column h[7:0] selects storage: 256 halfwords (512 bytes) of the AXI space are distinct and everything above aliases.
+h[7:0], channel h[8], bank h[10:9], row h[24:11]. The core holds no data; storage is the DRAM device on the `dq` pins. With the TB's device (`tb/mem_dev.svh`, cells indexed by {channel, column}) and NCH = 1 the channel bit is ignored, so only column h[7:0] selects storage: 256 halfwords (512 bytes) of the AXI space are distinct and everything above aliases.
 
 ### 3.3 Read
 
@@ -204,7 +204,7 @@ too ([DDR4.md](DDR4.md)).
 
 Messages are printed by `tb/DDR4_AXI_tb.sv` (shared body `tb/ddr_axi_tb.svh`) as `ERROR: <message>`.
 The TB sends random INCR / FIXED / WRAP bursts of 1 to 32 beats, AxSIZE 0 to 2, random strobes and
-IDs, random BREADY / RREADY stalls, against a model of the core's halfword array, plus SLVERR
+IDs, random BREADY / RREADY stalls, against a model of the TB device's halfword array, plus SLVERR
 cases (AxSIZE = 3 read and write, early WLAST).
 
 | Check (TB message or assertion) | What it requires | Spec |

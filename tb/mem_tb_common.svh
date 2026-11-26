@@ -9,6 +9,8 @@
 //                             tests, which need a refresh to fall due while
 //                             a command is in flight)
 //   task ip_extra             IP-specific tests (run before the final reset)
+// and, for a controller that keeps no array of its own, the `MEM_DEV_*
+// hooks of the DRAM device model tb/mem_dev.svh (included here).
 // Host contract: hcmd 1=ACT 2=RD 3=WR 4=PRE, taken on hvalid && hready;
 // hdone pulses once per RD and hrdata holds the word from the next clock.
 // A scoreboard of every written cell checks every read.
@@ -25,6 +27,9 @@
   `MEM_SVA u_sva (.*);
 `endif
 `endif
+`endif
+`ifdef MEM_DEV_RD
+  `include "mem_dev.svh"
 `endif
   localparam int NCELL = 1 << 16;
   logic [15:0] sb [0:NCELL-1];        // expected array contents

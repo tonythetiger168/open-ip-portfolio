@@ -12,6 +12,12 @@
 // bank entry and so every channel's dq lanes both ways, CMD held
 // while the core is busy and dropped when full, every interrupt bit set,
 // masked, enabled onto irq and cleared.
+// A controller that keeps no array of its own gets the DRAM device model
+// tb/mem_dev.svh, included here when the IP part defines its `MEM_DEV_* hooks.
+`ifdef MEM_DEV_RD
+`define MEM_DEV_CLK PCLK
+`include "mem_dev.svh"
+`endif
 logic [15:0] m_sb [0:65535];
 initial for (int i = 0; i < 65536; i++) m_sb[i] = 16'h0;     // the array starts zeroed
 localparam logic [31:0] M_FULL = 32'h1 << FLAG_CMD_FULL;
