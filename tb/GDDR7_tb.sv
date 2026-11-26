@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GDDR7 TB: PAM3 graphics controller (banks = {haddr[8], haddr[10:9]}, row =
-// haddr[31:18], storage = 256 columns per channel); read data returns on dq
-// as PAM3 symbols over two beats.
+// haddr[31:18], 256 columns per channel); read data returns on dq as PAM3
+// symbols over two beats, driven by the DRAM device (tb/mem_dev.svh).
 // Shared host tests in mem_tb_common.svh; the checker tb/cov/GDDR7_sva.sv
 // checks every pin.
 `timescale 1ns/1ps
@@ -42,6 +42,27 @@ module GDDR7_tb;
     end
   endtask
 
+  // DRAM device (tb/mem_dev.svh): the core keeps no array of its own. A read
+  // word goes out as 12 PAM3 symbols on dq[11:0] of the channel, nibbles 0-1
+  // in the clock before hdone, nibbles 2-3 in the hdone clock
+  function automatic logic [23:0] pam3(input logic [15:0] w);
+    logic [3:0] v;
+    for (int n = 0; n < 4; n++) begin
+      v = w[4*n +: 4];
+      pam3[6*n +: 2] = 2'(v / 9); pam3[6*n+2 +: 2] = 2'((v % 9) / 3); pam3[6*n+4 +: 2] = 2'(v % 3);
+    end
+  endfunction
+  function automatic logic [15:0] pam3_beat(input logic [15:0] w, input int k);
+    logic [23:0] t;
+    t = pam3(w);
+    return (k == 0) ? {4'hz, t[11:0]} : {4'hz, t[23:12]};
+  endfunction
+  `define MEM_DEV_RD ({ras_n, cas_n, we_n} == 3'b101)
+  `define MEM_DEV_WR ({ras_n, cas_n, we_n} == 3'b100)
+  `define MEM_DEV_CL 18
+  `define MEM_DEV_CH(a) int'(a[8])
+  `define MEM_DEV_BEATS 2
+  `define MEM_DEV_BEAT(w, k) pam3_beat(w, k)
   `include "mem_tb_common.svh"
 
   initial begin

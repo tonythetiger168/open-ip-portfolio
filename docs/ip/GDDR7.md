@@ -1,4 +1,4 @@
-# GDDR7 memory controller: PAM3 graphics controller (banks = {haddr[8], haddr[10:9]}, row = haddr[31:18], storage = 256 columns per channel); read data returns on dq as PAM3 symbols over two beats
+# GDDR7 memory controller: PAM3 graphics controller (banks = {haddr[8], haddr[10:9]}, row = haddr[31:18], storage = 256 columns per channel); the DRAM returns read data on dq as PAM3 symbols over two beats and the controller decodes them
 
 Protocol IP `GDDR7`, version 2.0. Apache-2.0.
 
@@ -15,10 +15,10 @@ Protocol IP `GDDR7`, version 2.0. Apache-2.0.
 
 ## Overview
 
-GDDR7 -- INDEPENDENT design IP #14/20. Architecture thesis: PAM3 signaling. Read data returns on the channel's dq lanes as 12 ternary symbols, 3 per nibble (v = 9*t0 + 3*t1 + t2, so 16 of the 27 symbol triples are legal), over two beats: the clock before hdone carries nibbles 0-1, the hdone clock nibbles 2-3. A symbol is a 2-bit level code on a pin pair (00 / 01 / 10 = levels 0 / 1 / 2; 11 never appears), on dq[11:0]; dq[15:12] stay Hi-Z. Writes stay NRZ on dq[ch*16 +: 16]. 4 banks per channel ({ch,haddr[10:9]}), all-bank refresh, CL=18. Contract identical to DDR_top.
+GDDR7 -- INDEPENDENT design IP #14/20. Architecture thesis: PAM3 signaling. Read data returns from the DRAM on the channel's dq lanes as 12 ternary symbols, 3 per nibble (v = 9*t0 + 3*t1 + t2, so 16 of the 27 symbol triples are legal), over two beats: the clock before hdone carries nibbles 0-1, the hdone clock nibbles 2-3; the controller captures both beats and decodes them into hrdata. A symbol is a 2-bit level code on a pin pair (00 / 01 / 10 = levels 0 / 1 / 2; 11 never appears), on dq[11:0]; dq[15:12] stay Hi-Z. Writes stay NRZ on dq[ch*16 +: 16]. 4 banks per channel ({ch,haddr[10:9]}), all-bank refresh, CL=18. Contract identical to DDR_top. The core holds no data: write words leave on dq, read words come back from the DRAM.
 
 ck_t, ck_c, cke, addr, ras_n, cas_n, we_n, dq and dqs are the DRAM pins and trace_valid, trace_cmd and trace_addr the command trace (one clock before each command on the pins); they pass through unchanged.
-Address map and behaviour of the core: PAM3 graphics controller (banks = {haddr[8], haddr[10:9]}, row = haddr[31:18], storage = 256 columns per channel); read data returns on dq as PAM3 symbols over two beats.
+Address map and behaviour of the core: PAM3 graphics controller (banks = {haddr[8], haddr[10:9]}, row = haddr[31:18], storage = 256 columns per channel); the DRAM returns read data on dq as PAM3 symbols over two beats and the controller decodes them.
 The core's own verification (pin-level checker, 100% coverage) is tb/cov/GDDR7_sva.sv with tb/GDDR7_tb.sv; this wrapper test drives the core only through the registers.
 
 ## Files
@@ -208,7 +208,7 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/GDDR7_top.sv` | pass | 105/105 (+4 excl.) | 1292/1292 (+202 excl.) | 24/24 | 26/26 | 83/83 |
+| core `rtl/GDDR7_top.sv` | pass | 99/99 (+4 excl.) | 1268/1268 (+198 excl.) | 24/24 | 26/26 | 83/83 |
 | wrapper `rtl/GDDR7_apb.sv` | pass | 33/33 | 842/842 (+12 excl.) | n/a | 11/11 | 42/42 |
 
 ## Performance

@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // ============================================================================
 // GDDR7 -- INDEPENDENT design IP #14/20.
-// Architecture thesis: PAM3 signaling. Read data returns on the channel's
-// dq lanes as 12 ternary symbols, 3 per nibble (v = 9*t0 + 3*t1 + t2, so
-// 16 of the 27 symbol triples are legal), over two beats: the clock before
-// hdone carries nibbles 0-1, the hdone clock nibbles 2-3. A symbol is a
+// Architecture thesis: PAM3 signaling. Read data returns from the DRAM on
+// the channel's dq lanes as 12 ternary symbols, 3 per nibble (v = 9*t0 +
+// 3*t1 + t2, so 16 of the 27 symbol triples are legal), over two beats: the
+// clock before hdone carries nibbles 0-1, the hdone clock nibbles 2-3; the
+// controller captures both beats and decodes them into hrdata. A symbol is a
 // 2-bit level code on a pin pair (00 / 01 / 10 = levels 0 / 1 / 2; 11 never
 // appears), on dq[11:0]; dq[15:12] stay Hi-Z. Writes stay NRZ on
 // dq[ch*16 +: 16]. 4 banks per channel ({ch,haddr[10:9]}), all-bank
-// refresh, CL=18. Contract identical to DDR_top.
+// refresh, CL=18. Contract identical to DDR_top. The core holds no data:
+// write words leave on dq, read words come back from the DRAM.
 // ============================================================================
 module GDDR7_top #(
   parameter int NCH = 2
@@ -34,14 +36,6 @@ module GDDR7_top #(
   localparam int CHW = (NCH <= 2) ? 1 : $clog2(NCH);   // channel select: haddr[8 +: CHW]
   localparam int NB = 8;
 
-  logic [15:0] mem [0:(1<<CHW)*256-1];   // NCH ch x 256 col
-  // array contents are not cleared by rst_n (a DRAM keeps its data);
-  // zero them once for deterministic simulation
-  // sim-only clear; yosys (SYNTHESIS) would unroll it into one assignment per
-  // line, which takes minutes and GBs for no netlist change
-`ifndef SYNTHESIS
-  initial for (int i = 0; i <= (1<<CHW)*256-1; i++) mem[i] = '0;
-`endif
   logic [13:0] open_row [0:NB-1];
   logic [NB-1:0] bank_open;
   logic [8:0] rp_t [0:NB-1], ras_t [0:NB-1], rc_t [0:NB-1];
@@ -75,22 +69,20 @@ module GDDR7_top #(
   wire act_ok = rp_z[act_bank] && (rc_t[act_bank] == 0);
   wire a_hit = bank_open[a_bank] && (open_row[a_bank] == haddr[31:18]);
 
-  // PAM3: 16-bit word -> 12 symbols (4 nibbles x 3), 2-bit level codes
-  function automatic [23:0] enc_pam3(input [15:0] w);
-    logic [23:0] t; logic [3:0] v, r;
+  // PAM3: 12 symbols (4 nibbles x 3, 2-bit level codes) -> 16-bit word,
+  // nibble n = 9*t0 + 3*t1 + t2 from symbols [6n +: 2], [6n+2 +: 2], [6n+4 +: 2]
+  function automatic [15:0] dec_pam3(input [23:0] t);
+    logic [15:0] w;
     begin
-      t = 24'd0;
-      for (int n = 0; n < 4; n++) begin
-        v = w[4*n +: 4]; r = v % 4'd9;
-        t[6*n +: 2] = 2'(v / 4'd9); t[6*n+2 +: 2] = 2'(r / 4'd3); t[6*n+4 +: 2] = 2'(r % 4'd3);
-      end
-      enc_pam3 = t;
+      for (int n = 0; n < 4; n++)
+        w[4*n +: 4] = 4'(5'd9 * t[6*n +: 2] + 5'd3 * t[6*n+2 +: 2] + t[6*n+4 +: 2]);
+      dec_pam3 = w;
     end
   endfunction
 
   wire rd_phase = (dstate == D_CAS) && (timer == 0) && rd_pending;   // beat 1
   wire rd_beat0 = (dstate == D_CAS) && (timer == 1) && rd_pending;
-  wire [23:0] rsym = enc_pam3(mem[{c_ch, cur_addr[7:0]}]);
+  logic [11:0] rd_b0;                 // symbols of beat 0 (nibbles 0-1)
   assign ck_t = clk;  assign ck_c = ~clk;  assign cke = rst_n;
   assign dqs  = 2'bzz;
   assign hready = (dstate == D_IDLE) && (ref_cnt != 0);   // a due refresh goes first
@@ -100,18 +92,14 @@ module GDDR7_top #(
   assign trace_addr  = cur_addr;
   // each channel owns dq[16*g +: 16]; only the addressed one drives
   for (genvar g = 0; g < NCH; g++) begin : g_dq
-    assign dq[16*g +: 16] = (c_ch != g)         ? 16'hzzzz :
-                            (dstate == D_WR)    ? wr_data :
-                            rd_beat0            ? {4'hz, rsym[11:0]} :
-                            rd_phase            ? {4'hz, rsym[23:12]}
-                                                : 16'hzzzz;
+    assign dq[16*g +: 16] = (c_ch == g && dstate == D_WR) ? wr_data : 16'hzzzz;
   end
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       dstate <= D_IDLE; timer <= '0; ref_cnt <= TREFI[13:0];
       auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0;
-      cur_addr <= '0; wr_data <= '0; rd_pending <= 1'b0;
+      cur_addr <= '0; wr_data <= '0; rd_pending <= 1'b0; rd_b0 <= '0;
       ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= 1'b0;
       cur_bank <= '0; act_bank <= '0;
       ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1; addr <= '0; hrdata <= '0;
@@ -235,13 +223,13 @@ module GDDR7_top #(
         D_WR: begin
           cas_n <= 1'b0; we_n <= 1'b0;
           addr <= {9'b0, cur_addr[7:0]};
-          mem[{c_ch, cur_addr[7:0]}] <= wr_data;
           dstate <= D_CAS; timer <= CL[8:0];
         end
         D_CAS: begin
           cas_n <= 1'b1; we_n <= 1'b1;
+          if (rd_beat0) rd_b0 <= dq[16*c_ch +: 12];
           if (timer == 0) begin
-            if (rd_pending) hrdata <= mem[{c_ch, cur_addr[7:0]}];
+            if (rd_pending) hrdata <= dec_pam3({dq[16*c_ch +: 12], rd_b0});
             rd_pending <= 1'b0;
             begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
           end

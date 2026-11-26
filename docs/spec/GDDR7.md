@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # GDDR7: design specification
 
-Graphics memory controller with PAM3 read signalling: read data is also returned on the channel's `dq` lanes as 12 ternary symbols over two beats (the clock before `hdone` and the `hdone` clock). Writes stay NRZ. Otherwise the open-page engine of DDR4 with 4 banks per channel and all-bank refresh. Core `GDDR7_top` (`rtl/GDDR7_top.sv`), testbench `tb/GDDR7_tb.sv` (shared body
+Graphics memory controller with PAM3 read signalling: the DRAM returns read data on the channel's `dq` lanes as 12 ternary symbols over two beats (the clock before `hdone` and the `hdone` clock), and the controller decodes them. Writes stay NRZ. Otherwise the open-page engine of DDR4 with 4 banks per channel and all-bank refresh. The core holds no data: write words go out on `dq` and read words come back on `dq` from the DRAM device, which the testbenches model (`tb/mem_dev.svh`). Core `GDDR7_top` (`rtl/GDDR7_top.sv`), testbench `tb/GDDR7_tb.sv` (shared body
 `tb/mem_tb_common.svh`), checker `tb/cov/GDDR7_sva.sv` (shared model `tb/cov/mem_chk.svh`). The host
 contract and the checker are shared by the whole memory-controller family; [DDR4.md](DDR4.md) is
 the baseline the others are described against.
@@ -30,7 +30,7 @@ asynchronously by `rst_n` low. *Clock t* is the clock period after edge t. A pin
 | `ras_n` | output | 1 | command pin RAS# | low | `clk` | 1 |
 | `cas_n` | output | 1 | command pin CAS# | low | `clk` | 1 |
 | `we_n` | output | 1 | command pin WE# | low | `clk` | 1 |
-| `dq` | inout | NCH x 16 | data; driven only with write data (§3.7), else high-Z | - | `clk` | high-Z |
+| `dq` | inout | NCH x 16 | data; the core drives it only with write data (§3.7), else high-Z; the DRAM drives PAM3 read beats | - | `clk` | high-Z |
 | `dqs` | inout | 2 | data strobe; never driven (high-Z) | - | `clk` | high-Z |
 | `cke` | output | 1 | clock enable = `rst_n` | high | `clk` | 0 |
 | `trace_valid` | output | 1 | a pin command ACT / RD / WR comes in the next clock | high | `clk` | 0 |
@@ -135,8 +135,9 @@ only when that command's work is complete on the pins (an engine may wait longer
 `hready` is also 0 while a refresh is due or running (§3.6), so a refresh never drops a host
 command. `hready` is never low for more than BUSY_MAX clocks in a row (§3.5).
 
-A RD returns the word last written to the storage cell its address maps to (§3.2), or 0 if that
-cell was never written (the array is zeroed once at time 0 and is not cleared by `rst_n`).
+A RD returns the word the device drives on `dq` for it (§3.7). With the TB's device that is the
+word last written to the storage cell the address maps to (§3.2), or 0 if that cell was never
+written (the device array starts zeroed and keeps its data through `rst_n`).
 
 ### 3.2 Address map and storage
 
@@ -147,7 +148,7 @@ cell was never written (the array is zeroed once at time 0 and is not cleared by
 | channel | `haddr[8]` | 2 channels (NCH = 2) |
 | column | `haddr[7:0]` | 256 columns |
 
-Bank entry = {channel, bank} (8 entries). Storage is 256 16-bit words per channel indexed by the
+Bank entry = {channel, bank} (8 entries). The core holds no data; the TB's device (`tb/mem_dev.svh`) stores 256 16-bit words per channel indexed by the
 column (cell = {channel, column}); banks and rows alias onto it.
 
 ### 3.3 Pin commands
@@ -212,11 +213,13 @@ REF-to-REF spacing stays within REF_MIN .. REF_MAX.
 ### 3.7 Data
 
 Write: the write word is driven on `dq[16 x ch +: 16]` of the command's channel in the clock
-before the WR pin command (the clock of its trace announcement) and the cell is written; `dq` is
+before the WR pin command (the clock of its trace announcement), where the device stores it; `dq` is
 high-Z in every other clock (the other channels' lanes too).
 
-Read: the RD pin command is on the pins in clock t; `hdone` = 1 in clock t + CL; `hrdata` holds
-the cell's word from clock t + CL + 1 until the next read completes.
+Read: the RD pin command is on the pins in clock t; the device drives the word as two PAM3 beats
+on `dq[16 x ch +: 12]` in clocks t + CL - 1 and t + CL (`hdone` = 1), and the core takes the first beat
+at the end of clock t + CL - 1 and the second at the end of clock t + CL, then decodes them:
+`hrdata` holds the word from clock t + CL + 1 until the next read completes.
 
 PAM3 read beats: the word w being read is split into 4 nibbles; nibble n (w[4n+3:4n], value v =
 0 to 15) is sent as 3 ternary symbols t0, t1, t2 with v = 9 x t0 + 3 x t1 + t2. A symbol is a
@@ -228,8 +231,8 @@ lanes `dq[16 x ch +: 12]`:
 | t + CL - 1 (before `hdone`) | t0 t1 t2 of nibble 0 | t0 t1 t2 of nibble 1 |
 | t + CL (`hdone`) | t0 t1 t2 of nibble 2 | t0 t1 t2 of nibble 3 |
 
-`dq[16 x ch + 15 : 16 x ch + 12]` stay high-Z in both beats; the other channel's lanes too. `dq` is
-otherwise only driven with write data.
+`dq[16 x ch + 15 : 16 x ch + 12]` stay high-Z in both beats; the other channel's lanes too. Decode:
+v = 9 x t0 + 3 x t1 + t2 per nibble, low 4 bits kept. The core drives `dq` only with write data.
 
 ### 3.8 Trace port
 
@@ -240,8 +243,7 @@ does not announce PRE, PREA or REF).
 ### 3.9 Reset
 
 `rst_n` low: idle, every bank closed and every timer 0, `ref_cnt` = TREFI, `hready` = 1, command
-pins NOP, `addr` = 0, `hrdata` = 0, `hdone` = 0, `trace_valid` = 0, `cke` = 0, `dq` released. The
-storage array keeps its contents.
+pins NOP, `addr` = 0, `hrdata` = 0, `hdone` = 0, `trace_valid` = 0, `cke` = 0, `dq` released. The DRAM device keeps its array.
 
 ## 4. Parameters
 
@@ -259,8 +261,8 @@ storage array keeps its contents.
 | PRE of a closed bank | no pin command; `hready` returns once that bank's tRP (from an earlier PRE) has passed |
 | refresh due during a command | the command finishes first; the refresh follows before `hready` |
 | a stream of no-op commands | cannot hold off a refresh (`hready` drops when it is due) |
-| two addresses with the same storage cell | aliasing (§3.2) |
-| reset with a command in flight | the command is lost; a WR may or may not have reached the array |
+| two addresses with the same storage cell | the same cell of the TB's device (aliasing, §3.2) |
+| reset with a command in flight | the command is lost; a WR may or may not have reached the device |
 
 ## 6. TB check map
 

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// HBM3E TB: on-die-ECC controller (256 page entries {channel haddr[10:8],
-// pc/bank haddr[15:11]}, row = haddr[31:18], storage = 256 SEC codewords per
-// channel); bits of stored codewords are flipped through a backdoor and the
-// reads must still return the written data.
+// HBM3E TB: sideband-ECC controller (256 page entries {channel haddr[10:8],
+// pc/bank haddr[15:11]}, row = haddr[31:18], 256 SEC codewords per channel,
+// data on dq and check bits on ecc, kept by the DRAM device tb/mem_dev.svh);
+// bits of stored codewords are flipped through a backdoor and the reads
+// must still return the written data.
 // Shared host tests in mem_tb_common.svh; the checker tb/cov/HBM3E_sva.sv
 // checks every pin.
 `timescale 1ns/1ps
@@ -19,7 +20,7 @@ module HBM3E_tb;
   logic hdone;
   logic ck_t, ck_c;
   logic [16:0] addr; logic ras_n, cas_n, we_n;
-  tri [127:0] dq; tri [1:0] dqs; logic cke;
+  tri [127:0] dq; tri [39:0] ecc; tri [1:0] dqs; logic cke;
   logic trace_valid; logic [2:0] trace_cmd; logic [31:0] trace_addr;
   int errors = 0;
 
@@ -35,11 +36,21 @@ module HBM3E_tb;
   function automatic int cellof(input logic [31:0] a);
     cellof = {a[10:8], a[7:0]};
   endfunction
-  // single-bit upset of a stored codeword (backdoor, like a cell flip)
+  // DRAM device (tb/mem_dev.svh): the core keeps no array of its own
+  `define MEM_DEV_RD ({ras_n, cas_n, we_n} == 3'b101)
+  `define MEM_DEV_WR ({ras_n, cas_n, we_n} == 3'b100)
+  `define MEM_DEV_CL 12
+  `define MEM_DEV_CH(a) int'(a[10:8])
+  `define MEM_DEV_X ecc
+  `define MEM_DEV_XW 5
+  `include "mem_tb_common.svh"
+  // single-bit upset of a stored codeword (backdoor, like a cell flip):
+  // bit p of the device cell {ecc, dq}: 0..15 data, 16..20 check bits, so
+  // p = 0..20 reaches every codeword position once
   task automatic flip(input logic [31:0] a, input int p);
     int c;
     c = cellof(a);
-    dut.mem[c][p] = ~dut.mem[c][p];
+    dev_arr[c][p] = ~dev_arr[c][p];
   endtask
   task automatic ip_extra;
     logic [31:0] a;
@@ -70,7 +81,6 @@ module HBM3E_tb;
     idle(REFI * 260);
   endtask
 
-  `include "mem_tb_common.svh"
 
   initial begin
 `ifdef MEM_PERF

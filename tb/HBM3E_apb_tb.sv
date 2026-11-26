@@ -21,6 +21,7 @@ module HBM3E_apb_tb;
   wire           cas_n;
   wire           we_n;
   tri   [127:0]  dq;
+  tri   [39:0]   ecc;
   tri   [1:0]    dqs;
   wire           cke;
   wire           trace_valid;
