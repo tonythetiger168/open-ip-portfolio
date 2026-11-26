@@ -51,7 +51,7 @@ module SPI_tb;
       sva_check((raddr != 4'd1) || (rdata === dut.tx_q), "A3 raddr1 reads tx_q");
       // A4: irq is a single-cycle pulse
       sva_check(!(dut.irq && irq_q), "A4 irq single-cycle pulse");
-      // A5: bit counter cleared one cycle after csn deasserts
+      // A5: bit counter cleared one cycle after the synchronized csn deasserts
       sva_check(!csn_q || (dut.bit_cnt == 3'd0), "A5 bit_cnt clear under csn");
       // A6: MISO reflects the current TX-register bit while selected and is
       // high-Z while deselected
@@ -60,7 +60,7 @@ module SPI_tb;
       // A7: illegal read addresses return zero
       sva_check((raddr <= 4'd1) || (rdata === 8'h00), "A7 illegal addr reads 0");
     end
-    csn_q <= csn;
+    csn_q <= dut.csn_i;
     irq_q <= dut.irq;
   end
 `endif

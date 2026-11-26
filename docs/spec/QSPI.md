@@ -4,7 +4,7 @@
 SPI target (slave), mode 0, 8-bit frames, in standard (1-bit: IO0 = MOSI, IO1 = MISO) or quad
 (4-bit, IO[3:0], high nibble first) mode. In quad mode a direction bit selects whether the
 target drives IO[3:0] (quad read) or releases them (quad write). The SPI pins are oversampled by
-`clk`. A local port loads the TX byte, the mode and the direction, and reads the RX byte. Core
+`clk` through two-flop synchronisers. A local port loads the TX byte, the mode and the direction, and reads the RX byte. Core
 `QSPI_top` (`rtl/QSPI_top.sv`), testbench `tb/QSPI_tb.sv`, checker `tb/cov/QSPI_sva.sv`.
 
 Conventions on this page: every flop is clocked on the rising edge of `clk` and reset
@@ -12,13 +12,19 @@ asynchronously by `rst_n` low. "Sampled at edge E" means the value just before E
 
 ## 1. Interface
 
+`sclk`, `csn` and the `io` inputs come from the master's clock domain. Each passes a two-flop
+synchroniser on `clk` (`sclk_s`, `csn_s`, `io_s0`/`io_s1`); the core logic only sees the
+synchronised copies `sclk_i`, `csn_i` and `io_i`, which lag the pins by two clocks. All are
+delayed alike, so their order relative to each other is kept. The pin drive (`io_oe`,
+`first_out`) stays combinational.
+
 | Port | Dir | Width | Meaning | Active | Clock | Reset |
 |---|---|---|---|---|---|---|
-| `clk` | input | 1 | system clock; samples SCLK, CSn and IO | rising edge | - | - |
+| `clk` | input | 1 | system clock; synchronises SCLK, CSn and IO | rising edge | - | - |
 | `rst_n` | input | 1 | asynchronous reset of every flop | low | async assert | - |
-| `sclk` | input | 1 | SPI clock, idles low (mode 0) | - | sampled by clk (no sync) | - |
-| `csn` | input | 1 | chip select; high clears the bit / nibble counters and the output phase | low | sampled by clk | - |
-| `io` | inout | 4 | std: `io[0]` = MOSI (input), `io[1]` = MISO (driven); quad: IO[3:0], driven by the target when `dir` = 0, released when `dir` = 1. Driving does **not** depend on `csn` (§3.4) | - | drive comb.; sampled by clk | std: `io[1]` = 0, others Z |
+| `sclk` | input | 1 | SPI clock, idles low (mode 0) | - | 2-flop sync to clk | - |
+| `csn` | input | 1 | chip select; high clears the bit / nibble counters and the output phase | low | 2-flop sync to clk | - |
+| `io` | inout | 4 | std: `io[0]` = MOSI (input), `io[1]` = MISO (driven); quad: IO[3:0], driven by the target when `dir` = 0, released when `dir` = 1. Driving does **not** depend on `csn` (§3.4) | - | drive comb.; input 2-flop sync to clk | std: `io[1]` = 0, others Z |
 | `wen` | input | 1 | local write strobe | high | clk | - |
 | `waddr` | input | 4 | 0 = TX byte, 2 = mode (`wdata[1:0]`, 0 = std, any other value = quad), 3 = direction (`wdata[0]`); others ignored | - | clk | - |
 | `wdata` | input | 8 | local write data | - | clk | - |
@@ -35,9 +41,11 @@ asynchronously by `rst_n` low. "Sampled at edge E" means the value just before E
 | `mode` | 2 | mode register; std when 0 |
 | `bit_cnt` | 3 | std bits captured in the current byte |
 | `qcnt` | 1 | quad nibbles captured in the current byte (0 or 1) |
+| `csn_i` | 1 | `csn` after the two-flop synchroniser |
 | `io_oe` | 4 | per-pin output enable: std `4'b0010`; quad with `dir` = 0 `4'b1111`; quad with `dir` = 1 `4'b0000` |
 
-Other state: `rx_q`, `dir`, `sclk_d`, `started` (a falling SCLK edge has occurred in this frame),
+Other state: the synchronisers `sclk_s`, `csn_s` (reset to 2'b11, deselected), `io_s0`,
+`io_s1`; `rx_q`, `dir`, `sclk_d` (previous `sclk_i`), `started` (a falling SCLK edge has occurred in this frame),
 `io_out` (registered output bits), `byte_done`.
 
 ## 2. Registers
@@ -115,16 +123,18 @@ The CORE words reach the core's own register port. A write to one pulses `wen` f
 
 ### 3.1 Edges
 
-At every edge `sclk_d <= sclk`. A rising edge is detected at clock edge E when `sclk` sampled at E
-is 1, `sclk_d` is 0 and `csn` sampled at E is 0; a falling edge when `sclk_d` = 1, `sclk` = 0 and
-`csn` = 0. `csn` = 1 at an edge clears `bit_cnt`, `qcnt` and `started` (wins over an increment).
-SCLK must stay high and low for at least 2 clocks each (the TB uses 4).
+At every edge the synchronisers shift and `sclk_d <= sclk_i`. A rising edge is detected at clock
+edge E when `sclk_i` is 1, `sclk_d` is 0 and `csn_i` is 0; a falling edge when `sclk_d` = 1,
+`sclk_i` = 0 and `csn_i` = 0. Both are seen two clocks after the pins showed them. `csn_i` = 1 at
+an edge clears `bit_cnt`, `qcnt` and `started` (wins over an increment). SCLK must stay high and
+low for at least 3 clocks each, so the next output is on the pins before the master's next rising
+edge (§3.3); the TB uses 4.
 
 ### 3.2 Capture (rising edges)
 
-- std: `rx_q <= {rx_q[6:0], io[0]}`; `bit_cnt` +1, and after the 8th bit `bit_cnt` <= 0 with
+- std: `rx_q <= {rx_q[6:0], io_i[0]}`; `bit_cnt` +1, and after the 8th bit `bit_cnt` <= 0 with
   `irq` the next clock.
-- quad: `rx_q <= {rx_q[3:0], io[3:0]}` (high nibble first); `qcnt` toggles, and after the second
+- quad: `rx_q <= {rx_q[3:0], io_i[3:0]}` (high nibble first); `qcnt` toggles, and after the second
   nibble `irq` the next clock. The capture happens in both quad directions (in quad read the
   target captures its own drive).
 
@@ -137,8 +147,8 @@ The value on the driven pins is `pin_out = started ? io_out : first_out`:
   presented at once.
 - At each falling edge, `started` <= 1 and `io_out` <=: std `tx_q[7 - bit_cnt]` (`bit_cnt` was
   already advanced by the rising edge, so this is the next bit); quad `qcnt ? tx_q[3:0] : tx_q[7:4]`.
-  The pins change one clock after the falling SCLK edge is detected, and are stable at the next
-  rising edge, where the master samples them.
+  The pins change one clock after the falling SCLK edge is detected (three clocks after the
+  pin's falling edge), and are stable at the next rising edge, where the master samples them.
 - `tx_q` is not consumed: each byte or frame sends it again; a write to it takes effect at the next
   falling edge (or at once while `started` = 0).
 
@@ -150,7 +160,7 @@ and in quad read mode IO[3:0] are always driven (with `first_out` while not star
 
 ### 3.5 Reset
 
-`rst_n` low: all flops 0, so std mode with IO1 driven (= `tx_q[7]` = 0), IO0/2/3 released,
+`rst_n` low: all flops 0 except the `csn` synchroniser (1, deselected), so std mode with IO1 driven (= `tx_q[7]` = 0), IO0/2/3 released,
 `irq` = 0, `rdata` = 0.
 
 ## 4. Parameters
@@ -201,12 +211,12 @@ built only for Verilator. Assertions a_* are in `tb/cov/QSPI_sva.sv`.
 | "A2 rdata never X/Z" | `rdata` defined | §2 |
 | "A3 raddr1 reads tx_q" | address 1 reads `tx_q` | §2 |
 | "A4 irq single-cycle pulse" | `irq` one clock | §3.2 |
-| "A5 counters clear under csn" | the clock after CSn high: `bit_cnt` = `qcnt` = 0 | §3.1 |
+| "A5 counters clear under csn" | the clock after `csn_i` high: `bit_cnt` = `qcnt` = 0 | §3.1 |
 | "A6 illegal addr reads 0" | `raddr` > 1 reads 0 | §2 |
 | "A7 std mode drives MISO only" | std: `io_oe` = 0010 | §3.4 |
 | a_reset_idle | in reset `irq` = 0, `io_oe` = 0010 | §3.5 |
-| a_std_miso_bit | at a std rising edge IO1 = model `tx[7 - bit]` | §3.3 |
-| a_quad_read_nibble | at a quad-read rising edge IO[3:0] = model nibble | §3.3 |
+| a_std_miso_bit | at a std rising edge on the pins IO1 = model `tx[7 - bit]` | §3.3 |
+| a_quad_read_nibble | at a quad-read rising edge on the pins IO[3:0] = model nibble | §3.3 |
 | a_quad_write_released | quad write: `io_oe` = 0000 | §3.4 |
 | a_irq_byte_done | `irq` equals the model's byte-done | §3.2 |
 | a_read_mux | `rdata` by `raddr` | §2 |

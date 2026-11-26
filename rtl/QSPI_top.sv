@@ -25,6 +25,22 @@ module QSPI_top (
   logic       qcnt;         // quad nibble counter 0..1
   logic       sclk_d, byte_done;
 
+  // sclk, csn and the io inputs come from another clock domain: two-flop
+  // synchronizers, all delayed alike so their relative timing is kept.
+  // SCLK half period must be at least 3 clk periods.
+  logic [1:0] sclk_s, csn_s;
+  logic [3:0] io_s0, io_s1;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      sclk_s <= 2'b00; csn_s <= 2'b11; io_s0 <= '0; io_s1 <= '0;
+    end else begin
+      sclk_s <= {sclk_s[0], sclk}; csn_s <= {csn_s[0], csn};
+      io_s0 <= io; io_s1 <= io_s0;
+    end
+  end
+  wire       sclk_i = sclk_s[1], csn_i = csn_s[1];
+  wire [3:0] io_i   = io_s1;
+
   // output drive: std drives io[1]; quad drives io[3:0] with tx nibbles
   logic [3:0] io_oe, io_out;
   // v2.5.1 fix: per-bit output enable -- io_oe is a 4-bit mask, not a
@@ -51,9 +67,9 @@ module QSPI_top (
     if (!rst_n) begin
       io_out  <= '0;
       started <= 1'b0;
-    end else if (csn) begin
+    end else if (csn_i) begin
       started <= 1'b0;
-    end else if (sclk_d && !sclk) begin     // SCLK falling: advance output
+    end else if (sclk_d && !sclk_i) begin     // SCLK falling: advance output
       started <= 1'b1;
       if (std_mode)
         io_out <= {2'b00, tx_q[7 - bit_cnt], 1'b0};  // bit_cnt incremented on sample
@@ -67,24 +83,24 @@ module QSPI_top (
       sclk_d <= 1'b0; bit_cnt <= '0; qcnt <= '0;
       rx_q <= '0; tx_q <= '0; mode <= '0; dir <= 1'b0; byte_done <= 1'b0;
     end else begin
-      sclk_d <= sclk;
+      sclk_d <= sclk_i;
       byte_done <= 1'b0;
       if (wen && waddr == 4'd0) tx_q <= wdata;
       if (wen && waddr == 4'd2) mode  <= wdata[1:0];
       if (wen && waddr == 4'd3) dir   <= wdata[0];
-      if (!csn && sclk && !sclk_d) begin
+      if (!csn_i && sclk_i && !sclk_d) begin
         if (std_mode) begin
-          rx_q <= {rx_q[6:0], io[0]};
+          rx_q <= {rx_q[6:0], io_i[0]};
           if (bit_cnt == 3'd7) begin
             bit_cnt <= '0; byte_done <= 1'b1;
           end else bit_cnt <= bit_cnt + 1'b1;
         end else begin
-          rx_q <= {rx_q[3:0], io[3:0]};      // 4 bits per clock, MSB nibble first
+          rx_q <= {rx_q[3:0], io_i[3:0]};      // 4 bits per clock, MSB nibble first
           if (qcnt) byte_done <= 1'b1;
           qcnt <= !qcnt;
         end
       end
-      if (csn) begin bit_cnt <= '0; qcnt <= '0; end
+      if (csn_i) begin bit_cnt <= '0; qcnt <= '0; end
     end
   end
 

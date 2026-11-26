@@ -22,16 +22,29 @@ module SPI_top (
   logic [2:0] bit_cnt;
   logic       sclk_d, byte_done;
 
+  // sclk, mosi and csn come from another clock domain: two-flop
+  // synchronizers, all three delayed alike so their relative timing is kept.
+  // SCLK half period must be at least 3 clk periods.
+  logic [1:0] sclk_s, mosi_s, csn_s;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      sclk_s <= 2'b00; mosi_s <= 2'b00; csn_s <= 2'b11;
+    end else begin
+      sclk_s <= {sclk_s[0], sclk}; mosi_s <= {mosi_s[0], mosi}; csn_s <= {csn_s[0], csn};
+    end
+  end
+  wire sclk_i = sclk_s[1], mosi_i = mosi_s[1], csn_i = csn_s[1];
+
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       sclk_d <= 1'b0; bit_cnt <= '0; rx_q <= '0;
       tx_q <= '0; byte_done <= 1'b0;
     end else begin
-      sclk_d <= sclk;
+      sclk_d <= sclk_i;
       byte_done <= 1'b0;
       if (wen && waddr == 4'd0) tx_q <= wdata;
-      if (!csn && sclk && !sclk_d) begin
-        rx_q <= {rx_q[6:0], mosi};
+      if (!csn_i && sclk_i && !sclk_d) begin
+        rx_q <= {rx_q[6:0], mosi_i};
         if (bit_cnt == 3'd7) begin
           bit_cnt <= '0;
           byte_done <= 1'b1;
@@ -39,7 +52,7 @@ module SPI_top (
           bit_cnt <= bit_cnt + 1'b1;
         end
       end
-      if (csn) bit_cnt <= '0;
+      if (csn_i) bit_cnt <= '0;
     end
   end
 

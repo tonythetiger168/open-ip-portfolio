@@ -58,7 +58,7 @@ module QSPI_tb;
       sva_check((raddr != 4'd1) || (rdata === dut.tx_q), "A3 raddr1 reads tx_q");
       // A4: irq is a single-cycle pulse
       sva_check(!(dut.irq && irq_q), "A4 irq single-cycle pulse");
-      // A5: bit/nibble counters cleared one cycle after csn deasserts
+      // A5: bit/nibble counters cleared one cycle after the synchronized csn deasserts
       sva_check(!csn_q || (dut.bit_cnt == 3'd0 && dut.qcnt == 2'd0),
                 "A5 counters clear under csn");
       // A6: illegal read addresses return zero
@@ -67,7 +67,7 @@ module QSPI_tb;
       sva_check((dut.mode != 2'd0) || (dut.io_oe === 4'b0010),
                 "A7 std mode drives MISO only");
     end
-    csn_q  <= csn;
+    csn_q  <= dut.csn_i;
     irq_q  <= dut.irq;
     mode_q <= dut.mode;
   end
