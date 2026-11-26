@@ -82,6 +82,7 @@ module HBM3E_Lite_tb;
     idle(T_REFI * NBANK + 200);
   endtask
 
+  `define LDEV_BANK {addr[13:11], ba}
   `include "lite_tb_common.svh"
 
 `ifndef VERILATOR

@@ -5,7 +5,7 @@ An LPDDR5X-flavoured fork of [DDR4_Lite](DDR4_Lite.md): the same host contract, 
 timing, with 8 banks, per-bank refresh in rotation (plus host all-bank and single-bank refresh),
 two frequency-set-point MR files (FSP0 / FSP1) switched by a host command, and a write clock WCK
 that runs through the write path. Everything not stated here is as in DDR4_Lite; this page is
-complete on its own. Core `LPDDR5X_Lite_top` (`rtl/LPDDR5X_Lite_top.sv`), testbench `tb/LPDDR5X_Lite_tb.sv` (shared body
+complete on its own. The core holds no data: the lines live in the DRAM, which the testbenches model (`tb/lite_dev.svh`); write bursts go out on `dq` and read bursts are driven by the DRAM and taken from `dq`. Core `LPDDR5X_Lite_top` (`rtl/LPDDR5X_Lite_top.sv`), testbench `tb/LPDDR5X_Lite_tb.sv` (shared body
 `tb/lite_tb_common.svh`), checker `tb/cov/LPDDR5X_Lite_sva.sv` (shared line-controller model
 `tb/cov/lite_chk.svh`).
 
@@ -27,7 +27,7 @@ high) in every clock that carries no command.
 | `haddr` | input | 32 | host byte address for READ / WRITE (map in §3.2; bits [31:19] must be 0); MR index in bits 2:0 for MRW / MRR; bank in bits 9:7 for hcmd 6 (other bits ignored); ignored for NOP / REFRESH and on a write data beat | - | `clk` | - |
 | `hwdata` | input | 16 | MRW value in bits 7:0; the new FSP in bit 0 for FSPW; on each of the 8 data beats of a WRITE, one 16-bit word of the line (beat 0 = line bits 15:0) | - | `clk` | - |
 | `hrdata` | output | 16 | read data: word k of the line in clock k of the 8 clocks that end with the READ `hdone`; `{8'h00, MR}` in the `hdone` clock of an MRR; holds its last value otherwise | - | `clk` | 0 |
-| `rdline` | output | 128 | the line of the last READ (word k in bits 16k+15:16k), updated in the clock of the last read beat on `dq` and held until the next READ burst ends | - | `clk` | 0 |
+| `rdline` | output | 128 | the line of the last READ (word k in bits 16k+15:16k), updated in the clock after the last read beat on `dq` and held until the next READ burst ends | - | `clk` | 0 |
 | `hdone` | output | 1 | one-clock pulse when a host command completes (§3.1) | high | `clk` | 0 |
 | `irq` | output | 1 | sticky error: set two clocks after a rejected command or one clock after a refresh overrun; cleared only by reset (§5) | high | `clk` | 0 |
 | `fsp` | output | 1 | active frequency set point (MR file) 0 / 1 | - | `clk` | 0 |
@@ -52,10 +52,10 @@ high) in every clock that carries no command.
 | 6:4 | line within the row segment (8) |
 | 3:0 | byte within the line, ignored |
 
-One array line (128 bits) per {bank, row, line}. The array is 8 banks x 512 rows x 8 lines.
+One DRAM line (128 bits) per {bank, row, line}. The DRAM (TB model) is 8 banks x 512 rows x 8 lines.
  | - | `clk` | 0 |
-| `dq` | inout | 16 | data: driven by the core for each beat of a read or write burst (SDR, one 16-bit beat per clock), Hi-Z otherwise | - | `clk` | Hi-Z |
-| `dqs` | inout | 2 | strobe `{~s, s}`: driven with the burst, `s` toggles every beat; Hi-Z otherwise | - | `clk` | Hi-Z |
+| `dq` | inout | 16 | data: driven by the core for each beat of a write burst and by the DRAM for each beat of a read burst (SDR, one 16-bit beat per clock), Hi-Z otherwise | - | `clk` | Hi-Z |
+| `dqs` | inout | 2 | strobe `{~s, s}`: driven with the burst (by the core for a write, the DRAM for a read), `s` toggles every beat; Hi-Z otherwise | - | `clk` | Hi-Z |
 | `trace_valid` | output | 1 | high in the clock of every ACT, RD, WR, single-bank PRE and REF on the pins (§3.8) | high | `clk` | 0 |
 | `trace_cmd` | output | 4 | 0 ACT, 1 RD, 2 WR, 3 PRE, 5 per-bank REF, 6 all-bank REF | - | `clk` | 0 |
 | `trace_addr` | output | 32 | §3.8: row of the operation (ACT / RD / WR), row closed (PRE), bank (per-bank REF), 0 (all-bank REF) | - | `clk` | 0 |
@@ -181,8 +181,7 @@ One host command is handled at a time. A command is taken at a rising edge with 
 * READ / WRITE with `haddr[31:19]` not 0 are rejected: no pin activity, no data beats are taken,
   `hdone` in the next clock, and `irq` set (§5).
 * READ data: the 8 words of the line are on `hrdata` in the 8 consecutive clocks that end with the
-  `hdone` clock (word 0 first). The words come from the read burst, so they are what the array
-  held when the RD was issued.
+  `hdone` clock (word 0 first). The words are the read burst the DRAM drove.
 * MRW, MRR, NOP and rejected commands never wait for the engine: `hdone` is in the clock after the
   command was taken.
 
@@ -196,7 +195,7 @@ One host command is handled at a time. A command is taken at a rising edge with 
 | 6:4 | line within the row segment (8) |
 | 3:0 | byte within the line, ignored |
 
-One array line (128 bits) per {bank, row, line}. The array is 8 banks x 512 rows x 8 lines.
+One DRAM line (128 bits) per {bank, row, line}. The DRAM (TB model) is 8 banks x 512 rows x 8 lines.
 
 ### 3.3 Pin commands
 
@@ -281,14 +280,14 @@ to be set to match outside this core.
 * Bursts are SDR BL8: 8 beats on 8 consecutive clocks, one 16-bit word per beat, word 0 (line
   bits 15:0) first. A read burst starts exactly CL clocks after the RD, a write burst exactly CWL
   clocks after the WR, with CL / CWL from the active FSP set.
-* `dq` and `dqs` are driven exactly in the burst clocks (`dq_oe` / `dqs_oe` high) and are Hi-Z in
-  every other clock. `dqs` is `{~s, s}` and `s` toggles every beat.
+* The core drives `dq` and `dqs` exactly in the write-burst clocks (`dq_oe` / `dqs_oe` high) and
+  leaves them Hi-Z in every other clock; the DRAM drives them in the read-burst clocks. `dqs` is `{~s, s}` and `s` toggles every beat.
 * WCK: with a WR in clock w, `wck_t` toggles in every clock from w+1 through w+CWL+7 (the last write
   beat) and is 1 in every other clock (also through reads); `wck_c` = `~wck_t`.
-* WRITE: the burst carries the 8 host beats in order; the array line is written after the last
-  beat. READ: the burst carries the array line; `rdline` takes it in the clock of the last beat
-  and the front end then puts its words on `hrdata`.
-* The array is zeroed once at time 0 in simulation and kept through `rst_n`.
+* WRITE: the burst carries the 8 host beats in order; the DRAM stores the line.
+  READ: the DRAM drives the line and the core takes each beat from `dq` at the end of its clock;
+  `rdline` holds it from the clock after the last beat and the front end then puts its words on `hrdata`.
+* The core has no array; the TB's DRAM model starts zeroed and keeps its contents through `rst_n`.
 
 ### 3.8 Trace port
 
@@ -313,7 +312,7 @@ no effect (LPDDR has no DLL). Neither MRW nor FSPW puts anything on the pins.
 While `rst_n` is low: `hready` 1, `hdone` 0, `irq` 0, `cs_n` / `act_n` / `ras_n` / `cas_n` /
 `we_n` 1, `ba` / `addr` 0, `dq` / `dqs` Hi-Z, `trace_valid` 0, every bank closed, every timer 0,
 tREFI reloaded, MR file at its reset values in both FSP sets, `fsp` 0, the refresh rotation back at bank 0, `wck_t` 1. A READ in flight is dropped (no `hdone`). The
-array is not cleared.
+DRAM keeps its contents.
 
 ## 4. Parameters
 
@@ -397,7 +396,7 @@ The checker's bounds (TB timing): REF_LAT = 144 clocks, BUSY_MAX = 328 clocks (R
 | a_refresh_not_starved | a due refresh reaches the pins within REF_LAT clocks | §3.6 |
 | a_pin_address | `ba` / `addr` of every command as in §3.3 | §3.3 |
 | a_write_data_on_dq | write beats on `dq` exactly CWL clocks after the WR, host words in order | §3.7 |
-| a_read_data_on_dq | read beats on `dq` exactly CL clocks after the RD, the array line | §3.7 |
+| a_read_data_on_dq | read beats on `dq` (driven by the TB's DRAM) exactly CL clocks after the RD, the array line | §3.7 |
 | a_dqs_toggles | `dqs` differential and toggling every beat | §3.7 |
 | a_read_data_to_host | `hrdata` in the 8 clocks ending with `hdone` = the burst line | §3.1 |
 | a_hdone_once_per_op | one `hdone` per command, after the burst / tRFC; next clock for MRW / MRR / NOP / rejected | §3.1 |
@@ -407,8 +406,8 @@ The checker's bounds (TB timing): REF_LAT = 144 clocks, BUSY_MAX = 328 clocks (R
 | a_irq_on_reject | `irq` rises two clocks after the first rejected command and stays | §5 |
 | a_trace_with_cmd | trace exactly with ACT / RD / WR / PRE / REF, code and address | §3.8 |
 | a_no_bad_pin_cmd | no undefined command on the pins | §3.3 |
-| a_dq_driven_only_in_burst | `dq_oe` / `dqs_oe` high exactly in the burst clocks | §3.7 |
-| a_rdline_holds_last_read | `rdline` = line of the last READ from its last beat on | §3.7 |
+| a_dq_driven_only_in_burst | `dq_oe` / `dqs_oe` high exactly in the write-burst clocks | §3.7 |
+| a_rdline_holds_last_read | `rdline` = line of the last READ from the clock after its last beat | §3.7 |
 | a_ck_differential | `ck_c` = `~ck_t` | §1 |
 | a_cke_high | `cke` high out of reset | §1 |
 | a_fsp_pin | `fsp` = the active set of the model | §3.9 |

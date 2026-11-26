@@ -10,10 +10,11 @@
 //     x 16 trits = 96 trits = 32 nibbles = 128 data bits (nibble v -> trits
 //     {t0, t1, t2} with v = 9*t0 + 3*t1 + t2; 16 of the 27 trit triples are
 //     used). PAM2 mode keeps BL8 on the low 16 lanes, the upper 16 Hi-Z.
-//   * the array holds raw data in both modes: a write is encoded onto the
-//     symbol bus and decoded on the DRAM side, a read is encoded by the
-//     DRAM side and decoded for the host, so a round trip in PAM3 proves
-//     both coders, and a line reads back the same after a mode switch
+//   * the DRAM (outside the core; the testbenches model it, tb/lite_dev.svh)
+//     holds raw data in both modes: a write is encoded onto the symbol bus
+//     here and decoded by the DRAM, a read is encoded by the DRAM and
+//     decoded here for the host, so a line reads back the same after a
+//     mode switch
 //   * the burst length follows the mode latched with each command
 //   * timing-fenced scheduling as DDR4_Lite: tRCD, tRP, tRC, tRAS, tRRD,
 //     tWR, tWTR, tRFC, tREFI; data exactly CL / CWL clocks after RD / WR;
@@ -22,7 +23,7 @@
 //     irq on rejected commands and refresh overrun
 // Documented abstractions: PAM3 here is a digital symbol-level model (one
 // 2-bit lane per pin), not analog levels; no equalization, no CK/WCK ratio,
-// no per-channel CK/WCK; SDR dqs; array inside the model; one command
+// no per-channel CK/WCK; SDR dqs; the array is in the DRAM (TB model); one command
 // engine for both channels (one transaction in flight).
 // Front-end: hcmd 0 NOP | 1 READ line | 2 WRITE line | 3 MRW (haddr[2:0],
 // hwdata[7:0]) | 4 MRR | 5 REFRESH (all banks, both channels).
@@ -89,15 +90,9 @@ module GDDR7_Lite_top #(
   wire [4:0] cwl_now = 5'd5 + {1'b0, mr[1][3:0]};
   assign pam3 = mr[2][0];
 
-  // ---------------- memory array (controller + DRAM model) ----------------
-  // 8 entries x ROWS rows x LINES lines x 128 bits (raw data, both modes)
-  logic [127:0] mem [0:BANKS*ROWS*LINES-1];
-  // a DRAM keeps its data through rst_n; zero it once for deterministic
-  // simulation (not in synthesis: the array is an SRAM macro there, and
-  // yosys unrolling this loop takes minutes and gigabytes)
-`ifndef SYNTHESIS
-  initial for (int i = 0; i < BANKS*ROWS*LINES; i++) mem[i] = '0;
-`endif
+  // No array: the lines live in the DRAM (raw data, both modes). A WRITE's
+  // burst goes out on dq, a READ's burst is driven by the DRAM and taken
+  // from dq.
 
   // ---------------- per-bank state ----------------
   logic [BANKS-1:0]       bank_open;
@@ -152,6 +147,8 @@ module GDDR7_Lite_top #(
   logic [2:0]  fe_cnt;
   logic [15:0] wbuf [0:7];
   logic [15:0] rbuf [0:7];
+  logic [15:0] rcap [0:6];               // read beats 0..6 as they arrive (rbuf
+                                          // and rdline change only at the last beat)
   logic        rbuf_valid;
   logic        rbuf_take;              // FE -> engine: rbuf consumed
   logic        fe_err;                 // 1-cycle protocol-error pulse
@@ -172,8 +169,8 @@ module GDDR7_Lite_top #(
   logic        eng_ref_req;            // refresh was a host REFRESH command
   logic [4:0]  lat_cnt;
   logic [2:0]  bcnt;
-  logic [127:0] burst_reg;
-  logic [191:0] trit_reg;               // the line as 96 trits (PAM3)
+  logic [191:0] trit_reg;               // the line as 96 trits (PAM3): a WRITE's encoded
+                                        // line, or a READ's beats as they arrive
 
   // ---------------- dq / dqs ----------------
   logic        dq_oe, dqs_oe;
@@ -413,33 +410,24 @@ module GDDR7_Lite_top #(
   function automatic [127:0] unpack_data(input [191:0] t);
     for (int k = 0; k < 32; k++) unpack_data[4*k +: 4] = dec_nibble(t[6*k +: 6]);
   endfunction
-  wire [127:0] trit_dec = unpack_data(trit_reg);   // the symbol bus, decoded
+  // a READ's 6 PAM3 beats, decoded: beats 0..4 from trit_reg, beat 5 from dq
+  // in the clock it arrives
+  wire [127:0] trit_dec = unpack_data({dq, trit_reg[159:0]});
   wire [127:0] wline = {wbuf[7], wbuf[6], wbuf[5], wbuf[4], wbuf[3], wbuf[2], wbuf[1], wbuf[0]};
 
   // ========================================================================
   // Command engine
   // ========================================================================
-  localparam integer MAW = $clog2(BANKS * ROWS * LINES);
-  wire [MAW-1:0] mem_idx = {eng_bank, eng_row, eng_line};
-
-  // Array write port, kept out of the async-reset engine process so the
-  // array infers as a memory (SRAM macro) instead of 128-bit registers;
-  // the engine posts one write per burst, applied on the next edge.
-  logic           mem_we;
-  logic [MAW-1:0] mem_wa;
-  logic [127:0]   mem_wd;
-  always_ff @(posedge clk) if (mem_we) mem[mem_wa] <= mem_wd;
   wire hit = bank_open[eng_bank] &&
              (bank_row[eng_bank] == eng_row);
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       eng <= ENG_IDLE;
-      mem_we <= 1'b0; mem_wa <= '0; mem_wd <= '0;
       eng_bank <= '0; eng_line <= '0; eng_row <= '0; eng_we <= 1'b0; eng_pam3 <= 1'b0;
       eng_ref_req <= 1'b0;
       lat_cnt <= 5'd0; bcnt <= '0;
-      burst_reg <= 128'h0; trit_reg <= '0;
+      trit_reg <= '0;
       req_done <= 1'b0;
       ld_rp_v <= '0; ld_ras_v <= '0; ld_rc_v <= '0; ld_wr_v <= '0;
       ld_rrd_v <= 1'b0; ld_wtr_v <= 1'b0; ld_rfc_v <= 1'b0; ref_ack <= 1'b0;
@@ -448,13 +436,13 @@ module GDDR7_Lite_top #(
         bank_open[i] <= 1'b0; bank_row[i] <= '0;
       end
       for (int i = 0; i < 8; i++) rbuf[i] <= 16'h0;
+      for (int i = 0; i < 7; i++) rcap[i] <= 16'h0;
       rbuf_valid <= 1'b0;
     end else begin
       // default strobes low
       ld_rp_v <= '0; ld_ras_v <= '0; ld_rc_v <= '0; ld_wr_v <= '0;
       ld_rrd_v <= 1'b0; ld_wtr_v <= 1'b0; ld_rfc_v <= 1'b0;
       ref_ack <= 1'b0; req_done <= 1'b0;
-      mem_we <= 1'b0;
       if (rbuf_take) rbuf_valid <= 1'b0;
       case (eng)
         // --------------------------------------------------------------
@@ -518,33 +506,36 @@ module GDDR7_Lite_top #(
             lat_cnt <= cwl_now - 5'd1;          // data CWL clocks after the WR
             eng <= ENG_CWL;
           end else if (wtr_done) begin          // tWTR: WR burst end -> RD
-            lat_cnt <= cl_now - 5'd1;           // data CL clocks after the RD
+            lat_cnt <= cl_now;                 // beat 0 on dq CL clocks after the RD
             eng <= ENG_CL;
           end
         end
-        // ---- read: wait CL, then drive the burst (BL8, or BL6 in PAM3) ----
+        // ---- read: wait CL, then take the DRAM's burst (BL8, or BL6 in PAM3) ----
         ENG_CL: begin
           if (lat_cnt > 5'd1) lat_cnt <= lat_cnt - 1;
           else begin
-            burst_reg <= mem[mem_idx];
-            trit_reg  <= pack_trits(mem[mem_idx]);   // DRAM side encodes
             bcnt <= '0;
             eng <= ENG_RD_BURST;
           end
         end
         ENG_RD_BURST: begin
-          dq_oe <= 1'b1; dq_hi_oe <= eng_pam3; dqs_oe <= 1'b1; dqs_t <= ~dqs_t;
-          dq_out <= eng_pam3 ? trit_reg[32*bcnt +: 32] : {16'h0, burst_reg[16*bcnt +: 16]};
+          // beat bcnt, driven by the DRAM: 16 data bits (PAM2) or 16 symbols
+          if (eng_pam3) trit_reg[32*bcnt +: 32] <= dq;
+          else if (bcnt != 3'd7) rcap[bcnt] <= dq[15:0];
           if (bcnt == {1'b1, !eng_pam3, 1'b1}) begin   // last beat: 5 (BL6) or 7 (BL8)
             // PAM3: the host gets what the symbol bus carried, decoded
-            for (int i = 0; i < 8; i++)
-              rbuf[i] <= eng_pam3 ? trit_dec[16*i +: 16] : burst_reg[16*i +: 16];
+            if (eng_pam3)
+              for (int i = 0; i < 8; i++) rbuf[i] <= trit_dec[16*i +: 16];
+            else begin
+              for (int i = 0; i < 7; i++) rbuf[i] <= rcap[i];
+              rbuf[7] <= dq[15:0];
+            end
             rbuf_valid <= 1'b1;
             req_done <= 1'b1;
             eng <= ENG_IDLE;
           end else bcnt <= bcnt + 1;
         end
-        // ---- write: wait CWL, then drive the burst, commit ----
+        // ---- write: wait CWL, then drive the burst (the DRAM decodes and stores it) ----
         ENG_CWL: begin
           if (lat_cnt > 5'd1) lat_cnt <= lat_cnt - 1;
           else begin
@@ -557,9 +548,6 @@ module GDDR7_Lite_top #(
           dq_oe <= 1'b1; dq_hi_oe <= eng_pam3; dqs_oe <= 1'b1; dqs_t <= ~dqs_t;
           dq_out <= eng_pam3 ? trit_reg[32*bcnt +: 32] : {16'h0, wbuf[bcnt]};
           if (bcnt == {1'b1, !eng_pam3, 1'b1}) begin
-            // PAM3: the DRAM side stores what the symbol bus carried, decoded
-            mem_we <= 1'b1; mem_wa <= mem_idx;
-            mem_wd <= eng_pam3 ? trit_dec : wline;
             ld_wr_v[eng_bank] <= 1'b1;  // tWR
             ld_wtr_v <= 1'b1;                   // tWTR before the next RD
             req_done <= 1'b1;

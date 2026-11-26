@@ -31,7 +31,8 @@
 //   * no DLL / read & write leveling / ZQ / DBI / ECC / bank groups / 2T
 //     command / gear-down / CA parity
 //   * refresh is served only when the command engine is idle
-//   * memory array lives inside the model (controller + DRAM array combined)
+//   * no memory array: the lines live in the DRAM (the testbenches model
+//     it, tb/lite_dev.svh); read bursts are taken from dq
 //   * one command engine: a single transaction is in flight at a time
 //   * the MR file is controller-side only: MRW changes the controller's
 //     CL / CWL at once and issues no MRS on the pins, so the device's mode
@@ -105,15 +106,8 @@ module DDR4_Lite_top #(
   wire [4:0] cl_now  = 5'd5 + {1'b0, mr[0][3:0]};
   wire [4:0] cwl_now = 5'd5 + {1'b0, mr[1][3:0]};
 
-  // ---------------- memory array (controller + DRAM model) ----------------
-  // 4 banks x ROWS rows x LINES lines x 128 bits
-  logic [127:0] mem [0:BANKS*ROWS*LINES-1];
-  // a DRAM keeps its data through rst_n; zero it once for deterministic
-  // simulation (not in synthesis: the array is an SRAM macro there, and
-  // yosys unrolling this loop takes minutes and gigabytes)
-`ifndef SYNTHESIS
-  initial for (int i = 0; i < BANKS*ROWS*LINES; i++) mem[i] = '0;
-`endif
+  // No array: the lines live in the DRAM. A WRITE's burst goes out on dq,
+  // a READ's burst is driven by the DRAM and taken from dq.
 
   // ---------------- per-bank state ----------------
   logic [BANKS-1:0]       bank_open;
@@ -175,6 +169,8 @@ module DDR4_Lite_top #(
   logic [2:0]  fe_cnt;
   logic [15:0] wbuf [0:7];
   logic [15:0] rbuf [0:7];
+  logic [15:0] rcap [0:6];               // read beats 0..6 as they arrive (rbuf
+                                          // and rdline change only at the last beat)
   logic        rbuf_valid;
   logic        rbuf_take;              // FE -> engine: rbuf consumed
   logic        fe_err;                 // 1-cycle protocol-error pulse
@@ -194,7 +190,6 @@ module DDR4_Lite_top #(
   logic        eng_ref_req;            // refresh was a host REFRESH command
   logic [4:0]  lat_cnt;
   logic [2:0]  bcnt;
-  logic [127:0] burst_reg;
 
   // ---------------- dq / dqs ----------------
   logic        dq_oe, dqs_oe;
@@ -398,27 +393,15 @@ module DDR4_Lite_top #(
   // ========================================================================
   // Command engine
   // ========================================================================
-  localparam integer MAW = $clog2(BANKS * ROWS * LINES);
-  wire [MAW-1:0] mem_idx = {eng_bank, eng_row, eng_line};
-
-  // Array write port, kept out of the async-reset engine process so the
-  // array infers as a memory (SRAM macro) instead of 128-bit registers;
-  // the engine posts one write per burst, applied on the next edge.
-  logic           mem_we;
-  logic [MAW-1:0] mem_wa;
-  logic [127:0]   mem_wd;
-  always_ff @(posedge clk) if (mem_we) mem[mem_wa] <= mem_wd;
   wire hit = bank_open[eng_bank] &&
              (bank_row[eng_bank] == eng_row);
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       eng <= ENG_IDLE;
-      mem_we <= 1'b0; mem_wa <= '0; mem_wd <= '0;
       eng_bank <= '0; eng_line <= '0; eng_row <= '0; eng_we <= 1'b0;
       eng_ref_req <= 1'b0;
       lat_cnt <= 5'd0; bcnt <= '0;
-      burst_reg <= 128'h0;
       req_done <= 1'b0;
       ld_rp_v <= 4'h0; ld_ras_v <= 4'h0; ld_rc_v <= 4'h0; ld_wr_v <= 4'h0;
       ld_rrd_v <= 1'b0; ld_wtr_v <= 1'b0; ld_rfc_v <= 1'b0; ref_ack <= 1'b0;
@@ -427,13 +410,13 @@ module DDR4_Lite_top #(
         bank_open[i] <= 1'b0; bank_row[i] <= '0;
       end
       for (int i = 0; i < 8; i++) rbuf[i] <= 16'h0;
+      for (int i = 0; i < 7; i++) rcap[i] <= 16'h0;
       rbuf_valid <= 1'b0;
     end else begin
       // default strobes low
       ld_rp_v <= 4'h0; ld_ras_v <= 4'h0; ld_rc_v <= 4'h0; ld_wr_v <= 4'h0;
       ld_rrd_v <= 1'b0; ld_wtr_v <= 1'b0; ld_rfc_v <= 1'b0;
       ref_ack <= 1'b0; req_done <= 1'b0;
-      mem_we <= 1'b0;
       if (rbuf_take) rbuf_valid <= 1'b0;
       case (eng)
         // --------------------------------------------------------------
@@ -496,30 +479,30 @@ module DDR4_Lite_top #(
             lat_cnt <= cwl_now - 5'd1;          // data CWL clocks after the WR
             eng <= ENG_CWL;
           end else if (wtr_done) begin          // tWTR: WR burst end -> RD
-            lat_cnt <= cl_now - 5'd1;           // data CL clocks after the RD
+            lat_cnt <= cl_now;                 // beat 0 on dq CL clocks after the RD
             eng <= ENG_CL;
           end
         end
-        // ---- read: wait CL, then drive 8 beats ----
+        // ---- read: wait CL, then take the DRAM's 8 beats from dq ----
         ENG_CL: begin
           if (lat_cnt > 5'd1) lat_cnt <= lat_cnt - 1;
           else begin
-            burst_reg <= mem[mem_idx];
             bcnt <= '0;
             eng <= ENG_RD_BURST;
           end
         end
         ENG_RD_BURST: begin
-          dq_oe <= 1'b1; dqs_oe <= 1'b1; dqs_t <= ~dqs_t;
-          dq_out <= burst_reg[16*bcnt +: 16];
+          // beat bcnt, driven by the DRAM
+          if (bcnt != 3'd7) rcap[bcnt] <= dq;
           if (bcnt == 3'd7) begin
-            for (int i = 0; i < 8; i++) rbuf[i] <= burst_reg[16*i +: 16];
+            for (int i = 0; i < 7; i++) rbuf[i] <= rcap[i];
+            rbuf[7] <= dq;
             rbuf_valid <= 1'b1;
             req_done <= 1'b1;
             eng <= ENG_IDLE;
           end else bcnt <= bcnt + 1;
         end
-        // ---- write: wait CWL, then drive 8 beats, commit ----
+        // ---- write: wait CWL, then drive 8 beats (the DRAM stores them) ----
         ENG_CWL: begin
           if (lat_cnt > 5'd1) lat_cnt <= lat_cnt - 1;
           else begin
@@ -531,9 +514,6 @@ module DDR4_Lite_top #(
           dq_oe <= 1'b1; dqs_oe <= 1'b1; dqs_t <= ~dqs_t;
           dq_out <= wbuf[bcnt];
           if (bcnt == 3'd7) begin
-            mem_we <= 1'b1; mem_wa <= mem_idx;
-            mem_wd <= {wbuf[7], wbuf[6], wbuf[5], wbuf[4],
-                             wbuf[3], wbuf[2], wbuf[1], wbuf[0]};
             ld_wr_v[eng_bank] <= 1'b1;  // tWR
             ld_wtr_v <= 1'b1;                   // tWTR before the next RD
             req_done <= 1'b1;

@@ -5,6 +5,9 @@
 //   function mk(bank, row, line) -> host address; function lidx(a) -> line
 //   index into the scoreboard; task ip_extra (IP-specific tests)
 // Read data: the 8 hrdata values of the 8 clocks ending with hdone.
+// The DRAM is the device model tb/lite_dev.svh (hooks `LDEV_* set by the TB).
+
+  `include "lite_dev.svh"
 
 `ifndef TB_OOR
 `define TB_OOR 32'h0004_0000             // lowest address bit that must be 0
@@ -15,7 +18,7 @@
 `define TB_NREJ 3
 `endif
   logic [15:0] sb [NLINES*8];            // expected words, by line*8+beat
-  initial for (int i = 0; i < NLINES * 8; i++) sb[i] = '0;   // the DUT zeroes its array
+  initial for (int i = 0; i < NLINES * 8; i++) sb[i] = '0;   // the DRAM starts zeroed
   int n_rd = 0, n_wr = 0, errors = 0;
   logic [15:0] hist [8];
   always @(negedge clk) begin
