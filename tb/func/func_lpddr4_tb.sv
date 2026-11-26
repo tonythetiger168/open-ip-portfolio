@@ -49,11 +49,15 @@ module func_lpddr4_tb;
   logic [17:0] f_pay;
   logic [31:0] f_ta;
   logic [15:0] f_wd;
+  bit          f_fset;                 // frequency set at beat 0
   int          ref_exp = 0;            // next bank of the per-bank refresh
 
   task automatic frame_done();
     int t;
-    t = cyc; cyc = f_t0;               // device timing counts from beat 0
+    bit fs;
+    // device timing counts from beat 0, under the frequency set in effect
+    // then (an MRW may be taken while the frame's payload is still going out)
+    t = cyc; cyc = f_t0; fs = fset; fset = f_fset;
     case (f_code)
       3'd1: begin
         chk(f_pay[17:14] == 0 && f_pay[13:0] == f_ta[31:18], $sformatf("ACT row %h, host row %h", f_pay[13:0], f_ta[31:18]));
@@ -65,7 +69,7 @@ module func_lpddr4_tb;
       end
       default: ;
     endcase
-    cyc = t;
+    cyc = t; fset = fs;
   endtask
 
   always @(clk) #1 chk(ck_t === clk && ck_c === ~clk && cke === rst_n && dqs === 2'bzz,
@@ -82,7 +86,7 @@ module func_lpddr4_tb;
         f_beat++; f_left--;
         if (f_left == 0) frame_done();
       end else if (!cs_n) begin                               // beat 0
-        f_code = ca[5:3]; f_bank = ca[2:0]; f_t0 = cyc; f_pay = 0; f_beat = 0; f_ta = p_ta;
+        f_code = ca[5:3]; f_bank = ca[2:0]; f_t0 = cyc; f_fset = fset; f_pay = 0; f_beat = 0; f_ta = p_ta;
         case (f_code)
           3'd1: begin
             chk(p_tv && p_tc == 3'd1 && bank_of(p_ta) == f_bank, "ACT without a matching trace");

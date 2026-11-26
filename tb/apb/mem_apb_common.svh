@@ -77,6 +77,10 @@ task automatic mem_func;
   wr(A_IRQ_STATUS, IRQ_ALL);
   a = mk(1 % NBU, 14'h7, 8'h21);
   m_wr(a, 16'h1234);
+  // a write to another row of the same bank first, so the READ of a is a
+  // row conflict (PRE, ACT, RD) and keeps the core busy long enough (another
+  // column too: the model storage ignores the row)
+  m_wr(mk(1 % NBU, 14'h9, 8'h22), 16'h5678);
   no_idle = 1;                         // exact timing: the core is still busy
   m_send(3'd2, a, 0);
   wr(A_CMD2, 32'h0);                   // core busy: held

@@ -9,5 +9,5 @@ TOGGLE DDR5_top\.timer\[8\]: # constant 0: the largest load is tRFC = 230 < 256
 TOGGLE DDR5_top\.rp_t\[\d\]\[[4-8]\]: # constant 0: loads tRP = 14 < 16
 TOGGLE DDR5_top\.ras_t\[\d\]\[[6-8]\]: # constant 0: loads tRAS = 36 < 64
 TOGGLE DDR5_top\.rc_t\[\d\]\[[6-8]\]: # constant 0: loads tRC = 52 < 64
-TOGGLE DDR5_top\.rrd_l\[[4-8]\]: # constant 0: loads tRRD_L = 8 < 16
-TOGGLE DDR5_top\.rrd_s\[[3-8]\]: # constant 0: loads tRRD_S = 4 < 8
+TOGGLE DDR5_top\.rrd_l\[[3-8]\]: # constant 0: loads tRRD_L - 1 = 7 < 8
+TOGGLE DDR5_top\.rrd_s\[[2-8]\]: # constant 0: loads tRRD_S - 1 = 3 < 4

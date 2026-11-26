@@ -5,6 +5,6 @@ LINE case:HBM5_top \| default: dstate <= D_IDLE; # unused 3-bit encoding of the 
 TOGGLE HBM5_top\.addr\[1[4-6]\]: # always 0: rows are 14 bits, columns 8 bits
 TOGGLE HBM5_top\.trace_cmd\[2\]: # constant 0: trace codes are 1 ACT, 2 RD, 3 WR
 TOGGLE HBM5_top\.dqs\[[01]\]: # tied Hi-Z: the model has no strobe
-TOGGLE HBM5_top\.timer\[(6|7|8)\]: # constant 0: largest load is tRFC_PB = 40 < 64
+TOGGLE HBM5_top\.timer\[(5|6|7|8)\]: # constant 0: largest load is CL = 16 < 32 (a per-entry refresh no longer runs the timer: tRFC is held in the entry's rp_t)
 TOGGLE HBM5_top\.ref_cnt\[(8|9|10|11|12|13)\]: # constant 0: largest load is SLICE = 195 < 256
 # rp_t / ras_t / rc_t / open_row / bank_open (128 entries) exceed Verilator's 256-bit toggle width and are not toggle-scored

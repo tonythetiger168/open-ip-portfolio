@@ -355,10 +355,19 @@ module GDDR7_Lite_top #(
           end else fe_cnt <= fe_cnt + 1;
         end
         FE_WAIT: begin
-          if (req_done) begin
+          if (eng == ENG_RD_BURST && !eng_pam3) begin
+            // read cut-through: each beat goes to the host in the clock it
+            // is on dq, so hdone comes with the last beat instead of after
+            // an 8-clock drain of the finished line
+            hrdata <= burst_reg[16*bcnt +: 16];
+            if (bcnt == 3'd7) begin
+              hdone <= 1'b1; rbuf_take <= 1'b1;
+              req_valid <= 1'b0; req_ref <= 1'b0; fe <= FE_IDLE;
+            end
+          end else if (req_done) begin
             req_valid <= 1'b0; req_ref <= 1'b0;
             if (!req_we && rbuf_valid) begin
-              fe_cnt <= '0; fe <= FE_DRAIN;   // read: return 8 beats
+              fe_cnt <= '0; fe <= FE_DRAIN;   // PAM3 read: return the 8 decoded beats
             end else begin
               hdone <= 1'b1; fe <= FE_IDLE;     // write / refresh done
             end

@@ -140,6 +140,14 @@
     for (int c = 0; c < 256; c += 85) begin
       wr(mk(NBU - 1, rrow(), c[7:0]), ~16'(c)); rd(mk(NBU - 1, rrow(), c[7:0]));
     end
+    // ---- back-to-back page-hit writes, then reads of the same words
+    // (write-side spacing: CAS-to-CAS, write-to-read, write recovery)
+    act(mk(0, 14'h0, 8'h00));               // the row open first: every write is a page hit
+    for (int i = 0; i < 8; i++) wr(mk(0, 14'h0, 8'(8'h40 + i)), 16'hC000 ^ 16'(i * 16'h0111));
+    for (int i = 0; i < 8; i++) rd(mk(0, 14'h0, 8'(8'h40 + i)));
+    wr(mk(0, 14'h0, 8'h48), 16'h7E57); pre(mk(0, 14'h0, 0));   // PRE right behind a WR
+    wr(mk(0, 14'h1, 8'h49), 16'h8E57); wr(mk(0, 14'h2, 8'h4A), 16'h9E57);   // WR row conflicts
+    rd(mk(0, 14'h2, 8'h4A));
     // ---- unknown host codes are no-ops
     cmd(3'd0, $urandom, 0); cmd(3'd5, $urandom, 0); cmd(3'd6, $urandom, 0); cmd(3'd7, $urandom, 0);
     // ---- hvalid while busy is ignored
@@ -160,6 +168,9 @@
     near_refresh(3); act(mk(0, 14'h4, 0));        // ACT to a closed bank
     near_refresh(REFI / 2); act(a); near_refresh(3); act(mk(0, 14'h5, 0)); // ACT row conflict
     near_refresh(REFI / 2); act(a); near_refresh(3); pre(a);              // PRE of an open bank
+    for (int k = 1; k <= 2; k++) begin                                    // ... a refresh due right behind it
+      near_refresh(REFI / 2); act(a); near_refresh(k); pre(a);
+    end
     near_refresh(REFI / 2); act(a); near_refresh(3); wr(mk(0, 14'h6, 8'h21), 16'h5678); // WR row conflict
     near_refresh(1); idle(REFI / 50 + 400);       // refresh while idle
     rd(mk(0, 14'h6, 8'h21)); rd(a);               // the row open before it first
