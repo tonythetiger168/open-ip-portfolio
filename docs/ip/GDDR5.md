@@ -15,7 +15,7 @@ Protocol IP `GDDR5`, version 2.0. Apache-2.0.
 
 ## Overview
 
-GDDR5 -- INDEPENDENT design IP #12/20. Architecture thesis: graphics memory with a hard write-to-read turnaround. A tWTR down-counter loads at the end of every WR burst and blocks any RD to the same bank until it drains; 8 banks ({ch,haddr[11:9]}) feed a high-CL pipeline (CL=13). All-bank refresh. The WTR fence is the structure the DDR designs omit. Contract identical to DDR_top.
+GDDR5 -- INDEPENDENT design IP #12/20. Architecture thesis: graphics memory with a hard write-to-read turnaround. A tWTR down-counter loads at the end of every WR burst and blocks any RD to the same bank until it drains; 8 banks ({ch,haddr[11:9]}) feed a high-CL pipeline (CL=13). All-bank refresh. The WTR fence is the structure the DDR designs omit. Contract identical to DDR_top. The core holds no data: write words leave on dq, and the read word is taken from dq CL clocks after the RD command (the DRAM drives it).
 
 ck_t, ck_c, cke, addr, ras_n, cas_n, we_n, dq and dqs are the DRAM pins and trace_valid, trace_cmd and trace_addr the command trace (one clock before each command on the pins); they pass through unchanged.
 Address map and behaviour of the core: graphics controller with a tWTR fence (banks = haddr[11:9], row = haddr[31:18], storage = 256 columns): a RD waits tWTR after the end of a write burst to its bank.
