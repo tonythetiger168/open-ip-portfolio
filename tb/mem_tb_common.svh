@@ -14,6 +14,10 @@
 // Host contract: hcmd 1=ACT 2=RD 3=WR 4=PRE, taken on hvalid && hready;
 // hdone pulses once per RD and hrdata holds the word from the next clock.
 // A scoreboard of every written cell checks every read.
+// `MEM_LINE (cores with line commands and an MR file): hcmd 5 RDL / 6 WRL
+// move the 8 cells `MEM_LCELL(a, k) of a line (a WRL takes 8 data beats on
+// the following hvalid clocks), hcmd 7 MRW / MRR (haddr[3] = 1: read; MR
+// index haddr[2:0]); line_tests() runs after the word tests.
 
 `ifndef VERILATOR
 `ifdef MEM_SVA
@@ -30,6 +34,9 @@
 `endif
 `ifdef MEM_DEV_RD
   `include "mem_dev.svh"
+`endif
+`ifndef MEM_LCELL
+`define MEM_LCELL(a, k) ((cellof(a) & ~7) | (k))
 `endif
   localparam int NCELL = 1 << 16;
   logic [15:0] sb [0:NCELL-1];        // expected array contents
@@ -73,6 +80,120 @@
       fail($sformatf("RD %h cell %0d: got %h exp %h", a, c, hrdata, sb[c]));
     n_rd++;
   endtask
+
+`ifdef MEM_LINE
+  logic [15:0] lw_buf [0:7];          // the line the next wrl() writes
+  logic [7:0]  tb_mr [0:7];           // expected MR file
+  int n_rdl = 0, n_wrl = 0;
+  task automatic wrl(input logic [31:0] a, input int gap);
+    cmd(3'd6, a, $urandom);
+    for (int k = 0; k < 8; k++) begin
+      if (gap == k + 1) begin hvalid = 1'b0; @(negedge clk); end   // a clock with no beat
+      if (hready !== 1'b1) fail($sformatf("WRL %h: hready low on data beat %0d", a, k));
+      hvalid = 1'b1; hwdata = lw_buf[k];
+      @(negedge clk);
+    end
+    hvalid = 1'b0; hcmd = $urandom; hwdata = $urandom;
+    for (int k = 0; k < 8; k++) begin
+      sb[`MEM_LCELL(a, k) % NCELL] = lw_buf[k]; sbv[`MEM_LCELL(a, k) % NCELL] = 1'b1;
+    end
+    n_wrl++;
+  endtask
+  task automatic rdl(input logic [31:0] a);
+    int k, c;
+    logic [127:0] e;
+    cmd(3'd5, a, $urandom);
+    k = 0;
+    while (hdone !== 1'b1 && k < 4000) begin @(negedge clk); k++; end
+    if (k == 4000) fail($sformatf("RDL %h: no hdone", a));
+    @(negedge clk);
+    for (int j = 0; j < 8; j++) begin
+      c = `MEM_LCELL(a, j) % NCELL;
+      e[16*j +: 16] = sbv[c] ? sb[c] : rdline[16*j +: 16];
+    end
+    if (rdline !== e) fail($sformatf("RDL %h: rdline %h exp %h", a, rdline, e));
+    if (hrdata !== e[127:112]) fail($sformatf("RDL %h: last beat %h exp %h", a, hrdata, e[127:112]));
+    n_rdl++;
+  endtask
+  task automatic mrw(input int i, input logic [7:0] v);
+    cmd(3'd7, {28'h0, 1'b0, 3'(i)}, {8'h00, v});
+    tb_mr[i] = (i == 0) ? {1'b0, v[6:0]} : v;
+  endtask
+  task automatic mrr(input int i);
+    int k;
+    cmd(3'd7, {28'h0, 1'b1, 3'(i)}, $urandom);
+    k = 0;
+    while (hdone !== 1'b1 && k < 10) begin @(negedge clk); k++; end
+    if (k == 10) fail($sformatf("MRR %0d: no hdone", i));
+    @(negedge clk);
+    if (hrdata !== {8'h00, tb_mr[i]}) fail($sformatf("MRR %0d: got %h exp %h", i, hrdata, tb_mr[i]));
+  endtask
+  task automatic rnd_line;
+    for (int k = 0; k < 8; k++) lw_buf[k] = $urandom;
+  endtask
+  task automatic line_tests;
+    logic [31:0] a;
+    int cls [3], cwls [3];
+    // ---- every bit of every mode register both ways, read back
+    for (int i = 0; i < 8; i++) begin
+      mrw(i, 8'hFF); mrr(i); mrw(i, 8'h00); mrr(i); mrw(i, 8'hA5); mrr(i);
+    end
+    mrw(0, 8'(CL - 5)); mrw(1, 8'(CWL - 5));
+    // ---- line bursts on every bank entry: closed bank, page hit, row conflict
+    for (int b = 0; b < NBU; b++) begin
+      pre(mk(b, 14'h0, 8'h00));
+      rnd_line(); wrl(mk(b, 14'h21, 8'h40), 0);          // WRL, bank closed
+      rdl(mk(b, 14'h21, 8'h47));                          // RDL hit (low bits ignored)
+      rnd_line(); wrl(mk(b, 14'h21, 8'h48), 0);          // WRL hit
+      rnd_line(); wrl(mk(b, 14'h22, 8'h50), 0);          // WRL row conflict
+      rdl(mk(b, 14'h21, 8'h48));                          // RDL row conflict
+      pre(mk(b, 14'h0, 8'h00));
+      rdl(mk(b, 14'h22, 8'h50));                          // RDL, bank closed
+      rd(mk(b, 14'h22, 8'h53)); rd(mk(b, 14'h21, 8'h4F)); // words of the lines
+      wr(mk(b, 14'h21, 8'h4A), 16'h1357); rdl(mk(b, 14'h21, 8'h48));
+    end
+    // ---- data patterns on every beat, columns 0 and 255
+    for (int i = 0; i < 6; i++) begin
+      for (int k = 0; k < 8; k++) lw_buf[k] = (k % 2) ? ~pat(i) : pat(i);
+      a = mk(0, 14'h0, (i % 2) ? 8'hF8 : 8'h00);
+      wrl(a, 0); rdl(a);
+    end
+    // ---- WRL data beats with a gap
+    for (int g = 1; g <= 8; g += 7) begin rnd_line(); wrl(mk(1 % NBU, 14'h3, 8'h18), g); rdl(mk(1 % NBU, 14'h3, 8'h18)); end
+    // ---- CL / CWL at their ends and at reset value, word and line traffic
+    cls[0] = 0; cls[1] = 15; cls[2] = CL - 5; cwls[0] = 0; cwls[1] = 15; cwls[2] = CWL - 5;
+    for (int i = 0; i < 3; i++)
+      for (int j = 0; j < 3; j++) begin
+        mrw(0, 8'(cls[i])); mrw(1, 8'(cwls[j]));
+        a = mk((i + j) % NBU, 14'(i * 3 + j), 8'h80);
+        wr(a, 16'(i * 16 + j)); rd(a);
+        rnd_line(); wrl(a, 0); rdl(a);
+        wr(a + 1, ~16'(i * 16 + j)); rdl(a);               // word into the line
+        rnd_line(); wrl(a, 0); rd(a + 2);                  // a word of the line right behind its WRL
+        pre(a); rnd_line(); wrl(a, 0); pre(a); rdl(a);     // PRE right behind a WRL
+      end
+    mrw(0, 8'(CL - 5)); mrw(1, 8'(CWL - 5)); mrr(0); mrr(1);
+    // ---- refresh falling due during line commands and a WRL's data beats
+    a = mk(0, 14'h3, 8'h30);
+    near_refresh(3); rdl(a);
+    near_refresh(3); rnd_line(); wrl(a, 0);
+    near_refresh(REFI / 2); act(a); near_refresh(3); rdl(a);
+    near_refresh(REFI / 2); act(a); near_refresh(3); rnd_line(); wrl(a, 0);
+    near_refresh(6); rnd_line(); wrl(a, 0); rdl(a);
+    // ---- random word and line traffic
+    for (int t = 0; t < 200; t++) begin
+      a = rnd_addr();
+      case ($urandom_range(0, 5))
+        0: begin rnd_line(); wrl(a, $urandom_range(0, 1) ? $urandom_range(1, 8) : 0); end
+        1: rdl(a);
+        2: wr(a, $urandom);
+        3: rd(a);
+        4: act(a);
+        default: pre(a);
+      endcase
+    end
+  endtask
+`endif
 
   task automatic act(input logic [31:0] a); cmd(3'd1, a, $urandom); endtask
   task automatic pre(input logic [31:0] a); cmd(3'd4, a, $urandom); endtask
@@ -154,7 +275,11 @@
     wr(mk(0, 14'h1, 8'h49), 16'h8E57); wr(mk(0, 14'h2, 8'h4A), 16'h9E57);   // WR row conflicts
     rd(mk(0, 14'h2, 8'h4A));
     // ---- unknown host codes are no-ops
+`ifdef MEM_LINE
+    cmd(3'd0, $urandom, 0);
+`else
     cmd(3'd0, $urandom, 0); cmd(3'd5, $urandom, 0); cmd(3'd6, $urandom, 0); cmd(3'd7, $urandom, 0);
+`endif
     // ---- hvalid while busy is ignored
     act(mk(0, 14'h155, 0));
     act(mk(0, 14'h2AA, 0));
@@ -186,6 +311,11 @@
     for (int b = 0; b < NBU; b++) begin
       if (b % 2) rd(mk(b, 14'h9, 8'h23)); else wr(mk(b, 14'h9, 8'h23), 16'h0F0F ^ 16'(b));
     end
+`ifdef MEM_LINE
+    for (int i = 0; i < 8; i++) tb_mr[i] = 8'h00;
+    tb_mr[0] = 8'(CL - 5); tb_mr[1] = 8'(CWL - 5);
+    line_tests();
+`endif
     ip_extra();
     // ---- a stream of no-op host commands must not hold off a refresh
     near_refresh(20);
@@ -211,7 +341,12 @@
     errors += u_sva.sva_n_fail;
 `endif
 `endif
+`ifdef MEM_LINE
+    if (errors == 0) $display("TEST PASSED: %m (%0d reads, %0d writes, %0d line reads, %0d line writes)",
+                              n_rd, n_wr, n_rdl, n_wrl);
+`else
     if (errors == 0) $display("TEST PASSED: %m (%0d reads, %0d writes)", n_rd, n_wr);
+`endif
     else             $display("TEST FAILED: %0d errors", errors);
     $finish;
   end

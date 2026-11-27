@@ -3,10 +3,11 @@
 // DRAM and checks what the controller puts on the pins (command encodings,
 // row / column address, bank state and timing, refresh, DQ, CAS latency).
 // The device rules live in func_mem_model.svh.
-// DDR4_top has no BA / BG pins (the slice keeps one 4-bank array), so the
-// bank of ACT / RD / WR is taken from the trace port, which carries the
-// host address one clock before the command, and a single-bank PRE closes
-// the bank of the host command in flight.
+// Command pins: CS_n low = a command, ACT_n low = ACT (RAS_n / CAS_n / WE_n
+// are row bits A16..A14 = 0); BA carries the bank, checked against the bank
+// of the host address, which the trace port carries one clock before the
+// command (word commands only here: the line commands and the MR file are
+// covered by tb/DDR4_tb.sv and its checker).
 // DDR4_top keeps no array: the TB's device drives the read word on DQ
 // (FUNC_DEV_DRIVE in func_mem_model.svh).
 //   make -f Makefile.DDR4 func
@@ -20,7 +21,9 @@ module func_ddr4_tb;
   logic [2:0] hcmd = 0;
   logic [31:0] haddr = 0;
   logic [15:0] hwdata = 0, hrdata;
-  logic hready, hdone, ck_t, ck_c, ras_n, cas_n, we_n, cke;
+  logic hready, hdone, ck_t, ck_c, ras_n, cas_n, we_n, cke, cs_n, act_n;
+  logic [1:0] ba;
+  logic [127:0] rdline;
   logic [16:0] addr;
   tri [15:0] dq; tri [1:0] dqs;
   logic trace_valid; logic [2:0] trace_cmd; logic [31:0] trace_addr;
@@ -50,35 +53,42 @@ module func_ddr4_tb;
   logic [15:0] p_dq;
   always @(clk) #1 chk(ck_t === clk && ck_c === ~clk && cke === rst_n && dqs === 2'bzz,
                        "CK_t / CK_c follow the clock, CKE follows reset, DQS released");
+  // command on the pins: {CS_n, ACT_n, RAS_n, CAS_n, WE_n}, deselect = 1xxxx
+  wire [4:0] pc = cs_n ? 5'b11111 : {cs_n, act_n, ras_n, cas_n, we_n};
   always @(negedge clk) begin
     if (!rst_n) begin
-      chk({ras_n, cas_n, we_n} === 3'b111 && dq === 16'hzzzz && trace_valid === 1'b0 &&
+      chk(cs_n === 1'b1 && act_n === 1'b1 && ba === 2'b00 && {ras_n, cas_n, we_n} === 3'b111 && dq === 16'hzzzz && trace_valid === 1'b0 &&
           hdone === 1'b0, "reset: NOP, DQ released, no trace / hdone");
       dev_reset(); hq.delete(); done_q = 0; p_tv = 0; p_dqd = 0;
     end else begin
-      case ({ras_n, cas_n, we_n})
-        3'b111: ;
-        3'b011: begin                                         // ACT
+      case (pc)
+        5'b11111: ;
+        5'b00000: begin                                       // ACT
           chk(p_tv && p_tc == 3'd1, "ACT without an activate trace");
           chk(addr[16:14] == 0 && addr[13:0] == p_ta[31:18], $sformatf("ACT row %h, host row %h", addr, p_ta[31:18]));
+          chk(ba == bank_of(p_ta), $sformatf("ACT BA %0d, host bank %0d", ba, bank_of(p_ta)));
           dev_act(bank_of(p_ta), addr[13:0]);
         end
-        3'b101, 3'b100: begin                                 // RD / WR
+        5'b01101, 5'b01100: begin                             // RD / WR (BC4)
           chk(p_tv && p_tc == (we_n ? 3'd2 : 3'd3), "RD / WR without a matching trace");
           chk(addr == {9'b0, p_ta[7:0]}, $sformatf("column address %h, host column %h", addr, p_ta[7:0]));
+          chk(ba == bank_of(p_ta), $sformatf("RD / WR BA %0d, host bank %0d", ba, bank_of(p_ta)));
           if (!we_n) chk(p_dqd && p_dq == last_wdata, $sformatf("WR data on DQ %h, host wrote %h", p_dq, last_wdata));
           dev_cas(!we_n, bank_of(p_ta), p_ta[31:18], cell_of(p_ta), p_dq);
         end
-        3'b010: if (addr[10]) dev_prea(); else dev_pre(hbank);    // PRE / PREA
-        3'b001: dev_ref(-1);                                  // all-bank REF
-        default: fail($sformatf("illegal command RAS_n/CAS_n/WE_n = %b", {ras_n, cas_n, we_n}));
+        5'b01010: begin                                       // PRE / PREA
+          chk(ba == (addr[10] ? 2'd0 : 2'(hbank)), $sformatf("PRE BA %0d", ba));
+          if (addr[10]) dev_prea(); else dev_pre(hbank);
+        end
+        5'b01001: begin chk(ba == 0, "REF BA not 0"); dev_ref(-1); end   // all-bank REF
+        default: fail($sformatf("illegal command CS_n/ACT_n/RAS_n/CAS_n/WE_n = %b", pc));
       endcase
       // a trace is followed by its command on the next clock
-      if (p_tv && {ras_n, cas_n, we_n} != (p_tc == 3'd1 ? 3'b011 : p_tc == 3'd2 ? 3'b101 : 3'b100))
+      if (p_tv && pc != (p_tc == 3'd1 ? 5'b00000 : p_tc == 3'd2 ? 5'b01101 : 5'b01100))
         fail("trace not followed by its command");
       // DQ is driven by the controller only in the clock before a WR command
       // (f_oe: the device itself drives a read word now)
-      if (p_dqd) chk({ras_n, cas_n, we_n} == 3'b100, "DQ driven without a WR");
+      if (p_dqd) chk(pc == 5'b01100, "DQ driven without a WR");
       p_dqd = !f_oe && (dq !== 16'hzzzz);
       if (p_dqd) chk(trace_valid && trace_cmd == 3'd3 && !$isunknown(dq), "DQ driven outside a write");
       p_dq = dq; p_tv = trace_valid; p_tc = trace_cmd; p_ta = trace_addr;

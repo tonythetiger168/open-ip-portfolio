@@ -48,6 +48,19 @@
 //     `MEM_CHK_WR2RD (WR to any RD: write-to-read turnaround) and
 //     `MEM_CHK_TCCD (RD / WR to RD / WR: data-bus burst spacing), in clocks
 //     between the pin commands; 0 (the default) leaves a rule unchecked.
+//   * `MEM_CHK_LINE: the core also takes line commands and has an MR file.
+//     hcmd 5 RDL / 6 WRL move the 8 cells lcell(a, k) of a line in one BL8
+//     burst: the IP part sets q_ln (the RD / WR on the pins is a line burst)
+//     and q_dqs, and the checker has an rdline port. A WRL takes its 8 data
+//     beats on the next 8 hvalid clocks (hready high), drives beat k on the
+//     channel's dq lanes with dqs = {~s, s} toggling, k clocks after
+//     CWL clocks from its WR; an RDL passes beat k to hrdata k clocks
+//     after the word read point, pulses hdone with beat 7 and then holds
+//     the line on rdline. hcmd 7 is MRW (haddr[3] = 0, hwdata[7:0] into
+//     MR haddr[2:0]; MR0 bit 7 reads 0) / MRR (haddr[3] = 1: hdone in the
+//     next clock, hrdata = {8'h0, MR}). CL = 5 + MR0[3:0], CWL =
+//     5 + MR1[3:0]; the write-side rules become `MEM_CHK_WR2PRE_L(l) /
+//     `MEM_CHK_WR2RD_L(l) (l = the WR was a line), expressions of m_cwl.
 `ifndef MEM_CHK_EXTRA
 `define MEM_CHK_EXTRA
 `endif
@@ -99,6 +112,20 @@
 `ifndef MEM_CHK_TCCD
 `define MEM_CHK_TCCD 0
 `endif
+`ifndef MEM_CHK_WR2PRE_L
+`define MEM_CHK_WR2PRE_L(l) `MEM_CHK_WR2PRE
+`endif
+`ifndef MEM_CHK_WR2RD_L
+`define MEM_CHK_WR2RD_L(l) `MEM_CHK_WR2RD
+`endif
+`ifdef MEM_CHK_LINE
+`define MEM_CHK_CLV m_cl
+`else
+`define MEM_CHK_CLV CL
+`endif
+`ifndef MEM_CHK_LCELL
+`define MEM_CHK_LCELL(a, k) ((cellof(a) & ~7) | (k))
+`endif
 
   logic        q_hready, q_hdone, q_tv;
   logic [15:0] q_hrdata;
@@ -129,6 +156,27 @@
   logic        m_chk;
   logic [15:0] m_exp;
   int          rb_m;                 // per-entry refresh: REFs since reset
+  int          wrp_need [0:NB-1];    // write recovery of the bank's last WR
+  int          wrrd_need;            // write-to-read turnaround of the last WR
+  // line commands and the MR file (`MEM_CHK_LINE)
+  logic        op_ln, op_mrr;
+  logic [15:0] op_ld [0:7];          // WRL data beats
+  int          m_fill;               // WRL data beats still to take
+  logic [7:0]  m_mr [0:7];
+  int          m_cl, m_cwl;
+  logic        lw_v, lr_v, lw_done, m_s;
+  longint      lw_t, lr_t;
+  logic [15:0] le [0:7];
+  logic        v_bl, v_lwdata, v_ldqs, v_lrdata, v_rdline, v_mrr;
+  logic        e_rdl_hit, e_rdl_closed, e_rdl_conf, e_wrl_hit, e_wrl_closed, e_wrl_conf,
+               e_mrw, e_mrr, e_cl_min, e_cl_max, e_cwl_min, e_cwl_max, e_fill_gap,
+               e_ref_rdl, e_ref_wrl;
+`ifdef MEM_CHK_LINE
+  logic [127:0] q_rdline;
+  always @(negedge clk) q_rdline <= rdline;
+`else
+  localparam logic q_ln = 1'b0;      // word bursts only
+`endif
   // functional-coverage samples (set by the model, sampled at the falling edge)
   logic        c_acc, c_rdv;
   logic [2:0]  c_cmd, c_prev, c_last;
@@ -151,10 +199,18 @@
       t_wrlast = -1000000; t_caslast = -1000000;
       op_v = 0; s_act = 0; s_rw = 0; s_pre = 0; s_done = 0; s_apre = 0; op_hit = 0; op_open = 0;
       p_tv = 0; p_done = 0; m_chk = 0; rb_m = 0;
+      wrrd_need = 0; op_ln = 0; op_mrr = 0; m_fill = 0; lw_v = 0; lr_v = 0; lw_done = 0; m_s = 0;
+      for (int i = 0; i < 8; i++) m_mr[i] = 0;
+`ifdef MEM_CHK_LINE
+      m_mr[0] = 8'(CL - 5); m_mr[1] = 8'(CWL - 5);
+`endif
+      {v_bl, v_lwdata, v_ldqs, v_lrdata, v_rdline, v_mrr} = '0;
+      {e_rdl_hit, e_rdl_closed, e_rdl_conf, e_wrl_hit, e_wrl_closed, e_wrl_conf,
+       e_mrw, e_mrr, e_cl_min, e_cl_max, e_cwl_min, e_cwl_max, e_fill_gap, e_ref_rdl, e_ref_wrl} = '0;
       c_acc = 0; c_rdv = 0; c_cmd = 0; c_prev = 0; c_last = 0; c_col = 0; c_wd = 0; c_rdd = 0;
       for (int b = 0; b < NB; b++) begin
         open_m[b] = 0; row_m[b] = 0; t_act[b] = -1000000; t_pre[b] = -1000000;
-        t_wrp[b] = -1000000; t_refb[b] = -1000000;
+        t_wrp[b] = -1000000; t_refb[b] = -1000000; wrp_need[b] = 0;
       end
       {v_stray, v_closed, v_act_open, v_trcd, v_trp, v_trc, v_tras, v_trfc, v_ref_open,
        v_paddr, v_wdata, v_trace, v_hdone, v_lat, v_rdata, v_incomplete, v_stuck,
@@ -174,15 +230,36 @@
        e_act_conf, e_act_same, e_pre_open, e_pre_closed, e_ref_idle, e_ref_act, e_ref_rd,
        e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea, e_apre,
        e_refpb_others_open} = '0;
+      {v_bl, v_lwdata, v_ldqs, v_lrdata, v_rdline, v_mrr} = '0;
+      {e_rdl_hit, e_rdl_closed, e_rdl_conf, e_wrl_hit, e_wrl_closed, e_wrl_conf,
+       e_mrw, e_mrr, e_cl_min, e_cl_max, e_cwl_min, e_cwl_max, e_fill_gap, e_ref_rdl, e_ref_wrl} = '0;
+      m_cl = 5 + m_mr[0][3:0]; m_cwl = 5 + m_mr[1][3:0];
+`ifdef MEM_CHK_LINE
+      // ---- line bursts: write beats on dq / dqs, read beats on hrdata, rdline
+      if (lw_v && n >= lw_t && n < lw_t + 8) begin
+        if (lane(op_a) !== op_ld[n - lw_t]) v_lwdata = 1;
+        if (q_dqs !== {~q_dqs[0], q_dqs[0]} || n > lw_t && q_dqs[0] === m_s) v_ldqs = 1;
+        m_s = q_dqs[0];
+        if (n == lw_t + 7) begin lw_v = 0; lw_done = 1; end
+      end
+      if (lr_v && n >= lr_t && n < lr_t + 8) begin
+        if (q_hrdata !== le[n - lr_t]) v_lrdata = 1;
+        if (n == lr_t + 7) begin
+          lr_v = 0;
+          if (q_rdline !== {le[7], le[6], le[5], le[4], le[3], le[2], le[1], le[0]}) v_rdline = 1;
+        end
+      end
+`endif
       // ---- read data registered by the previous hdone
       c_acc = 0; c_rdv = m_chk; c_rdd = q_hrdata;
-      if (m_chk) v_rdata = q_hrdata !== m_exp;
+      if (m_chk && op_mrr) v_mrr = q_hrdata !== m_exp;
+      else if (m_chk) v_rdata = q_hrdata !== m_exp;
       m_chk = 0;
       // ---- pin command
       drn = op_v && (`MEM_CHK_DRAINING);
       // the host command has done its own pin work (what is left is refresh)
       // (an RD / WR that must auto-precharge is not done before its PRE)
-      wd = !op_v || (op_c == 3'd2 ? s_done && !((`MEM_CHK_AP_MUST) && !s_apre) :
+      wd = !op_v || op_c == 3'd7 || (op_c == 3'd2 ? s_done && !((`MEM_CHK_AP_MUST) && !s_apre) :
                      op_c == 3'd3 ? (`MEM_CHK_WR_DONE) && !((`MEM_CHK_AP_MUST) && !s_apre) :
                      op_c == 3'd1 ? (s_act || op_hit) : (s_pre || !op_open));
       rpre = 0;
@@ -229,6 +306,7 @@
             if (p_wl !== `MEM_CHK_DRAIN_D) v_wdata = 1;
             if (n - t_caslast < `MEM_CHK_TCCD) v_ccd = 1;
             t_wrp[b] = n; t_wrlast = n; t_caslast = n;
+            wrp_need[b] = `MEM_CHK_WR2PRE_L(1'b0); wrrd_need = `MEM_CHK_WR2RD_L(1'b0);
             arr[cellof(ta)] = `MEM_CHK_DRAIN_D;
             `MEM_CHK_DRAIN_POP
           end
@@ -237,27 +315,40 @@
           else begin
             if (!open_m[b] || !`MEM_CHK_RW_ROW_OK(b, row_of(op_a))) v_closed = 1;
             if (n - t_act[b] < TRCD) v_trcd = 1;
-            if (!pin_col_ok(q_pa, col_of(op_a))) v_paddr = 1;
+            if (!pin_col_ok(q_pa, op_ln ? col_of(op_a) & ~7 : col_of(op_a))) v_paddr = 1;
+            if (q_ln !== op_ln) v_bl = 1;
             s_rw = 1;
             if (n - t_caslast < `MEM_CHK_TCCD) v_ccd = 1;
-            if (q_pc == P_RD && n - t_wrlast < `MEM_CHK_WR2RD) v_wr2rd = 1;
+            if (q_pc == P_RD && n - t_wrlast < wrrd_need) v_wr2rd = 1;
             t_caslast = n;
             if (q_pc == P_WR) begin
               t_wrp[b] = n; t_wrlast = n;
-              if ((p_wl & `MEM_CHK_WMASK) !== (op_d & `MEM_CHK_WMASK)) v_wdata = 1;
-              arr[cellof(op_a)] = (arr[cellof(op_a)] & ~`MEM_CHK_WMASK) | (op_d & `MEM_CHK_WMASK);
-            end else t_rdpin = n;
+              wrp_need[b] = `MEM_CHK_WR2PRE_L(op_ln); wrrd_need = `MEM_CHK_WR2RD_L(op_ln);
+              if (op_ln) begin
+                lw_v = 1; lw_t = n + m_cwl; lw_done = 0;
+                for (int k = 0; k < 8; k++) arr[`MEM_CHK_LCELL(op_a, k) % NCELLS] = op_ld[k];
+              end else begin
+                if ((p_wl & `MEM_CHK_WMASK) !== (op_d & `MEM_CHK_WMASK)) v_wdata = 1;
+                arr[cellof(op_a)] = (arr[cellof(op_a)] & ~`MEM_CHK_WMASK) | (op_d & `MEM_CHK_WMASK);
+              end
+            end else begin
+              t_rdpin = n;
+              if (op_ln) begin
+                lr_v = 1; lr_t = n + m_cl + 1;
+                for (int k = 0; k < 8; k++) le[k] = arr[`MEM_CHK_LCELL(op_a, k) % NCELLS];
+              end
+            end
           end
         end
         P_PRE: if (`MEM_CHK_PB && wd && !drn) begin   // per-entry refresh PRE
           if (open_m[tb] && n - t_act[tb] < TRAS) v_tras = 1;
-          if (n - t_wrp[tb] < `MEM_CHK_WR2PRE) v_wr2pre = 1;
+          if (n - t_wrp[tb] < wrp_need[tb]) v_wr2pre = 1;
           open_m[tb] = 0; t_pre[tb] = n; rpre = 1;
         end else begin
           if (!op_v || !drn && (s_apre || s_rw && !(`MEM_CHK_AP_OK))) v_stray = 1;
           else begin
             if (open_m[b] && n - t_act[b] < TRAS) v_tras = 1;
-            if (n - t_wrp[b] < `MEM_CHK_WR2PRE) v_wr2pre = 1;
+            if (n - t_wrp[b] < wrp_need[b]) v_wr2pre = 1;
             open_m[b] = 0; t_pre[b] = n;
             if (!drn) s_pre = 1;
             if (!drn && s_rw) begin s_apre = 1; e_apre = 1; end
@@ -267,7 +358,7 @@
           e_prea = 1;
           for (int i = 0; i < NB; i++) begin
             if (open_m[i] && n - t_act[i] < TRAS) v_tras = 1;
-            if (n - t_wrp[i] < `MEM_CHK_WR2PRE) v_wr2pre = 1;
+            if (n - t_wrp[i] < wrp_need[i]) v_wr2pre = 1;
             open_m[i] = 0; t_pre[i] = n;
           end
         end
@@ -286,7 +377,9 @@
           t_ref = n; t_refend = n + TRFC;
           e_ref_idle = !op_v;
           e_ref_act = op_v && op_c == 3'd1; e_ref_rd = op_v && op_c == 3'd2;
-          e_ref_wr = op_v && op_c == 3'd3; e_ref_pre = op_v && op_c == 3'd4;
+          e_ref_wr = op_v && op_c == 3'd3 && !op_ln; e_ref_pre = op_v && op_c == 3'd4;
+          e_ref_rd = e_ref_rd && !op_ln;
+          e_ref_rdl = op_v && op_c == 3'd2 && op_ln; e_ref_wrl = op_v && op_c == 3'd3 && op_ln;
         end
         default: ;
       endcase
@@ -300,20 +393,25 @@
       if (n - t_ref > REF_MAX) v_ref_late = 1;
       // ---- hdone: once per RD, CL clocks after the RD command
       if (q_hdone) begin
-        if (!op_v || op_c != 3'd2 || !s_rw || s_done) v_hdone = 1;
+        if (op_v && op_c == 3'd7 && op_mrr && !s_done) begin
+          m_chk = 1; m_exp = {8'h00, m_mr[op_a[2:0]]}; s_done = 1;
+        end else if (!op_v || op_c != 3'd2 || !s_rw || s_done) v_hdone = 1;
         else begin
-          if (n - t_rdpin != CL) v_lat = 1;
-          m_chk = 1; m_exp = arr[cellof(op_a)]; s_done = 1;
+          if (n - t_rdpin != (op_ln ? `MEM_CHK_CLV + 7 : `MEM_CHK_CLV)) v_lat = 1;
+          if (!op_ln) begin m_chk = 1; m_exp = arr[cellof(op_a)]; end
+          s_done = 1;
         end
       end
       `MEM_CHK_EXTRA
       // ---- hready back: the command must be complete
       done_now = 0;
-      if (op_v && q_hready) begin
+      if (op_v && q_hready && m_fill == 0) begin
         case (op_c)
           3'd1: if (!s_act && !op_hit) v_incomplete = 1;
           3'd2: if (!s_done || (`MEM_CHK_AP_MUST) && !s_apre) v_incomplete = 1;
-          3'd3: if (!(`MEM_CHK_WR_DONE) || (`MEM_CHK_AP_MUST) && !s_apre) v_incomplete = 1;
+          3'd3: if (!(`MEM_CHK_WR_DONE) || (`MEM_CHK_AP_MUST) && !s_apre || op_ln && !lw_done)
+                  v_incomplete = 1;
+          3'd7: if (op_mrr && !s_done) v_incomplete = 1;
           default: if (!s_pre && op_open) v_incomplete = 1;
         endcase
         `MEM_CHK_ON_DONE
@@ -322,10 +420,38 @@
       busy = q_hready ? 0 : busy + 1;
       if (busy > BUSY_MAX) v_stuck = 1;
       e_ign_busy = hvalid && !q_hready;
+      // ---- WRL data beats
+      if (m_fill > 0 && q_hready) begin
+        if (hvalid) begin op_ld[8 - m_fill] = hwdata; m_fill = m_fill - 1; end
+        else e_fill_gap = 1;
+      end else
       // ---- host command taken
       if (hvalid && q_hready) begin
-        if (hcmd >= 3'd1 && hcmd <= 3'd4) begin
+`ifdef MEM_CHK_LINE
+        if (hcmd == 3'd7) begin
+          op_v = 1; op_c = 3'd7; op_a = haddr; op_d = hwdata; op_mrr = haddr[3]; op_ln = 0;
+          s_act = 0; s_rw = 0; s_pre = 0; s_done = 0; s_apre = 0; op_open = 0; op_hit = 0;
+          e_b2b = done_now;
+          if (haddr[3]) e_mrr = 1;
+          else begin
+            e_mrw = 1;
+            m_mr[haddr[2:0]] = (haddr[2:0] == 3'd0) ? {1'b0, hwdata[6:0]} : hwdata[7:0];
+            if (haddr[2:0] == 3'd0) begin e_cl_min = hwdata[3:0] == 4'h0; e_cl_max = hwdata[3:0] == 4'hF; end
+            if (haddr[2:0] == 3'd1) begin e_cwl_min = hwdata[3:0] == 4'h0; e_cwl_max = hwdata[3:0] == 4'hF; end
+          end
+        end else
+`endif
+        if (hcmd >= 3'd1 && hcmd <= 3'd4
+`ifdef MEM_CHK_LINE
+            || hcmd == 3'd5 || hcmd == 3'd6
+`endif
+           ) begin
           op_v = 1; op_c = hcmd; op_a = haddr; op_d = hwdata; op_b = bank_of(haddr);
+          op_ln = 0; op_mrr = 0;
+          if (hcmd == 3'd5 || hcmd == 3'd6) begin
+            op_ln = 1; op_c = hcmd - 3'd3;            // the RD / WR rules, on a line
+            if (hcmd == 3'd6) m_fill = 8;
+          end
           s_act = 0; s_rw = 0; s_pre = 0; s_done = 0; s_apre = 0;
           op_open = open_m[op_b];
           op_hit = open_m[op_b] && row_m[op_b] == row_of(haddr);
@@ -333,10 +459,14 @@
           if (hcmd == 3'd2 || hcmd == 3'd3) op_hit = open_m[op_b];
 `endif
           e_b2b = done_now;
-          c_acc = 1; c_cmd = hcmd; c_prev = c_last; c_last = hcmd; c_wd = hwdata;
+          c_acc = !op_ln; c_cmd = op_c; if (!op_ln) begin c_prev = c_last; c_last = op_c; end c_wd = hwdata;
           c_col = col_of(haddr) == 8'h00 ? 2'd0 : col_of(haddr) == 8'hFF ? 2'd1 : 2'd2;
           e_col0 = col_of(haddr) == 8'h00; e_col255 = col_of(haddr) == 8'hFF;
           `MEM_CHK_ON_ACCEPT
+          if (op_ln) begin
+            if (op_c == 3'd2) begin e_rdl_hit = op_hit; e_rdl_closed = !op_open; e_rdl_conf = op_open && !op_hit; end
+            else begin e_wrl_hit = op_hit; e_wrl_closed = !op_open; e_wrl_conf = op_open && !op_hit; end
+          end else
           case (hcmd)
             3'd1: begin e_act_same = op_hit; e_act_closed = !op_open; e_act_conf = op_open && !op_hit; end
             3'd2: begin e_rd_hit = op_hit; e_rd_closed = !op_open; e_rd_conf = op_open && !op_hit; end
@@ -375,6 +505,14 @@
   `SVA_INV(a_refresh_not_starved, !v_ref_late)
   `SVA_INV(a_refresh_not_early, !v_ref_early)
   `SVA_INV(a_legal_pin_code, !v_bad_pin)
+`ifdef MEM_CHK_LINE
+  `SVA_INV(a_burst_length_matches_command, !v_bl)
+  `SVA_INV(a_line_write_beats_on_dq, !v_lwdata)
+  `SVA_INV(a_line_write_dqs_toggles, !v_ldqs)
+  `SVA_INV(a_line_read_beats_on_hrdata, !v_lrdata)
+  `SVA_INV(a_rdline_holds_line, !v_rdline)
+  `SVA_INV(a_mrr_value, !v_mrr)
+`endif
 `ifndef MEM_CHK_CKE_PD
   `SVA_INV(a_cke_out_of_reset, cke)
 `endif
@@ -436,4 +574,21 @@
   `FC(column_0, e_col0)
   `FC(column_255, e_col255)
   `FC(back_to_back_commands, e_b2b)
+`ifdef MEM_CHK_LINE
+  `FC(line_read_page_hit, e_rdl_hit)
+  `FC(line_read_bank_closed, e_rdl_closed)
+  `FC(line_read_row_conflict, e_rdl_conf)
+  `FC(line_write_page_hit, e_wrl_hit)
+  `FC(line_write_bank_closed, e_wrl_closed)
+  `FC(line_write_row_conflict, e_wrl_conf)
+  `FC(line_write_data_gap, e_fill_gap)
+  `FC(refresh_due_during_line_read, e_ref_rdl)
+  `FC(refresh_due_during_line_write, e_ref_wrl)
+  `FC(mode_register_write, e_mrw)
+  `FC(mode_register_read, e_mrr)
+  `FC(cl_min, e_cl_min)
+  `FC(cl_max, e_cl_max)
+  `FC(cwl_min, e_cwl_min)
+  `FC(cwl_max, e_cwl_max)
+`endif
   `FC_RST(reset_with_command_in_flight, rst_n && !hready ##1 !rst_n)

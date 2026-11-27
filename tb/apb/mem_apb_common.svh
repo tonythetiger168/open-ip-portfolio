@@ -14,6 +14,10 @@
 // masked, enabled onto irq and cleared.
 // A controller that keeps no array of its own gets the DRAM device model
 // tb/mem_dev.svh, included here when the IP part defines its `MEM_DEV_* hooks.
+// `MEM_LINE (cores with line commands and an MR file, register RLINE0..3 =
+// rdline, IRQ DONE = hdone): also RDL / WRL (through CMD: the command, then
+// its 8 data beats) on every bank entry with every RLINE bit both ways, and
+// MRW / MRR.
 `ifdef MEM_DEV_RD
 `define MEM_DEV_CLK PCLK
 `include "mem_dev.svh"
@@ -24,7 +28,11 @@ localparam logic [31:0] M_FULL = 32'h1 << FLAG_CMD_FULL;
 localparam logic [31:0] M_RDD  = 32'h1 << IRQ_RD_DONE;
 int m_nrd = 0, m_ndone = 0;            // READs the core took / finished (hdone)
 always @(posedge PCLK) begin
-  if (dut.u_core.hvalid && dut.u_core.hready && dut.u_core.hcmd == 3'd2) m_nrd <= m_nrd + 1;
+  if (dut.u_core.hvalid && dut.u_core.hready && (dut.u_core.hcmd == 3'd2
+`ifdef MEM_LINE
+      || dut.u_core.dstate == 0 && (dut.u_core.hcmd == 3'd5 || dut.u_core.hcmd == 3'd7 && dut.u_core.haddr[3])
+`endif
+     )) m_nrd <= m_nrd + 1;
   if (dut.u_core.hdone) m_ndone <= m_ndone + 1;
 end
 
@@ -47,6 +55,52 @@ endtask
 function automatic logic [31:0] m_addr;
   m_addr = mk($urandom_range(0, NBU - 1), 14'($urandom), 8'($urandom));
 endfunction
+
+`ifdef MEM_LINE
+`ifndef MEM_LCELL
+`define MEM_LCELL(a, k) ((cellof(a) & ~7) | (k))
+`endif
+task automatic m_wrl(input logic [31:0] a, input logic [127:0] d);
+  m_send(3'd6, a, $urandom);
+  for (int i = 0; i < 8; i++) begin
+    wr(A_CMD2, {16'h0, d[16*i +: 16]});          // data beats
+    m_sb[`MEM_LCELL(a, i) % 65536] = d[16*i +: 16];
+  end
+endtask
+task automatic m_rdl(input logic [31:0] a);
+  logic [127:0] e;
+  for (int i = 0; i < 8; i++) e[16*i +: 16] = m_sb[`MEM_LCELL(a, i) % 65536];
+  wr(A_IRQ_STATUS, M_RDD);
+  m_send(3'd5, a, $urandom);
+  poll(A_IRQ_STATUS, M_RDD, M_RDD, 4000);
+  rd_exp(A_RLINE0, e[31:0]); rd_exp(A_RLINE1, e[63:32]);
+  rd_exp(A_RLINE2, e[95:64]); rd_exp(A_RLINE3, e[127:96]);
+  rd_exp(A_RDATA, {16'h0, e[127:112]});
+endtask
+task automatic m_mr(input int i, input logic [7:0] v);
+  m_send(3'd7, {28'h0, 1'b0, 3'(i)}, {8'($urandom), v});          // MRW
+  wr(A_IRQ_STATUS, M_RDD);
+  m_send(3'd7, {28'($urandom), 1'b1, 3'(i)}, $urandom);           // MRR
+  poll(A_IRQ_STATUS, M_RDD, M_RDD, 4000);
+  rd_exp(A_RDATA, {24'h0, (i == 0) ? {1'b0, v[6:0]} : v});
+endtask
+task automatic line_func;
+  logic [31:0] a;
+  for (int b = 0; b < NBU; b++) begin
+    a = mk(b, 14'(b), 8'h40);
+    m_wrl(a, {4{32'hFFFF_FFFF}}); m_rdl(a);
+    m_wrl(a, '0); m_rdl(a);
+    m_wrl(a, {4{32'hA5A5_5A5A}}); m_rdl(a);
+    m_wrl(mk(b, 14'h3FFF, 8'h48), {$urandom, $urandom, $urandom, $urandom});
+    m_rdl(a);
+  end
+  for (int i = 0; i < 8; i++) begin m_mr(i, 8'hFF); m_mr(i, 8'h00); end
+  m_mr(0, 8'h03); m_mr(1, 8'h02);               // CL 8, CWL 7
+  a = mk(0, 14'h5, 8'hF8);
+  m_wrl(a, {$urandom, $urandom, $urandom, $urandom}); m_rdl(a); m_rd(a + 3);
+  m_mr(0, 8'(CL - 5)); m_mr(1, 8'(CWL - 5));
+endtask
+`endif
 
 task automatic mem_func;
   logic [31:0] a;
@@ -72,8 +126,13 @@ task automatic mem_func;
   end
   m_rd(mk(NBU - 1, 14'h2, 8'h77));
   // ---- no-op codes, addresses with every bit both ways
+`ifdef MEM_LINE
+  m_send(3'd0, 32'hFFFF_FFFF, 16'hFFFF); m_send(3'd0, 32'h0, 16'h0);
+  line_func();
+`else
   m_send(3'd0, 32'hFFFF_FFFF, 16'hFFFF); m_send(3'd5, 32'h0, 16'h0);
   m_send(3'd6, 32'hFFFF_FFFF, 16'hFFFF); m_send(3'd7, 32'h0, 16'h0);
+`endif
   for (int k = 0; k < 24; k++) begin
     a = m_addr();
     if (k % 3 == 0) m_wr(a, $urandom); else m_rd(a);

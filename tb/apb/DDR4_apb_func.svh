@@ -10,8 +10,14 @@ function automatic int cellof(input logic [31:0] a);
   cellof = a[7:0];
 endfunction
 localparam int NCH = 1;
-`define MEM_DEV_RD ({ras_n, cas_n, we_n} == 3'b101)
-`define MEM_DEV_WR ({ras_n, cas_n, we_n} == 3'b100)
-`define MEM_DEV_CL 15
+localparam int CL = 15, CWL = 11;
+localparam int IRQ_RD_DONE = IRQ_DONE;
+`define MEM_DEV_RD (!cs_n && act_n && {ras_n, cas_n, we_n} == 3'b101)
+`define MEM_DEV_WR (!cs_n && act_n && {ras_n, cas_n, we_n} == 3'b100)
+`define MEM_DEV_LINE addr[12]
+`define MEM_DEV_CL dut.u_core.cl_now
+`define MEM_DEV_CWL dut.u_core.cwl_now
+`define MEM_DEV_DQS dqs
+`define MEM_LINE
 `include "apb/mem_apb_common.svh"
 task automatic ip_func; mem_func(); endtask

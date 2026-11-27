@@ -1,24 +1,24 @@
-# DDR4 memory controller: 4-bank open-page controller (banks = haddr[10:9], row = haddr[31:18], storage = 256 columns)
+# DDR4 memory controller: 4-bank open-page controller (banks = haddr[10:9], row = haddr[31:18], 256 columns), BL8 line commands, MR file with CL / CWL, DDR4 command pins
 
-Protocol IP `DDR4`, version 2.0. Apache-2.0.
+Protocol IP `DDR4`, version 3.0. Apache-2.0.
 
 | Item | Value |
 |---|---|
 | Core | `DDR4_top` (`rtl/DDR4_top.sv`) |
 | Register interface | APB4 slave `DDR4_apb`, 32-bit data, 12-bit byte address, zero wait states |
 | Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
-| ID register | 0x6D020200 (code 0x6D02, version 2.0) |
-| Registers | 9 words, 0x000 to 0x020 |
+| ID register | 0x6D020300 (code 0x6D02, version 3.0) |
+| Registers | 13 words, 0x000 to 0x030 |
 | Interrupts | 3 sources into one level-high `irq` |
 | Data streams | CMD (to the core) |
-| Protocol pins | 12 pass-through |
+| Protocol pins | 15 pass-through |
 
 ## Overview
 
-DDR4 -- INDEPENDENT design IP #2/20. Architecture thesis: the classic 4-bank open-page controller, in-order single engine. Banks indexed by {ch, haddr[10:9]}; per-bank open-row with miss-detect (auto PRE+ACT); all-bank refresh; AL=0; fixed BL. This is the family baseline every other IP differentiates from. External contract: identical to DDR (legacy) -- see DDR_top header, except that the core holds no data: write words leave on dq, and the read word is taken from dq CL clocks after the RD command (the DRAM drives it).
+DDR4 -- INDEPENDENT design IP #2/20. Architecture thesis: the classic 4-bank open-page controller, in-order single engine. Banks indexed by {ch, haddr[10:9]}; per-bank open-row with miss-detect (auto PRE+ACT); all-bank refresh; AL=0; fixed BL. This is the family baseline every other IP differentiates from. External contract: the DDR (legacy) word commands -- see DDR_top header, except that the core holds no data: write words leave on dq, and the read word is taken from dq CL clocks after the RD command (the DRAM drives it). On top of the word commands (each a BC4 burst-chop access, A12 = 0): * line commands: hcmd 5 RDL / 6 WRL move one 128-bit line (8 columns {haddr[7:3], k}) in one BL8 burst (A12 = BC_n = 1); a WRL takes its 8 data beats on hwdata in the 8 hvalid clocks after the command, drives them on dq CWL clocks after the WR with dqs toggling every beat; an RDL takes the 8 beats the DRAM drives from CL clocks after the RD, passes each to hrdata in its clock, pulses hdone with the last and holds the line on rdline * mode-register file MR0..MR7 (hcmd 7: haddr[3] = 0 MRW of hwdata[7:0], 1 MRR into hrdata[7:0] with an hdone pulse): CL = 5 + MR0[3:0], CWL = 5 + MR1[3:0] (reset to the CL / CWL parameters), used by every RD / WR; MR0 bit 7 is a self-clearing DLL reset. The MR file is controller-side: the DRAM's own mode registers are set to match by initialization outside this model * DDR4 command pins: cs_n (high = deselect), act_n (ACT: low, with ras_n / cas_n / we_n carrying row bits A16..A14 = 0), ba = bank
 
-ck_t, ck_c, cke, addr, ras_n, cas_n, we_n, dq and dqs are the DRAM pins and trace_valid, trace_cmd and trace_addr the command trace (one clock before each command on the pins); they pass through unchanged.
-Address map and behaviour of the core: 4-bank open-page controller (banks = haddr[10:9], row = haddr[31:18], storage = 256 columns).
+ck_t, ck_c, cke, cs_n, act_n, ba, addr, ras_n, cas_n, we_n, dq and dqs are the DRAM pins and trace_valid, trace_cmd and trace_addr the command trace (one clock before each ACT / RD / WR on the pins); they pass through unchanged.
+Address map and behaviour of the core: 4-bank open-page controller (banks = haddr[10:9], row = haddr[31:18], 256 columns); a line is the 8 columns {haddr[7:3], k}; CL = 5 + MR0[3:0], CWL = 5 + MR1[3:0].
 The core's own verification (pin-level checker, 100% coverage) is tb/cov/DDR4_sva.sv with tb/DDR4_tb.sv; this wrapper test drives the core only through the registers.
 
 ## Files
@@ -63,6 +63,9 @@ Pins of `DDR4_apb`. Widths of the pass-through pins are at the default parameter
 | `ck_t` | output | 1 | protocol pin, core port `ck_t` |
 | `ck_c` | output | 1 | protocol pin, core port `ck_c` |
 | `addr` | output | 17 | protocol pin, core port `addr` |
+| `cs_n` | output | 1 | protocol pin, core port `cs_n` |
+| `act_n` | output | 1 | protocol pin, core port `act_n` |
+| `ba` | output | 2 | protocol pin, core port `ba` |
 | `ras_n` | output | 1 | protocol pin, core port `ras_n` |
 | `cas_n` | output | 1 | protocol pin, core port `cas_n` |
 | `we_n` | output | 1 | protocol pin, core port `we_n` |
@@ -85,10 +88,14 @@ Pins of `DDR4_apb`. Widths of the pass-through pins are at the default parameter
 | `haddr` | input | 32 | CMD1[31:0] |
 | `hwdata` | input | 16 | CMD2[15:0] |
 | `hrdata` | output | 16 | RDATA[15:0] |
-| `hdone` | output | 1 | IRQ_STATUS.RD_DONE |
+| `rdline` | output | 128 | RLINE0[31:0], RLINE1[31:0], RLINE2[31:0], RLINE3[31:0] |
+| `hdone` | output | 1 | IRQ_STATUS.DONE |
 | `ck_t` | output | 1 | pin (pass-through) |
 | `ck_c` | output | 1 | pin (pass-through) |
 | `addr` | output | 17 | pin (pass-through) |
+| `cs_n` | output | 1 | pin (pass-through) |
+| `act_n` | output | 1 | pin (pass-through) |
+| `ba` | output | 2 | pin (pass-through) |
 | `ras_n` | output | 1 | pin (pass-through) |
 | `cas_n` | output | 1 | pin (pass-through) |
 | `we_n` | output | 1 | pin (pass-through) |
@@ -103,39 +110,47 @@ Pins of `DDR4_apb`. Widths of the pass-through pins are at the default parameter
 
 `DDR4_apb` is an APB4 slave (AMBA APB protocol v2.0): zero wait states, 32-bit data, 12-bit byte address, PSTRB byte lanes on every writable register, PSLVERR on an unmapped or misaligned address (reads then return 0, writes are dropped). Writes to read-only registers are ignored without an error. The core runs on PCLK and PRESETN. `irq` is level-high: `|(IRQ_STATUS & IRQ_ENABLE)`.
 
-Pass-through pins: `ck_t`, `ck_c`, `addr`, `ras_n`, `cas_n`, `we_n`, `dq`, `dqs`, `cke`, `trace_valid`, `trace_cmd`, `trace_addr`.
+Pass-through pins: `ck_t`, `ck_c`, `addr`, `cs_n`, `act_n`, `ba`, `ras_n`, `cas_n`, `we_n`, `dq`, `dqs`, `cke`, `trace_valid`, `trace_cmd`, `trace_addr`.
 
 ### Register map
 
 | Offset | Name | Access | Reset | Description |
 |---|---|---|---|---|
-| 0x000 | ID | RO | 0x6D020200 | IP identification: code, major and minor version |
+| 0x000 | ID | RO | 0x6D020300 | IP identification: code, major and minor version |
 | 0x004 | IRQ_STATUS | W1C | 0x00000000 | Sticky interrupt bits, write 1 to clear |
 | 0x008 | IRQ_ENABLE | RW | 0x00000000 | Interrupt enables; irq = \|(IRQ_STATUS & IRQ_ENABLE) |
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
-| 0x014 | CMD0 | RW | 0x00000000 | Host command; writing CMD2 sends it (the core takes it when it is idle and no refresh is due) |
-| 0x018 | CMD1 | RW | 0x00000000 | Host command; writing CMD2 sends it (the core takes it when it is idle and no refresh is due) |
-| 0x01C | CMD2 | RW | 0x00000000 | Host command; writing CMD2 sends it (the core takes it when it is idle and no refresh is due) |
+| 0x014 | CMD0 | RW | 0x00000000 | Host command beat; writing CMD2 sends it: a command (the core takes it when it is idle and no refresh is due), or one of the 8 data beats that follow a WRL |
+| 0x018 | CMD1 | RW | 0x00000000 | Host command beat; writing CMD2 sends it: a command (the core takes it when it is idle and no refresh is due), or one of the 8 data beats that follow a WRL |
+| 0x01C | CMD2 | RW | 0x00000000 | Host command beat; writing CMD2 sends it: a command (the core takes it when it is idle and no refresh is due), or one of the 8 data beats that follow a WRL |
 | 0x020 | RDATA | RO | core | Read data |
+| 0x024 | RLINE0 | RO | core | Line of the last RDL (RLINE0 = bits 31:0) |
+| 0x028 | RLINE1 | RO | core | Line of the last RDL (RLINE0 = bits 31:0) |
+| 0x02C | RLINE2 | RO | core | Line of the last RDL (RLINE0 = bits 31:0) |
+| 0x030 | RLINE3 | RO | core | Line of the last RDL (RLINE0 = bits 31:0) |
 
-Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x024 up to 0xFFC are unmapped (PSLVERR).
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x034 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
 | Register | Bits | Field | Access | Reset | Description |
 |---|---|---|---|---|---|
 | ID | 31:16 | CODE | RO | 0x6D02 | IP code |
-| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 15:8 | MAJOR | RO | 0x03 | major version |
 | ID | 7:0 | MINOR | RO | 0x00 | minor version |
 | IRQ_STATUS | 2:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
 | IRQ_ENABLE | 2:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
 | FLAGS | 0 | one bit per stream flag | RO | 0x0 | see FLAGS |
 | SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
-| CMD0 | 2:0 | `hcmd` | RW | 0x0 | 1 ACT, 2 RD, 3 WR, 4 PRE; other codes are no-ops |
-| CMD1 | 31:0 | `haddr` | RW | 0x0 | host address (bank, row and column fields below) |
-| CMD2 | 15:0 | `hwdata` | RW | 0x0 | word to write (WR) |
-| RDATA | 15:0 | `hrdata` | RO | core | word of the last RD, valid once RD_DONE is set |
+| CMD0 | 2:0 | `hcmd` | RW | 0x0 | 1 ACT, 2 RD, 3 WR, 4 PRE, 5 RDL, 6 WRL (then 8 data beats), 7 MR access; 0 is a no-op; ignored on a data beat |
+| CMD1 | 31:0 | `haddr` | RW | 0x0 | host address (bank, row and column fields below); MR access: [3] 1 MRR / 0 MRW, [2:0] MR index |
+| CMD2 | 15:0 | `hwdata` | RW | 0x0 | word to write (WR), MRW value (bits 7:0), or a WRL data beat (beat 0 = column {haddr[7:3], 0}) |
+| RDATA | 15:0 | `hrdata` | RO | core | word of the last RD (or the last beat of an RDL, {8'h0, MR} of an MRR), valid once DONE is set |
+| RLINE0 | 31:0 | `rdline[31:0]` | RO | core | the 8 words of the last RDL (word k = column {haddr[7:3], k} in bits 16k+15:16k), held until the next RDL |
+| RLINE1 | 31:0 | `rdline[63:32]` | RO | core | the 8 words of the last RDL (word k = column {haddr[7:3], k} in bits 16k+15:16k), held until the next RDL |
+| RLINE2 | 31:0 | `rdline[95:64]` | RO | core | the 8 words of the last RDL (word k = column {haddr[7:3], k} in bits 16k+15:16k), held until the next RDL |
+| RLINE3 | 31:0 | `rdline[127:96]` | RO | core | the 8 words of the last RDL (word k = column {haddr[7:3], k} in bits 16k+15:16k), held until the next RDL |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -143,7 +158,7 @@ A bit is set while its source is active, stays set until written with 1, and a s
 
 | Bit | Name | Set when |
 |---|---|---|
-| 0 | RD_DONE | a RD finished; RDATA holds its word |
+| 0 | DONE | a RD, RDL or MRR finished; RDATA (and RLINE for an RDL) holds its data |
 | 1 | CMD_DONE | CMD beat accepted by the core |
 | 2 | CMD_OVF | write to CMD while full (dropped) |
 
@@ -159,12 +174,13 @@ A bit is set while its source is active, stays set until written with 1, and a s
 
 ## Programming sequence
 
-1. Release PRESETN. Read ID (0x000) and check it is 0x6D020200.
+1. Release PRESETN. Read ID (0x000) and check it is 0x6D020300.
 2. Write 0x7 to IRQ_STATUS (0x004) to clear any stale bits.
 3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x7 enables all).
 4. To send on CMD: wait until FLAGS.CMD_FULL (bit 0) is 0, or for IRQ CMD_DONE, then write CMD0 (0x014) then CMD1 (0x018) then CMD2 (0x01C). The last write commits the beat. CMD_OVF means a write came while the register was full and was dropped.
 5. Read RDATA (0x020) for the core's live `hrdata`; it needs no clearing.
-6. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
+6. Read RLINE0 (0x024), RLINE1 (0x028), RLINE2 (0x02C), RLINE3 (0x030) for the core's live `rdline[31:0]`, `rdline[63:32]`, `rdline[95:64]`, `rdline[127:96]`; it needs no clearing.
+7. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Running and verifying
 
