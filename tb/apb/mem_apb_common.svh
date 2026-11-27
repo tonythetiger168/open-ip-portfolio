@@ -63,6 +63,7 @@ endfunction
 task automatic m_wrl(input logic [31:0] a, input logic [127:0] d);
   m_send(3'd6, a, $urandom);
   for (int i = 0; i < 8; i++) begin
+    poll(A_FLAGS, M_FULL, 0, 2000);              // the command / last beat taken
     wr(A_CMD2, {16'h0, d[16*i +: 16]});          // data beats
     m_sb[`MEM_LCELL(a, i) % 65536] = d[16*i +: 16];
   end

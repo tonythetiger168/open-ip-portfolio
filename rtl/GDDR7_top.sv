@@ -9,8 +9,30 @@
 // 2-bit level code on a pin pair (00 / 01 / 10 = levels 0 / 1 / 2; 11 never
 // appears), on dq[11:0]; dq[15:12] stay Hi-Z. Writes stay NRZ on
 // dq[ch*16 +: 16]. 4 banks per channel ({ch,haddr[10:9]}), all-bank
-// refresh, CL=18. Contract identical to DDR_top. The core holds no data:
+// refresh, CL=18. Word commands as DDR_top. The core holds no data:
 // write words leave on dq, read words come back from the DRAM.
+// On top of the word commands (as DDR4_top):
+//   * line commands: hcmd 5 RDL / 6 WRL move one 128-bit line (the 8
+//     columns {haddr[7:3], k}) in one burst (addr[12] = 1 on the RD / WR).
+//     PAM2 (MR2[0] = 0): BL8 of 16-bit NRZ beats on the channel's dq. PAM3
+//     (MR2[0] = 1): BL6, each of the channel's 16 dq pins carrying one
+//     ternary symbol per beat as the level code {dqx[p], dq[p]} (00 / 01 /
+//     10): the line's 32 nibbles as 96 trits (nibble k = trits 3k..3k+2,
+//     v = 9*t0 + 3*t1 + t2), beat b = trits 16b..16b+15. A WRL takes its
+//     8 data beats on hwdata in the 8 hvalid clocks after the command and
+//     drives the burst CWL clocks after the WR, dqs toggling every beat; an
+//     RDL takes the DRAM's burst from CL clocks after the RD: PAM2 passes
+//     each beat to hrdata in its clock and pulses hdone with the last, PAM3
+//     decodes the line with the last beat (hrdata = word 7, hdone then);
+//     rdline holds the line
+//   * mode-register file MR0..MR7 (hcmd 7: haddr[3] = 0 MRW of hwdata[7:0],
+//     1 MRR into hrdata[7:0] with an hdone pulse): CL = 5 + MR0[3:0],
+//     CWL = 5 + MR1[3:0], MR2[0] = PAM3 (reset 1: word reads in PAM3 as
+//     above; MR2[0] = 0 sends a read word NRZ in the second beat), pin pam3;
+//     MR0 bit 7 is a self-clearing DLL reset. Controller-side: the DRAM's
+//     own mode registers are set to match outside this model
+//   * command pins: cs_n (high = deselect), act_n (ACT: low, with ras_n /
+//     cas_n / we_n = 0), ba = bank entry {channel, bank}
 // ============================================================================
 module GDDR7_top #(
   parameter int NCH = 2
@@ -21,11 +43,16 @@ module GDDR7_top #(
   input  logic [31:0] haddr,
   input  logic [15:0] hwdata,
   output logic [15:0] hrdata,
+  output logic [127:0] rdline,          // line of the last RDL
   output logic        hdone,
+  output logic        pam3,             // line signaling mode (MR2[0])
   output logic        ck_t, ck_c,
   output logic [16:0] addr,
+  output logic        cs_n, act_n,
+  output logic [2:0]  ba,
   output logic        ras_n, cas_n, we_n,
   inout  tri [NCH*16-1:0] dq,
+  inout  tri [NCH*16-1:0] dqx,          // PAM3 lines: upper level bit of each dq pin
   inout  tri [1:0]    dqs,
   output logic        cke,
   output logic        trace_valid,
@@ -37,8 +64,9 @@ module GDDR7_top #(
   // recovery (end of the write burst to PRE) and write-to-read turnaround.
   // A WR is complete once it is on the pins; these fence what follows it.
   localparam int CWL=7, TBURST=2, TWR=15, TWTR=7;
-  localparam int WR2PRE = CWL + TBURST + TWR;   // WR to PRE, same bank
-  localparam int WR2RD  = CWL + TBURST + TWTR;  // WR to RD, any bank
+  // CL / CWL come from the MR file; write recovery / turnaround count from
+  // the WR: CWL + the burst (TBURST for a word, 8 / 6 beats for a PAM2 /
+  // PAM3 line) + tWR / tWTR.
   localparam int CHW = (NCH <= 2) ? 1 : $clog2(NCH);   // channel select: haddr[8 +: CHW]
   localparam int NB = 8;
 
@@ -46,11 +74,12 @@ module GDDR7_top #(
   logic [NB-1:0] bank_open;
   logic [8:0] rp_t [0:NB-1], ras_t [0:NB-1], rc_t [0:NB-1];
   logic [8:0] timer;
-  localparam int WTRW = $clog2(WR2RD);
+  localparam int WTRW = 6;              // WR2RD <= 20 + 8 + 7
   logic [WTRW-1:0] wtr_t;              // WR-to-RD down-counter
   logic [13:0] ref_cnt;
 
-  typedef enum logic [2:0] {D_IDLE, D_ACT, D_RCD, D_RD, D_CAS, D_WR, D_PRE} d_t;
+  typedef enum logic [3:0] {D_IDLE, D_ACT, D_RCD, D_RD, D_CAS, D_WR, D_PRE,
+                            D_FILL, D_LRD, D_LWR} d_t;
   d_t dstate;
   logic [31:0] cur_addr;
   // channel of the incoming / current command (NCH==1 ignores haddr[8],
@@ -61,6 +90,23 @@ module GDDR7_top #(
   logic [2:0]  cur_bank, act_bank;
   logic        rd_pending, ref_walk, auto_rd, auto_wr;
   logic        auto_act, pre_done, ref_req;
+  // line operations and the MR file
+  logic        line, lpam3;             // an RDL / WRL in flight, its signaling mode
+  logic [2:0]  bcnt;                    // line beat
+  logic [15:0] wbuf [0:7];              // WRL data beats
+  logic        lw_oe, lw_s;             // line write burst on dq / dqs, strobe phase
+  logic [31:0] lw_d;                    // {dqx, dq} of the beat
+  logic [159:0] rsym;                   // PAM3 RDL: symbols of beats 0..4
+  logic        mr_done;                 // MRR answered
+  logic [7:0]  mr [0:7];
+  wire  [4:0]  cl_now  = 5'd5 + {1'b0, mr[0][3:0]};
+  wire  [4:0]  cwl_now = 5'd5 + {1'b0, mr[1][3:0]};
+  assign pam3 = mr[2][0];
+  wire  [3:0]  wr_bl   = !line ? 4'(TBURST) : lpam3 ? 4'd6 : 4'd8;
+  wire  [8:0]  wr2pre  = 9'(cwl_now) + 9'(wr_bl) + 9'(TWR);
+  wire  [5:0]  wr2rd   = 6'(cwl_now) + 6'(wr_bl) + 6'(TWTR);
+  wire  [7:0]  col_pin = line ? {cur_addr[7:3], 3'b000} : cur_addr[7:0];
+  wire  [2:0]  lastb   = lpam3 ? 3'd5 : 3'd7;   // last beat of the line burst
 
   wire [2:0] a_bank = {a_ch, haddr[10:9]};
   wire [2:0] c_bank2 = {c_ch, cur_addr[10:9]};
@@ -75,6 +121,7 @@ module GDDR7_top #(
   wire rp_ok  = ref_walk ? &rp_z  : rp_z[pre_tgt];
   wire act_ok = rp_z[act_bank] && (rc_t[act_bank] == 0);
   wire a_hit = bank_open[a_bank] && (open_row[a_bank] == haddr[31:18]);
+  wire c_hit = bank_open[c_bank2] && (open_row[c_bank2] == cur_addr[31:18]);
   // a RD may go on the pins once tWTR is met. tCCD = TBURST = 2 never binds:
   // the single engine spaces two CAS commands by 3 clocks or more (the
   // checker still checks it).
@@ -91,19 +138,55 @@ module GDDR7_top #(
     end
   endfunction
 
-  wire rd_phase = (dstate == D_CAS) && (timer == 0) && rd_pending;   // beat 1
-  wire rd_beat0 = (dstate == D_CAS) && (timer == 1) && rd_pending;
+  // PAM3 line <-> symbols: nibble k = trits t0, t1, t2 at [6k +: 2], [6k+2 +: 2],
+  // [6k+4 +: 2] (as the word reads)
+  function automatic [5:0] enc_nib(input [3:0] v);    // {t2, t1, t0}: t0 in the low bits
+    case (v)
+      4'd0:  enc_nib = 6'b00_00_00;  4'd1:  enc_nib = 6'b01_00_00;
+      4'd2:  enc_nib = 6'b10_00_00;  4'd3:  enc_nib = 6'b00_01_00;
+      4'd4:  enc_nib = 6'b01_01_00;  4'd5:  enc_nib = 6'b10_01_00;
+      4'd6:  enc_nib = 6'b00_10_00;  4'd7:  enc_nib = 6'b01_10_00;
+      4'd8:  enc_nib = 6'b10_10_00;  4'd9:  enc_nib = 6'b00_00_01;
+      4'd10: enc_nib = 6'b01_00_01;  4'd11: enc_nib = 6'b10_00_01;
+      4'd12: enc_nib = 6'b00_01_01;  4'd13: enc_nib = 6'b01_01_01;
+      4'd14: enc_nib = 6'b10_01_01;  default: enc_nib = 6'b00_10_01;   // 15
+    endcase
+  endfunction
+  function automatic [191:0] pack_line(input [127:0] d);
+    for (int k = 0; k < 32; k++) pack_line[6*k +: 6] = enc_nib(d[4*k +: 4]);
+  endfunction
+  function automatic [127:0] unpack_line(input [191:0] t);
+    for (int k = 0; k < 32; k++)
+      unpack_line[4*k +: 4] = 4'(5'd9 * t[6*k +: 2] + 5'd3 * t[6*k+2 +: 2] + t[6*k+4 +: 2]);
+  endfunction
+  // beat b of a PAM3 line: symbol j = trit 16b + j on pin j as {dqx[j], dq[j]}
+  function automatic [31:0] sym_pins(input [31:0] t);   // 16 2-bit codes -> {dqx, dq}
+    for (int j = 0; j < 16; j++) begin sym_pins[16 + j] = t[2*j+1]; sym_pins[j] = t[2*j]; end
+  endfunction
+  function automatic [31:0] pins_sym(input [15:0] x, input [15:0] d);
+    for (int j = 0; j < 16; j++) pins_sym[2*j +: 2] = {x[j], d[j]};
+  endfunction
+  wire [127:0] wline = {wbuf[7], wbuf[6], wbuf[5], wbuf[4], wbuf[3], wbuf[2], wbuf[1], wbuf[0]};
+  wire [191:0] wsym  = pack_line(wline);
+  wire [31:0]  r_sym = pins_sym(dqx[16*c_ch +: 16], dq[16*c_ch +: 16]);
+  wire [127:0] rdec  = unpack_line({r_sym, rsym});
+
+  wire rd_phase = (dstate == D_CAS) && (timer == 0) && rd_pending && !line;   // beat 1
+  wire rd_beat0 = (dstate == D_CAS) && (timer == 1) && rd_pending && !line;
   logic [11:0] rd_b0;                 // symbols of beat 0 (nibbles 0-1)
   assign ck_t = clk;  assign ck_c = ~clk;  assign cke = rst_n;
-  assign dqs  = 2'bzz;
-  assign hready = (dstate == D_IDLE) && (ref_cnt != 0);   // a due refresh goes first
-  assign hdone  = rd_phase;
+  assign dqs  = lw_oe ? {~lw_s, lw_s} : 2'bzz;
+  // a due refresh goes first; a WRL takes its data beats in D_FILL
+  assign hready = (dstate == D_IDLE) && (ref_cnt != 0) || (dstate == D_FILL);
+  assign hdone  = rd_phase || (dstate == D_LRD) && (bcnt == lastb) || mr_done;
   assign trace_valid = (dstate == D_ACT && act_ok) || (dstate == D_RD && rd_ok) || (dstate == D_WR);
   assign trace_cmd   = (dstate == D_ACT) ? 3'd1 : (dstate == D_RD) ? 3'd2 : 3'd3;
   assign trace_addr  = cur_addr;
   // each channel owns dq[16*g +: 16]; only the addressed one drives
   for (genvar g = 0; g < NCH; g++) begin : g_dq
-    assign dq[16*g +: 16] = (c_ch == g && dstate == D_WR) ? wr_data : 16'hzzzz;
+    assign dq[16*g +: 16]  = (c_ch == g && dstate == D_WR && !line) ? wr_data :
+                             (c_ch == g && lw_oe) ? lw_d[15:0] : 16'hzzzz;
+    assign dqx[16*g +: 16] = (c_ch == g && lw_oe && lpam3) ? lw_d[31:16] : 16'hzzzz;
   end
 
   always_ff @(posedge clk or negedge rst_n) begin
@@ -114,12 +197,18 @@ module GDDR7_top #(
       ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0;
       cur_bank <= '0; act_bank <= '0;
       ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1; addr <= '0; hrdata <= '0;
+      cs_n <= 1'b1; act_n <= 1'b1; ba <= '0;
+      line <= 1'b0; lpam3 <= 1'b0; bcnt <= '0; lw_oe <= 1'b0; lw_s <= 1'b0; lw_d <= '0;
+      mr_done <= 1'b0; rdline <= '0; rsym <= '0;
+      for (int i = 0; i < 8; i++) begin wbuf[i] <= '0; mr[i] <= '0; end
+      mr[0] <= 8'(CL - 5); mr[1] <= 8'(CWL - 5); mr[2] <= 8'h01;
       for (int i = 0; i < NB; i++) begin
         open_row[i] <= '0; bank_open[i] <= 1'b0;
         rp_t[i] <= '0; ras_t[i] <= '0; rc_t[i] <= '0;
       end
     end else begin
       ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;   // commands are 1-cycle pulses
+      cs_n <= 1'b1; act_n <= 1'b1; mr_done <= 1'b0;
       if (dstate != D_PRE) pre_done <= 1'b0;
       if (timer != 0) timer <= timer - 1'b1;
       if (wtr_t != 0) wtr_t <= wtr_t - 1'b1;
@@ -134,8 +223,9 @@ module GDDR7_top #(
           ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;
           if (hvalid && ref_cnt != 0) begin
             cur_addr <= haddr; wr_data <= hwdata; cur_bank <= a_bank;
-            rd_pending <= (hcmd == 3'd2); ref_walk <= 1'b0; auto_act <= 1'b0;
+            rd_pending <= (hcmd == 3'd2) || (hcmd == 3'd5); ref_walk <= 1'b0; auto_act <= 1'b0;
             auto_rd <= 1'b0; auto_wr <= 1'b0;
+            line <= (hcmd == 3'd5) || (hcmd == 3'd6); lpam3 <= pam3;
             case (hcmd)
               3'd1: begin
                 act_bank <= a_bank;
@@ -149,14 +239,21 @@ module GDDR7_top #(
                   dstate <= D_ACT;
                 end
               end
-              3'd2, 3'd3: begin
+              3'd2, 3'd3, 3'd5: begin
                 if (!a_hit) begin
                   act_bank <= a_bank;
                   open_row[a_bank] <= haddr[31:18]; bank_open[a_bank] <= 1'b1;
-                  auto_rd <= (hcmd == 3'd2); auto_wr <= (hcmd == 3'd3);
+                  auto_rd <= (hcmd != 3'd3); auto_wr <= (hcmd == 3'd3);
                   // a closed bank needs no PRE: straight to its ACT
                   if (bank_open[a_bank]) dstate <= D_PRE; else dstate <= D_ACT;
-                end else if (hcmd == 3'd2) dstate <= D_RD; else dstate <= D_WR;
+                end else if (hcmd == 3'd3) dstate <= D_WR; else dstate <= D_RD;
+              end
+              3'd6: begin bcnt <= '0; dstate <= D_FILL; end   // WRL: its 8 data beats first
+              3'd7: begin                                      // MRW / MRR
+                if (haddr[3]) begin
+                  hrdata <= {8'h00, mr[haddr[2:0]]}; mr_done <= 1'b1;
+                end else
+                  mr[haddr[2:0]] <= (haddr[2:0] == 3'd0) ? {1'b0, hwdata[6:0]} : hwdata[7:0];
               end
               3'd4: begin
                 if (bank_open[a_bank]) begin bank_open[a_bank] <= 1'b0; dstate <= D_PRE; end
@@ -186,7 +283,8 @@ module GDDR7_top #(
             // (only an open bank or a refresh gets here: a closed one goes
             // straight to D_ACT)
             if (pre_ok) begin
-              ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0; addr[10] <= ref_walk;
+              cs_n <= 1'b0; ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0; addr[10] <= ref_walk;
+              ba <= ref_walk ? 3'b000 : pre_tgt;
               if (ref_walk) for (int i = 0; i < NB; i++) rp_t[i] <= 9'(TRP - 1);
               else rp_t[pre_tgt] <= 9'(TRP - 1);
               pre_done <= 1'b1;
@@ -194,7 +292,7 @@ module GDDR7_top #(
           end else begin
             if (ref_walk) begin                 // REF once tRP is met
               if (rp_ok) begin
-                ras_n <= 1'b0; cas_n <= 1'b0; we_n <= 1'b1;
+                cs_n <= 1'b0; ras_n <= 1'b0; cas_n <= 1'b0; we_n <= 1'b1; ba <= 3'b000;
                 timer <= 9'(TRFC - 3); dstate <= D_RCD;
               end
             end
@@ -206,7 +304,8 @@ module GDDR7_top #(
         end
         D_ACT: begin
           if (act_ok) begin                 // tRP and tRC met for this bank
-            ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b1;
+            cs_n <= 1'b0; act_n <= 1'b0; ras_n <= 1'b0; cas_n <= 1'b0; we_n <= 1'b0;
+            ba <= act_bank;
             addr <= {3'b0, open_row[act_bank]};
             ras_t[act_bank] <= 9'(TRAS - 1); rc_t[act_bank] <= 9'(TRC - 1);
             timer <= 9'(TRCD - 2);
@@ -224,25 +323,71 @@ module GDDR7_top #(
           end
         end
         D_RD: if (rd_ok) begin              // tWTR and tCCD met
-          cas_n <= 1'b0; we_n <= 1'b1;
-          addr <= {9'b0, cur_addr[7:0]};
-          dstate <= D_CAS; timer <= CL[8:0];
+          cs_n <= 1'b0; cas_n <= 1'b0; we_n <= 1'b1; ba <= cur_bank;
+          addr <= {4'b0, line, 4'b0, col_pin};          // addr[12]: line burst
+          dstate <= D_CAS; timer <= 9'(cl_now);
         end
         D_WR: begin
-          cas_n <= 1'b0; we_n <= 1'b0;
-          addr <= {9'b0, cur_addr[7:0]};
-          // complete once on the pins: D_CAS exits next clock (no CL wait)
-          ras_t[cur_bank] <= 9'(WR2PRE - 1);   // WR2PRE > tRAS - tRCD: never shorter than tRAS
-          wtr_t <= WTRW'(WR2RD - 1);
-          dstate <= D_CAS; timer <= '0;
+          cs_n <= 1'b0; cas_n <= 1'b0; we_n <= 1'b0; ba <= cur_bank;
+          addr <= {4'b0, line, 4'b0, col_pin};
+          // a word is complete once on the pins: D_CAS exits next clock (no
+          // CL wait); a WRL drives its burst CWL clocks later (D_LWR)
+          ras_t[cur_bank] <= wr2pre - 9'd1;   // WR2PRE > tRAS - tRCD: never shorter than tRAS
+          wtr_t <= wr2rd - 6'd1;
+          if (line) begin timer <= 9'(cwl_now); bcnt <= '0; dstate <= D_LWR; end
+          else begin dstate <= D_CAS; timer <= '0; end
         end
         D_CAS: begin
           cas_n <= 1'b1; we_n <= 1'b1;
           if (rd_beat0) rd_b0 <= dq[16*c_ch +: 12];
           if (timer == 0) begin
-            if (rd_pending) hrdata <= dec_pam3({dq[16*c_ch +: 12], rd_b0});
+            if (line) begin                // RDL: beat 0, then the rest in D_LRD
+              if (!lpam3) begin hrdata <= dq[16*c_ch +: 16]; rdline[15:0] <= dq[16*c_ch +: 16]; end
+              else rsym[31:0] <= r_sym;
+              bcnt <= 3'd1; dstate <= D_LRD;
+            end else begin
+              if (rd_pending) hrdata <= pam3 ? dec_pam3({dq[16*c_ch +: 12], rd_b0}) : dq[16*c_ch +: 16];
+              rd_pending <= 1'b0;
+              ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE;
+            end
+          end
+        end
+        D_LRD: begin                       // RDL beats 1..7 (PAM2) / 1..5 (PAM3)
+          bcnt <= bcnt + 3'd1;
+          if (!lpam3) begin
+            hrdata <= dq[16*c_ch +: 16];
+            rdline[16*bcnt +: 16] <= dq[16*c_ch +: 16];
+          end else if (bcnt != 3'd5) rsym[32*bcnt +: 32] <= r_sym;
+          if (bcnt == lastb) begin
+            if (lpam3) begin rdline <= rdec; hrdata <= rdec[127:112]; end
             rd_pending <= 1'b0;
-            begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
+            ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE;
+          end
+        end
+        D_FILL: if (hvalid) begin          // WRL data beat bcnt
+          wbuf[bcnt] <= hwdata;
+          bcnt <= bcnt + 3'd1;
+          if (bcnt == 3'd7) begin
+            if (!c_hit) begin
+              act_bank <= cur_bank;
+              open_row[cur_bank] <= cur_addr[31:18]; bank_open[cur_bank] <= 1'b1;
+              auto_wr <= 1'b1;
+              if (bank_open[cur_bank]) dstate <= D_PRE; else dstate <= D_ACT;
+            end else dstate <= D_WR;
+          end
+        end
+        D_LWR: begin                       // WRL burst: beat k on the pins in clock WR + CWL + k
+          if (!lw_oe) begin
+            if (timer == 1) begin
+              lw_oe <= 1'b1; lw_s <= ~lw_s; bcnt <= 3'd1;
+              lw_d <= lpam3 ? sym_pins(wsym[31:0]) : {16'h0, wbuf[0]};
+            end
+          end else if (bcnt != 3'd0 && bcnt <= lastb) begin
+            lw_s <= ~lw_s; bcnt <= bcnt + 3'd1;
+            lw_d <= lpam3 ? sym_pins(wsym[32*bcnt +: 32]) : {16'h0, wbuf[bcnt]};
+          end else begin                   // the last beat went out last clock
+            lw_oe <= 1'b0;
+            ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE;
           end
         end
         default: dstate <= D_IDLE;

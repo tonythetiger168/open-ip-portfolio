@@ -61,6 +61,12 @@
 //     next clock, hrdata = {8'h0, MR}). CL = 5 + MR0[3:0], CWL =
 //     5 + MR1[3:0]; the write-side rules become `MEM_CHK_WR2PRE_L(l) /
 //     `MEM_CHK_WR2RD_L(l) (l = the WR was a line), expressions of m_cwl.
+//     Optional: `MEM_CHK_MR_RESET (statements: other MR reset values, on
+//     m_mr), `MEM_CHK_LMODE (expression latched with each line command
+//     as op_lm, e.g. a signaling mode bit of m_mr), `MEM_CHK_LNB (beats of
+//     the line burst, default 8; with fewer the core decodes the line at the
+//     last beat: hrdata = word 7 and hdone then), `MEM_CHK_LW_OK(k) (write
+//     beat k is right on the pins, default lane(op_a) === op_ld[k]).
 `ifndef MEM_CHK_EXTRA
 `define MEM_CHK_EXTRA
 `endif
@@ -123,6 +129,15 @@
 `else
 `define MEM_CHK_CLV CL
 `endif
+`ifndef MEM_CHK_LMODE
+`define MEM_CHK_LMODE 1'b0
+`endif
+`ifndef MEM_CHK_LNB
+`define MEM_CHK_LNB 8
+`endif
+`ifndef MEM_CHK_LW_OK
+`define MEM_CHK_LW_OK(k) (lane(op_a) === op_ld[k])
+`endif
 `ifndef MEM_CHK_LCELL
 `define MEM_CHK_LCELL(a, k) ((cellof(a) & ~7) | (k))
 `endif
@@ -159,7 +174,8 @@
   int          wrp_need [0:NB-1];    // write recovery of the bank's last WR
   int          wrrd_need;            // write-to-read turnaround of the last WR
   // line commands and the MR file (`MEM_CHK_LINE)
-  logic        op_ln, op_mrr;
+  logic        op_ln, op_mrr, op_lm;
+  int          lnb;                  // beats of the line burst in flight
   logic [15:0] op_ld [0:7];          // WRL data beats
   int          m_fill;               // WRL data beats still to take
   logic [7:0]  m_mr [0:7];
@@ -199,10 +215,13 @@
       t_wrlast = -1000000; t_caslast = -1000000;
       op_v = 0; s_act = 0; s_rw = 0; s_pre = 0; s_done = 0; s_apre = 0; op_hit = 0; op_open = 0;
       p_tv = 0; p_done = 0; m_chk = 0; rb_m = 0;
-      wrrd_need = 0; op_ln = 0; op_mrr = 0; m_fill = 0; lw_v = 0; lr_v = 0; lw_done = 0; m_s = 0;
+      wrrd_need = 0; op_ln = 0; op_mrr = 0; op_lm = 0; lnb = 8; m_fill = 0; lw_v = 0; lr_v = 0; lw_done = 0; m_s = 0;
       for (int i = 0; i < 8; i++) m_mr[i] = 0;
 `ifdef MEM_CHK_LINE
       m_mr[0] = 8'(CL - 5); m_mr[1] = 8'(CWL - 5);
+`ifdef MEM_CHK_MR_RESET
+      `MEM_CHK_MR_RESET
+`endif
 `endif
       {v_bl, v_lwdata, v_ldqs, v_lrdata, v_rdline, v_mrr} = '0;
       {e_rdl_hit, e_rdl_closed, e_rdl_conf, e_wrl_hit, e_wrl_closed, e_wrl_conf,
@@ -236,15 +255,16 @@
       m_cl = 5 + m_mr[0][3:0]; m_cwl = 5 + m_mr[1][3:0];
 `ifdef MEM_CHK_LINE
       // ---- line bursts: write beats on dq / dqs, read beats on hrdata, rdline
-      if (lw_v && n >= lw_t && n < lw_t + 8) begin
-        if (lane(op_a) !== op_ld[n - lw_t]) v_lwdata = 1;
+      lnb = `MEM_CHK_LNB;
+      if (lw_v && n >= lw_t && n < lw_t + lnb) begin
+        if (!(`MEM_CHK_LW_OK(n - lw_t))) v_lwdata = 1;
         if (q_dqs !== {~q_dqs[0], q_dqs[0]} || n > lw_t && q_dqs[0] === m_s) v_ldqs = 1;
         m_s = q_dqs[0];
-        if (n == lw_t + 7) begin lw_v = 0; lw_done = 1; end
+        if (n == lw_t + lnb - 1) begin lw_v = 0; lw_done = 1; end
       end
-      if (lr_v && n >= lr_t && n < lr_t + 8) begin
-        if (q_hrdata !== le[n - lr_t]) v_lrdata = 1;
-        if (n == lr_t + 7) begin
+      if (lr_v && n >= lr_t && n < lr_t + lnb) begin
+        if ((lnb == 8 || n == lr_t + lnb - 1) && q_hrdata !== le[lnb == 8 ? n - lr_t : 7]) v_lrdata = 1;
+        if (n == lr_t + lnb - 1) begin
           lr_v = 0;
           if (q_rdline !== {le[7], le[6], le[5], le[4], le[3], le[2], le[1], le[0]}) v_rdline = 1;
         end
@@ -397,7 +417,7 @@
           m_chk = 1; m_exp = {8'h00, m_mr[op_a[2:0]]}; s_done = 1;
         end else if (!op_v || op_c != 3'd2 || !s_rw || s_done) v_hdone = 1;
         else begin
-          if (n - t_rdpin != (op_ln ? `MEM_CHK_CLV + 7 : `MEM_CHK_CLV)) v_lat = 1;
+          if (n - t_rdpin != (op_ln ? `MEM_CHK_CLV + lnb - 1 : `MEM_CHK_CLV)) v_lat = 1;
           if (!op_ln) begin m_chk = 1; m_exp = arr[cellof(op_a)]; end
           s_done = 1;
         end
@@ -450,6 +470,7 @@
           op_ln = 0; op_mrr = 0;
           if (hcmd == 3'd5 || hcmd == 3'd6) begin
             op_ln = 1; op_c = hcmd - 3'd3;            // the RD / WR rules, on a line
+            op_lm = `MEM_CHK_LMODE;
             if (hcmd == 3'd6) m_fill = 8;
           end
           s_act = 0; s_rw = 0; s_pre = 0; s_done = 0; s_apre = 0;

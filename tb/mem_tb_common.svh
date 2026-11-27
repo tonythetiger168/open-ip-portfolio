@@ -17,7 +17,8 @@
 // `MEM_LINE (cores with line commands and an MR file): hcmd 5 RDL / 6 WRL
 // move the 8 cells `MEM_LCELL(a, k) of a line (a WRL takes 8 data beats on
 // the following hvalid clocks), hcmd 7 MRW / MRR (haddr[3] = 1: read; MR
-// index haddr[2:0]); line_tests() runs after the word tests.
+// index haddr[2:0]; `MEM_MR_RESET: statements setting tb_mr reset values
+// other than CL / CWL); line_tests() runs after the word tests.
 
 `ifndef VERILATOR
 `ifdef MEM_SVA
@@ -134,11 +135,14 @@
   task automatic line_tests;
     logic [31:0] a;
     int cls [3], cwls [3];
-    // ---- every bit of every mode register both ways, read back
+    logic [7:0] keep [0:7];
+    // ---- every bit of every mode register both ways, read back, then the
+    // values from before
     for (int i = 0; i < 8; i++) begin
+      keep[i] = tb_mr[i];
       mrw(i, 8'hFF); mrr(i); mrw(i, 8'h00); mrr(i); mrw(i, 8'hA5); mrr(i);
+      mrw(i, keep[i]); mrr(i);
     end
-    mrw(0, 8'(CL - 5)); mrw(1, 8'(CWL - 5));
     // ---- line bursts on every bank entry: closed bank, page hit, row conflict
     for (int b = 0; b < NBU; b++) begin
       pre(mk(b, 14'h0, 8'h00));
@@ -245,6 +249,9 @@
     for (int i = 0; i < NCELL; i++) begin sb[i] = 16'h0; sbv[i] = 1'b1; end  // array starts zeroed
     hvalid = 0; hcmd = 0; haddr = 0; hwdata = 0;
     rst_n = 0; idle(5); rst_n = 1; idle(5);
+    // ---- first commands out of reset: row 0 of every bank entry, which
+    // reset leaves closed (a RD must ACT first)
+    for (int b = 0; b < NBU; b++) rd(mk(b, 14'h0, 8'h01));
     // ---- every bank entry: open, write, read hits, rows of all-ones / all-zeros
     for (int b = 0; b < NBU; b++) begin
       act(mk(b, '1, 8'h00));
@@ -314,6 +321,9 @@
 `ifdef MEM_LINE
     for (int i = 0; i < 8; i++) tb_mr[i] = 8'h00;
     tb_mr[0] = 8'(CL - 5); tb_mr[1] = 8'(CWL - 5);
+`ifdef MEM_MR_RESET
+    `MEM_MR_RESET
+`endif
     line_tests();
 `endif
     ip_extra();
