@@ -6,9 +6,6 @@
 # entry that matches no mutant site of any operator set (default or
 # --ops helioslm) fails the run, so fix the entry when the RTL changes.
 ACE | line_dirty[acaddr[7:2]] <= 1'b0;#3 | 1'b0 -> 1'b1 | the line is invalidated in the same clock; dirty is only visible on a valid line
-HBM2 | if (ref_walk)      begin ref_walk <= 1'b0; dstate <= D_IDLE; end | 1'b0 -> 1'b1 | ref_walk is reloaded at every host accept before it is read again
-HBM | if (ref_walk)      begin ref_walk <= 1'b0; dstate <= D_IDLE; end | 1'b0 -> 1'b1 | ref_walk is reloaded at every host accept before it is read again
-GDDR6 | bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0]; | 1'b0 -> 1'b1 | overwritten by a later non-blocking assignment in the same clock
 GDDR6 | rd_pending <= 1'b0; | 1'b0 -> 1'b1 | rd_pending is reloaded at every host accept, before the next D_CAS
 USB | if (rx_edge && (line == LN_K)) begin | == -> != | idle is J, so the mutant starts on the second sync edge instead of the first and still locks on the closing KK
 USB2 | if (line == LN_J) rs <= RS_IDLE; | == -> != | RS_IDLE and RS_SE0 act the same until the next J/K edge, and SE0 -> J is not an edge
@@ -22,7 +19,6 @@ OCP_IP_Open_Core_Protocol | done_err <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; wr
 LIN | if (!t_hdr && t_i <= {1'b0, r_len}) t_sum <= csum_add(t_sum, t_byte); | && -> || | only changes t_sum after the checksum byte has been sent
 LIN | if (!t_hdr && t_i <= {1'b0, r_len}) t_sum <= csum_add(t_sum, t_byte); | 1'b0 -> 1'b1 | only changes t_sum after the checksum byte has been sent
 GDDR7_Lite | wire rrd_done = (rrd_cnt == '0) && !ld_rrd_v; | && -> || | a single engine: tRRD has always elapsed by the next ACT
-HBM3E_Lite | if (!req_we && rbuf_valid) begin | && -> || | latency only: the buffered read is returned either way
 HBM3E_Lite | eng_ref_req <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; written at every engine refresh start before it is read
 Avalon_MM | (av_burstcount >  8'd16) ? 5'd16 : | > -> >= | burstcount 16 clamps to 16 either way
 Avalon_MM | rd_gap     <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value: every read command clears rd_gap before AV_RDD reads it
@@ -40,16 +36,12 @@ Wishbone | q_ok[0]   <= 1'b0;  q_ok[1]   <= 1'b0; | 1'b0 -> 1'b1 | reset value o
 Wishbone | q_slow[0] <= 1'b0;  q_slow[1] <= 1'b0; | 1'b0 -> 1'b1 | reset value of queue entries; q_slow[0] is read only when q_count is non-zero
 Wishbone | for (int b = 0; b < 4; b++) | 4 -> 5 | lane 4 does not exist: sel bit 4 is X and the out-of-range part select writes nothing
 ACE_Lite | werr_q  <= 1'b0; | 1'b0 -> 1'b1 | reset value; loaded at every AW accept before bresp or irq reads it
-DDR4 | ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= 1'b0; | 1'b0 -> 1'b1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
 DDR5 | ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; | 1'b0 -> 1'b1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
-GDDR7 | ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= 1'b0; | 1'b0 -> 1'b1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
 DDR6 | auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0; | 1'b0 -> 1'b1@1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
 DDR6 | auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0; | 1'b0 -> 1'b1@2 | reset value; pre_done is cleared in every clock outside D_PRE
 GDDR7 | auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0; | 1'b0 -> 1'b1@1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
 GDDR7 | auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0; | 1'b0 -> 1'b1@2 | reset value; pre_done is cleared in every clock outside D_PRE
-HBM5 | else if (auto_rd)  begin auto_rd <= 1'b0; dstate <= D_RD; end | 1'b0 -> 1'b1 | auto_rd is reloaded at every host accept before it is read again
 LPDDR5 | else if (auto_wr)  begin auto_wr <= 1'b0; dstate <= D_WR; end | 1'b0 -> 1'b1 | auto_wr is reloaded at every host accept before it is read again
-LPDDR5X | else if (auto_rd)  begin auto_rd <= 1'b0; dstate <= D_RD; end | 1'b0 -> 1'b1 | auto_rd is reloaded at every host accept before it is read again
 DDR4_Lite | ld_rrd_v <= 1'b0; ld_wtr_v <= 1'b0; ld_rfc_v <= 1'b0; ref_ack <= 1'b0; | 1'b0 -> 1'b1 | reset values: a timer load or a REF acknowledge in the first clock after reset only delays the first command (ref_pending is already clear)
 D_PHY | tshift    <= {1'b0, tshift[7:1]};#2 | 1'b0 -> 1'b1 | the bit shifted in is never sent: tshift is reloaded or left after 8 bits
 D_PHY | tshift <= {1'b0, tshift[7:1]};#1 | 1'b0 -> 1'b1 | the bit shifted in is never sent: the escape command is decoded from esc_cmd_q
