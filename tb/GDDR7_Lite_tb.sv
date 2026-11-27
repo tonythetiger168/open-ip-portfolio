@@ -91,6 +91,8 @@ module GDDR7_Lite_tb;
     pam(0);
   endtask
 
+  `define LDEV_BANK {addr[11], ba}
+  `define LDEV_PAM3
   `include "lite_tb_common.svh"
 
   initial begin

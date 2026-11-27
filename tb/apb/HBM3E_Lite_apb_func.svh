@@ -10,6 +10,7 @@ endfunction
 function automatic int lidx(input logic [31:0] a);
   return int'({a[11:7], a[20:12], a[6:4]});
 endfunction
+`define LDEV_BANK {addr[13:11], ba}
 `include "apb/lite_apb_common.svh"
 task automatic lite_extra;
   // every pseudo-channel through STATUS

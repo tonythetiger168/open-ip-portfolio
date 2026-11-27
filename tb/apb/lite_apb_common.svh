@@ -13,6 +13,9 @@
 // while the core is busy and dropped when full, every interrupt bit set,
 // masked, enabled onto irq and cleared; ERR (held by the core until reset)
 // last.
+`define LDEV_CLK PCLK
+`define LDEV_CORE dut.u_core
+`include "lite_dev.svh"             // the DRAM
 logic [127:0] l_sb [0:NLINES-1];
 initial for (int i = 0; i < NLINES; i++) l_sb[i] = '0;     // the array starts zeroed
 localparam logic [31:0] M_FULL = 32'h1 << FLAG_CMD_FULL;

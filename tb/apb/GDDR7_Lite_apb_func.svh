@@ -10,6 +10,8 @@ endfunction
 function automatic int lidx(input logic [31:0] a);
   return int'({a[9:7], a[18:10], a[6:4]});
 endfunction
+`define LDEV_BANK {addr[11], ba}
+`define LDEV_PAM3
 `include "apb/lite_apb_common.svh"
 task automatic lite_extra;
   // PAM3: lines written and read on the symbol bus, read back in PAM2

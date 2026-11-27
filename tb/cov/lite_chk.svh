@@ -29,7 +29,7 @@
 // beat -> RD), tRFC; REF only with every bank closed and tRP met; refresh
 // served within REF_LAT of falling due; pin row / column / bank; write
 // data on dq exactly CWL clocks after the WR (host beats in order), read
-// data exactly CL clocks after the RD (array model), dqs differential and
+// data exactly CL clocks after the RD (driven by the DRAM; array model), dqs differential and
 // toggling each beat; read data to the host on the 8 clocks ending with
 // hdone; hdone once per operation (next clock for MRW / MRR / NOP /
 // rejected ones); MRR value; hready exactly when idle or taking write
@@ -104,7 +104,7 @@
   logic   open_m [NB];
   int     row_m [NB];
   logic [127:0] arr [NLINES];
-  initial for (int i = 0; i < NLINES; i++) arr[i] = '0;   // the DUT zeroes its array once
+  initial for (int i = 0; i < NLINES; i++) arr[i] = '0;   // the DRAM starts zeroed
   logic [7:0] mr_m [8];
   int     refi_m;
   logic   pend_m, irq_m;
@@ -189,8 +189,11 @@
       n = n + 1;
       for (int i = 7; i > 0; i--) hr_hist[i] = hr_hist[i-1];
       hr_hist[0] = q_hrdata;
-      // ---- burst on dq: the drivers are on exactly for the burst beats
-      exp_oe = bst_v && n >= bst_t0;
+      // ---- rdline: the line of the last READ, from the clock after its burst
+      if (q_rdline !== rl_m) v_rdline = 1;
+      // ---- burst on dq: the DUT's drivers are on exactly for the beats of a
+      // write burst (the DRAM drives a read burst)
+      exp_oe = bst_v && n >= bst_t0 && !bst_rd;
       if (q_dq_oe !== exp_oe || q_dqs_oe !== exp_oe) v_oe = 1;
       if (bst_v && n >= bst_t0) begin
         int k;
@@ -209,8 +212,6 @@
           end
         end
       end
-      // ---- rdline: the line of the last READ, from the end of its burst
-      if (q_rdline !== rl_m) v_rdline = 1;
       // ---- pin command
       pc = pin_cmd(q_cs_n, q_act_n, q_ras_n, q_cas_n, q_we_n, q_addr[10]);
       b = pin_bank;
