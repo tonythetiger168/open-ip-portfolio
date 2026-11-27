@@ -33,6 +33,12 @@ module HBM3E_top #(
   output logic [31:0] trace_addr
 );
   localparam int CL=12, TRCD=10, TRP=10, TRC=34, TRAS=22, TRFC=130, TREFI=1560;
+  // write timing: CAS write latency, data-bus clocks of one burst, write
+  // recovery (end of the write burst to PRE) and write-to-read turnaround.
+  // A WR is complete once it is on the pins; these fence what follows it.
+  localparam int CWL=10, TBURST=4, TWR=10, TWTR=5;
+  localparam int WR2PRE = CWL + TBURST + TWR;   // WR to PRE, same bank
+  localparam int WR2RD  = CWL + TBURST + TWTR;  // WR to RD, any bank
   localparam int CHW = (NCH <= 2) ? 1 : $clog2(NCH);   // channel select: haddr[8 +: CHW]
   localparam int NB = 256;              // 8 ch x 32 pc/bank entries
 
@@ -48,6 +54,10 @@ module HBM3E_top #(
   logic [NB-1:0] bank_open;
   logic [8:0] rp_t [0:NB-1], ras_t [0:NB-1], rc_t [0:NB-1];
   logic [8:0] timer;
+  localparam int WTRW = $clog2(WR2RD);
+  logic [WTRW-1:0] wtr_t;              // WR-to-RD down-counter
+  localparam int CCDW = $clog2(TBURST);
+  logic [CCDW-1:0] ccd_t;              // CAS-to-CAS down-counter
   logic [13:0] ref_cnt;
   logic [7:0]  ref_bank;             // next entry to refresh
 
@@ -127,17 +137,19 @@ module HBM3E_top #(
   wire rp_ok  = rp_z[pre_tgt];
   wire act_ok = rp_z[act_bank] && (rc_t[act_bank] == 0);
   wire a_hit = bank_open[a_bank] && (open_row[a_bank] == haddr[31:18]);
+  wire rd_ok = (wtr_t == 0) && (ccd_t == 0);   // a RD may go on the pins now
+  wire wr_ok = (ccd_t == 0);                   // a WR may go on the pins now
 
   assign ck_t = clk;  assign ck_c = ~clk;  assign cke = rst_n;
   assign dqs  = 2'bzz;
   assign hready = (dstate == D_IDLE) && (ref_cnt != 0);   // a due refresh goes first
   assign hdone  = (dstate == D_CAS) && (timer == 0) && rd_pending;
-  assign trace_valid = (dstate == D_ACT && act_ok) || (dstate == D_RD) || (dstate == D_WR);
+  assign trace_valid = (dstate == D_ACT && act_ok) || (dstate == D_RD && rd_ok) || (dstate == D_WR && wr_ok);
   assign trace_cmd   = (dstate == D_ACT) ? 3'd1 : (dstate == D_RD) ? 3'd2 : 3'd3;
   assign trace_addr  = cur_addr;
   // each channel owns dq[16*g +: 16]; only the addressed one drives a write
   for (genvar g = 0; g < NCH; g++) begin : g_dq
-    assign dq[16*g +: 16] = (dstate == D_WR && c_ch == g) ? wr_data : 16'hzzzz;
+    assign dq[16*g +: 16] = (dstate == D_WR && wr_ok && c_ch == g) ? wr_data : 16'hzzzz;
   end
 
   // ECC-corrected read word for the current column (on-die ECC decode)
@@ -145,7 +157,7 @@ module HBM3E_top #(
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      dstate <= D_IDLE; timer <= '0; ref_cnt <= TREFI[13:0];
+      dstate <= D_IDLE; timer <= '0; wtr_t <= '0; ccd_t <= '0; ref_cnt <= TREFI[13:0];
       auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0;
       cur_addr <= '0; wr_data <= '0; rd_pending <= 1'b0;
       ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= 1'b0;
@@ -159,6 +171,8 @@ module HBM3E_top #(
       ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;   // commands are 1-cycle pulses
       if (dstate != D_PRE) pre_done <= 1'b0;
       if (timer != 0) timer <= timer - 1'b1;
+      if (wtr_t != 0) wtr_t <= wtr_t - 1'b1;
+      if (ccd_t != 0) ccd_t <= ccd_t - 1'b1;
       if (ref_cnt != 0) ref_cnt <= ref_cnt - 1'b1;
       for (int i = 0; i < NB; i++) begin
         if (rp_t[i]  != 0) rp_t[i]  <= rp_t[i]  - 1'b1;
@@ -177,7 +191,7 @@ module HBM3E_top #(
                 act_bank <= a_bank;
                 if (a_hit) ;                     // page already open: nothing to do
                 else if (bank_open[a_bank] && (open_row[a_bank] != haddr[31:18])) begin
-                  rp_t[a_bank] <= TRP[8:0];      // conflict: PRE, then ACT the new row
+                  rp_t[a_bank] <= 9'(TRP - 1);      // conflict: PRE, then ACT the new row
                   open_row[a_bank] <= haddr[31:18]; auto_act <= 1'b1;
                   dstate <= D_PRE;
                 end else begin
@@ -187,25 +201,22 @@ module HBM3E_top #(
               end
               3'd2, 3'd3: begin
                 if (!a_hit) begin
-                  if (bank_open[a_bank]) begin
-                    bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0];
-                  end
                   act_bank <= a_bank;
                   open_row[a_bank] <= haddr[31:18]; bank_open[a_bank] <= 1'b1;
                   auto_rd <= (hcmd == 3'd2); auto_wr <= (hcmd == 3'd3);
-                  dstate <= D_PRE;
+                  // a closed bank needs no PRE: straight to its ACT
+                  if (bank_open[a_bank]) dstate <= D_PRE; else dstate <= D_ACT;
                 end else if (hcmd == 3'd2) dstate <= D_RD; else dstate <= D_WR;
               end
               3'd4: begin
-                if (bank_open[a_bank]) begin bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0]; end
-                dstate <= D_PRE;
+                if (bank_open[a_bank]) begin bank_open[a_bank] <= 1'b0; dstate <= D_PRE; end
               end
               default: ;
             endcase
           end else if (ref_cnt == 0) begin
             ref_walk <= 1'b1; ref_cnt <= TREFI[13:0];
             if (bank_open[ref_bank]) begin
-              bank_open[ref_bank] <= 1'b0; rp_t[ref_bank] <= TRP[8:0];
+              bank_open[ref_bank] <= 1'b0; rp_t[ref_bank] <= 9'(TRP - 1);
             end
             pre_need <= bank_open[ref_bank];  // PRE the entry only if it is open
             ref_bank <= ref_bank + 1'b1;
@@ -219,7 +230,7 @@ module HBM3E_top #(
             ref_req <= 1'b0; pre_done <= 1'b0;
             ref_walk <= 1'b1; ref_cnt <= TREFI[13:0];
             if (bank_open[ref_bank]) begin
-              bank_open[ref_bank] <= 1'b0; rp_t[ref_bank] <= TRP[8:0];
+              bank_open[ref_bank] <= 1'b0; rp_t[ref_bank] <= 9'(TRP - 1);
             end
             pre_need <= bank_open[ref_bank];  // PRE the entry only if it is open
             ref_bank <= ref_bank + 1'b1;
@@ -229,20 +240,19 @@ module HBM3E_top #(
             if (!pre_need) pre_done <= 1'b1;   // bank already closed
             else if (pre_ok) begin
               ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0; addr[10] <= 1'b0;
-              rp_t[pre_tgt] <= TRP[8:0];
+              rp_t[pre_tgt] <= 9'(TRP - 1);
               pre_done <= 1'b1;
             end
           end else begin
             if (ref_walk) begin                 // REF once tRP is met
               if (rp_ok) begin
                 ras_n <= 1'b0; cas_n <= 1'b0; we_n <= 1'b1;
-                timer <= TRFC[8:0]; dstate <= D_RCD;
+                rp_t[ref_tgt] <= 9'(TRFC - 1);   // per-entry refresh: only this entry
+                ref_walk <= 1'b0; dstate <= D_IDLE;   // waits tRFC (its next ACT / REF waits rp_t)
               end
             end
-            else if (auto_rd || auto_wr || auto_act) begin
-              if (rp_t[act_bank] == 0) dstate <= D_ACT;
-            end
-            else if (rp_ok) begin           // plain PRE: hold hready low through tRP
+            else if (auto_rd || auto_wr || auto_act) dstate <= D_ACT;   // D_ACT waits tRP
+            else begin                      // plain PRE: tRP is enforced at the next ACT
               ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE;
             end
           end
@@ -251,8 +261,8 @@ module HBM3E_top #(
           if (act_ok) begin                 // tRP and tRC met for this bank
             ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b1;
             addr <= {3'b0, open_row[act_bank]};
-            ras_t[act_bank] <= TRAS[8:0]; rc_t[act_bank] <= TRC[8:0];
-            timer <= TRCD[8:0];
+            ras_t[act_bank] <= 9'(TRAS - 1); rc_t[act_bank] <= 9'(TRC - 1);
+            timer <= 9'(TRCD - 2);
             dstate <= D_RCD;
             auto_act <= 1'b0;
           end
@@ -260,22 +270,25 @@ module HBM3E_top #(
         D_RCD: begin
           ras_n <= 1'b1;
           if (timer == 0) begin
-            if (ref_walk)      begin ref_walk <= 1'b0; dstate <= D_IDLE; end
-            else if (auto_rd)  begin auto_rd <= 1'b0; dstate <= D_RD; end
+            if (auto_rd)  begin auto_rd <= 1'b0; dstate <= D_RD; end
             else if (auto_wr)  begin auto_wr <= 1'b0; dstate <= D_WR; end
             else begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
           end
         end
-        D_RD: begin
+        D_RD: if (rd_ok) begin              // tWTR and tCCD met
           cas_n <= 1'b0; we_n <= 1'b1;
           addr <= {9'b0, cur_addr[7:0]};
+          ccd_t <= CCDW'(TBURST - 1);
           dstate <= D_CAS; timer <= CL[8:0];
         end
-        D_WR: begin
+        D_WR: if (wr_ok) begin
           cas_n <= 1'b0; we_n <= 1'b0;
           addr <= {9'b0, cur_addr[7:0]};
           mem[{c_ch, cur_addr[7:0]}] <= ecc_enc(wr_data);     // on-die ECC encode
-          dstate <= D_CAS; timer <= CL[8:0];
+          // complete once on the pins: D_CAS exits next clock (no CL wait)
+          ras_t[cur_bank] <= 9'(WR2PRE - 1);   // WR2PRE > tRAS - tRCD: never shorter than tRAS
+          wtr_t <= WTRW'(WR2RD - 1); ccd_t <= CCDW'(TBURST - 1);
+          dstate <= D_CAS; timer <= '0;
         end
         D_CAS: begin
           cas_n <= 1'b1; we_n <= 1'b1;

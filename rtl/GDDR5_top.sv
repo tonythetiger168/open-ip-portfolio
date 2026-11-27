@@ -30,6 +30,13 @@ module GDDR5_top #(
   localparam int CL=13, TRCD=13, TRP=13, TRC=39, TRAS=26, TRFC=100, TREFI=3900;
   localparam int CHW = (NCH <= 2) ? 1 : $clog2(NCH);   // channel select: haddr[8 +: CHW]
   localparam int TWTR = 7;
+  // write timing: CAS write latency, data-bus clocks of one burst and write
+  // recovery. A WR is complete once it is on the pins; its burst ends
+  // CWL + TBURST clocks later, and the tWTR fence / write recovery count
+  // from there.
+  localparam int CWL = 4, TBURST = 2, TWR = 12;
+  localparam int WR2PRE = CWL + TBURST + TWR;   // WR to PRE, same bank
+  localparam int WR2RD  = CWL + TBURST + TWTR;  // WR to RD, same bank
   localparam int NB = 8 * NCH;          // 8 banks per channel
 
   logic [15:0] mem [0:(1<<CHW)*256-1];   // NCH ch x 256 col
@@ -56,7 +63,6 @@ module GDDR5_top #(
   logic [15:0] wr_data;
   logic [3:0]  cur_bank, act_bank;
   logic        rd_pending, ref_walk, auto_rd, auto_wr;
-  logic        pre_need;             // the command's bank was open: PRE it
   logic        auto_act, pre_done, ref_req;
 
   wire [3:0] a_bank = {a_ch, haddr[11:9]};
@@ -72,7 +78,9 @@ module GDDR5_top #(
   wire rp_ok  = ref_walk ? &rp_z  : rp_z[pre_tgt];
   wire act_ok = rp_z[act_bank] && (rc_t[act_bank] == 0);
   wire a_hit = bank_open[a_bank] && (open_row[a_bank] == haddr[31:18]);
-  wire rd_ok = wtr_t[cur_bank] == 0;       // tWTR fence (in D_RD)
+  // tWTR fence (in D_RD). tCCD = TBURST = 2 never binds: the single engine
+  // spaces two CAS commands by 3 clocks or more (the checker still checks it).
+  wire rd_ok = wtr_t[cur_bank] == 0;
 
   assign ck_t = clk;  assign ck_c = ~clk;  assign cke = rst_n;
   assign dqs  = 2'bzz;
@@ -91,7 +99,7 @@ module GDDR5_top #(
       dstate <= D_IDLE; timer <= '0; ref_cnt <= TREFI[13:0];
       auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0;
       cur_addr <= '0; wr_data <= '0; rd_pending <= 1'b0;
-      ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= 1'b0;
+      ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0;
       cur_bank <= '0; act_bank <= '0;
       ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1; addr <= '0; hrdata <= '0;
       for (int i = 0; i < NB; i++) begin
@@ -115,13 +123,13 @@ module GDDR5_top #(
           if (hvalid && ref_cnt != 0) begin
             cur_addr <= haddr; wr_data <= hwdata; cur_bank <= a_bank;
             rd_pending <= (hcmd == 3'd2); ref_walk <= 1'b0; auto_act <= 1'b0;
-            auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= bank_open[a_bank];
+            auto_rd <= 1'b0; auto_wr <= 1'b0;
             case (hcmd)
               3'd1: begin
                 act_bank <= a_bank;
                 if (a_hit) ;                     // page already open: nothing to do
                 else if (bank_open[a_bank] && (open_row[a_bank] != haddr[31:18])) begin
-                  rp_t[a_bank] <= TRP[8:0];      // conflict: PRE, then ACT the new row
+                  rp_t[a_bank] <= 9'(TRP - 1);      // conflict: PRE, then ACT the new row
                   open_row[a_bank] <= haddr[31:18]; auto_act <= 1'b1;
                   dstate <= D_PRE;
                 end else begin
@@ -132,35 +140,34 @@ module GDDR5_top #(
               3'd2: begin
                 if (!a_hit) begin
                   if (bank_open[a_bank]) begin
-                    bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0];
+                    bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= 9'(TRP - 1);
                   end
                   act_bank <= a_bank;
                   open_row[a_bank] <= haddr[31:18]; bank_open[a_bank] <= 1'b1;
                   auto_rd <= 1'b1;
-                  dstate <= D_PRE;
+                  if (bank_open[a_bank]) dstate <= D_PRE; else dstate <= D_ACT;
                 end else dstate <= D_RD;
               end
               3'd3: begin
                 if (!a_hit) begin
                   if (bank_open[a_bank]) begin
-                    bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0];
+                    bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= 9'(TRP - 1);
                   end
                   act_bank <= a_bank;
                   open_row[a_bank] <= haddr[31:18]; bank_open[a_bank] <= 1'b1;
                   auto_wr <= 1'b1;
-                  dstate <= D_PRE;
+                  if (bank_open[a_bank]) dstate <= D_PRE; else dstate <= D_ACT;
                 end else dstate <= D_WR;
               end
               3'd4: begin
-                if (bank_open[a_bank]) begin bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0]; end
-                dstate <= D_PRE;
+                if (bank_open[a_bank]) begin bank_open[a_bank] <= 1'b0; dstate <= D_PRE; end
               end
               default: ;
             endcase
           end else if (ref_cnt == 0) begin
             ref_walk <= 1'b1; ref_cnt <= TREFI[13:0];
             for (int i = 0; i < NB; i++) begin
-              bank_open[i] <= 1'b0; rp_t[i] <= TRP[8:0];
+              bank_open[i] <= 1'b0; rp_t[i] <= 9'(TRP - 1);
             end
             dstate <= D_PRE;
           end
@@ -172,29 +179,28 @@ module GDDR5_top #(
             ref_req <= 1'b0; pre_done <= 1'b0;
             ref_walk <= 1'b1; ref_cnt <= TREFI[13:0];
             for (int i = 0; i < NB; i++) begin
-              bank_open[i] <= 1'b0; rp_t[i] <= TRP[8:0];
+              bank_open[i] <= 1'b0; rp_t[i] <= 9'(TRP - 1);
             end
             dstate <= D_PRE;
           end else if (!pre_done) begin
             // PRE/PREA waits for tRAS, and tRP counts from the real issue
-            if (!ref_walk && !pre_need) pre_done <= 1'b1;   // bank already closed
-            else if (pre_ok) begin
+            // (only an open bank or a refresh gets here: a closed one goes
+            // straight to D_ACT)
+            if (pre_ok) begin
               ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0; addr[10] <= ref_walk;
-              if (ref_walk) for (int i = 0; i < NB; i++) rp_t[i] <= TRP[8:0];
-              else rp_t[pre_tgt] <= TRP[8:0];
+              if (ref_walk) for (int i = 0; i < NB; i++) rp_t[i] <= 9'(TRP - 1);
+              else rp_t[pre_tgt] <= 9'(TRP - 1);
               pre_done <= 1'b1;
             end
           end else begin
             if (ref_walk) begin                 // REF once tRP is met
               if (rp_ok) begin
                 ras_n <= 1'b0; cas_n <= 1'b0; we_n <= 1'b1;
-                timer <= TRFC[8:0]; dstate <= D_RCD;
+                timer <= 9'(TRFC - 3); dstate <= D_RCD;
               end
             end
-            else if (auto_rd || auto_wr || auto_act) begin
-              if (rp_t[act_bank] == 0) dstate <= D_ACT;
-            end
-            else if (rp_ok) begin           // plain PRE: hold hready low through tRP
+            else if (auto_rd || auto_wr || auto_act) dstate <= D_ACT;   // D_ACT waits tRP
+            else begin                      // plain PRE: tRP is enforced at the next ACT
               ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE;
             end
           end
@@ -203,8 +209,8 @@ module GDDR5_top #(
           if (act_ok) begin                 // tRP and tRC met for this bank
             ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b1;
             addr <= {3'b0, open_row[act_bank]};
-            ras_t[act_bank] <= TRAS[8:0]; rc_t[act_bank] <= TRC[8:0];
-            timer <= TRCD[8:0];
+            ras_t[act_bank] <= 9'(TRAS - 1); rc_t[act_bank] <= 9'(TRC - 1);
+            timer <= 9'(TRCD - 2);
             dstate <= D_RCD;
             auto_act <= 1'b0;
           end
@@ -229,13 +235,16 @@ module GDDR5_top #(
           cas_n <= 1'b0; we_n <= 1'b0;
           addr <= {9'b0, cur_addr[7:0]};
           mem[{c_ch, cur_addr[7:0]}] <= wr_data;
-          dstate <= D_CAS; timer <= CL[8:0];
+          // complete once on the pins: D_CAS exits next clock (no CL wait);
+          // the burst-end fences are loaded from the WR command
+          ras_t[cur_bank] <= 9'(WR2PRE - 1);   // WR2PRE > tRAS - tRCD: never shorter than tRAS
+          wtr_t[cur_bank] <= 9'(WR2RD - 1);
+          dstate <= D_CAS; timer <= '0;
         end
         D_CAS: begin
           cas_n <= 1'b1; we_n <= 1'b1;
           if (timer == 0) begin
             if (rd_pending) hrdata <= mem[{c_ch, cur_addr[7:0]}];
-            else wtr_t[cur_bank] <= TWTR[8:0];   // write burst done: tWTR fence
             rd_pending <= 1'b0;
             begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
           end

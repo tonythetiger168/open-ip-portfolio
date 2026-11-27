@@ -5,8 +5,10 @@ LINE case:LPDDR6_top \| default: dstate <= D_IDLE; # unused 3-bit encoding of th
 TOGGLE LPDDR6_top\.addr\[1[4-6]\]: # always 0: rows are 14 bits, columns 8 bits
 TOGGLE LPDDR6_top\.trace_cmd\[2\]: # constant 0: trace codes are 1 ACT, 2 RD, 3 WR
 TOGGLE LPDDR6_top\.dqs\[[01]\]: # tied Hi-Z: the model has no strobe
-TOGGLE LPDDR6_top\.timer\[(8)\]: # constant 0: largest load is tRFC = 150 < 256
+TOGGLE LPDDR6_top\.timer\[(5|6|7|8)\]: # constant 0: largest load is CL = 24 < 32 (a per-entry refresh no longer runs the timer: tRFC is held in the entry's rp_t)
 TOGGLE LPDDR6_top\.ref_cnt\[(11|12|13)\]: # constant 0: largest load is tREFI = 1560 < 2048
 TOGGLE LPDDR6_top\.rp_t\[\d+\]\[(4|5|6|7|8)\]: # constant 0: largest load is tRP = 14 < 16
 TOGGLE LPDDR6_top\.ras_t\[\d+\]\[(6|7|8)\]: # constant 0: largest load is tRAS = 36 < 64
 TOGGLE LPDDR6_top\.rc_t\[\d+\]\[(6|7|8)\]: # constant 0: largest load is tRC = 48 < 64
+TOGGLE LPDDR6_top\.rrd_l\[3\]: # constant 0: loads tRRD_L - 1 = 7 < 8
+TOGGLE LPDDR6_top\.rrd_s\[2\]: # constant 0: loads tRRD_S - 1 = 3 < 4

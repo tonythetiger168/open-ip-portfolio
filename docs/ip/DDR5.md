@@ -208,7 +208,7 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/DDR5_top.sv` | pass | 108/108 (+3 excl.) | 1346/1346 (+212 excl.) | 24/24 | 25/25 | 68/68 |
+| core `rtl/DDR5_top.sv` | pass | 107/107 (+3 excl.) | 1366/1366 (+216 excl.) | 24/24 | 28/28 | 68/68 |
 | wrapper `rtl/DDR5_apb.sv` | pass | 33/33 | 842/842 (+12 excl.) | n/a | 11/11 | 42/42 |
 
 ## Performance
@@ -220,32 +220,32 @@ Measured, not estimated: `bash scripts/perf/run_perf.sh DDR5` runs the core's ow
 | Item | Value |
 |---|---|
 | Library | SKY130 `sky130_fd_sc_hd`, typical corner (tt, 25 C, 1.80 V) |
-| Longest logic path | 3.08 ns |
-| Estimated Fmax | 280 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
-| Area | 0.069 mm2 (69477 um2), 9011 cells, 505 flip-flops |
+| Longest logic path | 2.89 ns |
+| Estimated Fmax | 295 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
+| Area | 0.071 mm2 (70543 um2), 9014 cells, 513 flip-flops |
 | Not counted | the in-model DRAM array, 8192 bits (1 KiB): a real controller has the DRAM off chip |
 
 No wire load, placement, clock skew or on-chip variation: these rank the designs and give the order of magnitude; they are not a timing sign-off.
 
 ### DRAM timing used (clocks)
 
-| CL | TRCD | TRP | TRAS | TRC | TRFC | TREFI |
-|---|---|---|---|---|---|---|
-| 22 | 14 | 14 | 36 | 52 | 230 | 9360 |
+| CL | CWL | TBURST | TRCD | TRP | TRAS | TRC | TWR | TWTR | TRFC | TREFI |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 22 | 20 | 8 | 14 | 14 | 36 | 52 | 16 | 8 | 230 | 9360 |
 
 ### Latency, unloaded
 
-From the first clock the host presents the command to the clock `hrdata` is valid (read) or the core can take the next command (write). Min and max over 8 samples in different banks, away from refresh, with the bank's timers (tRAS, tRC) already run out.
+From the first clock the host presents the command to the clock `hrdata` is valid (read) or the core can take the next command (write). Min and max over 8 samples in different banks, away from refresh, with the bank's timers (tRAS, tRC) already run out. A write is complete once its WR command is on the pins; write recovery (tWR), the write-to-read turnaround (tWTR) and the burst spacing (tCCD = TBURST) are enforced on the commands that follow it.
 
 | Command | Clocks | ns at Fmax |
 |---|---|---|
-| Read, page hit | 24 | 86 |
-| Read, bank closed (ACT first) | 41 | 146 |
-| Read, row conflict (PRE + ACT first) | 55 | 196 |
-| Write, page hit | 25 | 89 |
-| Write, bank closed | 42 | 150 |
-| Write, row conflict | 56 | 200 |
-| Read, page hit, requested as a refresh falls due (worst case seen) | 289 | 1032 |
+| Read, page hit | 24 | 81 |
+| Read, bank closed (ACT first) | 38 | 129 |
+| Read, row conflict (PRE + ACT first) | 52 | 176 |
+| Write, page hit | 3 | 10 |
+| Write, bank closed | 17 | 58 |
+| Write, row conflict | 31 | 105 |
+| Read, page hit, requested as a refresh falls due (worst case seen) | 282 | 956 |
 
 ### Sustained throughput
 
@@ -253,18 +253,18 @@ From the first clock the host presents the command to the clock `hrdata` is vali
 
 | Pattern | Clocks / op | Bytes / clock | Host utilization | MB/s at Fmax |
 |---|---|---|---|---|
-| Sequential reads, one open row (page hits) | 25.65 | 0.078 | 3.9% | 22 |
-| Sequential writes, one open row (page hits) | 25.78 | 0.078 | 3.9% | 22 |
-| Alternating write / read, one open row | 25.65 | 0.078 | 3.9% | 22 |
-| Reads interleaved over every bank, rows open | 26.12 | 0.077 | 3.8% | 21 |
-| Reads alternating two rows of one bank (row conflicts) | 57.47 | 0.035 | 1.7% | 10 |
-| Random reads (bank, row, column uniform) | 56.75 | 0.035 | 1.8% | 10 |
-| Random writes | 56.80 | 0.035 | 1.8% | 10 |
-| Random mix, 2 reads : 1 write | 56.86 | 0.035 | 1.8% | 10 |
+| Sequential reads, one open row (page hits) | 25.63 | 0.078 | 3.9% | 23 |
+| Sequential writes, one open row (page hits) | 8.28 | 0.241 | 12.1% | 71 |
+| Alternating write / read, one open row | 31.38 | 0.064 | 3.2% | 19 |
+| Reads interleaved over every bank, rows open | 25.87 | 0.077 | 3.9% | 23 |
+| Reads alternating two rows of one bank (row conflicts) | 54.33 | 0.037 | 1.8% | 11 |
+| Random reads (bank, row, column uniform) | 53.73 | 0.037 | 1.9% | 11 |
+| Random writes | 38.29 | 0.052 | 2.6% | 15 |
+| Random mix, 2 reads : 1 write | 49.02 | 0.041 | 2.0% | 12 |
 
 ### Refresh cost
 
-With no host traffic for 74880 clocks, `hready` is low (the core cannot take a command) 2.65% of the time, in 8 windows of at most 248 clocks (886 ns).
+With no host traffic for 74880 clocks, `hready` is low (the core cannot take a command) 2.61% of the time, in 8 windows of at most 244 clocks (827 ns).
 
 ### Limits of these figures
 

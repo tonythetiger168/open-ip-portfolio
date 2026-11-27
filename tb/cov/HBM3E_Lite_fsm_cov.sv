@@ -9,17 +9,14 @@ module HBM3E_Lite_top__fsm_cov (
   input logic [1:0] s_fe,
   input logic [4:0] s_eng
 );
-  // ---- FSM HBM3E_Lite_top.fe: 4 states, 6 arcs ----
+  // ---- FSM HBM3E_Lite_top.fe: 3 states, 4 arcs ----
   fsm_st__fe__FE_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_fe == 2'd0);
   fsm_st__fe__FE_FILL: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_fe == 2'd1);
   fsm_st__fe__FE_WAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_fe == 2'd2);
-  fsm_st__fe__FE_DRAIN: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_fe == 2'd3);
   fsm_arc__fe__FE_IDLE__FE_FILL: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_fe == 2'd0 ##1 s_fe == 2'd1);
   fsm_arc__fe__FE_IDLE__FE_WAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_fe == 2'd0 ##1 s_fe == 2'd2);
   fsm_arc__fe__FE_FILL__FE_WAIT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_fe == 2'd1 ##1 s_fe == 2'd2);
   fsm_arc__fe__FE_WAIT__FE_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_fe == 2'd2 ##1 s_fe == 2'd0);
-  fsm_arc__fe__FE_WAIT__FE_DRAIN: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_fe == 2'd2 ##1 s_fe == 2'd3);
-  fsm_arc__fe__FE_DRAIN__FE_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_fe == 2'd3 ##1 s_fe == 2'd0);
   // ---- FSM HBM3E_Lite_top.eng: 17 states, 24 arcs ----
   fsm_st__eng__ENG_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_eng == 5'd0);
   fsm_st__eng__ENG_BANK_CHK: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_eng == 5'd1);
