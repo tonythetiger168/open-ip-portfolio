@@ -47,7 +47,7 @@ def timing_params(P):
             t[k.upper()] = int(v)
     for k, v in re.findall(r"parameter\s+integer\s+(\w+)\s*=\s*(\d+)", src):
         t[k.upper().replace("T_", "T")] = int(v)
-    keep = ["CL", "CWL", "TRCD", "TRP", "TRAS", "TRC", "TRRD", "TWR", "TWTR", "TRFC", "TRFC_PB", "TREFI"]
+    keep = ["CL", "CWL", "TBURST", "TRCD", "TRP", "TRAS", "TRC", "TRRD", "TWR", "TWTR", "TRFC", "TRFC_PB", "TREFI"]
     return {k: t[k] for k in keep if k in t}
 
 
@@ -166,7 +166,10 @@ def perf_section(P, notes=()):
     else:
         L.append("From the first clock the host presents the command to the clock `hrdata` is valid (read) "
                  "or the core can take the next command (write). Min and max over 8 samples in different "
-                 "banks, away from refresh, with the bank's timers (tRAS, tRC) already run out.")
+                 "banks, away from refresh, with the bank's timers (tRAS, tRC) already run out. "
+                 "A write is complete once its WR command is on the pins; write recovery (tWR), the "
+                 "write-to-read turnaround (tWTR) and the burst spacing (tCCD = TBURST) are enforced "
+                 "on the commands that follow it.")
     L.append("")
     L.append("| Command | Clocks | ns at Fmax |")
     L.append("|---|---|---|")
@@ -228,6 +231,9 @@ def summary():
          "controllers (`*_Lite`) move one 128-bit line (8 beats). Both have one command in flight, "
          "so throughput is latency-bound. Latency in clocks; MB/s at the estimated Fmax "
          "(SKY130 HD, typical corner, pre-layout, DRAM model array excluded).", "",
+         "The 2026-11 optimization pass (writes complete on the pins, exact timer spacing, no idle "
+         "clocks on the miss paths, read cut-through on the line controllers) is compared with the "
+         "previous figures in [perf/OPTIMIZATION_2026-11.md](perf/OPTIMIZATION_2026-11.md).", "",
          "| IP | Fmax MHz | Area mm2 | RD hit | RD closed | RD conflict | Seq RD MB/s | Random RD MB/s | Random mix MB/s | Refresh busy |",
          "|---|---|---|---|---|---|---|---|---|---|"]
     for d in rows:

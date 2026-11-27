@@ -6,6 +6,10 @@
 // Pins: {ras_n, cas_n, we_n} = 011 ACT, 101 RD, 100 WR, 010 PRE (addr[10]
 // set: all banks), 001 REF. Shared page / timing / data model: mem_chk.svh.
 `include "cov_macros.svh"
+// write-side spacings (rtl/GDDR5_top.sv: CWL 4, burst 2 clocks, tWR 12;
+// the per-bank tWTR fence is checked below)
+`define MEM_CHK_WR2PRE 18
+`define MEM_CHK_TCCD   2
 module GDDR5_sva (
   input logic        clk, rst_n, hvalid, hready, hdone, ck_t, ck_c, ras_n, cas_n, we_n, cke,
   input logic        trace_valid,
@@ -58,7 +62,7 @@ module GDDR5_sva (
   logic   v_twtr, e_wtr_bound;
   `define MEM_CHK_EXTRA \
     v_twtr = 0; e_wtr_bound = 0; \
-    if (q_pc == P_WR && op_v) t_wend[b] = n + CL; \
+    if (q_pc == P_WR && op_v) t_wend[b] = n + 4 + 2; /* CWL + burst */ \
     if (q_pc == P_RD && op_v) begin \
       if (n < t_wend[b] + TWTR) v_twtr = 1; \
       e_wtr_bound = n <= t_wend[b] + TWTR + 2; \

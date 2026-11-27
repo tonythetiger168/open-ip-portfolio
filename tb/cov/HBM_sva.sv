@@ -7,6 +7,11 @@
 // Pins: {ras_n, cas_n, we_n} = 011 ACT, 101 RD, 100 WR, 010 PRE (addr[10]
 // set: all banks), 001 REF. Shared page / timing / data model: mem_chk.svh.
 `include "cov_macros.svh"
+// write-side spacings (rtl/HBM_top.sv: CWL 4, burst 2 clocks, tWR 7,
+// tWTR 3)
+`define MEM_CHK_WR2PRE 13
+`define MEM_CHK_WR2RD  9
+`define MEM_CHK_TCCD   2
 module HBM_sva (
   input logic        clk, rst_n, hvalid, hready, hdone, ck_t, ck_c, ras_n, cas_n, we_n, cke,
   input logic        trace_valid,

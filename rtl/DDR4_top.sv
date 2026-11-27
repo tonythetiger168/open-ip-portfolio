@@ -35,6 +35,12 @@ module DDR4_top #(
   output logic [31:0] trace_addr
 );
   localparam int CL=15, TRCD=14, TRP=14, TRC=45, TRAS=32, TRFC=160, TREFI=6240;
+  // write timing: CAS write latency, write recovery (end of the write burst
+  // to PRE), write-to-read turnaround and CAS-to-CAS spacing (a BL8 burst
+  // holds the data bus 4 clocks)
+  localparam int CWL=11, TWR=16, TWTR=8, TCCD=4;
+  localparam int WR2PRE = CWL + 4 + TWR;    // WR command to PRE, same bank
+  localparam int WR2RD  = CWL + 4 + TWTR;   // WR command to RD, any bank
   localparam int CHW = (NCH <= 2) ? 1 : $clog2(NCH);   // channel select: haddr[8 +: CHW]
   localparam int NB = 4 * NCH;          // 4 banks per channel
 
@@ -42,6 +48,9 @@ module DDR4_top #(
   logic [NB-1:0] bank_open;
   logic [8:0] rp_t [0:NB-1], ras_t [0:NB-1], rc_t [0:NB-1];
   logic [8:0] timer;
+  localparam int WTRW = $clog2(WR2RD), CCDW = $clog2(TCCD);
+  logic [WTRW-1:0] wtr_t;              // WR-to-RD down-counter
+  logic [CCDW-1:0] ccd_t;              // CAS-to-CAS down-counter
   logic [13:0] ref_cnt;
 
   typedef enum logic [2:0] {D_IDLE, D_ACT, D_RCD, D_RD, D_CAS, D_WR, D_PRE} d_t;
@@ -56,7 +65,6 @@ module DDR4_top #(
   logic        rd_pending, ref_walk;
   logic        auto_act, pre_done, ref_req;
   logic        auto_rd, auto_wr;
-  logic        pre_need;             // the command's bank was open: PRE it
 
   wire [2:0] a_bank = {a_ch, haddr[10:9]};
   wire [2:0] c_bank2 = {c_ch, cur_addr[10:9]};
@@ -72,17 +80,20 @@ module DDR4_top #(
   wire act_ok = rp_z[act_bank] && (rc_t[act_bank] == 0);
   wire a_hit = bank_open[a_bank] && (open_row[a_bank] == haddr[31:18]);
   wire c_hit = bank_open[c_bank2] && (open_row[c_bank2] == cur_addr[31:18]);
+  wire rd_ok = (wtr_t == 0) && (ccd_t == 0);   // a RD may go on the pins now
+  wire wr_ok = (ccd_t == 0);                   // a WR may go on the pins now
 
   assign ck_t = clk;  assign ck_c = ~clk;  assign cke = rst_n;
   assign dqs  = 2'bzz;
   assign hready = (dstate == D_IDLE) && (ref_cnt != 0);   // a due refresh goes first
   assign hdone  = (dstate == D_CAS) && (timer == 0) && rd_pending;
-  assign trace_valid = (dstate == D_ACT && act_ok) || (dstate == D_RD) || (dstate == D_WR);
+  assign trace_valid = (dstate == D_ACT && act_ok) || (dstate == D_RD && rd_ok) ||
+                       (dstate == D_WR && wr_ok);
   assign trace_cmd   = (dstate == D_ACT) ? 3'd1 : (dstate == D_RD) ? 3'd2 : 3'd3;
   assign trace_addr  = cur_addr;
   // each channel owns dq[16*g +: 16]; only the addressed one drives a write
   for (genvar g = 0; g < NCH; g++) begin : g_dq
-    assign dq[16*g +: 16] = (dstate == D_WR && c_ch == g) ? wr_data : 16'hzzzz;
+    assign dq[16*g +: 16] = (dstate == D_WR && wr_ok && c_ch == g) ? wr_data : 16'hzzzz;
   end
 
   always_ff @(posedge clk or negedge rst_n) begin
@@ -90,8 +101,8 @@ module DDR4_top #(
       dstate <= D_IDLE; timer <= '0; ref_cnt <= TREFI[13:0];
       auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0;
       cur_addr <= '0; wr_data <= '0; rd_pending <= 1'b0;
-      ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= 1'b0;
-      cur_bank <= '0; act_bank <= '0;
+      ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0;
+      cur_bank <= '0; act_bank <= '0; wtr_t <= '0; ccd_t <= '0;
       ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1; addr <= '0; hrdata <= '0;
       for (int i = 0; i < NB; i++) begin
         open_row[i] <= '0; bank_open[i] <= 1'b0;
@@ -102,6 +113,8 @@ module DDR4_top #(
       if (dstate != D_PRE) pre_done <= 1'b0;
       if (timer != 0) timer <= timer - 1'b1;
       if (ref_cnt != 0) ref_cnt <= ref_cnt - 1'b1;
+      if (wtr_t != 0) wtr_t <= wtr_t - 1'b1;
+      if (ccd_t != 0) ccd_t <= ccd_t - 1'b1;
       for (int i = 0; i < NB; i++) begin
         if (rp_t[i]  != 0) rp_t[i]  <= rp_t[i]  - 1'b1;
         if (ras_t[i] != 0) ras_t[i] <= ras_t[i] - 1'b1;
@@ -113,7 +126,7 @@ module DDR4_top #(
           if (hvalid && ref_cnt != 0) begin
             cur_addr <= haddr; wr_data <= hwdata; cur_bank <= a_bank;
             rd_pending <= (hcmd == 3'd2); ref_walk <= 1'b0; auto_act <= 1'b0;
-            auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= bank_open[a_bank];
+            auto_rd <= 1'b0; auto_wr <= 1'b0;
             case (hcmd)
               3'd1: begin
                 act_bank <= a_bank;
@@ -129,18 +142,15 @@ module DDR4_top #(
               end
               3'd2, 3'd3: begin
                 if (!a_hit) begin
-                  if (bank_open[a_bank]) begin
-                    bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0];
-                  end
                   act_bank <= a_bank;
                   open_row[a_bank] <= haddr[31:18]; bank_open[a_bank] <= 1'b1;
                   auto_rd <= (hcmd == 3'd2); auto_wr <= (hcmd == 3'd3);
-                  dstate <= D_PRE;
+                  // a closed bank needs no PRE: straight to its ACT
+                  if (bank_open[a_bank]) dstate <= D_PRE; else dstate <= D_ACT;
                 end else if (hcmd == 3'd2) dstate <= D_RD; else dstate <= D_WR;
               end
               3'd4: begin
-                if (bank_open[a_bank]) begin bank_open[a_bank] <= 1'b0; rp_t[a_bank] <= TRP[8:0]; end
-                dstate <= D_PRE;
+                if (bank_open[a_bank]) begin bank_open[a_bank] <= 1'b0; dstate <= D_PRE; end
               end
               default: ;
             endcase
@@ -164,24 +174,25 @@ module DDR4_top #(
             dstate <= D_PRE;
           end else if (!pre_done) begin
             // PRE/PREA waits for tRAS, and tRP counts from the real issue
-            if (!ref_walk && !pre_need) pre_done <= 1'b1;   // bank already closed
-            else if (pre_ok) begin
+            // (only an open bank or a refresh gets here: a closed one goes
+            // straight to D_ACT)
+            if (pre_ok) begin
               ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b0; addr[10] <= ref_walk;
-              if (ref_walk) for (int i = 0; i < NB; i++) rp_t[i] <= TRP[8:0];
-              else rp_t[pre_tgt] <= TRP[8:0];
+              // timers load (spacing - 1): the command that waits on a
+              // timer goes on the pins at the edge it reads zero
+              if (ref_walk) for (int i = 0; i < NB; i++) rp_t[i] <= 9'(TRP - 1);
+              else rp_t[pre_tgt] <= 9'(TRP - 1);
               pre_done <= 1'b1;
             end
           end else begin
             if (ref_walk) begin                 // REF once tRP is met
               if (rp_ok) begin
                 ras_n <= 1'b0; cas_n <= 1'b0; we_n <= 1'b1;
-                timer <= TRFC[8:0]; dstate <= D_RCD;
+                timer <= 9'(TRFC - 3); dstate <= D_RCD;   // first pin command 3 edges after it reads 0
               end
             end
-            else if (auto_rd || auto_wr || auto_act) begin
-              if (rp_t[act_bank] == 0) dstate <= D_ACT;
-            end
-            else if (rp_ok) begin           // plain PRE: hold hready low through tRP
+            else if (auto_rd || auto_wr || auto_act) dstate <= D_ACT;   // D_ACT waits tRP
+            else begin                      // plain PRE: tRP is enforced at the next ACT
               ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE;
             end
           end
@@ -190,8 +201,8 @@ module DDR4_top #(
           if (act_ok) begin                 // tRP and tRC met for this bank
             ras_n <= 1'b0; cas_n <= 1'b1; we_n <= 1'b1;
             addr <= {3'b0, open_row[act_bank]};
-            ras_t[act_bank] <= TRAS[8:0]; rc_t[act_bank] <= TRC[8:0];
-            timer <= TRCD[8:0];
+            ras_t[act_bank] <= 9'(TRAS - 1); rc_t[act_bank] <= 9'(TRC - 1);
+            timer <= 9'(TRCD - 2);          // D_RD / D_WR follow one edge after it reads 0
             dstate <= D_RCD;
             auto_act <= 1'b0;
           end
@@ -205,20 +216,27 @@ module DDR4_top #(
             else begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
           end
         end
-        D_RD: begin
+        D_RD: if (rd_ok) begin              // tWTR and tCCD met
           cas_n <= 1'b0; we_n <= 1'b1;
           addr <= {9'b0, cur_addr[7:0]};
+          ccd_t <= CCDW'(TCCD - 1);
           dstate <= D_CAS; timer <= CL[8:0];
         end
-        D_WR: begin
+        D_WR: if (wr_ok) begin
+          // a write is complete once it is on the pins: no CAS-latency wait.
+          // Its bank may not be precharged before write recovery, and no RD
+          // may follow before the write-to-read turnaround.
           cas_n <= 1'b0; we_n <= 1'b0;
           addr <= {9'b0, cur_addr[7:0]};
-          dstate <= D_CAS; timer <= CL[8:0];
+          // (WR2PRE > tRAS - tRCD: never shorter than what tRAS still holds)
+          ras_t[c_bank2] <= 9'(WR2PRE - 1);
+          wtr_t <= WTRW'(WR2RD - 1); ccd_t <= CCDW'(TCCD - 1);
+          ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE;
         end
         D_CAS: begin
           cas_n <= 1'b1; we_n <= 1'b1;
           if (timer == 0) begin
-            if (rd_pending) hrdata <= dq[16*c_ch +: 16];   // the device's read word
+            hrdata <= dq[16*c_ch +: 16];   // only a RD waits here: the device's read word
             rd_pending <= 1'b0;
             begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
           end

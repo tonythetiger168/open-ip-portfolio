@@ -8,6 +8,11 @@
 // Pins: {ras_n, cas_n, we_n} = 011 ACT, 101 RD, 100 WR, 010 PRE (addr[10]
 // set: all banks), 001 REF. Shared page / timing / data model: mem_chk.svh.
 `include "cov_macros.svh"
+// write-side spacings (rtl/GDDR6_top.sv: CWL 6, burst 2 clocks, tWR 14,
+// tWTR 6)
+`define MEM_CHK_WR2PRE 22
+`define MEM_CHK_WR2RD  14
+`define MEM_CHK_TCCD   2
 module GDDR6_sva (
   input logic        clk, rst_n, hvalid, hready, hdone, ck_t, ck_c, ras_n, cas_n, we_n, cke,
   input logic        trace_valid,

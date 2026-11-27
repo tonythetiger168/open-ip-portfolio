@@ -17,7 +17,7 @@ cd "$(dirname "$0")/../.."
 for P in "$@"; do
   W=work/perf/$P
   mkdir -p "$W"
-  iverilog -g2012 -DMEM_PERF -I tb -o "$W/simv" "rtl/${P}_top.sv" "tb/${P}_tb.sv"
+  iverilog -g2012 -DMEM_PERF -I tb -I tb/cov -o "$W/simv" "rtl/${P}_top.sv" "tb/${P}_tb.sv"
   vvp -n "$W/simv" > "$W/sim.log"
   grep -q '^PERF_DONE' "$W/sim.log" || { echo "$P: performance run did not finish"; tail -5 "$W/sim.log"; exit 1; }
   # the synthesis result is reused while it is newer than the RTL
