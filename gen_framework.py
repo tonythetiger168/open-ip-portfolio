@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """open-ip-portfolio SV generator (Apache-2.0).
 Reads protocol names from the table CSV and emits per-protocol:
-  rtl/<P>_top.sv  tb/<P>_tb.sv  syn/<P>_yosys.ys  syn/<P>_msynth.tcl
+  rtl/<P>_top.sv  tb/<P>_tb.sv  syn/<P>_yosys.ys  syn/<P>_msynth.tcl  syn/<P>_dc.tcl
   syn/<P>.sdc  sim/filelist_<P>.f  Makefile  README.md
 """
 import os, csv, sys, re
@@ -673,6 +673,20 @@ write_json {S}_top.json
 write_verilog {S}_top_netlist.v
 """
 
+DC = """# {P} synthesis script -- Synopsys Design Compiler
+remove_design -all
+analyze -format sverilog ../rtl/{S}_top.sv
+elaborate {S}_top
+link
+read_sdc ../syn/{S}.sdc
+compile -map_effort medium
+report_area  > rpt/{S}_area.rpt
+report_timing > rpt/{S}_timing.rpt
+write -format ddc -output netlist/{S}_top.ddc
+write -format verilog -output netlist/{S}_top.v
+quit
+"""
+
 MSYNTH = """# {P} synthesis script -- msynth (minisim); run from a work directory
 read_verilog {{{FILES}}}
 elaborate {S}_top
@@ -729,6 +743,7 @@ rtl/{S}_top.sv         synthesizable SystemVerilog design (FSM + register file)
 tb/{S}_tb.sv           self-checking SystemVerilog testbench
 syn/{S}_yosys.ys      Yosys synthesis script (open-source)
 syn/{S}_msynth.tcl     msynth (minisim) synthesis script
+syn/{S}_dc.tcl         Synopsys Design Compiler script
 syn/{S}.sdc            timing constraints (100 MHz default)
 sim/filelist_{S}.f     simulator filelist
 Makefile               make sim / make syn / make clean
@@ -742,6 +757,8 @@ make sim
 mkdir -p work && make syn
 # msynth (minisim)
 mkdir -p work/rpt work/netlist && cd work && msynth -f ../syn/{S}_msynth.tcl
+# Design Compiler
+dc_shell -f syn/{S}_dc.tcl
 ```
 
 ## Notes
@@ -782,6 +799,8 @@ def generate(P):
     files = " ".join(([deps_path] if deps_path else []) + ["../rtl/%s_top.sv" % S])
     with open(os.path.join(BASE, "syn", S + "_msynth.tcl"), "w") as f:
         f.write(MSYNTH.format(P=P, S=S, p=p, FILES=files))
+    with open(os.path.join(BASE, "syn", S + "_dc.tcl"), "w") as f:
+        f.write(DC.format(P=P, S=S, p=p))
     with open(os.path.join(BASE, "syn", S + ".sdc"), "w") as f:
         f.write(SDC.format(P=P, S=S))
     with open(os.path.join(BASE, "sim", "filelist_%s.f" % S), "w") as f:
