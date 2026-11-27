@@ -42,7 +42,12 @@
 //   * a WR drives the host's write word on the channel's dq lanes;
 //   * hdone pulses exactly once per RD, exactly CL clocks after the RD
 //     command, and hrdata then holds the word last written to that cell;
-//   * hready returns only once the command's work is on the pins.
+//   * hready returns only once the command's work is on the pins;
+//   * optional write-side spacings, for cores whose WR completes once it is
+//     on the pins: `MEM_CHK_WR2PRE (WR to PRE of its bank: write recovery),
+//     `MEM_CHK_WR2RD (WR to any RD: write-to-read turnaround) and
+//     `MEM_CHK_TCCD (RD / WR to RD / WR: data-bus burst spacing), in clocks
+//     between the pin commands; 0 (the default) leaves a rule unchecked.
 `ifndef MEM_CHK_EXTRA
 `define MEM_CHK_EXTRA
 `endif
@@ -85,6 +90,15 @@
 `ifndef MEM_CHK_WR_DONE
 `define MEM_CHK_WR_DONE s_rw
 `endif
+`ifndef MEM_CHK_WR2PRE
+`define MEM_CHK_WR2PRE 0
+`endif
+`ifndef MEM_CHK_WR2RD
+`define MEM_CHK_WR2RD 0
+`endif
+`ifndef MEM_CHK_TCCD
+`define MEM_CHK_TCCD 0
+`endif
 
   logic        q_hready, q_hdone, q_tv;
   logic [15:0] q_hrdata;
@@ -96,7 +110,9 @@
   end
 
   longint      n, t_ref, t_refend, t_rdpin;
-  longint      t_act [0:NB-1], t_pre [0:NB-1];
+  longint      t_act [0:NB-1], t_pre [0:NB-1], t_wrp [0:NB-1];
+  longint      t_refb [0:NB-1];     // per-entry refresh: end of the entry's tRFC
+  longint      t_wrlast, t_caslast;      // last WR / last RD or WR on the pins
   logic        open_m [0:NB-1];
   logic [13:0] row_m [0:NB-1];
   logic [15:0] arr [0:NCELLS-1];
@@ -122,7 +138,7 @@
   // violations (checked one clock later by the assertions below)
   logic v_stray, v_closed, v_act_open, v_trcd, v_trp, v_trc, v_tras, v_trfc, v_ref_open,
         v_paddr, v_wdata, v_trace, v_hdone, v_lat, v_rdata, v_incomplete, v_stuck,
-        v_ref_late, v_ref_early, v_bad_pin, v_reopen;
+        v_ref_late, v_ref_early, v_bad_pin, v_reopen, v_wr2pre, v_wr2rd, v_ccd;
   // functional events
   logic e_rd_hit, e_rd_closed, e_rd_conf, e_wr_hit, e_wr_closed, e_wr_conf, e_act_closed,
         e_act_conf, e_act_same, e_pre_open, e_pre_closed, e_ref_idle, e_ref_act, e_ref_rd,
@@ -132,15 +148,17 @@
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       n = 0; t_ref = 0; t_refend = 0; t_rdpin = 0; busy = 0;
+      t_wrlast = -1000000; t_caslast = -1000000;
       op_v = 0; s_act = 0; s_rw = 0; s_pre = 0; s_done = 0; s_apre = 0; op_hit = 0; op_open = 0;
       p_tv = 0; p_done = 0; m_chk = 0; rb_m = 0;
       c_acc = 0; c_rdv = 0; c_cmd = 0; c_prev = 0; c_last = 0; c_col = 0; c_wd = 0; c_rdd = 0;
       for (int b = 0; b < NB; b++) begin
         open_m[b] = 0; row_m[b] = 0; t_act[b] = -1000000; t_pre[b] = -1000000;
+        t_wrp[b] = -1000000; t_refb[b] = -1000000;
       end
       {v_stray, v_closed, v_act_open, v_trcd, v_trp, v_trc, v_tras, v_trfc, v_ref_open,
        v_paddr, v_wdata, v_trace, v_hdone, v_lat, v_rdata, v_incomplete, v_stuck,
-       v_ref_late, v_ref_early, v_bad_pin, v_reopen} = '0;
+       v_ref_late, v_ref_early, v_bad_pin, v_reopen, v_wr2pre, v_wr2rd, v_ccd} = '0;
       {e_rd_hit, e_rd_closed, e_rd_conf, e_wr_hit, e_wr_closed, e_wr_conf, e_act_closed,
        e_act_conf, e_act_same, e_pre_open, e_pre_closed, e_ref_idle, e_ref_act, e_ref_rd,
        e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea, e_apre,
@@ -151,7 +169,7 @@
       int b, tb;
       {v_stray, v_closed, v_act_open, v_trcd, v_trp, v_trc, v_tras, v_trfc, v_ref_open,
        v_paddr, v_wdata, v_trace, v_hdone, v_lat, v_rdata, v_incomplete, v_stuck,
-       v_ref_late, v_ref_early, v_bad_pin, v_reopen} = '0;
+       v_ref_late, v_ref_early, v_bad_pin, v_reopen, v_wr2pre, v_wr2rd, v_ccd} = '0;
       {e_rd_hit, e_rd_closed, e_rd_conf, e_wr_hit, e_wr_closed, e_wr_conf, e_act_closed,
        e_act_conf, e_act_same, e_pre_open, e_pre_closed, e_ref_idle, e_ref_act, e_ref_rd,
        e_ref_wr, e_ref_pre, e_ign_busy, e_unknown, e_col0, e_col255, e_b2b, e_prea, e_apre,
@@ -175,7 +193,13 @@
       ta = drn ? `MEM_CHK_DRAIN_A : op_a;
       b = bank_of(ta);
       is_cmd = q_pc != P_NOP;
+`ifdef MEM_CHK_REF_PB
+      // per-entry refresh: only the refreshed entry is busy for tRFC (an ACT
+      // or the next REF to it); the other entries keep working
+      if ((q_pc == P_ACT && n < t_refb[b]) || (q_pc == P_REF && n < t_refb[tb])) v_trfc = 1;
+`else
       if (is_cmd && n < t_refend) v_trfc = 1;
+`endif
       // a RD / WR page hit goes straight to its burst
       if ((q_pc == P_ACT || q_pc == P_PRE) && op_v && !drn && op_hit && !s_rw &&
           (op_c == 3'd2 || op_c == 3'd3) && `MEM_CHK_HIT_KEEP) v_reopen = 1;
@@ -203,6 +227,8 @@
             if (n - t_act[b] < TRCD) v_trcd = 1;
             if (!pin_col_ok(q_pa, col_of(ta))) v_paddr = 1;
             if (p_wl !== `MEM_CHK_DRAIN_D) v_wdata = 1;
+            if (n - t_caslast < `MEM_CHK_TCCD) v_ccd = 1;
+            t_wrp[b] = n; t_wrlast = n; t_caslast = n;
             arr[cellof(ta)] = `MEM_CHK_DRAIN_D;
             `MEM_CHK_DRAIN_POP
           end
@@ -213,7 +239,11 @@
             if (n - t_act[b] < TRCD) v_trcd = 1;
             if (!pin_col_ok(q_pa, col_of(op_a))) v_paddr = 1;
             s_rw = 1;
+            if (n - t_caslast < `MEM_CHK_TCCD) v_ccd = 1;
+            if (q_pc == P_RD && n - t_wrlast < `MEM_CHK_WR2RD) v_wr2rd = 1;
+            t_caslast = n;
             if (q_pc == P_WR) begin
+              t_wrp[b] = n; t_wrlast = n;
               if ((p_wl & `MEM_CHK_WMASK) !== (op_d & `MEM_CHK_WMASK)) v_wdata = 1;
               arr[cellof(op_a)] = (arr[cellof(op_a)] & ~`MEM_CHK_WMASK) | (op_d & `MEM_CHK_WMASK);
             end else t_rdpin = n;
@@ -221,11 +251,13 @@
         end
         P_PRE: if (`MEM_CHK_PB && wd && !drn) begin   // per-entry refresh PRE
           if (open_m[tb] && n - t_act[tb] < TRAS) v_tras = 1;
+          if (n - t_wrp[tb] < `MEM_CHK_WR2PRE) v_wr2pre = 1;
           open_m[tb] = 0; t_pre[tb] = n; rpre = 1;
         end else begin
           if (!op_v || !drn && (s_apre || s_rw && !(`MEM_CHK_AP_OK))) v_stray = 1;
           else begin
             if (open_m[b] && n - t_act[b] < TRAS) v_tras = 1;
+            if (n - t_wrp[b] < `MEM_CHK_WR2PRE) v_wr2pre = 1;
             open_m[b] = 0; t_pre[b] = n;
             if (!drn) s_pre = 1;
             if (!drn && s_rw) begin s_apre = 1; e_apre = 1; end
@@ -235,6 +267,7 @@
           e_prea = 1;
           for (int i = 0; i < NB; i++) begin
             if (open_m[i] && n - t_act[i] < TRAS) v_tras = 1;
+            if (n - t_wrp[i] < `MEM_CHK_WR2PRE) v_wr2pre = 1;
             open_m[i] = 0; t_pre[i] = n;
           end
         end
@@ -243,7 +276,7 @@
             if (open_m[tb]) v_ref_open = 1;
             if (n - t_pre[tb] < TRP) v_trp = 1;
             for (int i = 0; i < NB; i++) if (i != tb && open_m[i]) e_refpb_others_open = 1;
-            rb_m = rb_m + 1;
+            rb_m = rb_m + 1; t_refb[tb] = n + TRFC;
           end else
           for (int i = 0; i < NB; i++) begin
             if (open_m[i]) v_ref_open = 1;
@@ -326,6 +359,9 @@
   `SVA_INV(a_trp, !v_trp)
   `SVA_INV(a_trc, !v_trc)
   `SVA_INV(a_tras, !v_tras)
+  `SVA_INV(a_wr_recovery, !v_wr2pre)
+  `SVA_INV(a_wr_to_rd, !v_wr2rd)
+  `SVA_INV(a_cas_to_cas, !v_ccd)
   `SVA_INV(a_trfc, !v_trfc)
   `SVA_INV(a_ref_all_closed, !v_ref_open)
   `SVA_INV(a_pin_address, !v_paddr)

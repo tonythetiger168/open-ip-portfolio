@@ -18,25 +18,25 @@
  },
  "impl": {
   "library": "sky130_fd_sc_hd tt_025C_1v80 (pre-layout)",
-  "logic_path_ns": 1.93,
-  "fmax_mhz": 412,
-  "area_um2": 36206,
-  "cells": 3016,
-  "flip_flops": 873,
+  "logic_path_ns": 1.98,
+  "fmax_mhz": 404,
+  "area_um2": 35665,
+  "cells": 2964,
+  "flip_flops": 871,
   "model_array_bits": 2097152
  },
  "latency_clk": {
   "rd_hit": [
-   31,
-   31
+   22,
+   22
   ],
   "rd_closed": [
-   37,
-   37
+   28,
+   28
   ],
   "rd_conflict": [
-   46,
-   46
+   37,
+   37
   ],
   "wr_hit": [
    28,
@@ -51,15 +51,15 @@
    43
   ]
  },
- "latency_rd_refresh_clk": 90,
+ "latency_rd_refresh_clk": 81,
  "throughput": {
   "seq_rd": {
    "ops": 2048,
-   "clk": 64378,
-   "clk_per_op": 31.43,
-   "bytes_per_clk": 0.509,
-   "host_util_pct": 25.4,
-   "mbyte_s_at_fmax": 209.7
+   "clk": 45697,
+   "clk_per_op": 22.31,
+   "bytes_per_clk": 0.717,
+   "host_util_pct": 35.9,
+   "mbyte_s_at_fmax": 289.7
   },
   "seq_wr": {
    "ops": 2048,
@@ -67,55 +67,55 @@
    "clk_per_op": 28.41,
    "bytes_per_clk": 0.563,
    "host_util_pct": 28.2,
-   "mbyte_s_at_fmax": 232.0
+   "mbyte_s_at_fmax": 227.5
   },
   "seq_rw": {
    "ops": 2048,
-   "clk": 62434,
-   "clk_per_op": 30.49,
-   "bytes_per_clk": 0.525,
-   "host_util_pct": 26.2,
-   "mbyte_s_at_fmax": 216.2
+   "clk": 53053,
+   "clk_per_op": 25.9,
+   "bytes_per_clk": 0.618,
+   "host_util_pct": 30.9,
+   "mbyte_s_at_fmax": 249.5
   },
   "ilv_rd": {
    "ops": 2048,
-   "clk": 64637,
-   "clk_per_op": 31.56,
-   "bytes_per_clk": 0.507,
-   "host_util_pct": 25.3,
-   "mbyte_s_at_fmax": 208.9
+   "clk": 45969,
+   "clk_per_op": 22.45,
+   "bytes_per_clk": 0.713,
+   "host_util_pct": 35.6,
+   "mbyte_s_at_fmax": 288.0
   },
   "conf_rd": {
    "ops": 2048,
-   "clk": 95069,
-   "clk_per_op": 46.42,
-   "bytes_per_clk": 0.345,
-   "host_util_pct": 17.2,
-   "mbyte_s_at_fmax": 142.0
+   "clk": 76579,
+   "clk_per_op": 37.39,
+   "bytes_per_clk": 0.428,
+   "host_util_pct": 21.4,
+   "mbyte_s_at_fmax": 172.9
   },
   "rnd_rd": {
    "ops": 2048,
-   "clk": 94303,
-   "clk_per_op": 46.05,
-   "bytes_per_clk": 0.347,
-   "host_util_pct": 17.4,
-   "mbyte_s_at_fmax": 143.2
+   "clk": 75995,
+   "clk_per_op": 37.11,
+   "bytes_per_clk": 0.431,
+   "host_util_pct": 21.6,
+   "mbyte_s_at_fmax": 174.2
   },
   "rnd_wr": {
    "ops": 2048,
-   "clk": 88387,
-   "clk_per_op": 43.16,
+   "clk": 88373,
+   "clk_per_op": 43.15,
    "bytes_per_clk": 0.371,
    "host_util_pct": 18.5,
-   "mbyte_s_at_fmax": 152.7
+   "mbyte_s_at_fmax": 149.8
   },
   "rnd_mix": {
    "ops": 2048,
-   "clk": 92924,
-   "clk_per_op": 45.37,
-   "bytes_per_clk": 0.353,
-   "host_util_pct": 17.6,
-   "mbyte_s_at_fmax": 145.3
+   "clk": 80811,
+   "clk_per_op": 39.46,
+   "bytes_per_clk": 0.405,
+   "host_util_pct": 20.3,
+   "mbyte_s_at_fmax": 163.8
   }
  },
  "refresh_idle": {
