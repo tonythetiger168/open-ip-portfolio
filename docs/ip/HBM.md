@@ -15,7 +15,7 @@ Protocol IP `HBM`, version 2.0. Apache-2.0.
 
 ## Overview
 
-HBM (HBM1-class) -- INDEPENDENT design IP #15/20. Architecture thesis: wide-I/O organization. 8 channels (haddr[10:8]) x 2 banks (haddr[11]): 16 page entries {ch, haddr[11]}, each with its own page state. Refresh is per entry: every tREFI one entry is precharged and refreshed, round-robin over all 16, while the other 15 keep their open pages. Short stacked-memory timings (CL=7). Contract identical to DDR_top.
+HBM (HBM1-class) -- INDEPENDENT design IP #15/20. Architecture thesis: wide-I/O organization. 8 channels (haddr[10:8]) x 2 banks (haddr[11]): 16 page entries {ch, haddr[11]}, each with its own page state. Refresh is per entry: every tREFI one entry is precharged and refreshed, round-robin over all 16, while the other 15 keep their open pages. Short stacked-memory timings (CL=7). Contract identical to DDR_top. The core holds no data: write words leave on dq, and the read word is taken from dq CL clocks after the RD command (the DRAM drives it).
 
 ck_t, ck_c, cke, addr, ras_n, cas_n, we_n, dq and dqs are the DRAM pins and trace_valid, trace_cmd and trace_addr the command trace (one clock before each command on the pins); they pass through unchanged.
 Address map and behaviour of the core: wide-I/O controller (16 page entries {channel haddr[10:8], bank haddr[11]}, row = haddr[31:18], storage = 256 columns per channel); per-entry refresh round-robin over the 16 entries.

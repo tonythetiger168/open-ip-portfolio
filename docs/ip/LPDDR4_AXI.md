@@ -14,7 +14,7 @@ Protocol IP `LPDDR4_AXI`, version 1.0. Apache-2.0.
 
 ## Overview
 
-LPDDR4_AXI: LPDDR4_top memory controller with an AXI4 subordinate port The unchanged LPDDR4_top core behind ddr_axi_slv (see that file for the AXI rules: INCR / FIXED / WRAP, AxSIZE 0..2, WSTRB read-modify-write, SLVERR on AxSIZE > 2 or a misplaced WLAST, one transaction at a time). LPDDR4_top keeps 256 16-bit columns per channel (NCH = 2: halfword h maps onto channel h[8], column h[7:0]). A write to column 0xF0 is the core's MR7 frequency-set write (bit 0 of the halfword: 0 set A, 1 set B); it does not change the array.
+LPDDR4_AXI: LPDDR4_top memory controller with an AXI4 subordinate port The unchanged LPDDR4_top core behind ddr_axi_slv (see that file for the AXI rules: INCR / FIXED / WRAP, AxSIZE 0..2, WSTRB read-modify-write, SLVERR on AxSIZE > 2 or a misplaced WLAST, one transaction at a time). LPDDR4_top addresses 256 16-bit columns per channel (NCH = 2: halfword h maps onto channel h[8], column h[7:0]); the data lives in the DRAM on the dq pins. A write to column 0xF0 is the core's MR7 frequency-set write (bit 0 of the halfword: 0 set A, 1 set B); it does not reach the DRAM.
 
 The AXI4 subordinate port (s_*) and the DRAM pins pass through the wrapper unchanged; the registers only read the front end's counters.
 Halfword h = addr[31:1] reaches the core as haddr = {h[24:11], 7'b0, h[10:0]}: channel h[8], column h[7:0], bank h[10:9], row h[24:11]. The core keeps 256 columns of 16 bits, so the AXI space aliases above 1 KB. A write to column 0xF0 is the core's MR7 frequency-set write and leaves the array unchanged.

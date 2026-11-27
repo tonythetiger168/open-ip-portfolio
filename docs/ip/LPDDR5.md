@@ -15,7 +15,7 @@ Protocol IP `LPDDR5`, version 2.0. Apache-2.0.
 
 ## Overview
 
-LPDDR5 -- INDEPENDENT design IP #8/20. Architecture thesis: dual-rank mobile controller. Rank = haddr[17]; banks are {rank, ch, haddr[10:9]} -> 16 independent row trackers. Each rank is its own device: storage is {rank, ch, column}. Refresh rotates through ALL 16 entries (per-bank style); rank switches are pure bank-index changes (no rank-to-rank tCCD modeling -- a documented simplification), and the rank travels in the bank field of the CA frame rather than on a second chip select. Self-contained; contract identical.
+LPDDR5 -- INDEPENDENT design IP #8/20. Architecture thesis: dual-rank mobile controller. Rank = haddr[17]; banks are {rank, ch, haddr[10:9]} -> 16 independent row trackers. Each rank is its own device: storage is {rank, ch, column}. Refresh rotates through ALL 16 entries (per-bank style); rank switches are pure bank-index changes (no rank-to-rank tCCD modeling -- a documented simplification), and the rank travels in the bank field of the CA frame rather than on a second chip select. Self-contained; contract identical. The core holds no data: write words leave on dq, and the read word is taken from dq CL clocks after the RD command (the DRAM drives it).
 
 ck_t, ck_c, cke, ca, cs_n, dq and dqs are the DRAM pins and trace_valid, trace_cmd and trace_addr the command trace (one clock before each command on the pins); they pass through unchanged.
 Address map and behaviour of the core: dual-rank mobile controller (bank = {haddr[17] rank, haddr[8] channel, haddr[10:9]}, row = haddr[31:18], storage = 256 columns per rank and channel), per-bank refresh over all 16; commands leave as framed beats on the 7-bit CA bus.

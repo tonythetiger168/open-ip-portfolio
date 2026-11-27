@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # DDR: design specification
 
-Legacy (DDR3-class) memory controller, the smallest of the family: two banks selected by `haddr[8]`, one open row per bank, all-bank refresh, no bank groups, no write buffer. Unlike the newer parts, RD / WR carry only a column and use whatever row the bank has open; a closed bank is first activated with the row in `haddr[31:18]`. Core `DDR_top` (`rtl/DDR_top.sv`), testbench `tb/DDR_tb.sv` (shared body
+Legacy (DDR3-class) memory controller, the smallest of the family: two banks selected by `haddr[8]`, one open row per bank, all-bank refresh, no bank groups, no write buffer. Unlike the newer parts, RD / WR carry only a column and use whatever row the bank has open; a closed bank is first activated with the row in `haddr[31:18]`. The core holds no data: write words go out on `dq` and read words come back on `dq` from the DRAM device, which the testbenches model (`tb/mem_dev.svh`). Core `DDR_top` (`rtl/DDR_top.sv`), testbench `tb/DDR_tb.sv` (shared body
 `tb/mem_tb_common.svh`), checker `tb/cov/DDR_sva.sv` (shared model `tb/cov/mem_chk.svh`). The host
 contract and the checker are shared by the whole memory-controller family; [DDR4.md](DDR4.md) is
 the baseline the others are described against.
@@ -135,8 +135,9 @@ only when that command's work is complete on the pins (an engine may wait longer
 `hready` is also 0 while a refresh is due or running (§3.6), so a refresh never drops a host
 command. `hready` is never low for more than BUSY_MAX clocks in a row (§3.5).
 
-A RD returns the word last written to the storage cell its address maps to (§3.2), or 0 if that
-cell was never written (the array is zeroed once at time 0 and is not cleared by `rst_n`).
+A RD returns the word the device drives on `dq` for it (§3.7). With the TB's device that is the
+word last written to the storage cell the address maps to (§3.2), or 0 if that cell was never
+written (the device array starts zeroed and keeps its data through `rst_n`).
 
 ### 3.2 Address map and storage
 
@@ -146,7 +147,7 @@ cell was never written (the array is zeroed once at time 0 and is not cleared by
 | bank | `haddr[8]` | 2 banks |
 | column | `haddr[7:0]` | 256 columns |
 
-Storage is 256 16-bit words indexed by the column only (cell = column): both banks and every row
+The core holds no data; the TB's device (`tb/mem_dev.svh`) stores 256 16-bit words indexed by the column only (cell = column): both banks and every row
 alias onto the same 256 cells.
 
 ### 3.3 Pin commands
@@ -214,11 +215,12 @@ REF-to-REF spacing stays within REF_MIN .. REF_MAX.
 ### 3.7 Data
 
 Write: the write word is driven on `dq[16 x ch +: 16]` of the command's channel in the clock
-before the WR pin command (the clock of its trace announcement) and the cell is written; `dq` is
+before the WR pin command (the clock of its trace announcement), where the device stores it; `dq` is
 high-Z in every other clock (the other channels' lanes too).
 
-Read: the RD pin command is on the pins in clock t; `hdone` = 1 in clock t + CL; `hrdata` holds
-the cell's word from clock t + CL + 1 until the next read completes.
+Read: the RD pin command is on the pins in clock t; the device drives the word on
+`dq[16 x ch +: 16]` in clock t + CL, where `hdone` = 1, and the core takes it at the end of that
+clock: `hrdata` holds it from clock t + CL + 1 until the next read completes.
 
 ### 3.8 Trace port
 
@@ -229,8 +231,7 @@ does not announce PRE, PREA or REF).
 ### 3.9 Reset
 
 `rst_n` low: idle, every bank closed and every timer 0, `ref_cnt` = TREFI, `hready` = 1, command
-pins NOP, `addr` = 0, `hrdata` = 0, `hdone` = 0, `trace_valid` = 0, `cke` = 0, `dq` released. The
-storage array keeps its contents.
+pins NOP, `addr` = 0, `hrdata` = 0, `hdone` = 0, `trace_valid` = 0, `cke` = 0, `dq` released. The DRAM device keeps its array.
 
 ## 4. Parameters
 
@@ -248,8 +249,8 @@ storage array keeps its contents.
 | PRE of a closed bank | no pin command; `hready` returns once that bank's tRP (from an earlier PRE) has passed |
 | refresh due during a command | the command finishes first; the refresh follows before `hready` |
 | a stream of no-op commands | cannot hold off a refresh (`hready` drops when it is due) |
-| two addresses with the same storage cell | aliasing (§3.2) |
-| reset with a command in flight | the command is lost; a WR may or may not have reached the array |
+| two addresses with the same storage cell | the same cell of the TB's device (aliasing, §3.2) |
+| reset with a command in flight | the command is lost; a WR may or may not have reached the device |
 | RD / WR naming a row other than the open one | served from the open row; no PRE / ACT |
 
 ## 6. TB check map

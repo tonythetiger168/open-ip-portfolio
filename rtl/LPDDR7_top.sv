@@ -9,6 +9,8 @@
 // traffic rather than being fixed per IP. 8 banks, per-bank refresh.
 // Commands reach the pins as framed beats on the 8-bit CA bus. Contract
 // identical to DDR_top. Timings projected.
+// The core holds no data: write words leave on dq, and the read word is
+// taken from dq CL clocks after the RD command (the DRAM drives it).
 // ============================================================================
 module LPDDR7_top #(
   parameter int NCH = 2
@@ -44,14 +46,6 @@ module LPDDR7_top #(
   localparam int CHW = (NCH <= 2) ? 1 : $clog2(NCH);   // channel select: haddr[8 +: CHW]
   localparam int NB = 8;
 
-  logic [15:0] mem [0:(1<<CHW)*256-1];   // NCH ch x 256 col
-  // array contents are not cleared by rst_n (a DRAM keeps its data);
-  // zero them once for deterministic simulation
-  // sim-only clear; yosys (SYNTHESIS) would unroll it into one assignment per
-  // line, which takes minutes and GBs for no netlist change
-`ifndef SYNTHESIS
-  initial for (int i = 0; i <= (1<<CHW)*256-1; i++) mem[i] = '0;
-`endif
   logic [13:0] open_row [0:NB-1];
   logic [NB-1:0] bank_open;
   logic [1:0]  hit_cnt [0:NB-1];        // adaptive-page evidence
@@ -273,7 +267,6 @@ module LPDDR7_top #(
         D_WR: if (wr_ok) begin
           cas_n <= 1'b0; we_n <= 1'b0; ba <= cur_bank;
           addr <= {9'b0, cur_addr[7:0]};
-          mem[{c_ch, cur_addr[7:0]}] <= wr_data;
           // complete once on the pins: D_CAS exits next clock (no CL wait)
           ras_t[cur_bank] <= 9'(WR2PRE - 1);   // WR2PRE > tRAS - tRCD: never shorter than tRAS
           wtr_t <= WTRW'(WR2RD - 1); ccd_t <= CCDW'(TBURST - 1);
@@ -282,7 +275,7 @@ module LPDDR7_top #(
         D_CAS: begin
           cas_n <= 1'b1; we_n <= 1'b1;
           if (timer == 0) begin
-            if (rd_pending) hrdata <= mem[{c_ch, cur_addr[7:0]}];
+            if (rd_pending) hrdata <= dq[16*c_ch +: 16];   // the device's read word
             rd_pending <= 1'b0;
             if (auto_close) begin
               auto_close <= 1'b0; pre_need <= 1'b1;

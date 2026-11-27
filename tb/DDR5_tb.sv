@@ -42,6 +42,11 @@ module DDR5_tb;
     act(mk(7, 14'h18, 0)); wr(mk(7, 14'h18, 8'h42), 16'h8888); rd(mk(7, 14'h18, 8'h42));
   endtask
 
+  // DRAM device (tb/mem_dev.svh): the core keeps no array of its own
+  `define MEM_DEV_RD ({ras_n, cas_n, we_n} == 3'b101)
+  `define MEM_DEV_WR ({ras_n, cas_n, we_n} == 3'b100)
+  `define MEM_DEV_CL 22
+  `define MEM_DEV_CH(a) int'(a[8])
   `include "mem_tb_common.svh"
 
   initial begin

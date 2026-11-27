@@ -55,6 +55,11 @@ module LPDDR6_tb;
     idle(REFI * 18);
   endtask
 
+  // DRAM device (tb/mem_dev.svh): the core keeps no array of its own
+  `define MEM_DEV_RD (!cs_n && ca[7:5] == 3'd2)
+  `define MEM_DEV_WR (!cs_n && ca[7:5] == 3'd3)
+  `define MEM_DEV_CL 24
+  `define MEM_DEV_CH(a) int'(a[8])
   `include "mem_tb_common.svh"
 
   initial begin

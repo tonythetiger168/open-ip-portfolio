@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # LPDDR6: design specification
 
-Projected deep mobile controller: 16 banks per channel in two bank groups (group = `haddr[11]`) with group-aware ACT spacing (tRRD_L = 8 clocks within a group, tRRD_S = 4 across). A host ACT completes once its ACT is on the pins (tRCD is kept per bank and enforced at the RD / WR), so back-to-back ACTs are spaced by tRRD alone. Per-bank refresh over all 16 entries; commands reach the pins as framed beats on the 8-bit CA bus. Core `LPDDR6_top` (`rtl/LPDDR6_top.sv`), testbench `tb/LPDDR6_tb.sv` (shared body
+Projected deep mobile controller: 16 banks per channel in two bank groups (group = `haddr[11]`) with group-aware ACT spacing (tRRD_L = 8 clocks within a group, tRRD_S = 4 across). A host ACT completes once its ACT is on the pins (tRCD is kept per bank and enforced at the RD / WR), so back-to-back ACTs are spaced by tRRD alone. Per-bank refresh over all 16 entries; commands reach the pins as framed beats on the 8-bit CA bus. The core holds no data: write words go out on `dq` and read words come back on `dq` from the DRAM device, which the testbenches model (`tb/mem_dev.svh`). Core `LPDDR6_top` (`rtl/LPDDR6_top.sv`), testbench `tb/LPDDR6_tb.sv` (shared body
 `tb/mem_tb_common.svh`), checker `tb/cov/LPDDR6_sva.sv` (shared model `tb/cov/mem_chk.svh`). The host
 contract and the checker are shared by the whole memory-controller family; [DDR4.md](DDR4.md) is
 the baseline the others are described against.
@@ -136,8 +136,9 @@ only when that command's work is complete on the pins (an engine may wait longer
 `hready` is also 0 while a refresh is due or running (§3.6), so a refresh never drops a host
 command. `hready` is never low for more than BUSY_MAX clocks in a row (§3.5).
 
-A RD returns the word last written to the storage cell its address maps to (§3.2), or 0 if that
-cell was never written (the array is zeroed once at time 0 and is not cleared by `rst_n`).
+A RD returns the word the device drives on `dq` for it (§3.7). With the TB's device that is the
+word last written to the storage cell the address maps to (§3.2), or 0 if that cell was never
+written (the device array starts zeroed and keeps its data through `rst_n`).
 
 ### 3.2 Address map and storage
 
@@ -149,7 +150,7 @@ cell was never written (the array is zeroed once at time 0 and is not cleared by
 | column | `haddr[7:0]` | 256 columns |
 
 Bank entry = {channel, bank} (16 entries, numbered channel x 8 + bank). Bank group = `haddr[11]`.
-Storage is 256 16-bit words per channel indexed by the column (cell = {channel, column}); banks
+The core holds no data; the TB's device (`tb/mem_dev.svh`) stores 256 16-bit words per channel indexed by the column (cell = {channel, column}); banks
 and rows alias onto it.
 
 ### 3.3 Pin commands
@@ -219,11 +220,12 @@ be activated again. REF-to-REF spacing stays within REF_MIN .. REF_MAX.
 ### 3.7 Data
 
 Write: the write word is driven on `dq[16 x ch +: 16]` of the command's channel in the clock
-before the WR pin command (the clock of its trace announcement) and the cell is written; `dq` is
+before the WR pin command (the clock of its trace announcement), where the device stores it; `dq` is
 high-Z in every other clock (the other channels' lanes too).
 
-Read: the RD pin command is on the pins in clock t; `hdone` = 1 in clock t + CL; `hrdata` holds
-the cell's word from clock t + CL + 1 until the next read completes.
+Read: the RD pin command is on the pins in clock t; the device drives the word on
+`dq[16 x ch +: 16]` in clock t + CL, where `hdone` = 1, and the core takes it at the end of that
+clock: `hrdata` holds it from clock t + CL + 1 until the next read completes.
 
 ### 3.8 Trace port
 
@@ -234,8 +236,7 @@ does not announce PRE, PREA or REF).
 ### 3.9 Reset
 
 `rst_n` low: idle, every bank closed and every timer 0, `ref_cnt` = TREFI, `hready` = 1, command
-bus NOP, `cs_n` = 1, `ca` = 0, `addr` = 0, `hrdata` = 0, `hdone` = 0, `trace_valid` = 0, `cke` = 0, `dq` released. The
-storage array keeps its contents. `ref_bank` = 0.
+bus NOP, `cs_n` = 1, `ca` = 0, `addr` = 0, `hrdata` = 0, `hdone` = 0, `trace_valid` = 0, `cke` = 0, `dq` released. The DRAM device keeps its array. `ref_bank` = 0.
 
 ## 4. Parameters
 
@@ -253,8 +254,8 @@ storage array keeps its contents. `ref_bank` = 0.
 | PRE of a closed bank | no pin command; `hready` returns once that bank's tRP (from an earlier PRE) has passed |
 | refresh due during a command | the command finishes first; the refresh follows before `hready` |
 | a stream of no-op commands | cannot hold off a refresh (`hready` drops when it is due) |
-| two addresses with the same storage cell | aliasing (§3.2) |
-| reset with a command in flight | the command is lost; a WR may or may not have reached the array |
+| two addresses with the same storage cell | the same cell of the TB's device (aliasing, §3.2) |
+| reset with a command in flight | the command is lost; a WR may or may not have reached the device |
 | refresh | closes only the bank it refreshes (if open); other pages stay open |
 | ACTs to different banks back to back | spaced by tRRD_S / tRRD_L, not by tRCD |
 

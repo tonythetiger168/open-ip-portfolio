@@ -35,6 +35,7 @@ module func_lpddr4_tb;
   endfunction
   task automatic mrw(input logic [15:0] d); fset = d[0]; endtask
 
+  `define FUNC_DEV_DRIVE   // the core keeps no array: the device drives read words
   `include "func_mem_model.svh"
 
   // ------------------------------ CA decoder ------------------------------
@@ -65,6 +66,7 @@ module func_lpddr4_tb;
       end
       3'd2, 3'd3: begin
         chk(f_pay[11:8] == 0 && f_pay[7:0] == f_ta[7:0], $sformatf("column %h, host column %h", f_pay[7:0], f_ta[7:0]));
+        dq_lane = f_bank[2];   // channel of the read word (FUNC_DEV_DRIVE)
         dev_cas(f_code == 3'd3, f_bank, f_ta[31:18], {f_bank[2], f_pay[7:0]}, f_wd);
       end
       default: ;
@@ -112,7 +114,8 @@ module func_lpddr4_tb;
       end else chk(ca === 6'h0, "CA not 0 between frames");
       if (p_tv && !(!cs_n && ca[5:3] == p_tc)) fail("trace not followed by its command");
       if (p_dqd != 0) chk(!cs_n && ca[5:3] == 3'd3, "DQ driven without a WR");
-      p_dqd = {dq[31:16] !== 16'hzzzz, dq[15:0] !== 16'hzzzz};
+      // (f_oe: the device itself drives a read word now)
+      p_dqd = f_oe ? 2'b00 : {dq[31:16] !== 16'hzzzz, dq[15:0] !== 16'hzzzz};
       if (p_dqd != 0)    // one channel at a time, only for a write, never X
         chk(trace_valid && trace_cmd == 3'd3 && (p_dqd == 2'b01 || p_dqd == 2'b10) &&
             (^(p_dqd[0] ? dq[15:0] : dq[31:16])) !== 1'bx, "DQ driven outside a write");

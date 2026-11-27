@@ -41,6 +41,12 @@ module GDDR6_tb;
     m = $urandom; m[7:0] = 8'hF2;
     cmd(3'd3, m, {15'($urandom), x8});
   endtask
+  // DRAM device (tb/mem_dev.svh): the core keeps no array of its own
+  `define MEM_DEV_RD ({ras_n, cas_n, we_n} == 3'b101)
+  `define MEM_DEV_WR ({ras_n, cas_n, we_n} == 3'b100)
+  `define MEM_DEV_CL 16
+  `define MEM_DEV_CH(a) int'(a[8])
+  `define MEM_DEV_WMASK (dut.x8_mode ? 16'h00FF : 16'hFFFF)
   `include "mem_tb_common.svh"
   // ip_extra uses the scoreboard (sb, sbv) declared in the common include
   task automatic ip_extra;

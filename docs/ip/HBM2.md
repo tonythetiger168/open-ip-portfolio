@@ -15,7 +15,7 @@ Protocol IP `HBM2`, version 2.0. Apache-2.0.
 
 ## Overview
 
-HBM2 -- INDEPENDENT design IP #16/20. Architecture thesis: 8 independent pseudo-channels per channel: page entry = {ch haddr[10:8], pc haddr[13:11]} (64 entries), each with its own page state; per-entry refresh rotates across all 64, so a refresh closes one pc while its neighbours keep their pages. RD / WR carry only the column and use the pc's open row (a closed pc is activated with haddr[31:18]). HBM2E-class timings. Contract identical to DDR_top.
+HBM2 -- INDEPENDENT design IP #16/20. Architecture thesis: 8 independent pseudo-channels per channel: page entry = {ch haddr[10:8], pc haddr[13:11]} (64 entries), each with its own page state; per-entry refresh rotates across all 64, so a refresh closes one pc while its neighbours keep their pages. RD / WR carry only the column and use the pc's open row (a closed pc is activated with haddr[31:18]). HBM2E-class timings. Contract identical to DDR_top. The core holds no data: write words leave on dq, and the read word is taken from dq CL clocks after the RD command (the DRAM drives it).
 
 ck_t, ck_c, cke, addr, ras_n, cas_n, we_n, dq and dqs are the DRAM pins and trace_valid, trace_cmd and trace_addr the command trace (one clock before each command on the pins); they pass through unchanged.
 Address map and behaviour of the core: pseudo-channel controller (64 page entries {channel haddr[10:8], pc haddr[13:11]}, row = haddr[31:18], storage = 256 columns per channel; RD / WR use the pc's open row); per-entry refresh over all 64.

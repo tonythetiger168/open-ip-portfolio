@@ -15,7 +15,7 @@ Protocol IP `HBM3`, version 2.0. Apache-2.0.
 
 ## Overview
 
-HBM3 -- INDEPENDENT design IP #17/20. Architecture thesis: 16 pseudo-channels per channel: page entry = {ch haddr[10:8], pc haddr[14:11]} (128 entries), served by one shared engine (a single global ACT path for the whole pc space) with per-entry refresh rotating over all 128. The state arrays are indexed directly by the entry field. HBM3-class timings (CL=10). Contract identical.
+HBM3 -- INDEPENDENT design IP #17/20. Architecture thesis: 16 pseudo-channels per channel: page entry = {ch haddr[10:8], pc haddr[14:11]} (128 entries), served by one shared engine (a single global ACT path for the whole pc space) with per-entry refresh rotating over all 128. The state arrays are indexed directly by the entry field. HBM3-class timings (CL=10). Contract identical. The core holds no data: write words leave on dq, and the read word is taken from dq CL clocks after the RD command (the DRAM drives it).
 
 ck_t, ck_c, cke, addr, ras_n, cas_n, we_n, dq and dqs are the DRAM pins and trace_valid, trace_cmd and trace_addr the command trace (one clock before each command on the pins); they pass through unchanged.
 Address map and behaviour of the core: pseudo-channel controller (128 page entries {channel haddr[10:8], pc haddr[14:11]}, row = haddr[31:18], storage = 256 columns per channel); per-entry refresh over all 128.
