@@ -47,12 +47,26 @@
   int          rq_t [$];
   logic [15:0] rq_d [$];
   int          rq_cl [$];
+  int          rq_ln [$];
+  // FUNC_DEV_DRIVE: the controller keeps no array, so the device drives the
+  // read word on the channel's dq lanes (dq_lane, set by the TB before
+  // dev_cas) over the clock edge where the controller takes it: from the
+  // falling edge CL clocks after the RD to the next falling edge
+  int          dq_lane = 0;
+  logic        f_oe = 1'b0;
+  logic [15:0] f_word = '0;
+  int          f_lane = 0;
+`ifdef FUNC_DEV_DRIVE
+  for (genvar g = 0; g < NCH; g++) begin : g_fdq
+    assign dq[16*g +: 16] = (f_oe && f_lane == g) ? f_word : 16'hzzzz;
+  end
+`endif
 
   task automatic dev_reset();
     for (int b = 0; b < NBK; b++) begin
       b_open[b] = 0; b_row[b] = 0; t_act[b] = NEVER; t_pre[b] = NEVER; t_ref[b] = NEVER;
     end
-    t_ref_any = cyc; rq_t.delete(); rq_d.delete(); rq_cl.delete();
+    t_ref_any = cyc; rq_t.delete(); rq_d.delete(); rq_cl.delete(); rq_ln.delete(); f_oe = 1'b0;
   endtask
 
   task automatic dev_act(input int b, input logic [13:0] row);
@@ -75,7 +89,7 @@
     if (wr) begin n_wr++; dmem[ci] = d; end
     else begin
       n_rd++;
-      rq_t.push_back(cyc); rq_d.push_back(dmem[ci]); rq_cl.push_back(cl_now());
+      rq_t.push_back(cyc); rq_d.push_back(dmem[ci]); rq_cl.push_back(cl_now()); rq_ln.push_back(dq_lane);
     end
   endtask
 
@@ -139,13 +153,17 @@
       chk(hrdata == exp_host, $sformatf("read data %h, the host wrote %h", hrdata, exp_host));
     end
     done_q = 0;
+    f_oe = 1'b0;
+    if (rq_t.size() != 0 && cyc - rq_t[0] == rq_cl[0]) begin
+      f_oe = 1'b1; f_word = rq_d[0]; f_lane = rq_ln[0];
+    end
     if (hdone) begin
       n_done++;
       if (rq_t.size() == 0 || hq.size() == 0) fail("hdone without a read in flight");
       else begin
         chk(cyc - rq_t[0] == rq_cl[0], $sformatf("hdone %0d clocks after RD, CL is %0d", cyc - rq_t[0], rq_cl[0]));
         exp_dev = rq_d.pop_front(); exp_host = hq.pop_front();
-        void'(rq_t.pop_front()); void'(rq_cl.pop_front());
+        void'(rq_t.pop_front()); void'(rq_cl.pop_front()); void'(rq_ln.pop_front());
         done_q = 1;
       end
     end

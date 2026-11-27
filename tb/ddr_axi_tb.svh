@@ -158,7 +158,7 @@
       if (s_rid != id) fail($sformatf("RID %0h, expected %0h", s_rid, id));
       if (s_rlast != (n == len)) fail($sformatf("RLAST %0d on beat %0d of %0d", s_rlast, n, len + 1));
       if (s_rresp != (bad ? 2'b10 : 2'b00)) fail($sformatf("RRESP %0d (bad=%0d)", s_rresp, bad));
-      if (!bad && s_rdata != e)
+      if (!bad && s_rdata !== e)
         fail($sformatf("read %08h beat %0d: %08h, expected %08h", ba, n, s_rdata, e));
       if (n == len) lat(0, cyc - t0);
       @(negedge clk);

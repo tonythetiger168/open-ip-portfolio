@@ -4,8 +4,10 @@
 // Architecture thesis: the classic 4-bank open-page controller, in-order
 // single engine. Banks indexed by {ch, haddr[10:9]}; per-bank open-row with
 // miss-detect (auto PRE+ACT); all-bank refresh; AL=0; fixed BL. This is the
-// family baseline every other IP differentiates from. Self-contained.
-// External contract: identical to DDR (legacy) -- see DDR_top header.
+// family baseline every other IP differentiates from.
+// External contract: identical to DDR (legacy) -- see DDR_top header,
+// except that the core holds no data: write words leave on dq, and the read
+// word is taken from dq CL clocks after the RD command (the DRAM drives it).
 // ============================================================================
 module DDR4_top #(
   parameter int NCH = 1
@@ -42,14 +44,6 @@ module DDR4_top #(
   localparam int CHW = (NCH <= 2) ? 1 : $clog2(NCH);   // channel select: haddr[8 +: CHW]
   localparam int NB = 4 * NCH;          // 4 banks per channel
 
-  logic [15:0] mem [0:(1<<CHW)*256-1];   // NCH ch x 256 col
-  // array contents are not cleared by rst_n (a DRAM keeps its data);
-  // zero them once for deterministic simulation
-  // sim-only clear; yosys (SYNTHESIS) would unroll it into one assignment per
-  // line, which takes minutes and GBs for no netlist change
-`ifndef SYNTHESIS
-  initial for (int i = 0; i <= (1<<CHW)*256-1; i++) mem[i] = '0;
-`endif
   logic [13:0] open_row [0:NB-1];
   logic [NB-1:0] bank_open;
   logic [8:0] rp_t [0:NB-1], ras_t [0:NB-1], rc_t [0:NB-1];
@@ -234,7 +228,6 @@ module DDR4_top #(
           // may follow before the write-to-read turnaround.
           cas_n <= 1'b0; we_n <= 1'b0;
           addr <= {9'b0, cur_addr[7:0]};
-          mem[{c_ch, cur_addr[7:0]}] <= wr_data;
           // (WR2PRE > tRAS - tRCD: never shorter than what tRAS still holds)
           ras_t[c_bank2] <= 9'(WR2PRE - 1);
           wtr_t <= WTRW'(WR2RD - 1); ccd_t <= CCDW'(TCCD - 1);
@@ -243,7 +236,7 @@ module DDR4_top #(
         D_CAS: begin
           cas_n <= 1'b1; we_n <= 1'b1;
           if (timer == 0) begin
-            hrdata <= mem[{c_ch, cur_addr[7:0]}];   // only a RD waits here
+            hrdata <= dq[16*c_ch +: 16];   // only a RD waits here: the device's read word
             rd_pending <= 1'b0;
             begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
           end

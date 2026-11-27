@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // DDR4 TB: 4-bank open-page controller (banks = haddr[10:9], row =
-// haddr[31:18], storage = 256 columns). Shared host tests in
-// mem_tb_common.svh; the checker tb/cov/DDR4_sva.sv checks every pin.
+// haddr[31:18], 256 columns). Shared host tests in mem_tb_common.svh; the
+// DRAM device (the array) is tb/mem_dev.svh; the checker tb/cov/DDR4_sva.sv
+// checks every pin.
 `timescale 1ns/1ps
 `ifndef VERILATOR
 `include "DDR4_sva.sv"
@@ -33,6 +34,9 @@ module DDR4_tb;
     cellof = a[7:0];
   endfunction
   task automatic ip_extra; endtask
+  localparam int CL = 15;
+  `define MEM_DEV_RD ({ras_n, cas_n, we_n} == 3'b101)
+  `define MEM_DEV_WR ({ras_n, cas_n, we_n} == 3'b100)
 
   `include "mem_tb_common.svh"
 

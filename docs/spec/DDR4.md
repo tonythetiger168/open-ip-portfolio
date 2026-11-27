@@ -3,8 +3,9 @@
 
 The family baseline memory controller: a classic 4-bank open-page controller with one in-order
 command engine. Each bank keeps one open row; a RD / WR to another row closes and re-opens the
-bank automatically (PRE + ACT); refresh is all-bank. The DRAM itself is modelled inside the core
-as a small array, so the core is self-contained. Core `DDR4_top` (`rtl/DDR4_top.sv`), testbench
+bank automatically (PRE + ACT); refresh is all-bank. The core holds no data: write words go out
+on `dq` and read words come back on `dq` from the DRAM device, which the testbenches model
+(`tb/mem_dev.svh`). Core `DDR4_top` (`rtl/DDR4_top.sv`), testbench
 `tb/DDR4_tb.sv` (shared body `tb/mem_tb_common.svh`), checker `tb/cov/DDR4_sva.sv` (shared model
 `tb/cov/mem_chk.svh`). The AXI4 version of this core is [DDR4_AXI](DDR4_AXI.md); the other
 controllers of the family are described relative to the same host contract.
@@ -33,7 +34,7 @@ asynchronously by `rst_n` low. *Clock t* is the clock period after edge t. A pin
 | `ras_n` | output | 1 | command pin RAS# | low | `clk` | 1 |
 | `cas_n` | output | 1 | command pin CAS# | low | `clk` | 1 |
 | `we_n` | output | 1 | command pin WE# | low | `clk` | 1 |
-| `dq` | inout | NCH x 16 | data; driven only with write data (§3.7), else high-Z | - | `clk` | high-Z |
+| `dq` | inout | NCH x 16 | data; driven only with write data (§3.7), else high-Z; the read word is taken from it CL clocks after a RD | - | `clk` | high-Z |
 | `dqs` | inout | 2 | data strobe; never driven (high-Z) | - | `clk` | high-Z |
 | `cke` | output | 1 | clock enable = `rst_n` | high | `clk` | 0 |
 | `trace_valid` | output | 1 | a pin command ACT / RD / WR comes in the next clock | high | `clk` | 0 |
@@ -138,8 +139,9 @@ only when that command's work is complete on the pins (an engine may wait longer
 `hready` is also 0 while a refresh is due or running (§3.6), so a refresh never drops a host
 command. `hready` is never low for more than BUSY_MAX clocks in a row (§3.5).
 
-A RD returns the word last written to the storage cell its address maps to (§3.2), or 0 if that
-cell was never written (the array is zeroed once at time 0 and is not cleared by `rst_n`).
+A RD returns the word the device drives on `dq` for it (§3.7). With the TB's device that is the
+word last written to the storage cell the address maps to (§3.2), or 0 if that cell was never
+written (the device array starts zeroed and keeps its data through `rst_n`).
 
 ### 3.2 Address map and storage
 
@@ -150,10 +152,11 @@ cell was never written (the array is zeroed once at time 0 and is not cleared by
 | channel | `haddr[8]` (NCH = 2 only) | ignored when NCH = 1 |
 | column | `haddr[7:0]` | 256 columns |
 
-Bank entry = {channel, bank} (4 x NCH entries; each has its own open row and timers). Storage is
-256 16-bit words per channel indexed by the column only: the bank and row select the page that
-must be open, not the storage, so every bank and row of a channel aliases onto the same 256 cells
-(cell = {channel, column}).
+Bank entry = {channel, bank} (4 x NCH entries; each has its own open row and timers). The pins
+carry the row (ACT) and the column (RD / WR), not the bank or channel: the channel is the `dq`
+lane group, and the TB's device takes the bank from the trace port (§3.8). The TB's device keeps
+256 16-bit words per channel indexed by the column only, so every bank and row of a channel
+aliases onto the same 256 cells (cell = {channel, column}).
 
 ### 3.3 Pin commands
 
@@ -219,11 +222,12 @@ REF-to-REF spacing stays within REF_MIN .. REF_MAX.
 ### 3.7 Data
 
 Write: the write word is driven on `dq[16 x ch +: 16]` of the command's channel in the clock
-before the WR pin command (the clock of its trace announcement) and the cell is written; `dq` is
-high-Z in every other clock (the other channel's lanes too).
+before the WR pin command (the clock of its trace announcement), where the device stores it;
+`dq` is high-Z in every other clock (the other channel's lanes too).
 
-Read: the RD pin command is on the pins in clock t; `hdone` = 1 in clock t + CL; `hrdata` holds
-the cell's word from clock t + CL + 1 until the next read completes.
+Read: the RD pin command is on the pins in clock t; the device drives the word on
+`dq[16 x ch +: 16]` in clock t + CL, where `hdone` = 1, and the core takes it at the end of that
+clock: `hrdata` holds it from clock t + CL + 1 until the next read completes.
 
 ### 3.8 Trace port
 
@@ -235,7 +239,7 @@ does not announce PRE, PREA or REF).
 
 `rst_n` low: idle, every bank closed and every timer 0, `ref_cnt` = TREFI, `hready` = 1 once out
 of reset, command pins NOP (1), `addr` = 0, `hrdata` = 0, `hdone` = 0, `trace_valid` = 0, `cke` = 0,
-`dq` released. The storage array keeps its contents.
+`dq` released. (The device keeps its array.)
 
 ## 4. Parameters
 
@@ -253,8 +257,8 @@ of reset, command pins NOP (1), `addr` = 0, `hrdata` = 0, `hdone` = 0, `trace_va
 | PRE of a closed bank | no pin command; `hready` returns once that bank's tRP (from an earlier PRE) has passed |
 | refresh due during a command | the command finishes first; the refresh follows before `hready` |
 | a stream of no-op commands | cannot hold off a refresh (`hready` drops when it is due) |
-| two addresses with the same column | the same storage cell (aliasing, §3.2) |
-| reset with a command in flight | the command is lost; a WR may or may not have reached the array |
+| two addresses with the same column | the same cell of the TB's device (aliasing, §3.2) |
+| reset with a command in flight | the command is lost; a WR may or may not have reached the device |
 
 ## 6. TB check map
 
