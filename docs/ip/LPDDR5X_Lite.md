@@ -246,8 +246,8 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/LPDDR5X_Lite_top.sv` | pass | 189/189 (+3 excl.) | 2800/2800 (+52 excl.) | 51/51 | 33/33 | 113/113 |
-| wrapper `rtl/LPDDR5X_Lite_apb.sv` | pass | 38/38 | 1098/1098 (+50 excl.) | n/a | 11/11 | 56/56 |
+| core `rtl/LPDDR5X_Lite_top.sv` | pass | 185/185 (+3 excl.) | 2796/2796 (+50 excl.) | 48/48 | 33/33 | 113/113 |
+| wrapper `rtl/LPDDR5X_Lite_apb.sv` | pass | 38/38 | 1098/1098 (+48 excl.) | n/a | 11/11 | 56/56 |
 
 ## Performance
 
@@ -258,9 +258,9 @@ Measured, not estimated: `bash scripts/perf/run_perf.sh LPDDR5X_Lite` runs the c
 | Item | Value |
 |---|---|
 | Library | SKY130 `sky130_fd_sc_hd`, typical corner (tt, 25 C, 1.80 V) |
-| Longest logic path | 2.23 ns |
-| Estimated Fmax | 367 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
-| Area | 0.046 mm2 (45555 um2), 3770 cells, 1080 flip-flops |
+| Longest logic path | 2.05 ns |
+| Estimated Fmax | 393 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
+| Area | 0.045 mm2 (44974 um2), 3701 cells, 1078 flip-flops |
 | Not counted | the in-model DRAM array, 4194304 bits (512 KiB): a real controller has the DRAM off chip |
 
 No wire load, placement, clock skew or on-chip variation: these rank the designs and give the order of magnitude; they are not a timing sign-off.
@@ -277,13 +277,13 @@ From the first clock the host presents the command to `hdone` (the last of the 8
 
 | Command | Clocks | ns at Fmax |
 |---|---|---|
-| Read, page hit | 31 | 84 |
-| Read, bank closed (ACT first) | 37 | 101 |
-| Read, row conflict (PRE + ACT first) | 46 | 125 |
-| Write, page hit | 28 | 76 |
-| Write, bank closed | 34 | 93 |
-| Write, row conflict | 43 | 117 |
-| Read, page hit, requested as a refresh falls due (worst case seen) | 64 | 174 |
+| Read, page hit | 22 | 56 |
+| Read, bank closed (ACT first) | 28 | 71 |
+| Read, row conflict (PRE + ACT first) | 37 | 94 |
+| Write, page hit | 28 | 71 |
+| Write, bank closed | 34 | 87 |
+| Write, row conflict | 43 | 109 |
+| Read, page hit, requested as a refresh falls due (worst case seen) | 55 | 140 |
 
 ### Sustained throughput
 
@@ -291,18 +291,18 @@ From the first clock the host presents the command to `hdone` (the last of the 8
 
 | Pattern | Clocks / op | Bytes / clock | Host utilization | MB/s at Fmax |
 |---|---|---|---|---|
-| Sequential reads, one open row (page hits) | 31.15 | 0.514 | 25.7% | 188 |
-| Sequential writes, one open row (page hits) | 28.15 | 0.568 | 28.4% | 209 |
-| Alternating write / read, one open row | 30.12 | 0.531 | 26.6% | 195 |
-| Reads interleaved over every bank, rows open | 31.24 | 0.512 | 25.6% | 188 |
-| Reads alternating two rows of one bank (row conflicts) | 46.20 | 0.346 | 17.3% | 127 |
-| Random reads (bank, row, column uniform) | 46.11 | 0.347 | 17.4% | 127 |
-| Random writes | 43.18 | 0.371 | 18.5% | 136 |
-| Random mix, 2 reads : 1 write | 45.28 | 0.353 | 17.7% | 130 |
+| Sequential reads, one open row (page hits) | 22.15 | 0.722 | 36.1% | 284 |
+| Sequential writes, one open row (page hits) | 28.14 | 0.569 | 28.4% | 224 |
+| Alternating write / read, one open row | 25.66 | 0.624 | 31.2% | 245 |
+| Reads interleaved over every bank, rows open | 22.20 | 0.721 | 36.0% | 283 |
+| Reads alternating two rows of one bank (row conflicts) | 37.25 | 0.429 | 21.5% | 169 |
+| Random reads (bank, row, column uniform) | 37.15 | 0.431 | 21.5% | 169 |
+| Random writes | 43.18 | 0.371 | 18.5% | 146 |
+| Random mix, 2 reads : 1 write | 39.33 | 0.407 | 20.3% | 160 |
 
 ### Refresh cost
 
-With no host traffic for 31200 clocks, the command engine is busy refreshing 0.82% of the time, in 8 windows of at most 32 clocks (87 ns).
+With no host traffic for 31200 clocks, the command engine is busy refreshing 0.82% of the time, in 8 windows of at most 32 clocks (81 ns).
 
 ### Limits of these figures
 

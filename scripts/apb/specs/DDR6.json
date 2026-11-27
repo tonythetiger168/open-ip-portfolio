@@ -48,6 +48,7 @@
   ],
   "perf_notes": [
     "Closed-page policy: every RD / WR closes its bank afterwards, so normal traffic never hits an open page and every access pays ACT + RD / WR + PRE; the sequential and random patterns run at the same rate.",
-    "A RD / WR to a row the host opened with an explicit ACT first precharges it and opens it again, which is why the \"page hit\" row of the latency table is slower than the closed-bank row."
+    "A RD / WR to a row the host opened with an explicit ACT first precharges it and opens it again, which is why the \"page hit\" row of the latency table is slower than the closed-bank row.",
+    "Write recovery is modeled: the auto-precharge after a WR waits for the write data and tWR (CWL + burst + tWR after the WR command), so closed-page writes cost more than reads."
   ]
 }

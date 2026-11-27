@@ -138,15 +138,13 @@ module HBM3E_Lite_top #(
   logic [20:0] req_addr;               // in-range host address
 
   // ---------------- front-end ----------------
-  typedef enum logic [1:0] {FE_IDLE, FE_FILL, FE_WAIT, FE_DRAIN} fe_t;
+  typedef enum logic [1:0] {FE_IDLE, FE_FILL, FE_WAIT} fe_t;
   fe_t fe;
   logic [2:0]  fe_cnt;
   logic [15:0] wbuf [0:7];
   logic [15:0] rbuf [0:7];
-  logic [15:0] rcap [0:6];               // read beats 0..6 as they arrive (rbuf
-                                          // and rdline change only at the last beat)
-  logic        rbuf_valid;
-  logic        rbuf_take;              // FE -> engine: rbuf consumed
+  logic [15:0] rcap [0:6];               // read beats 0..6 as they arrive (rdline
+                                          // changes only at the last beat)
   logic        fe_err;                 // 1-cycle protocol-error pulse
   logic [20:0] fe_addr;
 
@@ -304,12 +302,12 @@ module HBM3E_Lite_top #(
       req_valid <= 1'b0; req_we <= 1'b0; req_ref <= 1'b0;
       req_addr <= '0; fe_addr <= '0;
       hrdata <= 16'h0; hdone <= 1'b0;
-      rbuf_take <= 1'b0; fe_err <= 1'b0;
+      fe_err <= 1'b0;
       for (int i = 0; i < 8; i++) wbuf[i] <= 16'h0;
       for (int i = 0; i < 8; i++) mr[i] <= 8'h0;
       mr[0] <= 8'(CL - 5); mr[1] <= 8'(CWL - 5);   // CL / CWL fields
     end else begin
-      hdone <= 1'b0; rbuf_take <= 1'b0; fe_err <= 1'b0;
+      hdone <= 1'b0; fe_err <= 1'b0;
       case (fe)
         FE_IDLE: begin
           if (hvalid) begin
@@ -360,27 +358,26 @@ module HBM3E_Lite_top #(
           end else fe_cnt <= fe_cnt + 1;
         end
         FE_WAIT: begin
-          if (req_done) begin
-            req_valid <= 1'b0; req_ref <= 1'b0;
-            if (!req_we && rbuf_valid) begin
-              fe_cnt <= '0; fe <= FE_DRAIN;   // read: return 8 beats
-            end else begin
-              hdone <= 1'b1; fe <= FE_IDLE;     // write / refresh done
+          if (eng == ENG_RD_BURST) begin
+            // read cut-through: each beat goes to the host in the clock it
+            // is on dq, so hdone comes with the last beat instead of after
+            // an 8-clock drain of the finished line
+            hrdata <= dq;                      // beat bcnt, driven by the DRAM
+            if (bcnt == 3'd7) begin
+              hdone <= 1'b1;
+              req_valid <= 1'b0; req_ref <= 1'b0; fe <= FE_IDLE;
             end
+          end else if (req_done) begin
+            req_valid <= 1'b0; req_ref <= 1'b0;
+            hdone <= 1'b1; fe <= FE_IDLE;       // write / refresh done
           end
-        end
-        FE_DRAIN: begin
-          hrdata <= rbuf[fe_cnt];
-          if (fe_cnt == 3'd7) begin
-            hdone <= 1'b1; rbuf_take <= 1'b1; fe <= FE_IDLE;
-          end else fe_cnt <= fe_cnt + 1;
         end
       endcase
     end
   end
 
   // rbuf is filled by the engine at the end of a read burst; the engine is
-  // the single driver of rbuf / rbuf_valid and clears it on rbuf_take
+  // the single driver of rbuf
   assign rdline = {rbuf[7], rbuf[6], rbuf[5], rbuf[4], rbuf[3], rbuf[2], rbuf[1], rbuf[0]};
 
   // ========================================================================
@@ -411,13 +408,11 @@ module HBM3E_Lite_top #(
       end
       for (int i = 0; i < 8; i++) rbuf[i] <= 16'h0;
       for (int i = 0; i < 7; i++) rcap[i] <= 16'h0;
-      rbuf_valid <= 1'b0;
     end else begin
       // default strobes low
       ld_rp_v <= '0; ld_ras_v <= '0; ld_rc_v <= '0; ld_wr_v <= '0;
       ld_rrd_v <= 1'b0; ld_wtr_v <= 1'b0; ld_rfc_v <= 1'b0; ld_rfc_pb <= 1'b0;
       pbref_ack <= 1'b0; req_done <= 1'b0;
-      if (rbuf_take) rbuf_valid <= 1'b0;
       case (eng)
         // --------------------------------------------------------------
         ENG_IDLE: begin
@@ -498,7 +493,6 @@ module HBM3E_Lite_top #(
           if (bcnt == 3'd7) begin
             for (int i = 0; i < 7; i++) rbuf[i] <= rcap[i];
             rbuf[7] <= dq;
-            rbuf_valid <= 1'b1;
             req_done <= 1'b1;
             eng <= ENG_IDLE;
           end else bcnt <= bcnt + 1;

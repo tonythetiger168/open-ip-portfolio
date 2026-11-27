@@ -8,7 +8,7 @@ module DDR7_top__fsm_cov (
   input logic r_rst_n,
   input logic [2:0] s_dstate
 );
-  // ---- FSM DDR7_top.dstate: 8 states, 23 arcs ----
+  // ---- FSM DDR7_top.dstate: 8 states, 24 arcs ----
   fsm_st__dstate__D_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd0);
   fsm_st__dstate__D_ACT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd1);
   fsm_st__dstate__D_RCD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd2);
@@ -37,6 +37,7 @@ module DDR7_top__fsm_cov (
   fsm_arc__dstate__D_PRE__D_RCD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd6 ##1 s_dstate == 3'd2);
   fsm_arc__dstate__D_PRE__D_PRE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd6 ##1 s_dstate == 3'd6);
   fsm_arc__dstate__D_DRN__D_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd7 ##1 s_dstate == 3'd0);
+  fsm_arc__dstate__D_DRN__D_ACT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd7 ##1 s_dstate == 3'd1);
   fsm_arc__dstate__D_DRN__D_RD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd7 ##1 s_dstate == 3'd3);
   fsm_arc__dstate__D_DRN__D_WR: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd7 ##1 s_dstate == 3'd5);
   fsm_arc__dstate__D_DRN__D_PRE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd7 ##1 s_dstate == 3'd6);

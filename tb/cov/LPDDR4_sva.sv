@@ -8,6 +8,11 @@
 // Pins: {ras_n, cas_n, we_n} = 011 ACT, 101 RD, 100 WR, 010 PRE (addr[10]
 // set: all banks), 001 REF. Shared page / timing / data model: mem_chk.svh.
 `include "cov_macros.svh"
+// write-side spacings (rtl/LPDDR4_top.sv: CWL 8, burst 8 clocks, tWR 14,
+// tWTR 8)
+`define MEM_CHK_WR2PRE 30
+`define MEM_CHK_WR2RD  24
+`define MEM_CHK_TCCD   8
 module LPDDR4_sva (
   input logic        clk, rst_n, hvalid, hready, hdone, ck_t, ck_c, ras_n, cas_n, we_n, cke,
   input logic        trace_valid,
