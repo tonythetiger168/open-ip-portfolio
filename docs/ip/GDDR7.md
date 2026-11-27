@@ -229,8 +229,8 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/GDDR7_top.sv` | pass | 168/168 (+3 excl.) | 3440/3440 (+236 excl.) | 37/37 | 38/38 | 98/98 |
-| wrapper `rtl/GDDR7_apb.sv` | pass | 33/33 | 842/842 (+12 excl.) | n/a | 11/11 | 42/42 |
+| core `rtl/GDDR7_top.sv` | pass | 176/176 (+3 excl.) | 3440/3440 (+236 excl.) | 37/37 | 38/38 | 98/98 |
+| wrapper `rtl/GDDR7_apb.sv` | pass | 37/37 | 1182/1182 (+8 excl.) | n/a | 11/11 | 50/50 |
 
 ## Performance
 
@@ -241,10 +241,10 @@ Measured, not estimated: `bash scripts/perf/run_perf.sh GDDR7` runs the core's o
 | Item | Value |
 |---|---|
 | Library | SKY130 `sky130_fd_sc_hd`, typical corner (tt, 25 C, 1.80 V) |
-| Longest logic path | 3.12 ns |
-| Estimated Fmax | 276 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
-| Area | 0.072 mm2 (71635 um2), 9655 cells, 457 flip-flops |
-| Not counted | the in-model DRAM array, 8192 bits (1 KiB): a real controller has the DRAM off chip |
+| Longest logic path | 3.13 ns |
+| Estimated Fmax | 275 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
+| Area | 0.056 mm2 (56330 um2), 6140 cells, 997 flip-flops |
+| Not counted | the in-model DRAM array, 2560 bits (320 bytes): a real controller has the DRAM off chip |
 
 No wire load, placement, clock skew or on-chip variation: these rank the designs and give the order of magnitude; they are not a timing sign-off.
 
@@ -260,13 +260,13 @@ From the first clock the host presents the command to the clock `hrdata` is vali
 
 | Command | Clocks | ns at Fmax |
 |---|---|---|
-| Read, page hit | 20 | 72 |
+| Read, page hit | 20 | 73 |
 | Read, bank closed (ACT first) | 35 | 127 |
-| Read, row conflict (PRE + ACT first) | 50 | 181 |
+| Read, row conflict (PRE + ACT first) | 50 | 182 |
 | Write, page hit | 3 | 11 |
 | Write, bank closed | 18 | 65 |
 | Write, row conflict | 33 | 120 |
-| Read, page hit, requested as a refresh falls due (worst case seen) | 200 | 725 |
+| Read, page hit, requested as a refresh falls due (worst case seen) | 200 | 727 |
 
 ### Sustained throughput
 
@@ -275,7 +275,7 @@ From the first clock the host presents the command to the clock `hrdata` is vali
 | Pattern | Clocks / op | Bytes / clock | Host utilization | MB/s at Fmax |
 |---|---|---|---|---|
 | Sequential reads, one open row (page hits) | 21.97 | 0.091 | 4.6% | 25 |
-| Sequential writes, one open row (page hits) | 3.20 | 0.626 | 31.3% | 173 |
+| Sequential writes, one open row (page hits) | 3.20 | 0.626 | 31.3% | 172 |
 | Alternating write / read, one open row | 19.37 | 0.103 | 5.2% | 28 |
 | Reads interleaved over every bank, rows open | 22.67 | 0.088 | 4.4% | 24 |
 | Reads alternating two rows of one bank (row conflicts) | 52.96 | 0.038 | 1.9% | 10 |
@@ -285,10 +285,10 @@ From the first clock the host presents the command to the clock `hrdata` is vali
 
 ### Refresh cost
 
-With no host traffic for 31200 clocks, `hready` is low (the core cannot take a command) 4.23% of the time, in 8 windows of at most 165 clocks (598 ns).
+With no host traffic for 31200 clocks, `hready` is low (the core cannot take a command) 4.23% of the time, in 8 windows of at most 165 clocks (600 ns).
 
 ### Limits of these figures
 
 * One command in flight: the core finishes a command before it takes the next, so throughput is set by the per-command latency, not by the DRAM data bus. A production controller queues and reorders many commands and keeps the data bus busy.
-* The host port is 16 bits wide; the figures are bytes through that port, not DRAM pin bandwidth.
+* The host port is 16 bits wide; the figures are bytes through that port, not DRAM pin bandwidth. The core's line commands (RDL / WRL) are not measured here.
 * Timing parameters are in controller clocks as listed above, not tied to a JEDEC speed bin.

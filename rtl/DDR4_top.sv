@@ -167,7 +167,6 @@ module DDR4_top #(
       end
       case (dstate)
         D_IDLE: begin
-          ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;
           if (hvalid && ref_cnt != 0) begin
             cur_addr <= haddr; wr_data <= hwdata; cur_bank <= a_bank;
             rd_pending <= (hcmd == 3'd2) || (hcmd == 3'd5); ref_walk <= 1'b0; auto_act <= 1'b0;
@@ -264,7 +263,6 @@ module DDR4_top #(
           end
         end
         D_RCD: begin
-          ras_n <= 1'b1;
           if (timer == 0) begin
             if (ref_walk)      begin ref_walk <= 1'b0; dstate <= D_IDLE; end
             else if (auto_rd)  begin auto_rd <= 1'b0; dstate <= D_RD; end
@@ -292,7 +290,6 @@ module DDR4_top #(
           else begin ref_req <= (ref_cnt == 0); if (ref_cnt == 0) dstate <= D_PRE; else dstate <= D_IDLE; end
         end
         D_CAS: begin
-          cas_n <= 1'b1; we_n <= 1'b1;
           if (timer == 0) begin
             hrdata <= dq[16*c_ch +: 16];   // only a RD waits here: the device's read word
             if (line) begin                // RDL: beat 0, then 7 more in D_LRD

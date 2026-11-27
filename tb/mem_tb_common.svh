@@ -17,8 +17,9 @@
 // `MEM_LINE (cores with line commands and an MR file): hcmd 5 RDL / 6 WRL
 // move the 8 cells `MEM_LCELL(a, k) of a line (a WRL takes 8 data beats on
 // the following hvalid clocks), hcmd 7 MRW / MRR (haddr[3] = 1: read; MR
-// index haddr[2:0]; `MEM_MR_RESET: statements setting tb_mr reset values
-// other than CL / CWL); line_tests() runs after the word tests.
+// index haddr[2:0]; `MEM_MR_RESET: statements setting tb_mrs reset values
+// other than CL / CWL of set 0; `MEM_MR_SET: the active MR set, default 0);
+// line_tests() runs after the word tests.
 
 `ifndef VERILATOR
 `ifdef MEM_SVA
@@ -84,7 +85,10 @@
 
 `ifdef MEM_LINE
   logic [15:0] lw_buf [0:7];          // the line the next wrl() writes
-  logic [7:0]  tb_mr [0:7];           // expected MR file
+`ifndef MEM_MR_SET
+`define MEM_MR_SET 0
+`endif
+  logic [7:0]  tb_mrs [0:1][0:7];     // expected MR sets (`MEM_MR_SET: the active one)
   int n_rdl = 0, n_wrl = 0;
   task automatic wrl(input logic [31:0] a, input int gap);
     cmd(3'd6, a, $urandom);
@@ -118,7 +122,7 @@
   endtask
   task automatic mrw(input int i, input logic [7:0] v);
     cmd(3'd7, {28'h0, 1'b0, 3'(i)}, {8'h00, v});
-    tb_mr[i] = (i == 0) ? {1'b0, v[6:0]} : v;
+    tb_mrs[`MEM_MR_SET][i] = (i == 0) ? {1'b0, v[6:0]} : v;
   endtask
   task automatic mrr(input int i);
     int k;
@@ -127,7 +131,8 @@
     while (hdone !== 1'b1 && k < 10) begin @(negedge clk); k++; end
     if (k == 10) fail($sformatf("MRR %0d: no hdone", i));
     @(negedge clk);
-    if (hrdata !== {8'h00, tb_mr[i]}) fail($sformatf("MRR %0d: got %h exp %h", i, hrdata, tb_mr[i]));
+    if (hrdata !== {8'h00, tb_mrs[`MEM_MR_SET][i]})
+      fail($sformatf("MRR %0d: got %h exp %h", i, hrdata, tb_mrs[`MEM_MR_SET][i]));
   endtask
   task automatic rnd_line;
     for (int k = 0; k < 8; k++) lw_buf[k] = $urandom;
@@ -139,7 +144,7 @@
     // ---- every bit of every mode register both ways, read back, then the
     // values from before
     for (int i = 0; i < 8; i++) begin
-      keep[i] = tb_mr[i];
+      keep[i] = tb_mrs[`MEM_MR_SET][i];
       mrw(i, 8'hFF); mrr(i); mrw(i, 8'h00); mrr(i); mrw(i, 8'hA5); mrr(i);
       mrw(i, keep[i]); mrr(i);
     end
@@ -176,7 +181,7 @@
         rnd_line(); wrl(a, 0); rd(a + 2);                  // a word of the line right behind its WRL
         pre(a); rnd_line(); wrl(a, 0); pre(a); rdl(a);     // PRE right behind a WRL
       end
-    mrw(0, 8'(CL - 5)); mrw(1, 8'(CWL - 5)); mrr(0); mrr(1);
+    mrw(0, keep[0]); mrw(1, keep[1]); mrr(0); mrr(1);
     // ---- refresh falling due during line commands and a WRL's data beats
     a = mk(0, 14'h3, 8'h30);
     near_refresh(3); rdl(a);
@@ -319,8 +324,8 @@
       if (b % 2) rd(mk(b, 14'h9, 8'h23)); else wr(mk(b, 14'h9, 8'h23), 16'h0F0F ^ 16'(b));
     end
 `ifdef MEM_LINE
-    for (int i = 0; i < 8; i++) tb_mr[i] = 8'h00;
-    tb_mr[0] = 8'(CL - 5); tb_mr[1] = 8'(CWL - 5);
+    for (int i = 0; i < 8; i++) begin tb_mrs[0][i] = 8'h00; tb_mrs[1][i] = 8'h00; end
+    tb_mrs[0][0] = 8'(CL - 5); tb_mrs[0][1] = 8'(CWL - 5);
 `ifdef MEM_MR_RESET
     `MEM_MR_RESET
 `endif

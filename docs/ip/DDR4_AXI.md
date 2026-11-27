@@ -257,5 +257,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/DDR4_AXI_top.sv` | not run | | | | | |
-| wrapper `rtl/DDR4_AXI_apb.sv` | pass | 23/23 | 1062/1062 (+30 excl.) | n/a | 7/7 | 31/31 |
+| core `rtl/DDR4_AXI_top.sv` | pass | 77/77 (+1 excl.) | 2156/2156 (+164 excl.) | 34/34 | 14/14 | 60/60 |
+| wrapper `rtl/DDR4_AXI_apb.sv` | pass | 23/23 | 1070/1070 (+30 excl.) | n/a | 7/7 | 31/31 |

@@ -62,8 +62,12 @@
 //     5 + MR1[3:0]; the write-side rules become `MEM_CHK_WR2PRE_L(l) /
 //     `MEM_CHK_WR2RD_L(l) (l = the WR was a line), expressions of m_cwl.
 //     Optional: `MEM_CHK_MR_RESET (statements: other MR reset values, on
-//     m_mr), `MEM_CHK_LMODE (expression latched with each line command
-//     as op_lm, e.g. a signaling mode bit of m_mr), `MEM_CHK_LNB (beats of
+//     m_mrs[set][index]), `MEM_CHK_MRSET (expression: the MR set MRW / MRR
+//     and CL / CWL use, for cores with frequency set points; default 0),
+//     `MEM_CHK_CL_OF / `MEM_CHK_CWL_OF (CL / CWL from m_mrs[m_set], default
+//     5 + MR0[3:0] / 5 + MR1[3:0]), `MEM_CHK_LMODE (expression latched with
+//     each line command as op_lm, e.g. a signaling mode bit of m_mrs),
+//     `MEM_CHK_LNB (beats of
 //     the line burst, default 8; with fewer the core decodes the line at the
 //     last beat: hrdata = word 7 and hdone then), `MEM_CHK_LW_OK(k) (write
 //     beat k is right on the pins, default lane(op_a) === op_ld[k]).
@@ -129,6 +133,15 @@
 `else
 `define MEM_CHK_CLV CL
 `endif
+`ifndef MEM_CHK_MRSET
+`define MEM_CHK_MRSET 0
+`endif
+`ifndef MEM_CHK_CL_OF
+`define MEM_CHK_CL_OF (5 + m_mrs[m_set][0][3:0])
+`endif
+`ifndef MEM_CHK_CWL_OF
+`define MEM_CHK_CWL_OF (5 + m_mrs[m_set][1][3:0])
+`endif
 `ifndef MEM_CHK_LMODE
 `define MEM_CHK_LMODE 1'b0
 `endif
@@ -178,7 +191,8 @@
   int          lnb;                  // beats of the line burst in flight
   logic [15:0] op_ld [0:7];          // WRL data beats
   int          m_fill;               // WRL data beats still to take
-  logic [7:0]  m_mr [0:7];
+  logic [7:0]  m_mrs [0:1][0:7];      // MR sets (set 1: frequency set point 1)
+  int          m_set;
   int          m_cl, m_cwl;
   logic        lw_v, lr_v, lw_done, m_s;
   longint      lw_t, lr_t;
@@ -216,9 +230,10 @@
       op_v = 0; s_act = 0; s_rw = 0; s_pre = 0; s_done = 0; s_apre = 0; op_hit = 0; op_open = 0;
       p_tv = 0; p_done = 0; m_chk = 0; rb_m = 0;
       wrrd_need = 0; op_ln = 0; op_mrr = 0; op_lm = 0; lnb = 8; m_fill = 0; lw_v = 0; lr_v = 0; lw_done = 0; m_s = 0;
-      for (int i = 0; i < 8; i++) m_mr[i] = 0;
+      for (int i = 0; i < 8; i++) begin m_mrs[0][i] = 0; m_mrs[1][i] = 0; end
+      m_set = 0;
 `ifdef MEM_CHK_LINE
-      m_mr[0] = 8'(CL - 5); m_mr[1] = 8'(CWL - 5);
+      m_mrs[0][0] = 8'(CL - 5); m_mrs[0][1] = 8'(CWL - 5);
 `ifdef MEM_CHK_MR_RESET
       `MEM_CHK_MR_RESET
 `endif
@@ -252,7 +267,8 @@
       {v_bl, v_lwdata, v_ldqs, v_lrdata, v_rdline, v_mrr} = '0;
       {e_rdl_hit, e_rdl_closed, e_rdl_conf, e_wrl_hit, e_wrl_closed, e_wrl_conf,
        e_mrw, e_mrr, e_cl_min, e_cl_max, e_cwl_min, e_cwl_max, e_fill_gap, e_ref_rdl, e_ref_wrl} = '0;
-      m_cl = 5 + m_mr[0][3:0]; m_cwl = 5 + m_mr[1][3:0];
+      m_set = `MEM_CHK_MRSET;
+      m_cl = `MEM_CHK_CL_OF; m_cwl = `MEM_CHK_CWL_OF;
 `ifdef MEM_CHK_LINE
       // ---- line bursts: write beats on dq / dqs, read beats on hrdata, rdline
       lnb = `MEM_CHK_LNB;
@@ -414,7 +430,7 @@
       // ---- hdone: once per RD, CL clocks after the RD command
       if (q_hdone) begin
         if (op_v && op_c == 3'd7 && op_mrr && !s_done) begin
-          m_chk = 1; m_exp = {8'h00, m_mr[op_a[2:0]]}; s_done = 1;
+          m_chk = 1; m_exp = {8'h00, m_mrs[m_set][op_a[2:0]]}; s_done = 1;
         end else if (!op_v || op_c != 3'd2 || !s_rw || s_done) v_hdone = 1;
         else begin
           if (n - t_rdpin != (op_ln ? `MEM_CHK_CLV + lnb - 1 : `MEM_CHK_CLV)) v_lat = 1;
@@ -455,7 +471,7 @@
           if (haddr[3]) e_mrr = 1;
           else begin
             e_mrw = 1;
-            m_mr[haddr[2:0]] = (haddr[2:0] == 3'd0) ? {1'b0, hwdata[6:0]} : hwdata[7:0];
+            m_mrs[m_set][haddr[2:0]] = (haddr[2:0] == 3'd0) ? {1'b0, hwdata[6:0]} : hwdata[7:0];
             if (haddr[2:0] == 3'd0) begin e_cl_min = hwdata[3:0] == 4'h0; e_cl_max = hwdata[3:0] == 4'hF; end
             if (haddr[2:0] == 3'd1) begin e_cwl_min = hwdata[3:0] == 4'h0; e_cwl_max = hwdata[3:0] == 4'hF; end
           end

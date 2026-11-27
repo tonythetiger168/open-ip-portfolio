@@ -19,12 +19,12 @@
 // write-side spacings (rtl/GDDR7_top.sv: CWL from MR1, a word burst 2
 // clocks, a line 8 (PAM2) / 6 (PAM3) beats, tWR 15, tWTR 7)
 `define MEM_CHK_LINE
-`define MEM_CHK_LMODE m_mr[2][0]
-`define MEM_CHK_MR_RESET m_mr[2] = 8'h01;
+`define MEM_CHK_LMODE m_mrs[0][2][0]
+`define MEM_CHK_MR_RESET m_mrs[0][2] = 8'h01;
 `define MEM_CHK_LNB (op_lm ? 6 : 8)
 `define MEM_CHK_LW_OK(k) (op_lm ? sym_of(q_dqx[16 * op_a[8] +: 16], lane(op_a)) === lsym(k) : lane(op_a) === op_ld[k])
-`define MEM_CHK_WR2PRE_L(l) (m_cwl + ((l) ? (m_mr[2][0] ? 6 : 8) : 2) + 15)
-`define MEM_CHK_WR2RD_L(l)  (m_cwl + ((l) ? (m_mr[2][0] ? 6 : 8) : 2) + 7)
+`define MEM_CHK_WR2PRE_L(l) (m_cwl + ((l) ? (m_mrs[0][2][0] ? 6 : 8) : 2) + 15)
+`define MEM_CHK_WR2RD_L(l)  (m_cwl + ((l) ? (m_mrs[0][2][0] ? 6 : 8) : 2) + 7)
 `define MEM_CHK_TCCD   2
 module GDDR7_sva (
   input logic        clk, rst_n, hvalid, hready, hdone, ck_t, ck_c, ras_n, cas_n, we_n, cke,
@@ -106,8 +106,8 @@ module GDDR7_sva (
     rl = lane(op_a); \
     v_ba = (q_pc == P_ACT || q_pc == P_RD || q_pc == P_WR || q_pc == P_PRE) && q_ba != 3'(b) || \
            (q_pc == P_PREA || q_pc == P_REF) && q_ba != 3'b000; \
-    v_pam3pin = q_p3 !== m_mr[2][0]; \
-    if (q_hdone && op_v && op_c == 3'd2 && !op_ln && m_mr[2][0]) begin \
+    v_pam3pin = q_p3 !== m_mrs[0][2][0]; \
+    if (q_hdone && op_v && op_c == 3'd2 && !op_ln && m_mrs[0][2][0]) begin \
       {v_pam3_code, pw} = pam3_dec({rl[11:0], p_rl[11:0]}); \
       v_pam3 = pw !== arr[cellof(op_a)]; e_pam3_rd = 1; \
       for (int n = 0; n < 4; n++) e_nib[pw[4*n +: 4]] = 1; \

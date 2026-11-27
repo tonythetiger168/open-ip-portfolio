@@ -11,9 +11,16 @@ function automatic int cellof(input logic [31:0] a);
 endfunction
 // DRAM device (tb/mem_dev.svh): the core keeps no array of its own
 localparam int NCH = 2;
+localparam int CL = 22, CWL = 11;
+localparam int IRQ_RD_DONE = IRQ_DONE;
 `define MEM_DEV_RD (!cs_n && ca[6:4] == 3'd2)
 `define MEM_DEV_WR (!cs_n && ca[6:4] == 3'd3)
-`define MEM_DEV_CL (dut.u_core.fsp ? 14 : 22)
+`define MEM_DEV_LINE ca[0]
+`define MEM_DEV_CL dut.u_core.cl_now
+`define MEM_DEV_CWL dut.u_core.cwl_now
+`define MEM_DEV_DQS dqs
+`define MEM_LINE
+`define MEM_APB_MR0 8'd12             // CL = 10 + MR0[3:0]
 `define MEM_DEV_CH(a) int'(a[8])
 `include "apb/mem_apb_common.svh"
 task automatic ip_func; mem_func(); endtask

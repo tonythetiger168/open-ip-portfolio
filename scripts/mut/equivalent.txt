@@ -18,8 +18,6 @@ APB | err_q    <= 1'b0; | 1'b0 -> 1'b1 | reset value; every SETUP cycle loads er
 OCP_IP_Open_Core_Protocol | done_err <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; written on every path into O_DONE
 LIN | if (!t_hdr && t_i <= {1'b0, r_len}) t_sum <= csum_add(t_sum, t_byte); | && -> || | only changes t_sum after the checksum byte has been sent
 LIN | if (!t_hdr && t_i <= {1'b0, r_len}) t_sum <= csum_add(t_sum, t_byte); | 1'b0 -> 1'b1 | only changes t_sum after the checksum byte has been sent
-GDDR7_Lite | wire rrd_done = (rrd_cnt == '0) && !ld_rrd_v; | && -> || | a single engine: tRRD has always elapsed by the next ACT
-HBM3E_Lite | eng_ref_req <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value; written at every engine refresh start before it is read
 Avalon_MM | (av_burstcount >  8'd16) ? 5'd16 : | > -> >= | burstcount 16 clamps to 16 either way
 Avalon_MM | rd_gap     <= 1'b0;#1 | 1'b0 -> 1'b1 | reset value: every read command clears rd_gap before AV_RDD reads it
 CSI_2 | lb_len <= (wc > LB16) ? LB16 : wc; | > -> >= | wc == LB16 gives LB16 either way
@@ -42,7 +40,6 @@ DDR6 | auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0; | 1'b0 -> 1'b1@2 | r
 GDDR7 | auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0; | 1'b0 -> 1'b1@1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
 GDDR7 | auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0; | 1'b0 -> 1'b1@2 | reset value; pre_done is cleared in every clock outside D_PRE
 LPDDR5 | else if (auto_wr)  begin auto_wr <= 1'b0; dstate <= D_WR; end | 1'b0 -> 1'b1 | auto_wr is reloaded at every host accept before it is read again
-DDR4_Lite | ld_rrd_v <= 1'b0; ld_wtr_v <= 1'b0; ld_rfc_v <= 1'b0; ref_ack <= 1'b0; | 1'b0 -> 1'b1 | reset values: a timer load or a REF acknowledge in the first clock after reset only delays the first command (ref_pending is already clear)
 D_PHY | tshift    <= {1'b0, tshift[7:1]};#2 | 1'b0 -> 1'b1 | the bit shifted in is never sent: tshift is reloaded or left after 8 bits
 D_PHY | tshift <= {1'b0, tshift[7:1]};#1 | 1'b0 -> 1'b1 | the bit shifted in is never sent: the escape command is decoded from esc_cmd_q
 DisplayPort2 | sym_d = D10_2; sym_k = 1'b0;#1 | 1'b0 -> 1'b1 | the encoder uses k only for K28.x and x.7 symbols; D10.2 encodes the same
@@ -433,10 +430,6 @@ HBM3 | rd_pending <= 1'b0; | 1'b0 -> 1'b1 | rd_pending is reloaded at every host
 LPDDR4 | auto_act <= 1'b0; pre_done <= 1'b0; ref_req <= 1'b0; | 1'b0 -> 1'b1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
 LPDDR4 | ref_walk <= 1'b0; auto_rd <= 1'b0; auto_wr <= 1'b0; pre_need <= 1'b0; | 1'b0 -> 1'b1 | reset value; reloaded at every host accept and refresh start, the only ways out of D_IDLE
 HBM2 | rd_pending <= 1'b0; | 1'b0 -> 1'b1 | rd_pending is reloaded at every host accept, before the next D_CAS
-DDR4_Lite | cs_n <= 1'b1; act_n <= 1'b1; ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;#2 | 1'b1 -> 1'b0@2 | act_n is don't-care while cs_n is high (deselect), and every state that drives cs_n low drives act_n too
-DDR4_Lite | cs_n <= 1'b1; act_n <= 1'b1; ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;#2 | 1'b1 -> 1'b0@3 | ras_n is don't-care while cs_n is high (deselect), and every state that drives cs_n low drives ras_n too
-DDR4_Lite | cs_n <= 1'b1; act_n <= 1'b1; ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;#2 | 1'b1 -> 1'b0@4 | cas_n is don't-care while cs_n is high (deselect), and every state that drives cs_n low drives cas_n too
-DDR4_Lite | cs_n <= 1'b1; act_n <= 1'b1; ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;#2 | 1'b1 -> 1'b0@5 | we_n is don't-care while cs_n is high (deselect), and every state that drives cs_n low drives we_n too
-GDDR7_Lite | bank_open[eng_bank] <= 1'b0; | 1'b0 -> 1'b1 | a row-conflict PRE always goes on through ENG_PRE_WAIT to the ACT, which sets bank_open again; nothing reads it in between
-LPDDR5X_Lite | RCW  = $clog2(T_RC + 1),  WRW  = $clog2(T_WR + 1), | + 1 -> + 2 | only widens the tRC counter; it still loads T_RC and counts to 0
-LPDDR5X_Lite | RRDW = $clog2(T_RRD + 1), WTRW = $clog2(T_WTR + 1), | + 1 -> + 2 | only widens the tRRD counter; it still loads T_RRD and counts to 0
+HBM3E | bank_open[ref_bank] <= 1'b0; rp_t[ref_bank] <= 9'(TRP - 1);#1 | - 1 -> - 2 | an open entry always gets its refresh PRE, which reloads rp_t with TRP - 1 when it issues; nothing reads that entry's rp_t before
+HBM3E | bank_open[ref_bank] <= 1'b0; rp_t[ref_bank] <= 9'(TRP - 1);#2 | - 1 -> - 2 | an open entry always gets its refresh PRE, which reloads rp_t with TRP - 1 when it issues; nothing reads that entry's rp_t before
+LPDDR5X | ccd_t <= CCDW'(TBURST - 1); | - 1 -> - 2 | after a RD the engine waits CL (at least 10 clocks) before the next RD / WR, so tCCD = 8 has always run out

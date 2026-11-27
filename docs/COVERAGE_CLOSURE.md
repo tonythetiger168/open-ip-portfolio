@@ -137,6 +137,9 @@ logs printed `CLOSED` 36/36, 36/36, 36/36, 36/36, 35/35, 35/35, 35/35, 35/35
 (shards 1 through 8).
 DDR4_JEDEC_AXI and AXI_Async_Bridge (cores and wrappers) were added later, from a
 local `scripts/cov/run_cov.sh` run on 2026-11-10 (Verilator 5.052).
+DDR4, DDR4_AXI, GDDR7, HBM3E and LPDDR5X (cores and wrappers) were re-measured with a local
+`scripts/cov/run_cov.sh` run on 2026-11-27 (Verilator 5.054), after the line commands and the MR
+file were folded into them and the four `*_Lite` cores were removed.
 
 Eleven cores are in the tree and in this closed set, and have no release zip
 yet. They are the README rows marked not yet packaged (`releases/` holds the
@@ -187,9 +190,8 @@ buffer-address bits and the stop bit) and the two FSM arcs above
 | C_PHY | 87/89 (+2 excl.) | 306/306 | 24/24 | 13/13 | 127/127 | pass |
 | Crypto___Security_Engine | 111/112 (+1 excl.) | 2982/2982 | 11/11 | 8/8 | 82/82 | pass |
 | DDR | 87/90 (+3 excl.) | 576/602 (+26 excl.) | 24/24 | 24/24 | 65/65 | pass |
-| DDR4 | 92/96 (+4 excl.) | 740/858 (+118 excl.) | 24/24 | 24/24 | 66/66 | pass |
+| DDR4 | 139/142 (+3 excl.) | 1520/1650 (+130 excl.) | 38/38 | 35/35 | 81/81 | pass |
 | DDR4_JEDEC_AXI | 150/150 | 4608/4736 (+128 excl.) | 19/19 | 55/55 | 174/174 | pass |
-| DDR4_Lite | 158/161 (+3 excl.) | 2274/2330 (+56 excl.) | 43/43 | 31/31 | 98/98 | pass |
 | DDR5 | 104/107 (+3 excl.) | 1134/1346 (+212 excl.) | 24/24 | 25/25 | 68/68 | pass |
 | DDR6 | 88/91 (+3 excl.) | 1064/1236 (+172 excl.) | 21/21 | 24/24 | 67/67 | pass |
 | DDR7 | 120/123 (+3 excl.) | 1702/1858 (+156 excl.) | 31/31 | 25/25 | 72/72 | pass |
@@ -207,15 +209,13 @@ buffer-address bits and the stop bit) and the two FSM arcs above
 | FlexRay | 147/147 | 2312/2312 | 40/40 | 8/8 | 64/64 | pass |
 | GDDR5 | 100/104 (+4 excl.) | 1042/1364 (+322 excl.) | 24/24 | 25/25 | 67/67 | pass |
 | GDDR6 | 98/102 (+4 excl.) | 1064/1274 (+210 excl.) | 24/24 | 24/24 | 69/69 | pass |
-| GDDR7 | 100/104 (+4 excl.) | 1090/1292 (+202 excl.) | 24/24 | 26/26 | 83/83 | pass |
-| GDDR7_Lite | 188/191 (+3 excl.) | 3530/3596 (+66 excl.) | 43/43 | 32/32 | 113/113 | pass |
+| GDDR7 | 173/176 (+3 excl.) | 3204/3440 (+236 excl.) | 37/37 | 38/38 | 98/98 | pass |
 | GMII | 17/17 | 614/616 (+2 excl.) | n/a | 7/7 | 56/56 | pass |
 | GPIO | 11/11 | 122/122 | n/a | 4/4 | 70/70 | pass |
 | HBM | 87/91 (+4 excl.) | 1676/2178 (+502 excl.) | 24/24 | 24/24 | 66/66 | pass |
 | HBM2 | 85/89 (+4 excl.) | 1166/1188 (+22 excl.) | 24/24 | 24/24 | 65/65 | pass |
 | HBM3 | 87/91 (+4 excl.) | 1564/1586 (+22 excl.) | 24/24 | 24/24 | 66/66 | pass |
-| HBM3E | 110/114 (+4 excl.) | 2382/2402 (+20 excl.) | 24/24 | 24/24 | 66/66 | pass |
-| HBM3E_Lite | 179/182 (+3 excl.) | 3852/3894 (+42 excl.) | 51/51 | 32/32 | 183/183 | pass |
+| HBM3E | 156/159 (+3 excl.) | 3442/3476 (+34 excl.) | 36/36 | 35/35 | 81/81 | pass |
 | HBM4 | 99/102 (+3 excl.) | 1846/1866 (+20 excl.) | 24/24 | 25/25 | 68/68 | pass |
 | HBM5 | 88/91 (+3 excl.) | 1816/1846 (+30 excl.) | 24/24 | 24/24 | 66/66 | pass |
 | HDCP_2_3_Content_Protection | 177/178 (+1 excl.) | 3430/3430 | 25/25 | 10/10 | 71/71 | pass |
@@ -233,8 +233,7 @@ buffer-address bits and the stop bit) and the two FSM arcs above
 | LPDDR | 90/92 (+2 excl.) | 578/612 (+34 excl.) | 30/30 | 28/28 | 69/69 | pass |
 | LPDDR4 | 114/118 (+4 excl.) | 1119/1336 (+217 excl.) | 24/24 | 26/26 | 70/70 | pass |
 | LPDDR5 | 108/112 (+4 excl.) | 1636/2040 (+404 excl.) | 24/24 | 26/26 | 67/67 | pass |
-| LPDDR5X | 112/116 (+4 excl.) | 1130/1330 (+200 excl.) | 24/24 | 26/26 | 70/70 | pass |
-| LPDDR5X_Lite | 186/189 (+3 excl.) | 2750/2800 (+50 excl.) | 51/51 | 33/33 | 113/113 | pass |
+| LPDDR5X | 157/160 (+3 excl.) | 2090/2234 (+144 excl.) | 36/36 | 37/37 | 88/88 | pass |
 | LPDDR6 | 120/123 (+3 excl.) | 1820/2192 (+372 excl.) | 24/24 | 27/27 | 68/68 | pass |
 | LPDDR7 | 119/123 (+4 excl.) | 1158/1354 (+196 excl.) | 24/24 | 26/26 | 71/71 | pass |
 | MDIO | 25/25 | 140/140 | n/a | 5/5 | 104/104 | pass |
@@ -349,8 +348,7 @@ machine, so FSM is n/a.
 | C_PHY_apb | 33/33 | 616/616 | n/a | 11/11 | 64/64 | pass |
 | Crypto___Security_Engine_apb | 57/57 | 2036/2036 | n/a | 22/22 | 68/68 | pass |
 | DDR4_JEDEC_AXI_apb | 26/26 | 1560/1580 (+20 excl.) | n/a | 7/7 | 37/37 | pass |
-| DDR4_Lite_apb | 37/37 | 1032/1084 (+52 excl.) | n/a | 11/11 | 54/54 | pass |
-| DDR4_apb | 33/33 | 798/810 (+12 excl.) | n/a | 11/11 | 42/42 | pass |
+| DDR4_apb | 37/37 | 1074/1082 (+8 excl.) | n/a | 11/11 | 50/50 | pass |
 | DDR5_apb | 33/33 | 830/842 (+12 excl.) | n/a | 11/11 | 42/42 | pass |
 | DDR6_apb | 33/33 | 830/842 (+12 excl.) | n/a | 11/11 | 42/42 | pass |
 | DDR7_apb | 33/33 | 830/842 (+12 excl.) | n/a | 11/11 | 42/42 | pass |
@@ -369,13 +367,11 @@ machine, so FSM is n/a.
 | FlexRay_apb | 50/50 | 1890/1890 | n/a | 24/24 | 95/95 | pass |
 | GDDR5_apb | 33/33 | 798/810 (+12 excl.) | n/a | 11/11 | 42/42 | pass |
 | GDDR6_apb | 33/33 | 830/842 (+12 excl.) | n/a | 11/11 | 42/42 | pass |
-| GDDR7_Lite_apb | 38/38 | 1070/1124 (+54 excl.) | n/a | 11/11 | 56/56 | pass |
-| GDDR7_apb | 33/33 | 830/842 (+12 excl.) | n/a | 11/11 | 42/42 | pass |
+| GDDR7_apb | 37/37 | 1174/1182 (+8 excl.) | n/a | 11/11 | 50/50 | pass |
 | GMII_apb | 36/36 | 516/518 (+2 excl.) | n/a | 11/11 | 60/60 | pass |
 | GPIO_apb | 24/24 | 482/482 | n/a | 12/12 | 30/30 | pass |
 | HBM2_apb | 33/33 | 1022/1034 (+12 excl.) | n/a | 11/11 | 42/42 | pass |
-| HBM3E_Lite_apb | 38/38 | 1060/1100 (+40 excl.) | n/a | 11/11 | 56/56 | pass |
-| HBM3E_apb | 33/33 | 1022/1034 (+12 excl.) | n/a | 11/11 | 42/42 | pass |
+| HBM3E_apb | 37/37 | 1390/1398 (+8 excl.) | n/a | 11/11 | 50/50 | pass |
 | HBM3_apb | 33/33 | 1022/1034 (+12 excl.) | n/a | 11/11 | 42/42 | pass |
 | HBM4_apb | 33/33 | 1278/1290 (+12 excl.) | n/a | 11/11 | 42/42 | pass |
 | HBM5_apb | 33/33 | 1278/1290 (+12 excl.) | n/a | 11/11 | 42/42 | pass |
@@ -393,8 +389,7 @@ machine, so FSM is n/a.
 | JTAG_apb | 19/19 | 402/402 | n/a | 7/7 | 23/23 | pass |
 | LIN_apb | 52/52 | 1256/1256 | n/a | 17/17 | 115/115 | pass |
 | LPDDR4_apb | 33/33 | 810/816 (+6 excl.) | n/a | 11/11 | 42/42 | pass |
-| LPDDR5X_Lite_apb | 38/38 | 1050/1098 (+48 excl.) | n/a | 11/11 | 56/56 | pass |
-| LPDDR5X_apb | 33/33 | 812/818 (+6 excl.) | n/a | 11/11 | 42/42 | pass |
+| LPDDR5X_apb | 37/37 | 1084/1086 (+2 excl.) | n/a | 11/11 | 50/50 | pass |
 | LPDDR5_apb | 33/33 | 812/818 (+6 excl.) | n/a | 11/11 | 42/42 | pass |
 | LPDDR6_apb | 33/33 | 814/820 (+6 excl.) | n/a | 11/11 | 42/42 | pass |
 | LPDDR7_apb | 33/33 | 814/820 (+6 excl.) | n/a | 11/11 | 42/42 | pass |
@@ -524,7 +519,7 @@ S_RXD whose RX next states are only reachable from S_RXD.
 | IP | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
 | Crypto_DMA | 45/45 | 3778/4278 (+500 excl.) | n/a | 12/12 | 40/40 | pass |
-| DDR4_AXI | 76/77 (+1 excl.) | 1984/2148 (+164 excl.) | 34/34 | 14/14 | 60/60 | pass |
+| DDR4_AXI | 76/77 (+1 excl.) | 1992/2156 (+164 excl.) | 34/34 | 14/14 | 60/60 | pass |
 | GbE_DMA | 99/102 (+3 excl.) | 2426/2672 (+246 excl.) | 20/22 (+2 excl.) | 20/20 | 40/40 | pass |
 | I2C_Host | 61/62 (+1 excl.) | 172/172 | 15/15 | 9/9 | 61/61 | pass |
 | I2S_DMA | 42/45 (+3 excl.) | 1062/1156 (+94 excl.) | n/a | 9/9 | 29/29 | pass |
@@ -543,7 +538,7 @@ Totals: line 830/845 (+15 excluded), toggle 18184/19724 (+1540 excluded), fsm 23
 | APB wrapper | Line | Toggle | FSM | SVA | Functional | Test + assertions |
 |---|---|---|---|---|---|---|
 | Crypto_DMA_apb | 76/76 | 3914/4028 (+114 excl.) | n/a | 31/31 | 80/80 | pass |
-| DDR4_AXI_apb | 23/23 | 1032/1062 (+30 excl.) | n/a | 7/7 | 31/31 | pass |
+| DDR4_AXI_apb | 23/23 | 1040/1070 (+30 excl.) | n/a | 7/7 | 31/31 | pass |
 | GbE_DMA_apb | 52/52 | 1686/1784 (+98 excl.) | n/a | 21/21 | 64/64 | pass |
 | I2C_Host_apb | 29/29 | 548/548 | n/a | 15/15 | 39/39 | pass |
 | I2S_DMA_apb | 37/37 | 1214/1314 (+100 excl.) | n/a | 13/13 | 46/46 | pass |

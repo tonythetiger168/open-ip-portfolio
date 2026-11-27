@@ -3,6 +3,8 @@
 
 Before: commit `e4c600a` (`docs/perf/*.json` at that commit). After: this pass, measured the same way with `bash scripts/perf/run_perf.sh <P>` (FORCE_STA=1). Clocks are cycle-exact from simulation; Fmax is pre-layout SKY130 and moves a few percent with any RTL change (ABC mapping), so compare clocks first.
 
+Later in 2026-11 the four `*_Lite` line controllers below were folded into DDR4, GDDR7, HBM3E and LPDDR5X (line commands and the MR file are now part of those cores) and removed; their rows are kept as the record of this pass.
+
 ## What changed (public, contract-preserving)
 
 - **Writes complete on the pins.** A WR used to hold the core until the whole CL wait and burst had passed. It now completes once the WR command is issued; the following commands wait only for the real DRAM limits, which are now modeled: write recovery before PRE (tWR, counted from the end of the write burst), write-to-read turnaround (tWTR) and burst spacing (tCCD). The shared checker `tb/cov/mem_chk.svh` gained assertions for all three.

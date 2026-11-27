@@ -18,6 +18,8 @@ module LPDDR5X_apb_tb;
   wire           ck_c;
   wire  [6:0]    ca;
   wire           cs_n;
+  wire           wck_t;
+  wire           wck_c;
   tri   [31:0]   dq;
   tri   [1:0]    dqs;
   wire           cke;
@@ -27,7 +29,7 @@ module LPDDR5X_apb_tb;
   LPDDR5X_apb dut (.*);
   always #5 PCLK = ~PCLK;
 
-  localparam logic [31:0] ID_VALUE = 32'h6D120200;
+  localparam logic [31:0] ID_VALUE = 32'h6D120300;
   localparam logic [11:0] A_ID = 12'h000;
   localparam logic [11:0] A_IRQ_STATUS = 12'h004;
   localparam logic [11:0] A_IRQ_ENABLE = 12'h008;
@@ -37,7 +39,11 @@ module LPDDR5X_apb_tb;
   localparam logic [11:0] A_CMD1 = 12'h018;
   localparam logic [11:0] A_CMD2 = 12'h01C;
   localparam logic [11:0] A_RDATA = 12'h020;
-  localparam int IRQ_RD_DONE = 0;
+  localparam logic [11:0] A_RLINE0 = 12'h024;
+  localparam logic [11:0] A_RLINE1 = 12'h028;
+  localparam logic [11:0] A_RLINE2 = 12'h02C;
+  localparam logic [11:0] A_RLINE3 = 12'h030;
+  localparam int IRQ_DONE = 0;
   localparam int IRQ_CMD_DONE = 1;
   localparam int IRQ_CMD_OVF = 2;
   localparam int FLAG_CMD_FULL = 0;
@@ -141,6 +147,10 @@ module LPDDR5X_apb_tb;
     rw_test(A_SCRATCH, 32'hFFFF_FFFF, 0);
     rw_test(A_IRQ_ENABLE, IRQ_ALL, 0);
     wr(A_RDATA, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RLINE0, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RLINE1, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RLINE2, 32'hFFFF_FFFF);                     // read-only: ignored
+    wr(A_RLINE3, 32'hFFFF_FFFF);                     // read-only: ignored
     // unmapped and misaligned: PSLVERR, read data 0, no side effects
     wr(A_SCRATCH, 32'h5A5A_A5A5);
     bad(0, 12'h001); bad(1, 12'h001);
@@ -148,7 +158,7 @@ module LPDDR5X_apb_tb;
     bad(0, 12'h003); bad(1, 12'h003);
     bad(0, 12'h011); bad(1, 12'h011);
     bad(0, 12'h013); bad(1, 12'h013);
-    bad(0, 12'h024); bad(1, 12'h024);
+    bad(0, 12'h034); bad(1, 12'h034);
     bad(0, 12'h040); bad(1, 12'h040);
     bad(0, 12'h080); bad(1, 12'h080);
     bad(0, 12'h100); bad(1, 12'h100);

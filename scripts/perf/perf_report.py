@@ -64,7 +64,7 @@ def build(P):
     wb = raw["word_bytes"]
     d = {
         "ip": P,
-        "family": "line" if P.endswith("_Lite") else "word",
+        "family": "word",
         "bytes_per_op": wb,
         "bank_entries": raw["nbu"],
         "timing_clk": timing_params(P),
@@ -122,12 +122,11 @@ def perf_section(P, notes=()):
     d = json.load(open(f))
     im = d["impl"]
     fmax = im["fmax_mhz"]
-    line = d["family"] == "line"
-    unit = "128-bit line (16 bytes)" if line else "16-bit word (2 bytes)"
+    unit = "16-bit word (2 bytes)"
     L = ["## Performance", ""]
     L.append(
         f"Measured, not estimated: `bash scripts/perf/run_perf.sh {P}` runs the core's own testbench "
-        f"with `+define+MEM_PERF` ({'`tb/perf/lite_perf.svh`' if line else '`tb/perf/mem_perf.svh`'}), "
+        "with `+define+MEM_PERF` (`tb/perf/mem_perf.svh`), "
         "which drives the host port as fast as `hready` allows and times every command at the "
         "core's ports, then synthesizes the core on the open SkyWater SKY130 library "
         f"(`scripts/perf/sta_sky130.sh`). Raw data: [`docs/perf/{P}.json`](../perf/{P}.json). "
@@ -158,18 +157,12 @@ def perf_section(P, notes=()):
         L.append("")
     L.append("### Latency, unloaded")
     L.append("")
-    if line:
-        L.append("From the first clock the host presents the command to `hdone` (the last of the 8 read "
-                 "beats, or the write's completion); the first read beat is 7 clocks earlier. "
-                 "Min and max over 8 samples in different banks, away from refresh, with the bank's "
-                 "timers (tRAS, tRC, tWR) already run out.")
-    else:
-        L.append("From the first clock the host presents the command to the clock `hrdata` is valid (read) "
+    L.append("From the first clock the host presents the command to the clock `hrdata` is valid (read) "
                  "or the core can take the next command (write). Min and max over 8 samples in different "
-                 "banks, away from refresh, with the bank's timers (tRAS, tRC) already run out. "
-                 "A write is complete once its WR command is on the pins; write recovery (tWR), the "
-                 "write-to-read turnaround (tWTR) and the burst spacing (tCCD = TBURST) are enforced "
-                 "on the commands that follow it.")
+             "banks, away from refresh, with the bank's timers (tRAS, tRC) already run out. "
+             "A write is complete once its WR command is on the pins; write recovery (tWR), the "
+             "write-to-read turnaround (tWTR) and the burst spacing (tCCD = TBURST) are enforced "
+             "on the commands that follow it.")
     L.append("")
     L.append("| Command | Clocks | ns at Fmax |")
     L.append("|---|---|---|")
@@ -194,7 +187,7 @@ def perf_section(P, notes=()):
     ri = d["refresh_idle"]
     L.append("### Refresh cost")
     L.append("")
-    what = "the command engine is busy refreshing" if line else "`hready` is low (the core cannot take a command)"
+    what = "`hready` is low (the core cannot take a command)"
     L.append(f"With no host traffic for {ri['observed_clk']} clocks, {what} {ri['busy_pct']:.2f}% of the "
              f"time, in {ri['windows']} windows of at most {ri['window_clk']} clocks "
              f"({ns(ri['window_clk'], fmax)} ns).")
@@ -210,8 +203,9 @@ def perf_section(P, notes=()):
     L.append("* One command in flight: the core finishes a command before it takes the next, so throughput "
              "is set by the per-command latency, not by the DRAM data bus. A production controller queues "
              "and reorders many commands and keeps the data bus busy.")
-    L.append("* The host port is 16 bits wide" + (", and a line moves as 8 beats" if line else "")
-             + "; the figures are bytes through that port, not DRAM pin bandwidth.")
+    L.append("* The host port is 16 bits wide; the figures are bytes through that port, not DRAM pin "
+             "bandwidth." + (" The core's line commands (RDL / WRL) are not measured here."
+                             if P in ("DDR4", "GDDR7", "HBM3E", "LPDDR5X") else ""))
     L.append("* Timing parameters are in controller clocks as listed above, not tied to a JEDEC speed bin.")
     L.append("")
     return L
@@ -227,12 +221,12 @@ def summary():
          "`bash scripts/perf/run_perf.sh <P>` (simulation at the core's ports, then a pre-layout "
          "SKY130 synthesis for Fmax and area). Each IP page has the full Performance section; "
          "the raw data is in `docs/perf/<P>.json`.", "",
-         "Word controllers (the 20 numbered IPs) move one 16-bit word per host command; line "
-         "controllers (`*_Lite`) move one 128-bit line (8 beats). Both have one command in flight, "
+         "The 20 controllers move one 16-bit word per host command (DDR4, GDDR7, HBM3E and LPDDR5X "
+         "also take 128-bit line commands, not measured here) with one command in flight, "
          "so throughput is latency-bound. Latency in clocks; MB/s at the estimated Fmax "
          "(SKY130 HD, typical corner, pre-layout, DRAM model array excluded).", "",
          "The 2026-11 optimization pass (writes complete on the pins, exact timer spacing, no idle "
-         "clocks on the miss paths, read cut-through on the line controllers) is compared with the "
+         "clocks on the miss paths) is compared with the "
          "previous figures in [perf/OPTIMIZATION_2026-11.md](perf/OPTIMIZATION_2026-11.md).", "",
          "| IP | Fmax MHz | Area mm2 | RD hit | RD closed | RD conflict | Seq RD MB/s | Random RD MB/s | Random mix MB/s | Refresh busy |",
          "|---|---|---|---|---|---|---|---|---|---|"]

@@ -1,24 +1,25 @@
-# HBM3E memory controller: sideband-ECC controller (256 page entries {channel haddr[10:8], pc/bank haddr[15:11]}, row = haddr[31:18], storage = 256 columns per channel, each word with 5 SEC check bits carried on ecc); the TB flips bits of stored codewords in its DRAM model and the reads must still return the written data
+# HBM3E memory controller: sideband-ECC controller (256 page entries {channel haddr[10:8], pc/bank haddr[15:11]}, row = haddr[31:18], storage = 256 columns per channel, each word with 5 SEC check bits carried on ecc); the TB flips bits of stored codewords in its DRAM model and the reads must still return the written data; line commands (RDL / WRL: BL8 with dqs and per-beat ECC) and an MR file (CL / CWL)
 
-Protocol IP `HBM3E`, version 2.0. Apache-2.0.
+Protocol IP `HBM3E`, version 3.0. Apache-2.0.
 
 | Item | Value |
 |---|---|
 | Core | `HBM3E_top` (`rtl/HBM3E_top.sv`) |
 | Register interface | APB4 slave `HBM3E_apb`, 32-bit data, 12-bit byte address, zero wait states |
 | Clock, reset | PCLK (rising edge), PRESETN (active low, asynchronous) |
-| ID register | 0x6D0C0200 (code 0x6D0C, version 2.0) |
-| Registers | 9 words, 0x000 to 0x020 |
+| ID register | 0x6D0C0300 (code 0x6D0C, version 3.0) |
+| Registers | 13 words, 0x000 to 0x030 |
 | Interrupts | 3 sources into one level-high `irq` |
 | Data streams | CMD (to the core) |
-| Protocol pins | 13 pass-through |
+| Protocol pins | 16 pass-through |
 
 ## Overview
 
-HBM3E -- INDEPENDENT design IP #18/20. Architecture thesis: sideband SEC ECC. Every word is stored in the DRAM as a 21-bit SEC codeword (16 data + 5 Hamming check bits over positions 1..21, checks at 1,2,4,8,16): a write drives the data on dq and its 5 check bits on the channel's ecc pins; a read takes data and check bits back from dq / ecc and decodes + corrects a single-bit error (syndrome = XOR of set-bit positions; syndrome!=0 flips that position back). Read data is always corrected before hrdata; the stored word is not scrubbed. SEC only: a double-bit error is not detected and may be miscorrected. The core holds no data: the DRAM drives the read word CL clocks after the RD command. 256 page entries ({ch haddr[10:8], pc/bank haddr[15:11]}), per-entry refresh rotating over all 256. Contract identical to DDR_top (hrdata carries corrected data; the TB flips bits stored in its DRAM device through a backdoor and its scoreboard therefore proves the correction).
+HBM3E -- INDEPENDENT design IP #18/20. Architecture thesis: sideband SEC ECC. Every word is stored in the DRAM as a 21-bit SEC codeword (16 data + 5 Hamming check bits over positions 1..21, checks at 1,2,4,8,16): a write drives the data on dq and its 5 check bits on the channel's ecc pins; a read takes data and check bits back from dq / ecc and decodes + corrects a single-bit error (syndrome = XOR of set-bit positions; syndrome!=0 flips that position back). Read data is always corrected before hrdata; the stored word is not scrubbed. SEC only: a double-bit error is not detected and may be miscorrected. The core holds no data: the DRAM drives the read word CL clocks after the RD command. 256 page entries ({ch haddr[10:8], pc/bank haddr[15:11]}), per-entry refresh rotating over all 256. Contract identical to DDR_top (hrdata carries corrected data; the TB flips bits stored in its DRAM device through a backdoor and its scoreboard therefore proves the correction). On top of the word commands (as DDR4_top): * line commands: hcmd 5 RDL / 6 WRL move one 128-bit line (the 8 columns {haddr[7:3], k}) in one BL8 burst (addr[12] = 1 on the RD / WR), every beat a SEC codeword: 16 data bits on the channel's dq and its 5 check bits on ecc. A WRL takes its 8 data beats on hwdata in the 8 hvalid clocks after the command and drives them CWL clocks after the WR, dqs toggling every beat; an RDL takes the DRAM's 8 beats from CL clocks after the RD, corrects each and passes it to hrdata in its clock, pulses hdone with the last and holds the corrected line on rdline * mode-register file MR0..MR7 (hcmd 7: haddr[3] = 0 MRW of hwdata[7:0], 1 MRR into hrdata[7:0] with an hdone pulse): CL = 5 + MR0[3:0], CWL = 5 + MR1[3:0] (reset to the CL / CWL parameters); MR0 bit 7 is a self-clearing DLL reset. Controller-side: the DRAM's own mode registers are set to match outside this model * command pins: cs_n (high = deselect), act_n (ACT: low, with ras_n / cas_n / we_n = 0), ba = page entry {channel, pc/bank}
 
-ck_t, ck_c, cke, addr, ras_n, cas_n, we_n, dq and dqs are the DRAM pins and trace_valid, trace_cmd and trace_addr the command trace (one clock before each command on the pins); they pass through unchanged.
+ck_t, ck_c, cke, cs_n, act_n, ba, addr, ras_n, cas_n, we_n, dq, ecc and dqs are the DRAM pins and trace_valid, trace_cmd and trace_addr the command trace (one clock before each command on the pins); they pass through unchanged.
 Address map and behaviour of the core: sideband-ECC controller (256 page entries {channel haddr[10:8], pc/bank haddr[15:11]}, row = haddr[31:18], storage = 256 columns per channel, each word with 5 SEC check bits carried on ecc); the TB flips bits of stored codewords in its DRAM model and the reads must still return the written data.
+A line is the 8 columns {haddr[7:3], k}. CL = 5 + MR0[3:0], CWL = 5 + MR1[3:0]; each line beat carries its own 5 SEC check bits on ecc and is corrected on the way in.
 The core's own verification (pin-level checker, 100% coverage) is tb/cov/HBM3E_sva.sv with tb/HBM3E_tb.sv; this wrapper test drives the core only through the registers.
 
 ## Files
@@ -63,6 +64,9 @@ Pins of `HBM3E_apb`. Widths of the pass-through pins are at the default paramete
 | `ck_t` | output | 1 | protocol pin, core port `ck_t` |
 | `ck_c` | output | 1 | protocol pin, core port `ck_c` |
 | `addr` | output | 17 | protocol pin, core port `addr` |
+| `cs_n` | output | 1 | protocol pin, core port `cs_n` |
+| `act_n` | output | 1 | protocol pin, core port `act_n` |
+| `ba` | output | 8 | protocol pin, core port `ba` |
 | `ras_n` | output | 1 | protocol pin, core port `ras_n` |
 | `cas_n` | output | 1 | protocol pin, core port `cas_n` |
 | `we_n` | output | 1 | protocol pin, core port `we_n` |
@@ -86,10 +90,14 @@ Pins of `HBM3E_apb`. Widths of the pass-through pins are at the default paramete
 | `haddr` | input | 32 | CMD1[31:0] |
 | `hwdata` | input | 16 | CMD2[15:0] |
 | `hrdata` | output | 16 | RDATA[15:0] |
-| `hdone` | output | 1 | IRQ_STATUS.RD_DONE |
+| `rdline` | output | 128 | RLINE0[31:0], RLINE1[31:0], RLINE2[31:0], RLINE3[31:0] |
+| `hdone` | output | 1 | IRQ_STATUS.DONE |
 | `ck_t` | output | 1 | pin (pass-through) |
 | `ck_c` | output | 1 | pin (pass-through) |
 | `addr` | output | 17 | pin (pass-through) |
+| `cs_n` | output | 1 | pin (pass-through) |
+| `act_n` | output | 1 | pin (pass-through) |
+| `ba` | output | 8 | pin (pass-through) |
 | `ras_n` | output | 1 | pin (pass-through) |
 | `cas_n` | output | 1 | pin (pass-through) |
 | `we_n` | output | 1 | pin (pass-through) |
@@ -105,39 +113,47 @@ Pins of `HBM3E_apb`. Widths of the pass-through pins are at the default paramete
 
 `HBM3E_apb` is an APB4 slave (AMBA APB protocol v2.0): zero wait states, 32-bit data, 12-bit byte address, PSTRB byte lanes on every writable register, PSLVERR on an unmapped or misaligned address (reads then return 0, writes are dropped). Writes to read-only registers are ignored without an error. The core runs on PCLK and PRESETN. `irq` is level-high: `|(IRQ_STATUS & IRQ_ENABLE)`.
 
-Pass-through pins: `ck_t`, `ck_c`, `addr`, `ras_n`, `cas_n`, `we_n`, `dq`, `ecc`, `dqs`, `cke`, `trace_valid`, `trace_cmd`, `trace_addr`.
+Pass-through pins: `ck_t`, `ck_c`, `addr`, `cs_n`, `act_n`, `ba`, `ras_n`, `cas_n`, `we_n`, `dq`, `ecc`, `dqs`, `cke`, `trace_valid`, `trace_cmd`, `trace_addr`.
 
 ### Register map
 
 | Offset | Name | Access | Reset | Description |
 |---|---|---|---|---|
-| 0x000 | ID | RO | 0x6D0C0200 | IP identification: code, major and minor version |
+| 0x000 | ID | RO | 0x6D0C0300 | IP identification: code, major and minor version |
 | 0x004 | IRQ_STATUS | W1C | 0x00000000 | Sticky interrupt bits, write 1 to clear |
 | 0x008 | IRQ_ENABLE | RW | 0x00000000 | Interrupt enables; irq = \|(IRQ_STATUS & IRQ_ENABLE) |
 | 0x00C | FLAGS | RO | 0x00000000 | Stream holding-register state |
 | 0x010 | SCRATCH | RW | 0x00000000 | Scratch register, no effect on the core |
-| 0x014 | CMD0 | RW | 0x00000000 | Host command; writing CMD2 sends it (the core takes it when it is idle and no refresh is due) |
-| 0x018 | CMD1 | RW | 0x00000000 | Host command; writing CMD2 sends it (the core takes it when it is idle and no refresh is due) |
-| 0x01C | CMD2 | RW | 0x00000000 | Host command; writing CMD2 sends it (the core takes it when it is idle and no refresh is due) |
+| 0x014 | CMD0 | RW | 0x00000000 | Host command beat; writing CMD2 sends it: a command (the core takes it when it is idle and no refresh is due), or one of the 8 data beats that follow a WRL |
+| 0x018 | CMD1 | RW | 0x00000000 | Host command beat; writing CMD2 sends it: a command (the core takes it when it is idle and no refresh is due), or one of the 8 data beats that follow a WRL |
+| 0x01C | CMD2 | RW | 0x00000000 | Host command beat; writing CMD2 sends it: a command (the core takes it when it is idle and no refresh is due), or one of the 8 data beats that follow a WRL |
 | 0x020 | RDATA | RO | core | Read data |
+| 0x024 | RLINE0 | RO | core | Line of the last RDL (RLINE0 = bits 31:0) |
+| 0x028 | RLINE1 | RO | core | Line of the last RDL (RLINE0 = bits 31:0) |
+| 0x02C | RLINE2 | RO | core | Line of the last RDL (RLINE0 = bits 31:0) |
+| 0x030 | RLINE3 | RO | core | Line of the last RDL (RLINE0 = bits 31:0) |
 
-Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x024 up to 0xFFC are unmapped (PSLVERR).
+Unlisted bits read 0 and ignore writes. Reset "core": the register reads the core's outputs directly, so after reset it shows the core's own reset state. WO (pulse) registers read 0. Offsets from 0x034 up to 0xFFC are unmapped (PSLVERR).
 
 ### Fields
 
 | Register | Bits | Field | Access | Reset | Description |
 |---|---|---|---|---|---|
 | ID | 31:16 | CODE | RO | 0x6D0C | IP code |
-| ID | 15:8 | MAJOR | RO | 0x02 | major version |
+| ID | 15:8 | MAJOR | RO | 0x03 | major version |
 | ID | 7:0 | MINOR | RO | 0x00 | minor version |
 | IRQ_STATUS | 2:0 | one bit per interrupt | W1C | 0x0 | see Interrupts |
 | IRQ_ENABLE | 2:0 | one bit per interrupt | RW | 0x0 | 1 enables the IRQ_STATUS bit onto `irq` |
 | FLAGS | 0 | one bit per stream flag | RO | 0x0 | see FLAGS |
 | SCRATCH | 31:0 | SCRATCH | RW | 0x00000000 | free for software |
-| CMD0 | 2:0 | `hcmd` | RW | 0x0 | 1 ACT, 2 RD, 3 WR, 4 PRE; other codes are no-ops |
-| CMD1 | 31:0 | `haddr` | RW | 0x0 | host address (bank, row and column fields below) |
-| CMD2 | 15:0 | `hwdata` | RW | 0x0 | word to write (WR) |
-| RDATA | 15:0 | `hrdata` | RO | core | word of the last RD, valid once RD_DONE is set |
+| CMD0 | 2:0 | `hcmd` | RW | 0x0 | 1 ACT, 2 RD, 3 WR, 4 PRE, 5 RDL, 6 WRL (then 8 data beats), 7 MR access; 0 is a no-op; ignored on a data beat |
+| CMD1 | 31:0 | `haddr` | RW | 0x0 | host address (bank, row and column fields below); MR access: [3] 1 MRR / 0 MRW, [2:0] MR index |
+| CMD2 | 15:0 | `hwdata` | RW | 0x0 | word to write (WR), MRW value (bits 7:0), or a WRL data beat (beat 0 = column {haddr[7:3], 0}) |
+| RDATA | 15:0 | `hrdata` | RO | core | word of the last RD (or word 7 of an RDL, {8'h0, MR} of an MRR), valid once DONE is set |
+| RLINE0 | 31:0 | `rdline[31:0]` | RO | core | the 8 words of the last RDL (word k = column {haddr[7:3], k} in bits 16k+15:16k), held until the next RDL |
+| RLINE1 | 31:0 | `rdline[63:32]` | RO | core | the 8 words of the last RDL (word k = column {haddr[7:3], k} in bits 16k+15:16k), held until the next RDL |
+| RLINE2 | 31:0 | `rdline[95:64]` | RO | core | the 8 words of the last RDL (word k = column {haddr[7:3], k} in bits 16k+15:16k), held until the next RDL |
+| RLINE3 | 31:0 | `rdline[127:96]` | RO | core | the 8 words of the last RDL (word k = column {haddr[7:3], k} in bits 16k+15:16k), held until the next RDL |
 
 ### Interrupts (IRQ_STATUS, IRQ_ENABLE)
 
@@ -145,7 +161,7 @@ A bit is set while its source is active, stays set until written with 1, and a s
 
 | Bit | Name | Set when |
 |---|---|---|
-| 0 | RD_DONE | a RD finished; RDATA holds its word |
+| 0 | DONE | a RD, RDL or MRR finished; RDATA (and RLINE for an RDL) holds its data |
 | 1 | CMD_DONE | CMD beat accepted by the core |
 | 2 | CMD_OVF | write to CMD while full (dropped) |
 
@@ -161,12 +177,13 @@ A bit is set while its source is active, stays set until written with 1, and a s
 
 ## Programming sequence
 
-1. Release PRESETN. Read ID (0x000) and check it is 0x6D0C0200.
+1. Release PRESETN. Read ID (0x000) and check it is 0x6D0C0300.
 2. Write 0x7 to IRQ_STATUS (0x004) to clear any stale bits.
 3. Write IRQ_ENABLE (0x008) with the interrupts to use (bit order as in the Interrupts table; 0x7 enables all).
 4. To send on CMD: wait until FLAGS.CMD_FULL (bit 0) is 0, or for IRQ CMD_DONE, then write CMD0 (0x014) then CMD1 (0x018) then CMD2 (0x01C). The last write commits the beat. CMD_OVF means a write came while the register was full and was dropped.
 5. Read RDATA (0x020) for the core's live `hrdata`; it needs no clearing.
-6. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
+6. Read RLINE0 (0x024), RLINE1 (0x028), RLINE2 (0x02C), RLINE3 (0x030) for the core's live `rdline[31:0]`, `rdline[63:32]`, `rdline[95:64]`, `rdline[127:96]`; it needs no clearing.
+7. On `irq`: read IRQ_STATUS, handle every bit that is set and enabled, then write those bits back to IRQ_STATUS to clear them. A source that is still active sets its bit again.
 
 ## Running and verifying
 
@@ -210,8 +227,8 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/HBM3E_top.sv` | pass | 118/118 (+3 excl.) | 2420/2420 (+28 excl.) | 23/23 | 27/27 | 66/66 |
-| wrapper `rtl/HBM3E_apb.sv` | pass | 33/33 | 1034/1034 (+12 excl.) | n/a | 11/11 | 42/42 |
+| core `rtl/HBM3E_top.sv` | pass | 159/159 (+3 excl.) | 3476/3476 (+34 excl.) | 36/36 | 35/35 | 81/81 |
+| wrapper `rtl/HBM3E_apb.sv` | pass | 37/37 | 1398/1398 (+8 excl.) | n/a | 11/11 | 50/50 |
 
 ## Performance
 
@@ -222,10 +239,10 @@ Measured, not estimated: `bash scripts/perf/run_perf.sh HBM3E` runs the core's o
 | Item | Value |
 |---|---|
 | Library | SKY130 `sky130_fd_sc_hd`, typical corner (tt, 25 C, 1.80 V) |
-| Longest logic path | 5.92 ns |
-| Estimated Fmax | 156 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
-| Area | 0.787 mm2 (787346 um2), 92011 cells, 10890 flip-flops |
-| Not counted | the in-model DRAM array, 43008 bits (5.25 KiB): a real controller has the DRAM off chip |
+| Longest logic path | 5.73 ns |
+| Estimated Fmax | 160 MHz (logic path + 0.50 ns flip-flop clock-to-Q and setup) |
+| Area | 0.608 mm2 (607581 um2), 69851 cells, 11245 flip-flops |
+| Not counted | the in-model DRAM array, 0 bits (0 bytes): a real controller has the DRAM off chip |
 
 No wire load, placement, clock skew or on-chip variation: these rank the designs and give the order of magnitude; they are not a timing sign-off.
 
@@ -241,13 +258,13 @@ From the first clock the host presents the command to the clock `hrdata` is vali
 
 | Command | Clocks | ns at Fmax |
 |---|---|---|
-| Read, page hit | 14 | 90 |
-| Read, bank closed (ACT first) | 24 | 154 |
-| Read, row conflict (PRE + ACT first) | 34 | 218 |
+| Read, page hit | 14 | 88 |
+| Read, bank closed (ACT first) | 24 | 150 |
+| Read, row conflict (PRE + ACT first) | 34 | 212 |
 | Write, page hit | 3 | 19 |
-| Write, bank closed | 13 | 83 |
-| Write, row conflict | 23 | 147 |
-| Read, page hit, requested as a refresh falls due (worst case seen) | 26 | 167 |
+| Write, bank closed | 13 | 81 |
+| Write, row conflict | 23 | 144 |
+| Read, page hit, requested as a refresh falls due (worst case seen) | 26 | 162 |
 
 ### Sustained throughput
 
@@ -256,9 +273,9 @@ From the first clock the host presents the command to the clock `hrdata` is vali
 | Pattern | Clocks / op | Bytes / clock | Host utilization | MB/s at Fmax |
 |---|---|---|---|---|
 | Sequential reads, one open row (page hits) | 15.03 | 0.133 | 6.7% | 21 |
-| Sequential writes, one open row (page hits) | 4.00 | 0.499 | 25.0% | 78 |
-| Alternating write / read, one open row | 17.03 | 0.117 | 5.9% | 18 |
-| Reads interleaved over every bank, rows open | 15.22 | 0.131 | 6.6% | 20 |
+| Sequential writes, one open row (page hits) | 4.00 | 0.499 | 25.0% | 80 |
+| Alternating write / read, one open row | 17.03 | 0.117 | 5.9% | 19 |
+| Reads interleaved over every bank, rows open | 15.22 | 0.131 | 6.6% | 21 |
 | Reads alternating two rows of one bank (row conflicts) | 35.26 | 0.057 | 2.8% | 9 |
 | Random reads (bank, row, column uniform) | 34.91 | 0.057 | 2.9% | 9 |
 | Random writes | 23.13 | 0.086 | 4.3% | 14 |
@@ -266,10 +283,10 @@ From the first clock the host presents the command to the clock `hrdata` is vali
 
 ### Refresh cost
 
-With no host traffic for 12480 clocks, `hready` is low (the core cannot take a command) 0.77% of the time, in 8 windows of at most 12 clocks (77 ns).
+With no host traffic for 12480 clocks, `hready` is low (the core cannot take a command) 0.77% of the time, in 8 windows of at most 12 clocks (75 ns).
 
 ### Limits of these figures
 
 * One command in flight: the core finishes a command before it takes the next, so throughput is set by the per-command latency, not by the DRAM data bus. A production controller queues and reorders many commands and keeps the data bus busy.
-* The host port is 16 bits wide; the figures are bytes through that port, not DRAM pin bandwidth.
+* The host port is 16 bits wide; the figures are bytes through that port, not DRAM pin bandwidth. The core's line commands (RDL / WRL) are not measured here.
 * Timing parameters are in controller clocks as listed above, not tied to a JEDEC speed bin.

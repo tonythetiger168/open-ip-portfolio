@@ -28,6 +28,8 @@ module LPDDR5X_apb #(
   output logic ck_c,
   output logic [6:0] ca,
   output logic cs_n,
+  output logic wck_t,
+  output logic wck_c,
   inout tri [NCH*16-1:0] dq,
   inout tri [1:0] dqs,
   output logic cke,
@@ -35,17 +37,17 @@ module LPDDR5X_apb #(
   output logic [2:0] trace_cmd,
   output logic [31:0] trace_addr
 );
-  localparam logic [31:0] ID_VALUE = 32'h6D120200;
+  localparam logic [31:0] ID_VALUE = 32'h6D120300;
 
   // ---------------- APB decode ----------------
   wire        acc     = PSEL & PENABLE;
   wire        wr      = acc & PWRITE;
   wire        rd      = acc & ~PWRITE;
   wire [31:0] wmask   = {{8{PSTRB[3]}}, {8{PSTRB[2]}}, {8{PSTRB[1]}}, {8{PSTRB[0]}}};
-  logic [8:0] hit;
+  logic [12:0] hit;
   always_comb begin
     hit = '0;
-    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd9) hit[PADDR[11:2]] = 1'b1;
+    if (PADDR[1:0] == 2'b00 && PADDR[11:2] < 10'd13) hit[PADDR[11:2]] = 1'b1;
   end
   assign PREADY  = acc;
   assign PSLVERR = acc & ~|hit;
@@ -57,6 +59,7 @@ module LPDDR5X_apb #(
   logic [31:0]   c_haddr;
   logic [15:0]   c_hwdata;
   logic [15:0]   c_hrdata;
+  logic [127:0]  c_rdline;
   logic          c_hdone;
   LPDDR5X_top #(.NCH(NCH)) u_core (
     .clk(PCLK),
@@ -67,11 +70,14 @@ module LPDDR5X_apb #(
     .haddr(c_haddr),
     .hwdata(c_hwdata),
     .hrdata(c_hrdata),
+    .rdline(c_rdline),
     .hdone(c_hdone),
     .ck_t(ck_t),
     .ck_c(ck_c),
     .ca(ca),
     .cs_n(cs_n),
+    .wck_t(wck_t),
+    .wck_c(wck_c),
     .dq(dq),
     .dqs(dqs),
     .cke(cke),
@@ -137,6 +143,10 @@ module LPDDR5X_apb #(
       10'd6: apb_rdata = 32'(h_CMD1);
       10'd7: apb_rdata = 32'(h_CMD2);
       10'd8: apb_rdata = 32'({c_hrdata});
+      10'd9: apb_rdata = 32'({c_rdline[31:0]});
+      10'd10: apb_rdata = 32'({c_rdline[63:32]});
+      10'd11: apb_rdata = 32'({c_rdline[95:64]});
+      10'd12: apb_rdata = 32'({c_rdline[127:96]});
       default: apb_rdata = '0;
     endcase
   end

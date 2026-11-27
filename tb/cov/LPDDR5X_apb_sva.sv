@@ -17,6 +17,7 @@ module LPDDR5X_apb_sva (
   input logic [31:0] c_haddr,
   input logic [15:0] c_hwdata,
   input logic [15:0] c_hrdata,
+  input logic [127:0] c_rdline,
   input logic  c_hvalid,
   input logic  c_hready,
   input logic  c_hdone
@@ -24,10 +25,10 @@ module LPDDR5X_apb_sva (
   `COV_CLOCKING(PCLK, !PRESETN)
   wire        m_wr  = PSEL && PENABLE && PWRITE;
   wire        m_rd  = PSEL && PENABLE && !PWRITE;
-  wire        m_map = PADDR[1:0] == 2'b00 && (PADDR >> 2) < 9;
+  wire        m_map = PADDR[1:0] == 2'b00 && (PADDR >> 2) < 13;
   wire [9:0] m_idx = PADDR[11:2];
   wire [31:0] m_be  = {{8{PSTRB[3]}}, {8{PSTRB[2]}}, {8{PSTRB[1]}}, {8{PSTRB[0]}}};
-  logic [31:0] m_w [0:8];          // model of every stored word
+  logic [31:0] m_w [0:12];          // model of every stored word
   logic [2:0] m_set;                // interrupt bits set this clock
   logic m_state_CMD;          // full / valid pulse / available
 
@@ -49,6 +50,10 @@ module LPDDR5X_apb_sva (
       m_w[6] <= 32'h0;
       m_w[7] <= 32'h0;
       m_w[8] <= 32'h0;
+      m_w[9] <= 32'h0;
+      m_w[10] <= 32'h0;
+      m_w[11] <= 32'h0;
+      m_w[12] <= 32'h0;
       m_state_CMD <= 0;
     end else begin
       m_w[1] <= (m_w[1] & ~((m_wr && m_map && m_idx == 1) ? PWDATA & m_be : 0)) | 32'(m_set);
@@ -64,7 +69,7 @@ module LPDDR5X_apb_sva (
 
   function automatic logic [31:0] m_read(input logic [9:0] i);
     case (i)
-      0: return 32'h6D120200;
+      0: return 32'h6D120300;
       1: return m_w[1];
       2: return m_w[2];
       3: return 32'({m_state_CMD});
@@ -73,6 +78,10 @@ module LPDDR5X_apb_sva (
       6: return m_w[6];
       7: return m_w[7];
       8: return (32'(c_hrdata) << 0);
+      9: return (32'(c_rdline[31:0]) << 0);
+      10: return (32'(c_rdline[63:32]) << 0);
+      11: return (32'(c_rdline[95:64]) << 0);
+      12: return (32'(c_rdline[127:96]) << 0);
       default: return 0;
     endcase
   endfunction
@@ -109,6 +118,14 @@ module LPDDR5X_apb_sva (
   `FC(wr_CMD2, m_wr && m_map && m_idx == 7)
   `FC(rd_RDATA, m_rd && m_map && m_idx == 8)
   `FC(wr_RDATA, m_wr && m_map && m_idx == 8)
+  `FC(rd_RLINE0, m_rd && m_map && m_idx == 9)
+  `FC(wr_RLINE0, m_wr && m_map && m_idx == 9)
+  `FC(rd_RLINE1, m_rd && m_map && m_idx == 10)
+  `FC(wr_RLINE1, m_wr && m_map && m_idx == 10)
+  `FC(rd_RLINE2, m_rd && m_map && m_idx == 11)
+  `FC(wr_RLINE2, m_wr && m_map && m_idx == 11)
+  `FC(rd_RLINE3, m_rd && m_map && m_idx == 12)
+  `FC(wr_RLINE3, m_wr && m_map && m_idx == 12)
   `FC(unmapped_read, m_rd && !m_map && PADDR[1:0] == 0)
   `FC(unmapped_write, m_wr && !m_map && PADDR[1:0] == 0)
   `FC(misaligned_read, m_rd && PADDR[1:0] != 0)
@@ -117,10 +134,10 @@ module LPDDR5X_apb_sva (
   `FC(zero_strobe_write, m_wr && m_map && PSTRB == 4'h0)
   `FC(back_to_back, PSEL && PENABLE ##1 PSEL && !PENABLE)
   `FC(idle_between, PSEL && PENABLE ##1 !PSEL)
-  `FC(irq_RD_DONE_set, m_set[0])
-  `FC(irq_RD_DONE_cleared, m_w[1][0] && m_wr && m_map && m_idx == 1 && PWDATA[0] && PSTRB[0])
-  `FC(irq_RD_DONE_masked, m_w[1][0] && !m_w[2][0])
-  `FC(irq_RD_DONE_drives_pin, m_w[1][0] && m_w[2][0] && irq)
+  `FC(irq_DONE_set, m_set[0])
+  `FC(irq_DONE_cleared, m_w[1][0] && m_wr && m_map && m_idx == 1 && PWDATA[0] && PSTRB[0])
+  `FC(irq_DONE_masked, m_w[1][0] && !m_w[2][0])
+  `FC(irq_DONE_drives_pin, m_w[1][0] && m_w[2][0] && irq)
   `FC(irq_CMD_DONE_set, m_set[1])
   `FC(irq_CMD_DONE_cleared, m_w[1][1] && m_wr && m_map && m_idx == 1 && PWDATA[1] && PSTRB[0])
   `FC(irq_CMD_DONE_masked, m_w[1][1] && !m_w[2][1])

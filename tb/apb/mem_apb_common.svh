@@ -85,6 +85,9 @@ task automatic m_mr(input int i, input logic [7:0] v);
   poll(A_IRQ_STATUS, M_RDD, M_RDD, 4000);
   rd_exp(A_RDATA, {24'h0, (i == 0) ? {1'b0, v[6:0]} : v});
 endtask
+`ifndef MEM_APB_MR0
+`define MEM_APB_MR0 8'(CL - 5)
+`endif
 task automatic line_func;
   logic [31:0] a;
   for (int b = 0; b < NBU; b++) begin
@@ -96,10 +99,10 @@ task automatic line_func;
     m_rdl(a);
   end
   for (int i = 0; i < 8; i++) begin m_mr(i, 8'hFF); m_mr(i, 8'h00); end
-  m_mr(0, 8'h03); m_mr(1, 8'h02);               // CL 8, CWL 7
+  m_mr(0, 8'h03); m_mr(1, 8'h02);               // short CL / CWL
   a = mk(0, 14'h5, 8'hF8);
   m_wrl(a, {$urandom, $urandom, $urandom, $urandom}); m_rdl(a); m_rd(a + 3);
-  m_mr(0, 8'(CL - 5)); m_mr(1, 8'(CWL - 5));
+  m_mr(0, `MEM_APB_MR0); m_mr(1, 8'(CWL - 5));  // reset values
 endtask
 `endif
 

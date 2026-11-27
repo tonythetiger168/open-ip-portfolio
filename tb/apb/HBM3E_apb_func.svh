@@ -11,9 +11,15 @@ function automatic int cellof(input logic [31:0] a);
 endfunction
 // DRAM device (tb/mem_dev.svh): the core keeps no array of its own
 localparam int NCH = 8;
-`define MEM_DEV_RD ({ras_n, cas_n, we_n} == 3'b101)
-`define MEM_DEV_WR ({ras_n, cas_n, we_n} == 3'b100)
-`define MEM_DEV_CL 12
+localparam int CL = 12, CWL = 10;
+localparam int IRQ_RD_DONE = IRQ_DONE;
+`define MEM_DEV_RD (!cs_n && act_n && {ras_n, cas_n, we_n} == 3'b101)
+`define MEM_DEV_WR (!cs_n && act_n && {ras_n, cas_n, we_n} == 3'b100)
+`define MEM_DEV_LINE addr[12]
+`define MEM_DEV_CL dut.u_core.cl_now
+`define MEM_DEV_CWL dut.u_core.cwl_now
+`define MEM_DEV_DQS dqs
+`define MEM_LINE
 `define MEM_DEV_CH(a) int'(a[10:8])
 `define MEM_DEV_X ecc
 `define MEM_DEV_XW 5

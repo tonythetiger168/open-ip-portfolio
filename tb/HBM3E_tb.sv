@@ -3,7 +3,8 @@
 // pc/bank haddr[15:11]}, row = haddr[31:18], 256 SEC codewords per channel,
 // data on dq and check bits on ecc, kept by the DRAM device tb/mem_dev.svh);
 // bits of stored codewords are flipped through a backdoor and the reads
-// must still return the written data.
+// must still return the written data, for words and for each beat of a
+// line (RDL / WRL); the MR file sets CL / CWL.
 // Shared host tests in mem_tb_common.svh; the checker tb/cov/HBM3E_sva.sv
 // checks every pin.
 `timescale 1ns/1ps
@@ -17,9 +18,10 @@ module HBM3E_tb;
   logic [2:0] hcmd;
   logic [31:0] haddr;
   logic [15:0] hwdata, hrdata;
+  logic [127:0] rdline;
   logic hdone;
   logic ck_t, ck_c;
-  logic [16:0] addr; logic ras_n, cas_n, we_n;
+  logic [16:0] addr; logic ras_n, cas_n, we_n, cs_n, act_n; logic [7:0] ba;
   tri [127:0] dq; tri [39:0] ecc; tri [1:0] dqs; logic cke;
   logic trace_valid; logic [2:0] trace_cmd; logic [31:0] trace_addr;
   int errors = 0;
@@ -37,9 +39,14 @@ module HBM3E_tb;
     cellof = {a[10:8], a[7:0]};
   endfunction
   // DRAM device (tb/mem_dev.svh): the core keeps no array of its own
-  `define MEM_DEV_RD ({ras_n, cas_n, we_n} == 3'b101)
-  `define MEM_DEV_WR ({ras_n, cas_n, we_n} == 3'b100)
-  `define MEM_DEV_CL 12
+  localparam int CL = 12, CWL = 10;
+  `define MEM_DEV_RD (!cs_n && act_n && {ras_n, cas_n, we_n} == 3'b101)
+  `define MEM_DEV_WR (!cs_n && act_n && {ras_n, cas_n, we_n} == 3'b100)
+  `define MEM_DEV_LINE addr[12]
+  `define MEM_DEV_CL dut.cl_now
+  `define MEM_DEV_CWL dut.cwl_now
+  `define MEM_DEV_DQS dqs
+  `define MEM_LINE
   `define MEM_DEV_CH(a) int'(a[10:8])
   `define MEM_DEV_X ecc
   `define MEM_DEV_XW 5
@@ -64,6 +71,17 @@ module HBM3E_tb;
       for (int p = 0; p < 21; p++) begin
         flip(a, p); rd(a); flip(a, p);
         if (p % 7 == 6) near_refresh(REFI / 2);
+      end
+    end
+    // ... and on each beat of a line: one flipped codeword position per beat
+    for (int k = 0; k < 3; k++) begin
+      a = mk(8 * k + 5, 14'h301, 8'(8 * k + 16));
+      near_refresh(REFI / 2);
+      rnd_line(); wrl(a, 0); quiesce();
+      for (int p = 0; p < 21; p += 8) begin
+        for (int j = 0; j < 8; j++) flip(a + j, (p + j) % 21);
+        rdl(a);
+        for (int j = 0; j < 8; j++) flip(a + j, (p + j) % 21);
       end
     end
     for (int b = 0; b < 8; b++) act(mk(b, 14'h100 + 14'(b), 0));

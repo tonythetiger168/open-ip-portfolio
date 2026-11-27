@@ -67,7 +67,7 @@ module GDDR7_tb;
   `define MEM_DEV_BEATS 2
   `define MEM_DEV_BEAT(w, k) (dut.pam3 ? pam3_beat(w, k) : (w))
   `define MEM_LINE
-  `define MEM_MR_RESET tb_mr[2] = 8'h01;
+  `define MEM_MR_RESET tb_mrs[0][2] = 8'h01;
   `include "mem_tb_common.svh"
 
   // every nibble value through the PAM3 read path; every nibble value

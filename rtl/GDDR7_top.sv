@@ -220,7 +220,6 @@ module GDDR7_top #(
       end
       case (dstate)
         D_IDLE: begin
-          ras_n <= 1'b1; cas_n <= 1'b1; we_n <= 1'b1;
           if (hvalid && ref_cnt != 0) begin
             cur_addr <= haddr; wr_data <= hwdata; cur_bank <= a_bank;
             rd_pending <= (hcmd == 3'd2) || (hcmd == 3'd5); ref_walk <= 1'b0; auto_act <= 1'b0;
@@ -314,7 +313,6 @@ module GDDR7_top #(
           end
         end
         D_RCD: begin
-          ras_n <= 1'b1;
           if (timer == 0) begin
             if (ref_walk)      begin ref_walk <= 1'b0; dstate <= D_IDLE; end
             else if (auto_rd)  begin auto_rd <= 1'b0; dstate <= D_RD; end
@@ -338,7 +336,6 @@ module GDDR7_top #(
           else begin dstate <= D_CAS; timer <= '0; end
         end
         D_CAS: begin
-          cas_n <= 1'b1; we_n <= 1'b1;
           if (rd_beat0) rd_b0 <= dq[16*c_ch +: 12];
           if (timer == 0) begin
             if (line) begin                // RDL: beat 0, then the rest in D_LRD
