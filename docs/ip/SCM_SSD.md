@@ -102,7 +102,7 @@ PCIe 6.0 / CXL 3.x; the PCIe and CXL link layers are separate IPs
 |---|---|
 | `rtl/SCM_SSD_top.sv` | core |
 | `tb/SCM_SSD_tb.sv` | self-checking testbench (host model, reference namespaces and FDP fill counts, byte-port master) |
-| `syn/SCM_SSD_yosys.ys`, `syn/SCM_SSD_dc.tcl`, `syn/SCM_SSD.sdc` | synthesis |
+| `syn/SCM_SSD_yosys.ys`, `syn/SCM_SSD_msynth.tcl`, `syn/SCM_SSD.sdc` | synthesis |
 | `sim/filelist_SCM_SSD.f` | file list |
 
 ## Running and verifying
