@@ -47,6 +47,6 @@
     "The core's own verification (pin-level checker, 100% coverage) is tb/cov/HBM5_sva.sv with tb/HBM5_tb.sv; this wrapper test drives the core only through the registers."
   ],
   "perf_notes": [
-    "Fine-granularity refresh: one entry is refreshed every 195 clocks (tREFI / 8) for tRFC_PB = 40 clocks, so the core is unavailable about 29% of the idle time, in short windows; the longest stall a read sees is one refresh slice, against several hundred clocks behind an all-bank refresh in the other cores."
+    "Fine-granularity refresh: one entry is refreshed every 195 clocks (tREFI / 8). The REF itself takes the command bus for a few clocks; only the refreshed entry then waits tRFC_PB = 40 clocks, while the other entries stay open for reads and writes. The longest stall a read sees is one refresh slice, and only when it targets the entry just refreshed, against several hundred clocks behind an all-bank refresh in the other cores."
   ]
 }
