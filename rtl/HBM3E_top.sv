@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // ============================================================================
 // HBM3E -- INDEPENDENT design IP #18/20.
-// Architecture thesis: on-die ECC. The array stores 21-bit SEC codewords
-// (16 data + 5 Hamming check bits over positions 1..21, checks at 1,2,4,8,16);
-// writes encode, reads decode+correct a single-bit error (syndrome = XOR of
-// set-bit positions; syndrome!=0 flips that position back). Read data is
-// always corrected before hrdata; the stored word is not scrubbed. SEC
-// only: a double-bit error is not detected and may be miscorrected.
+// Architecture thesis: sideband SEC ECC. Every word is stored in the DRAM
+// as a 21-bit SEC codeword (16 data + 5 Hamming check bits over positions
+// 1..21, checks at 1,2,4,8,16): a write drives the data on dq and its 5
+// check bits on the channel's ecc pins; a read takes data and check bits
+// back from dq / ecc and decodes + corrects a single-bit error (syndrome =
+// XOR of set-bit positions; syndrome!=0 flips that position back). Read
+// data is always corrected before hrdata; the stored word is not scrubbed.
+// SEC only: a double-bit error is not detected and may be miscorrected.
+// The core holds no data: the DRAM drives the read word CL clocks after
+// the RD command.
 // 256 page entries ({ch haddr[10:8], pc/bank haddr[15:11]}), per-entry
 // refresh rotating over all 256. Contract identical to DDR_top (hrdata
-// carries corrected data; the TB flips stored bits through a backdoor and
-// its scoreboard therefore proves the correction).
+// carries corrected data; the TB flips bits stored in its DRAM device
+// through a backdoor and its scoreboard therefore proves the correction).
 // ============================================================================
 module HBM3E_top #(
   parameter int NCH = 8
@@ -26,6 +30,7 @@ module HBM3E_top #(
   output logic [16:0] addr,
   output logic        ras_n, cas_n, we_n,
   inout  tri [NCH*16-1:0] dq,
+  inout  tri [NCH*5-1:0]  ecc,           // SEC check bits, 5 per channel
   inout  tri [1:0]    dqs,
   output logic        cke,
   output logic        trace_valid,
@@ -42,14 +47,6 @@ module HBM3E_top #(
   localparam int CHW = (NCH <= 2) ? 1 : $clog2(NCH);   // channel select: haddr[8 +: CHW]
   localparam int NB = 256;              // 8 ch x 32 pc/bank entries
 
-  logic [20:0] mem [0:(1<<CHW)*256-1];   // NCH ch x 256 col
-  // array contents are not cleared by rst_n (a DRAM keeps its data);
-  // zero them once for deterministic simulation
-  // sim-only clear; yosys (SYNTHESIS) would unroll it into one assignment per
-  // line, which takes minutes and GBs for no netlist change
-`ifndef SYNTHESIS
-  initial for (int i = 0; i <= (1<<CHW)*256-1; i++) mem[i] = '0;
-`endif
   logic [13:0] open_row [0:NB-1];
   logic [NB-1:0] bank_open;
   logic [8:0] rp_t [0:NB-1], ras_t [0:NB-1], rc_t [0:NB-1];
@@ -147,13 +144,25 @@ module HBM3E_top #(
   assign trace_valid = (dstate == D_ACT && act_ok) || (dstate == D_RD && rd_ok) || (dstate == D_WR && wr_ok);
   assign trace_cmd   = (dstate == D_ACT) ? 3'd1 : (dstate == D_RD) ? 3'd2 : 3'd3;
   assign trace_addr  = cur_addr;
-  // each channel owns dq[16*g +: 16]; only the addressed one drives a write
+  // each channel owns dq[16*g +: 16] and ecc[5*g +: 5]; only the addressed
+  // one drives a write: the data and the check bits of its codeword
+  wire [20:0] wr_cw = ecc_enc(wr_data);
+  wire [4:0]  wr_chk = {wr_cw[15], wr_cw[7], wr_cw[3], wr_cw[1], wr_cw[0]};
   for (genvar g = 0; g < NCH; g++) begin : g_dq
     assign dq[16*g +: 16] = (dstate == D_WR && wr_ok && c_ch == g) ? wr_data : 16'hzzzz;
+    assign ecc[5*g +: 5]  = (dstate == D_WR && wr_ok && c_ch == g) ? wr_chk  : 5'bzzzzz;
   end
 
-  // ECC-corrected read word for the current column (on-die ECC decode)
-  wire [15:0] rd_dec = ecc_dec(mem[{c_ch, cur_addr[7:0]}]);
+  // ECC-corrected read word: the codeword rebuilt from the data and check
+  // bits the DRAM drives on the channel's dq / ecc lanes
+  wire [15:0] rd_d   = dq[16*c_ch +: 16];
+  wire [4:0]  rd_c   = ecc[5*c_ch +: 5];
+  logic [20:0] rd_cw;
+  always_comb begin
+    rd_cw = ecc_enc(rd_d);
+    rd_cw[0] = rd_c[0]; rd_cw[1] = rd_c[1]; rd_cw[3] = rd_c[2]; rd_cw[7] = rd_c[3]; rd_cw[15] = rd_c[4];
+  end
+  wire [15:0] rd_dec = ecc_dec(rd_cw);
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -284,7 +293,6 @@ module HBM3E_top #(
         D_WR: if (wr_ok) begin
           cas_n <= 1'b0; we_n <= 1'b0;
           addr <= {9'b0, cur_addr[7:0]};
-          mem[{c_ch, cur_addr[7:0]}] <= ecc_enc(wr_data);     // on-die ECC encode
           // complete once on the pins: D_CAS exits next clock (no CL wait)
           ras_t[cur_bank] <= 9'(WR2PRE - 1);   // WR2PRE > tRAS - tRCD: never shorter than tRAS
           wtr_t <= WTRW'(WR2RD - 1); ccd_t <= CCDW'(TBURST - 1);

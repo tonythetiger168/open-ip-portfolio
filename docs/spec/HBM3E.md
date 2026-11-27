@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # HBM3E: design specification
 
-HBM3E-class controller with on-die ECC: the array stores 21-bit single-error-correcting codewords (16 data + 5 Hamming check bits); writes encode, reads decode and correct a single-bit error before `hrdata`. The stored codeword is not scrubbed. SEC only: a double-bit error is not detected and may be miscorrected. 256 page entries ({channel, pc}) with per-entry refresh rotating over all 256; otherwise the open-page engine. Core `HBM3E_top` (`rtl/HBM3E_top.sv`), testbench `tb/HBM3E_tb.sv` (shared body
+HBM3E-class controller with sideband SEC ECC: each write word leaves with 5 Hamming check bits on `ecc`, the DRAM stores them with the word (a 21-bit single-error-correcting codeword), and on a read the controller decodes the word and check bits it gets back and corrects a single-bit error before `hrdata`. The stored codeword is not scrubbed. SEC only: a double-bit error is not detected and may be miscorrected. 256 page entries ({channel, pc}) with per-entry refresh rotating over all 256; otherwise the open-page engine. The core holds no data: write words go out on `dq` and read words come back on `dq` from the DRAM device, which the testbenches model (`tb/mem_dev.svh`). Core `HBM3E_top` (`rtl/HBM3E_top.sv`), testbench `tb/HBM3E_tb.sv` (shared body
 `tb/mem_tb_common.svh`), checker `tb/cov/HBM3E_sva.sv` (shared model `tb/cov/mem_chk.svh`). The host
 contract and the checker are shared by the whole memory-controller family; [DDR4.md](DDR4.md) is
 the baseline the others are described against.
@@ -31,6 +31,7 @@ asynchronously by `rst_n` low. *Clock t* is the clock period after edge t. A pin
 | `cas_n` | output | 1 | command pin CAS# | low | `clk` | 1 |
 | `we_n` | output | 1 | command pin WE# | low | `clk` | 1 |
 | `dq` | inout | NCH x 16 | data; driven only with write data (§3.7), else high-Z | - | `clk` | high-Z |
+| `ecc` | inout | NCH x 5 | ECC check bits of the word on `dq`; driven with the write word's check bits (§3.7), else high-Z | - | `clk` | high-Z |
 | `dqs` | inout | 2 | data strobe; never driven (high-Z) | - | `clk` | high-Z |
 | `cke` | output | 1 | clock enable = `rst_n` | high | `clk` | 0 |
 | `trace_valid` | output | 1 | a pin command ACT / RD / WR comes in the next clock | high | `clk` | 0 |
@@ -45,7 +46,6 @@ The TB reads these by name; a re-implementation must have them.
 |---|---|---|
 | `ref_cnt` | 14 | refresh down-counter: clocks until the next refresh is due; loaded with TREFI at reset and when a refresh starts, decremented every clock, `hready` = 0 while it is 0. The TB waits for exact values of it to make a refresh fall due during a command |
 | `ref_bank` | 8 | entry the next per-entry refresh targets (0 to 255, entry numbering of §3.2); the TB opens that entry just before a refresh falls due, so the refresh PRE must wait out its tRAS |
-| `mem` | 21 x 2048 | the codeword array, indexed by the cell {channel, column}; bit p - 1 holds codeword position p. The TB flips single bits of it (backdoor) and checks that reads return the corrected word |
 
 ## 2. Registers
 
@@ -54,7 +54,7 @@ Generated from [`docs/ip/HBM3E.md`](../ip/HBM3E.md) (source: `scripts/apb/specs/
 
 `HBM3E_apb` is an APB4 slave (AMBA APB protocol v2.0): zero wait states, 32-bit data, 12-bit byte address, PSTRB byte lanes on every writable register, PSLVERR on an unmapped or misaligned address (reads then return 0, writes are dropped). Writes to read-only registers are ignored without an error. The core runs on PCLK and PRESETN. `irq` is level-high: `|(IRQ_STATUS & IRQ_ENABLE)`.
 
-Pass-through pins: `ck_t`, `ck_c`, `addr`, `ras_n`, `cas_n`, `we_n`, `dq`, `dqs`, `cke`, `trace_valid`, `trace_cmd`, `trace_addr`.
+Pass-through pins: `ck_t`, `ck_c`, `addr`, `ras_n`, `cas_n`, `we_n`, `dq`, `ecc`, `dqs`, `cke`, `trace_valid`, `trace_cmd`, `trace_addr`.
 
 ### Register map
 
@@ -137,8 +137,9 @@ only when that command's work is complete on the pins (an engine may wait longer
 `hready` is also 0 while a refresh is due or running (§3.6), so a refresh never drops a host
 command. `hready` is never low for more than BUSY_MAX clocks in a row (§3.5).
 
-A RD returns the word last written to the storage cell its address maps to (§3.2), or 0 if that
-cell was never written (the array is zeroed once at time 0 and is not cleared by `rst_n`).
+A RD returns the word the device drives on `dq` for it (§3.7). With the TB's device that is the
+word last written to the storage cell the address maps to (§3.2), or 0 if that cell was never
+written (the device array starts zeroed and keeps its data through `rst_n`).
 
 ### 3.2 Address map and storage
 
@@ -150,7 +151,7 @@ cell was never written (the array is zeroed once at time 0 and is not cleared by
 | column | `haddr[7:0]` | 256 columns |
 
 Page entry = {channel, pc} (256 entries, numbered channel x 32 + pc),
-each with its own open row and timers. Storage is 256 16-bit words per channel indexed by the
+each with its own open row and timers. The core holds no data; the TB's device (`tb/mem_dev.svh`) stores 256 16-bit words per channel indexed by the
 column (cell = {channel, column}); pcs and rows alias onto it.
 
 ### 3.3 Pin commands
@@ -217,18 +218,21 @@ be activated again. REF-to-REF spacing stays within REF_MIN .. REF_MAX.
 ### 3.7 Data
 
 Write: the write word is driven on `dq[16 x ch +: 16]` of the command's channel in the clock
-before the WR pin command (the clock of its trace announcement) and the cell is written; `dq` is
+before the WR pin command (the clock of its trace announcement), where the device stores it; `dq` is
 high-Z in every other clock (the other channels' lanes too).
 
-Read: the RD pin command is on the pins in clock t; `hdone` = 1 in clock t + CL; `hrdata` holds
-the cell's word from clock t + CL + 1 until the next read completes.
+Read: the RD pin command is on the pins in clock t; the device drives the word on
+`dq[16 x ch +: 16]` in clock t + CL, where `hdone` = 1, and the core takes it at the end of that
+clock: `hrdata` holds it from clock t + CL + 1 until the next read completes.
 
-ECC: a WR stores the codeword of the word; a RD returns the decoded, corrected word. Codeword
-positions 1 to 21 (stored in bits 0 to 20 of the cell): check bits at positions 1, 2, 4, 8, 16, data
+ECC: with the write word on `dq` the core drives its 5 check bits on `ecc[5 x ch +: 5]` (positions
+1, 2, 4, 8, 16 of the codeword, in that order from bit 0); the device stores them with the word and
+drives them back on `ecc` with the read word, and the core decodes the codeword and returns the
+corrected word. Codeword positions 1 to 21: check bits at positions 1, 2, 4, 8, 16, data
 bits d0 .. d15 in order at the other positions (3, 5, 6, 7, 9, ..., 21). Check bit j (at position
 2^j) is the XOR of the data bits whose position has bit j set. Decode: syndrome s = XOR of the
 positions of all set bits; if 1 <= s <= 21, position s is flipped; then the data bits are taken.
-A single flipped stored bit at any position is corrected; the stored codeword is left as it is.
+A single flipped bit at any position (data on `dq` or check bit on `ecc`) is corrected; the stored codeword is left as it is.
 
 ### 3.8 Trace port
 
@@ -239,8 +243,7 @@ does not announce PRE, PREA or REF).
 ### 3.9 Reset
 
 `rst_n` low: idle, every bank closed and every timer 0, `ref_cnt` = TREFI, `hready` = 1, command
-pins NOP, `addr` = 0, `hrdata` = 0, `hdone` = 0, `trace_valid` = 0, `cke` = 0, `dq` released. The
-storage array keeps its contents. `ref_bank` = 0.
+pins NOP, `addr` = 0, `hrdata` = 0, `hdone` = 0, `trace_valid` = 0, `cke` = 0, `dq` released. The DRAM device keeps its array. `ref_bank` = 0.
 
 ## 4. Parameters
 
@@ -258,8 +261,8 @@ storage array keeps its contents. `ref_bank` = 0.
 | PRE of a closed bank | no pin command; `hready` returns once that bank's tRP (from an earlier PRE) has passed |
 | refresh due during a command | the command finishes first; the refresh follows before `hready` |
 | a stream of no-op commands | cannot hold off a refresh (`hready` drops when it is due) |
-| two addresses with the same storage cell | aliasing (§3.2) |
-| reset with a command in flight | the command is lost; a WR may or may not have reached the array |
+| two addresses with the same storage cell | the same cell of the TB's device (aliasing, §3.2) |
+| reset with a command in flight | the command is lost; a WR may or may not have reached the device |
 | refresh | closes only the entry it refreshes (if open); other pages stay open |
 | one stored bit flipped (any of the 21 positions) | the read returns the written word |
 | two stored bits flipped | not detected; the read may return a wrong word |
@@ -272,7 +275,7 @@ which rebuilds a per-bank page and timing model from the pins and checks every p
 independently of the RTL. The TB opens, writes, reads, re-opens and precharges every bank entry,
 writes all-zero / all-one / alternating patterns, sends unknown codes and commands while busy,
 600 random commands, and lets a refresh fall due during each kind of command and while idle;
-finally it resets with a read in flight. Its extra test flips each of the 21 codeword positions of a written word through `mem`, reads it back (the scoreboard expects the written word), and restores the bit.
+finally it resets with a read in flight. Its extra test flips each of the 21 codeword positions of a written word in the TB's device array (16 data bits and 5 check bits), reads it back (the scoreboard expects the written word), and restores the bit.
 
 | Check (TB message or assertion) | What it requires | Spec |
 |---|---|---|

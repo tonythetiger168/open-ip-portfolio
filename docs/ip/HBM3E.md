@@ -1,4 +1,4 @@
-# HBM3E memory controller: on-die-ECC controller (256 page entries {channel haddr[10:8], pc/bank haddr[15:11]}, row = haddr[31:18], storage = 256 SEC codewords per channel); bits of stored codewords are flipped through a backdoor and the reads must still return the written data
+# HBM3E memory controller: sideband-ECC controller (256 page entries {channel haddr[10:8], pc/bank haddr[15:11]}, row = haddr[31:18], storage = 256 columns per channel, each word with 5 SEC check bits carried on ecc); the TB flips bits of stored codewords in its DRAM model and the reads must still return the written data
 
 Protocol IP `HBM3E`, version 2.0. Apache-2.0.
 
@@ -11,14 +11,14 @@ Protocol IP `HBM3E`, version 2.0. Apache-2.0.
 | Registers | 9 words, 0x000 to 0x020 |
 | Interrupts | 3 sources into one level-high `irq` |
 | Data streams | CMD (to the core) |
-| Protocol pins | 12 pass-through |
+| Protocol pins | 13 pass-through |
 
 ## Overview
 
-HBM3E -- INDEPENDENT design IP #18/20. Architecture thesis: on-die ECC. The array stores 21-bit SEC codewords (16 data + 5 Hamming check bits over positions 1..21, checks at 1,2,4,8,16); writes encode, reads decode+correct a single-bit error (syndrome = XOR of set-bit positions; syndrome!=0 flips that position back). Read data is always corrected before hrdata; the stored word is not scrubbed. SEC only: a double-bit error is not detected and may be miscorrected. 256 page entries ({ch haddr[10:8], pc/bank haddr[15:11]}), per-entry refresh rotating over all 256. Contract identical to DDR_top (hrdata carries corrected data; the TB flips stored bits through a backdoor and its scoreboard therefore proves the correction).
+HBM3E -- INDEPENDENT design IP #18/20. Architecture thesis: sideband SEC ECC. Every word is stored in the DRAM as a 21-bit SEC codeword (16 data + 5 Hamming check bits over positions 1..21, checks at 1,2,4,8,16): a write drives the data on dq and its 5 check bits on the channel's ecc pins; a read takes data and check bits back from dq / ecc and decodes + corrects a single-bit error (syndrome = XOR of set-bit positions; syndrome!=0 flips that position back). Read data is always corrected before hrdata; the stored word is not scrubbed. SEC only: a double-bit error is not detected and may be miscorrected. The core holds no data: the DRAM drives the read word CL clocks after the RD command. 256 page entries ({ch haddr[10:8], pc/bank haddr[15:11]}), per-entry refresh rotating over all 256. Contract identical to DDR_top (hrdata carries corrected data; the TB flips bits stored in its DRAM device through a backdoor and its scoreboard therefore proves the correction).
 
 ck_t, ck_c, cke, addr, ras_n, cas_n, we_n, dq and dqs are the DRAM pins and trace_valid, trace_cmd and trace_addr the command trace (one clock before each command on the pins); they pass through unchanged.
-Address map and behaviour of the core: on-die-ECC controller (256 page entries {channel haddr[10:8], pc/bank haddr[15:11]}, row = haddr[31:18], storage = 256 SEC codewords per channel); bits of stored codewords are flipped through a backdoor and the reads must still return the written data.
+Address map and behaviour of the core: sideband-ECC controller (256 page entries {channel haddr[10:8], pc/bank haddr[15:11]}, row = haddr[31:18], storage = 256 columns per channel, each word with 5 SEC check bits carried on ecc); the TB flips bits of stored codewords in its DRAM model and the reads must still return the written data.
 The core's own verification (pin-level checker, 100% coverage) is tb/cov/HBM3E_sva.sv with tb/HBM3E_tb.sv; this wrapper test drives the core only through the registers.
 
 ## Files
@@ -67,6 +67,7 @@ Pins of `HBM3E_apb`. Widths of the pass-through pins are at the default paramete
 | `cas_n` | output | 1 | protocol pin, core port `cas_n` |
 | `we_n` | output | 1 | protocol pin, core port `we_n` |
 | `dq` | inout | 128 | protocol pin, core port `dq` |
+| `ecc` | inout | 40 | protocol pin, core port `ecc` |
 | `dqs` | inout | 2 | protocol pin, core port `dqs` |
 | `cke` | output | 1 | protocol pin, core port `cke` |
 | `trace_valid` | output | 1 | protocol pin, core port `trace_valid` |
@@ -93,6 +94,7 @@ Pins of `HBM3E_apb`. Widths of the pass-through pins are at the default paramete
 | `cas_n` | output | 1 | pin (pass-through) |
 | `we_n` | output | 1 | pin (pass-through) |
 | `dq` | inout | 128 | pin (pass-through) |
+| `ecc` | inout | 40 | pin (pass-through) |
 | `dqs` | inout | 2 | pin (pass-through) |
 | `cke` | output | 1 | pin (pass-through) |
 | `trace_valid` | output | 1 | pin (pass-through) |
@@ -103,7 +105,7 @@ Pins of `HBM3E_apb`. Widths of the pass-through pins are at the default paramete
 
 `HBM3E_apb` is an APB4 slave (AMBA APB protocol v2.0): zero wait states, 32-bit data, 12-bit byte address, PSTRB byte lanes on every writable register, PSLVERR on an unmapped or misaligned address (reads then return 0, writes are dropped). Writes to read-only registers are ignored without an error. The core runs on PCLK and PRESETN. `irq` is level-high: `|(IRQ_STATUS & IRQ_ENABLE)`.
 
-Pass-through pins: `ck_t`, `ck_c`, `addr`, `ras_n`, `cas_n`, `we_n`, `dq`, `dqs`, `cke`, `trace_valid`, `trace_cmd`, `trace_addr`.
+Pass-through pins: `ck_t`, `ck_c`, `addr`, `ras_n`, `cas_n`, `we_n`, `dq`, `ecc`, `dqs`, `cke`, `trace_valid`, `trace_cmd`, `trace_addr`.
 
 ### Register map
 
