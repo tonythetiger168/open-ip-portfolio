@@ -12,15 +12,23 @@ module SPI_sva (
   logic       m_sclk_d, m_done;
   logic [2:0] m_bit;
   logic [7:0] m_rx, m_tx;
-  wire rise = !csn && sclk && !m_sclk_d;
+  // the target's two-flop synchronizers on sclk, mosi and csn
+  logic [1:0] m_sclk_s, m_mosi_s, m_csn_s;
+  wire s_sclk = m_sclk_s[1], s_mosi = m_mosi_s[1], s_csn = m_csn_s[1];
+  always_ff @(posedge clk or negedge rst_n)
+    if (!rst_n) begin m_sclk_s <= 0; m_mosi_s <= 0; m_csn_s <= 2'b11; end
+    else begin
+      m_sclk_s <= {m_sclk_s[0], sclk}; m_mosi_s <= {m_mosi_s[0], mosi}; m_csn_s <= {m_csn_s[0], csn};
+    end
+  wire rise = !s_csn && s_sclk && !m_sclk_d;
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin m_sclk_d <= 0; m_done <= 0; m_bit <= 0; m_rx <= 0; m_tx <= 0; end
     else begin
-      m_sclk_d <= sclk;
+      m_sclk_d <= s_sclk;
       m_done <= rise && m_bit == 7;
       if (wen && waddr == 0) m_tx <= wdata;
-      if (rise) begin m_rx <= {m_rx[6:0], mosi}; m_bit <= m_bit + 1; end
-      if (csn) m_bit <= 0;
+      if (rise) begin m_rx <= {m_rx[6:0], s_mosi}; m_bit <= m_bit + 1; end
+      if (s_csn) m_bit <= 0;
     end
   end
 
@@ -28,12 +36,12 @@ module SPI_sva (
   `SVA_IMP(a_miso_model, !csn, miso == m_tx[3'd7 - m_bit])
   `SVA_IMP(a_read_mux, 1'b1, rdata == (raddr == 0 ? m_rx : raddr == 1 ? m_tx : 8'h00))
   `SVA_IMP(a_irq_byte_done, 1'b1, irq == m_done)
-  `SVA_NXT(a_csn_resets_count, csn, csn || miso == m_tx[7])
+  `SVA_NXT(a_csn_resets_count, s_csn, csn || miso == m_tx[7])
 
   covergroup cg_spi @(posedge clk);
     option.per_instance = 1;
     cp_bit: coverpoint m_bit iff (rst_n && rise);
-    cp_mosi: coverpoint mosi iff (rst_n && rise);
+    cp_mosi: coverpoint s_mosi iff (rst_n && rise);
   endgroup
   cg_spi u_cg_spi = new;
 
@@ -50,8 +58,8 @@ module SPI_sva (
     if (!rst_n) begin m_tx_byte <= 0; m_abort <= 0; m_abort_bit <= 0; m_csn_d <= 1; end
     else begin
       if (rise && m_bit == 0) m_tx_byte <= m_tx;
-      m_csn_d <= csn;
-      m_abort <= csn && !m_csn_d && m_bit != 0;
+      m_csn_d <= s_csn;
+      m_abort <= s_csn && !m_csn_d && m_bit != 0;
       m_abort_bit <= m_bit;
     end
   end
@@ -67,11 +75,11 @@ module SPI_sva (
   endgroup
   cg_spi_data u_cg_spi_data = new;
 
-  `FC(back_to_back_bytes, m_done && !csn ##[1:40] rise)
-  `FC(abort_mid_byte, $rose(csn) && m_bit != 0)
-  `FC(tx_write_during_transfer, wen && waddr == 0 && !csn && m_bit != 0)
-  `FC(sclk_while_deselected, csn && sclk && !m_sclk_d)
-  `FC_RST(reset_mid_byte, rst_n && !csn && m_bit != 0 ##1 !rst_n)
+  `FC(back_to_back_bytes, m_done && !s_csn ##[1:40] rise)
+  `FC(abort_mid_byte, $rose(s_csn) && m_bit != 0)
+  `FC(tx_write_during_transfer, wen && waddr == 0 && !s_csn && m_bit != 0)
+  `FC(sclk_while_deselected, s_csn && s_sclk && !m_sclk_d)
+  `FC_RST(reset_mid_byte, rst_n && !s_csn && m_bit != 0 ##1 !rst_n)
 endmodule
 
 bind SPI_top SPI_sva u_sva (.*);
