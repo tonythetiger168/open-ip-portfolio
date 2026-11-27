@@ -4,7 +4,7 @@
 
 > 可建置的 [APB 平台子系統基準](docs/design/platform_slice_baseline.md) 與 [source/config pins](integration/platform/baseline.json) 已提供；它不是產品 SoC top，完整三產品 elaboration 與六類 coverage closure 仍 BLOCKED。
 
-Open-source SystemVerilog protocol IP portfolio (Apache-2.0) — **154 IPs**
+Open-source SystemVerilog protocol IP portfolio (Apache-2.0) — **150 IPs**
 (143 protocol IPs and 11 host-controller, DMA and AXI IPs), each with a synthesizable RTL core, an APB4 register wrapper, self-checking
 testbenches for both, a coverage checker (reference model, SVA and functional
 coverage), and open-toolchain build flows (Icarus Verilog simulation, Yosys
@@ -109,7 +109,6 @@ setup_tools.sh           installs yosys and iverilog 13.0 if missing
 |---|---|---|
 | DDR | `make -f Makefile.DDR sim` | [open_ip_DDR.zip](releases/open_ip_DDR.zip) |
 | DDR4 | `make -f Makefile.DDR4 sim` | [open_ip_DDR4.zip](releases/open_ip_DDR4.zip) |
-| DDR4-Lite | `make -f Makefile.DDR4_Lite sim` | [open_ip_DDR4_Lite.zip](releases/open_ip_DDR4_Lite.zip) |
 | DDR5 | `make -f Makefile.DDR5 sim` | [open_ip_DDR5.zip](releases/open_ip_DDR5.zip) |
 | DDR6 | `make -f Makefile.DDR6 sim` | [open_ip_DDR6.zip](releases/open_ip_DDR6.zip) |
 | DDR7 | `make -f Makefile.DDR7 sim` | [open_ip_DDR7.zip](releases/open_ip_DDR7.zip) |
@@ -117,19 +116,16 @@ setup_tools.sh           installs yosys and iverilog 13.0 if missing
 | GDDR5 | `make -f Makefile.GDDR5 sim` | [open_ip_GDDR5.zip](releases/open_ip_GDDR5.zip) |
 | GDDR6 | `make -f Makefile.GDDR6 sim` | [open_ip_GDDR6.zip](releases/open_ip_GDDR6.zip) |
 | GDDR7 | `make -f Makefile.GDDR7 sim` | [open_ip_GDDR7.zip](releases/open_ip_GDDR7.zip) |
-| GDDR7-Lite | `make -f Makefile.GDDR7_Lite sim` | [open_ip_GDDR7_Lite.zip](releases/open_ip_GDDR7_Lite.zip) |
 | HBM | `make -f Makefile.HBM sim` | [open_ip_HBM.zip](releases/open_ip_HBM.zip) |
 | HBM2 | `make -f Makefile.HBM2 sim` | [open_ip_HBM2.zip](releases/open_ip_HBM2.zip) |
 | HBM3 | `make -f Makefile.HBM3 sim` | [open_ip_HBM3.zip](releases/open_ip_HBM3.zip) |
 | HBM3E | `make -f Makefile.HBM3E sim` | [open_ip_HBM3E.zip](releases/open_ip_HBM3E.zip) |
-| HBM3E-Lite | `make -f Makefile.HBM3E_Lite sim` | [open_ip_HBM3E_Lite.zip](releases/open_ip_HBM3E_Lite.zip) |
 | HBM4 | `make -f Makefile.HBM4 sim` | [open_ip_HBM4.zip](releases/open_ip_HBM4.zip) |
 | HBM5 | `make -f Makefile.HBM5 sim` | [open_ip_HBM5.zip](releases/open_ip_HBM5.zip) |
 | LPDDR | `make -f Makefile.LPDDR sim` | [open_ip_LPDDR.zip](releases/open_ip_LPDDR.zip) |
 | LPDDR4 | `make -f Makefile.LPDDR4 sim` | [open_ip_LPDDR4.zip](releases/open_ip_LPDDR4.zip) |
 | LPDDR5 | `make -f Makefile.LPDDR5 sim` | [open_ip_LPDDR5.zip](releases/open_ip_LPDDR5.zip) |
 | LPDDR5X | `make -f Makefile.LPDDR5X sim` | [open_ip_LPDDR5X.zip](releases/open_ip_LPDDR5X.zip) |
-| LPDDR5X-Lite | `make -f Makefile.LPDDR5X_Lite sim` | [open_ip_LPDDR5X_Lite.zip](releases/open_ip_LPDDR5X_Lite.zip) |
 | LPDDR6 | `make -f Makefile.LPDDR6 sim` | [open_ip_LPDDR6.zip](releases/open_ip_LPDDR6.zip) |
 | LPDDR7 | `make -f Makefile.LPDDR7 sim` | [open_ip_LPDDR7.zip](releases/open_ip_LPDDR7.zip) |
 | ONFI | `make -f Makefile.ONFI sim` | [open_ip_ONFI.zip](releases/open_ip_ONFI.zip) |
@@ -319,9 +315,10 @@ The one family that still shares structure is memory: the 20 DRAM
 controllers (DDR, DDR4-7, LPDDR, LPDDR4-7, LPDDR5X, GDDR5-7, HBM, HBM2-5,
 HBM3E) are separate files, but grew from one controller design and are
 80-95% statement-identical within a sub-family; they differ in timing, bank
-and channel count and command encoding. The 4 Lite cores (DDR4_Lite,
-LPDDR5X_Lite, HBM3E_Lite, GDDR7_Lite) are a second, larger design (see
-[docs/DDR_Lite_NOTES.md](docs/DDR_Lite_NOTES.md)). A bug in one memory
+and channel count and command encoding. DDR4, GDDR7, HBM3E and LPDDR5X
+also take line commands (BL8 bursts with dqs) and have an MR file with
+programmable CL / CWL (the former `*_Lite` cores, folded into them in
+2026-11). A bug in one memory
 controller is therefore likely to exist in its siblings. The retired shared
 cores `MEMCH` / `MEMCORE` have been removed (see git history).
 
@@ -377,12 +374,12 @@ make -f Makefile.I2C apb        # -> TEST PASSED: I2C_apb
 # pin-level functional test, where tb/func has one (the TB plays the device)
 make -f Makefile.DDR4 func      # -> TEST PASSED: DDR4_func
 
-# full regression (what CI runs): sim + syn + apb (+ func) for all 154 IPs, in parallel (~50 min on 4 cores)
+# full regression (what CI runs): sim + syn + apb (+ func) for all 150 IPs, in parallel (~50 min on 4 cores)
 bash scripts/ci_regression.sh   # logs in work/ci_*.log
 
 # strict IEEE 1800 elaboration of every IP's RTL with slang (CI gate; iverilog accepts
 # some illegal code, e.g. a net used above its declaration)
-python3 scripts/lint/strict_elab.py   # -> strict elaboration: 154/154 IPs clean
+python3 scripts/lint/strict_elab.py   # -> strict elaboration: 150/150 IPs clean
 
 # strict Yosys gate (CI): every core and APB wrapper script must synthesize to gates
 # (full synth + ABC) with no latches, no multiple / missing drivers, no comb loops
@@ -402,7 +399,7 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
 - **Five-metric closure (Verilator 5.052):** every IP's testbench reaches
   100% line, toggle, FSM, SVA and functional coverage, and so does every
   IP's APB4 register wrapper (`rtl/<P>_apb.sv`, register map in
-  `docs/ip/<P>.md`): 154 cores and 153 wrappers (SCM_SSD has none),
+  `docs/ip/<P>.md`): 150 cores and 149 wrappers (SCM_SSD has none),
   307/307 closed. Constant AXI fields of the AXI4 managers are excluded with
   a reason in `scripts/cov/exclude/<P>_apb.txt`. Results,
   exclusions and how to run: [docs/COVERAGE_CLOSURE.md](docs/COVERAGE_CLOSURE.md).
@@ -422,7 +419,7 @@ unzip releases/open_ip_SAS.zip && cd open_ip_SAS && make sim
   ML-KEM, ML-DSA and RS-FEC arithmetic and the PCS functions and gearboxes), area and logic depth, and the list of what a production
   sign-off would still need: [docs/SIGNOFF.md](docs/SIGNOFF.md).
 - **Memory controller performance (measured):** every DDR / LPDDR / GDDR /
-  HBM controller page (`docs/ip/<P>.md`, 24 cores) has a Performance section:
+  HBM controller page (`docs/ip/<P>.md`, 20 cores) has a Performance section:
   unloaded read / write latency (page hit, closed bank, row conflict, behind a
   refresh), sustained throughput for eight traffic patterns, refresh cost, and
   a pre-layout Fmax and area on the open SKY130 library. All of it comes from

@@ -1,14 +1,16 @@
 # DDR4: NCH=1 (one channel). Constant bits and elaboration-time branches.
 LINE cond_else:DDR4_top \| wire \[CHW-1:0\] a_ch = \(NCH == 1\) # NCH=1 elaboration constant: the channel field is tied to 0
 LINE cond_else:DDR4_top \| wire \[CHW-1:0\] c_ch = \(NCH == 1\) # NCH=1 elaboration constant: the channel field is tied to 0
-LINE case:DDR4_top \| default: dstate <= D_IDLE; # unused 3-bit encoding of the 7-state enum
+LINE case:DDR4_top \| default: dstate <= D_IDLE; # unused 4-bit encodings of the 10-state enum
 TOGGLE DDR4_top\.(a_ch|c_ch)\[0\]: # NCH=1: channel field tied to 0
 TOGGLE DDR4_top\.(a_bank|c_bank2|act_bank|cur_bank|pre_tgt)\[2\]: # NCH=1: the channel bit of the bank index is tied to 0
 TOGGLE DDR4_top\.addr\[1[4-6]\]: # always 0: rows are 14 bits, columns 8 bits
 TOGGLE DDR4_top\.trace_cmd\[2\]: # constant 0: trace codes are 1 ACT, 2 RD, 3 WR
-TOGGLE DDR4_top\.dqs\[[01]\]: # tied Hi-Z: the model has no strobe
 TOGGLE DDR4_top\.timer\[8\]: # constant 0: the largest load is tRFC - 3 = 157 < 256
 TOGGLE DDR4_top\.ref_cnt\[13\]: # constant 0: the counter loads tREFI = 6240 < 8192
 TOGGLE DDR4_top\.rp_t\[\d\]\[[4-8]\]: # constant 0: loads tRP - 1 = 13 < 16
 TOGGLE DDR4_top\.ras_t\[\d\]\[[5-8]\]: # constant 0: loads tRAS - 1 = 31 and WR2PRE - 1 = 30 < 32
 TOGGLE DDR4_top\.rc_t\[\d\]\[[6-8]\]: # constant 0: loads tRC - 1 = 44 < 64
+TOGGLE DDR4_top\.wr_bl\[[0145]\]: # constant: the burst is 4 (BC4 word) or 8 (BL8 line) clocks
+TOGGLE DDR4_top\.wr2pre\[[6-8]\]: # constant 0: CWL + 8 + tWR <= 20 + 8 + 16 = 44 < 64
+TOGGLE DDR4_top\.mr\[0\]\[7\]: # constant 0: MR0 bit 7 is the self-clearing DLL reset

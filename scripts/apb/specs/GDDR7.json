@@ -1,7 +1,7 @@
 {
-  "title": "GDDR7 memory controller: PAM3 graphics controller (banks = {haddr[8], haddr[10:9]}, row = haddr[31:18], storage = 256 columns per channel); the DRAM returns read data on dq as PAM3 symbols over two beats and the controller decodes them",
+  "title": "GDDR7 memory controller: PAM3 graphics controller (banks = {haddr[8], haddr[10:9]}, row = haddr[31:18], storage = 256 columns per channel); the DRAM returns read data on dq as PAM3 symbols over two beats and the controller decodes them, with line commands (RDL / WRL: BL8 NRZ or BL6 PAM3), an MR file (CL / CWL / PAM3) and cs_n / act_n / ba pins",
   "code": "0x6D08",
-  "version": "2.0",
+  "version": "3.0",
   "tb_clk_ns": 10,
   "tb_timeout": "20ms",
   "regs": [
@@ -15,11 +15,11 @@
       ],
       "valid": "hvalid",
       "ready": "hready",
-      "desc": "Host command; writing CMD2 sends it (the core takes it when it is idle and no refresh is due)",
+      "desc": "Host command beat; writing CMD2 sends it: a command (the core takes it when it is idle and no refresh is due), or one of the 8 data beats that follow a WRL",
       "fdesc": {
-        "hcmd": "1 ACT, 2 RD, 3 WR, 4 PRE; other codes are no-ops",
-        "haddr": "host address (bank, row and column fields below)",
-        "hwdata": "word to write (WR)"
+        "hcmd": "1 ACT, 2 RD, 3 WR, 4 PRE, 5 RDL, 6 WRL (then 8 data beats), 7 MR access; 0 is a no-op; ignored on a data beat",
+        "haddr": "host address (bank, row and column fields below); MR access: [3] 1 MRR / 0 MRW, [2:0] MR index",
+        "hwdata": "word to write (WR), MRW value (bits 7:0), or a WRL data beat (beat 0 = column {haddr[7:3], 0})"
       }
     },
     {
@@ -29,21 +29,33 @@
       "fields": [
         {
           "port": "hrdata",
-          "desc": "word of the last RD, valid once RD_DONE is set"
+          "desc": "word of the last RD (or word 7 of an RDL, {8'h0, MR} of an MRR), valid once DONE is set"
+        }
+      ]
+    },
+    {
+      "name": "RLINE",
+      "kind": "ro",
+      "desc": "Line of the last RDL (RLINE0 = bits 31:0)",
+      "fields": [
+        {
+          "port": "rdline",
+          "desc": "the 8 words of the last RDL (word k = column {haddr[7:3], k} in bits 16k+15:16k), held until the next RDL"
         }
       ]
     }
   ],
   "irqs": [
     {
-      "name": "RD_DONE",
+      "name": "DONE",
       "port": "hdone",
-      "desc": "a RD finished; RDATA holds its word"
+      "desc": "a RD, RDL or MRR finished; RDATA (and RLINE for an RDL) holds its data"
     }
   ],
   "notes": [
-    "ck_t, ck_c, cke, addr, ras_n, cas_n, we_n, dq and dqs are the DRAM pins and trace_valid, trace_cmd and trace_addr the command trace (one clock before each command on the pins); they pass through unchanged.",
+    "ck_t, ck_c, cke, cs_n, act_n, ba, addr, ras_n, cas_n, we_n, dq, dqx and dqs are the DRAM pins, pam3 the line signaling mode (MR2[0]), and trace_valid, trace_cmd and trace_addr the command trace (one clock before each ACT / RD / WR on the pins); they pass through unchanged.",
     "Address map and behaviour of the core: PAM3 graphics controller (banks = {haddr[8], haddr[10:9]}, row = haddr[31:18], storage = 256 columns per channel); the DRAM returns read data on dq as PAM3 symbols over two beats and the controller decodes them.",
+    "A line is the 8 columns {haddr[7:3], k}. CL = 5 + MR0[3:0], CWL = 5 + MR1[3:0], MR2[0] = PAM3 (reset 1).",
     "The core's own verification (pin-level checker, 100% coverage) is tb/cov/GDDR7_sva.sv with tb/GDDR7_tb.sv; this wrapper test drives the core only through the registers."
   ]
 }

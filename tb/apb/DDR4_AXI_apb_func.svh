@@ -6,8 +6,8 @@ localparam int NCH = 1;
 function automatic int cellof(input logic [31:0] a); return a[7:0]; endfunction
 `define MEM_DEV_CLK PCLK
 `define MEM_DEV_CL 15
-`define MEM_DEV_RD ({ras_n, cas_n, we_n} == 3'b101)
-`define MEM_DEV_WR ({ras_n, cas_n, we_n} == 3'b100)
+`define MEM_DEV_RD (!cs_n && act_n && {ras_n, cas_n, we_n} == 3'b101)
+`define MEM_DEV_WR (!cs_n && act_n && {ras_n, cas_n, we_n} == 3'b100)
 `include "mem_dev.svh"
 `define DDR_AXI_APB_LP 0
 `include "apb/ddr_axi_apb_body.svh"

@@ -49,6 +49,9 @@ asynchronously by `rst_n` low. *Host* signals are the core's `hvalid` / `hready`
 | `ck_t` | output | 1 | core DRAM clock (see [DDR4.md](DDR4.md)) | - | `clk` | - |
 | `ck_c` | output | 1 | core DRAM clock complement | - | `clk` | - |
 | `addr` | output | 17 | core pin address (see the core page) | - | `clk` | - |
+| `cs_n` | output | 1 | core chip select | low | `clk` | - |
+| `act_n` | output | 1 | core ACT pin | low | `clk` | - |
+| `ba` | output | 2 | core bank pins | - | `clk` | - |
 | `ras_n` | output | 1 | core command pin | low | `clk` | - |
 | `cas_n` | output | 1 | core command pin | low | `clk` | - |
 | `we_n` | output | 1 | core command pin | low | `clk` | - |
@@ -71,7 +74,7 @@ Generated from [`docs/ip/DDR4_AXI.md`](../ip/DDR4_AXI.md) (source: `scripts/apb/
 
 `DDR4_AXI_apb` is an APB4 slave (AMBA APB protocol v2.0): zero wait states, 32-bit data, 12-bit byte address, PSTRB byte lanes on every writable register, PSLVERR on an unmapped or misaligned address (reads then return 0, writes are dropped). Writes to read-only registers are ignored without an error. The core runs on PCLK and PRESETN. `irq` is level-high: `|(IRQ_STATUS & IRQ_ENABLE)`.
 
-Pass-through pins: `s_awid`, `s_awaddr`, `s_awlen`, `s_awsize`, `s_awburst`, `s_awvalid`, `s_awready`, `s_wdata`, `s_wstrb`, `s_wlast`, `s_wvalid`, `s_wready`, `s_bid`, `s_bresp`, `s_bvalid`, `s_bready`, `s_arid`, `s_araddr`, `s_arlen`, `s_arsize`, `s_arburst`, `s_arvalid`, `s_arready`, `s_rid`, `s_rdata`, `s_rresp`, `s_rlast`, `s_rvalid`, `s_rready`, `ck_t`, `ck_c`, `addr`, `ras_n`, `cas_n`, `we_n`, `dq`, `dqs`, `cke`, `trace_valid`, `trace_cmd`, `trace_addr`.
+Pass-through pins: `s_awid`, `s_awaddr`, `s_awlen`, `s_awsize`, `s_awburst`, `s_awvalid`, `s_awready`, `s_wdata`, `s_wstrb`, `s_wlast`, `s_wvalid`, `s_wready`, `s_bid`, `s_bresp`, `s_bvalid`, `s_bready`, `s_arid`, `s_araddr`, `s_arlen`, `s_arsize`, `s_arburst`, `s_arvalid`, `s_arready`, `s_rid`, `s_rdata`, `s_rresp`, `s_rlast`, `s_rvalid`, `s_rready`, `ck_t`, `ck_c`, `addr`, `cs_n`, `act_n`, `ba`, `ras_n`, `cas_n`, `we_n`, `dq`, `dqs`, `cke`, `trace_valid`, `trace_cmd`, `trace_addr`.
 
 ### Register map
 

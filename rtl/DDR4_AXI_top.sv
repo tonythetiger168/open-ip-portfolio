@@ -2,7 +2,8 @@
 // ============================================================================
 // DDR4_AXI: DDR4_top memory controller with an AXI4 subordinate port
 // ----------------------------------------------------------------------------
-// The unchanged DDR4_top core behind ddr_axi_slv (see that file for the
+// The unchanged DDR4_top core behind ddr_axi_slv, which uses its word
+// commands (ACT / RD / WR / PRE) (see that file for the
 // AXI rules: INCR / FIXED / WRAP, AxSIZE 0..2, WSTRB read-modify-write,
 // SLVERR on AxSIZE > 2 or a misplaced WLAST, one transaction at a time).
 // DDR4_top addresses 256 16-bit columns per channel (the data lives in the
@@ -48,6 +49,9 @@ module DDR4_AXI_top #(
   output logic        ck_t,
   output logic        ck_c,
   output logic [16:0] addr,
+  output logic        cs_n,
+  output logic        act_n,
+  output logic [1:0]  ba,
   output logic        ras_n,
   output logic        cas_n,
   output logic        we_n,
@@ -108,7 +112,8 @@ module DDR4_AXI_top #(
   DDR4_top #(.NCH(NCH)) u_core (
     .clk, .rst_n,
     .hvalid, .hready, .hcmd, .haddr, .hwdata, .hrdata, .hdone,
-    .ck_t, .ck_c, .addr, .ras_n, .cas_n, .we_n, .dq, .dqs, .cke,
+    .ck_t, .ck_c, .addr, .cs_n, .act_n, .ba, .ras_n, .cas_n, .we_n, .dq, .dqs, .cke,
+    .rdline(),                      // ddr_axi_slv issues word commands only
     .trace_valid, .trace_cmd, .trace_addr
   );
 endmodule

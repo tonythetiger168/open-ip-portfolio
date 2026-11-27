@@ -2,8 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Performance characterization of a memory-controller core:
 #   1. the IP's own TB built with +define+MEM_PERF runs tb/perf/mem_perf.svh
-#      (numbered DDR / LPDDR / GDDR / HBM cores) or tb/perf/lite_perf.svh
-#      (*_Lite line controllers): latency, sustained throughput per traffic
+#      (DDR / LPDDR / GDDR / HBM cores): latency, sustained throughput per traffic
 #      pattern and refresh cost, measured in clocks on the core's ports;
 #   2. scripts/perf/sta_sky130.sh: pre-layout Fmax and area on SKY130 HD;
 #   3. scripts/perf/perf_report.py combines both into docs/perf/<P>.json,

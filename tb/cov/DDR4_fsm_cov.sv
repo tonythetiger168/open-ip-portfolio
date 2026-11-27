@@ -6,34 +6,47 @@
 module DDR4_top__fsm_cov (
   input logic c_clk,
   input logic r_rst_n,
-  input logic [2:0] s_dstate
+  input logic [3:0] s_dstate
 );
-  // ---- FSM DDR4_top.dstate: 7 states, 18 arcs ----
-  fsm_st__dstate__D_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd0);
-  fsm_st__dstate__D_ACT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd1);
-  fsm_st__dstate__D_RCD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd2);
-  fsm_st__dstate__D_RD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd3);
-  fsm_st__dstate__D_CAS: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd4);
-  fsm_st__dstate__D_WR: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd5);
-  fsm_st__dstate__D_PRE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd6);
-  fsm_arc__dstate__D_IDLE__D_ACT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd0 ##1 s_dstate == 3'd1);
-  fsm_arc__dstate__D_IDLE__D_RD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd0 ##1 s_dstate == 3'd3);
-  fsm_arc__dstate__D_IDLE__D_WR: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd0 ##1 s_dstate == 3'd5);
-  fsm_arc__dstate__D_IDLE__D_PRE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd0 ##1 s_dstate == 3'd6);
-  fsm_arc__dstate__D_ACT__D_RCD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd1 ##1 s_dstate == 3'd2);
-  fsm_arc__dstate__D_RCD__D_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd2 ##1 s_dstate == 3'd0);
-  fsm_arc__dstate__D_RCD__D_RD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd2 ##1 s_dstate == 3'd3);
-  fsm_arc__dstate__D_RCD__D_WR: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd2 ##1 s_dstate == 3'd5);
-  fsm_arc__dstate__D_RCD__D_PRE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd2 ##1 s_dstate == 3'd6);
-  fsm_arc__dstate__D_RD__D_CAS: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd3 ##1 s_dstate == 3'd4);
-  fsm_arc__dstate__D_CAS__D_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd4 ##1 s_dstate == 3'd0);
-  fsm_arc__dstate__D_CAS__D_PRE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd4 ##1 s_dstate == 3'd6);
-  fsm_arc__dstate__D_WR__D_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd5 ##1 s_dstate == 3'd0);
-  fsm_arc__dstate__D_WR__D_PRE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd5 ##1 s_dstate == 3'd6);
-  fsm_arc__dstate__D_PRE__D_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd6 ##1 s_dstate == 3'd0);
-  fsm_arc__dstate__D_PRE__D_ACT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd6 ##1 s_dstate == 3'd1);
-  fsm_arc__dstate__D_PRE__D_RCD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd6 ##1 s_dstate == 3'd2);
-  fsm_arc__dstate__D_PRE__D_PRE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 3'd6 ##1 s_dstate == 3'd6);
+  // ---- FSM DDR4_top.dstate: 10 states, 28 arcs ----
+  fsm_st__dstate__D_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd0);
+  fsm_st__dstate__D_ACT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd1);
+  fsm_st__dstate__D_RCD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd2);
+  fsm_st__dstate__D_RD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd3);
+  fsm_st__dstate__D_CAS: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd4);
+  fsm_st__dstate__D_WR: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd5);
+  fsm_st__dstate__D_PRE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd6);
+  fsm_st__dstate__D_FILL: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd7);
+  fsm_st__dstate__D_LRD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd8);
+  fsm_st__dstate__D_LWR: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd9);
+  fsm_arc__dstate__D_IDLE__D_ACT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd0 ##1 s_dstate == 4'd1);
+  fsm_arc__dstate__D_IDLE__D_RD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd0 ##1 s_dstate == 4'd3);
+  fsm_arc__dstate__D_IDLE__D_WR: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd0 ##1 s_dstate == 4'd5);
+  fsm_arc__dstate__D_IDLE__D_PRE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd0 ##1 s_dstate == 4'd6);
+  fsm_arc__dstate__D_IDLE__D_FILL: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd0 ##1 s_dstate == 4'd7);
+  fsm_arc__dstate__D_ACT__D_RCD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd1 ##1 s_dstate == 4'd2);
+  fsm_arc__dstate__D_RCD__D_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd2 ##1 s_dstate == 4'd0);
+  fsm_arc__dstate__D_RCD__D_RD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd2 ##1 s_dstate == 4'd3);
+  fsm_arc__dstate__D_RCD__D_WR: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd2 ##1 s_dstate == 4'd5);
+  fsm_arc__dstate__D_RCD__D_PRE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd2 ##1 s_dstate == 4'd6);
+  fsm_arc__dstate__D_RD__D_CAS: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd3 ##1 s_dstate == 4'd4);
+  fsm_arc__dstate__D_CAS__D_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd4 ##1 s_dstate == 4'd0);
+  fsm_arc__dstate__D_CAS__D_PRE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd4 ##1 s_dstate == 4'd6);
+  fsm_arc__dstate__D_CAS__D_LRD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd4 ##1 s_dstate == 4'd8);
+  fsm_arc__dstate__D_WR__D_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd5 ##1 s_dstate == 4'd0);
+  fsm_arc__dstate__D_WR__D_PRE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd5 ##1 s_dstate == 4'd6);
+  fsm_arc__dstate__D_WR__D_LWR: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd5 ##1 s_dstate == 4'd9);
+  fsm_arc__dstate__D_PRE__D_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd6 ##1 s_dstate == 4'd0);
+  fsm_arc__dstate__D_PRE__D_ACT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd6 ##1 s_dstate == 4'd1);
+  fsm_arc__dstate__D_PRE__D_RCD: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd6 ##1 s_dstate == 4'd2);
+  fsm_arc__dstate__D_PRE__D_PRE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd6 ##1 s_dstate == 4'd6);
+  fsm_arc__dstate__D_FILL__D_ACT: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd7 ##1 s_dstate == 4'd1);
+  fsm_arc__dstate__D_FILL__D_WR: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd7 ##1 s_dstate == 4'd5);
+  fsm_arc__dstate__D_FILL__D_PRE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd7 ##1 s_dstate == 4'd6);
+  fsm_arc__dstate__D_LRD__D_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd8 ##1 s_dstate == 4'd0);
+  fsm_arc__dstate__D_LRD__D_PRE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd8 ##1 s_dstate == 4'd6);
+  fsm_arc__dstate__D_LWR__D_IDLE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd9 ##1 s_dstate == 4'd0);
+  fsm_arc__dstate__D_LWR__D_PRE: cover property (@(posedge c_clk) disable iff (!r_rst_n) s_dstate == 4'd9 ##1 s_dstate == 4'd6);
 endmodule
 
 bind DDR4_top DDR4_top__fsm_cov u_fsm_cov (.c_clk(clk), .r_rst_n(rst_n), .s_dstate(dstate));

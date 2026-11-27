@@ -4,7 +4,9 @@ LINE cond_then:HBM3E_top \| wire \[CHW-1:0\] c_ch = \(NCH == 1\) # NCH=8 elabora
 LINE case:HBM3E_top \| default: dstate <= D_IDLE; # unused 3-bit encoding of the 7-state enum
 TOGGLE HBM3E_top\.addr\[1[4-6]\]: # always 0: rows are 14 bits, columns 8 bits
 TOGGLE HBM3E_top\.trace_cmd\[2\]: # constant 0: trace codes are 1 ACT, 2 RD, 3 WR
-TOGGLE HBM3E_top\.dqs\[[01]\]: # tied Hi-Z: the model has no strobe
+TOGGLE HBM3E_top\.wr_bl\[[01]\]: # constant: the burst is 4 (word) or 8 (line) clocks
+TOGGLE HBM3E_top\.wr2pre\[[6-8]\]: # constant 0: CWL + 8 + tWR <= 20 + 8 + 10 = 38 < 64
+TOGGLE HBM3E_top\.mr\[0\]\[7\]: # constant 0: MR0 bit 7 is self-clearing
 TOGGLE HBM3E_top\.timer\[(4|5|6|7|8)\]: # constant 0: largest load is CL = 12 < 16 (a per-entry refresh no longer runs the timer: tRFC is held in the entry's rp_t)
 TOGGLE HBM3E_top\.ref_cnt\[(11|12|13)\]: # constant 0: largest load is tREFI = 1560 < 2048
 # rp_t / ras_t / rc_t / open_row / bank_open (256 entries) and mem (2048 codewords) exceed Verilator's 256-bit toggle width and are not toggle-scored

@@ -10,11 +10,11 @@ Protocol IP `DDR4_AXI`, version 1.0. Apache-2.0.
 | ID register | 0x5D040100 (code 0x5D04, version 1.0) |
 | Registers | 9 words, 0x000 to 0x020 |
 | Interrupts | 1 sources into one level-high `irq` |
-| Protocol pins | 41 pass-through |
+| Protocol pins | 44 pass-through |
 
 ## Overview
 
-DDR4_AXI: DDR4_top memory controller with an AXI4 subordinate port The unchanged DDR4_top core behind ddr_axi_slv (see that file for the AXI rules: INCR / FIXED / WRAP, AxSIZE 0..2, WSTRB read-modify-write, SLVERR on AxSIZE > 2 or a misplaced WLAST, one transaction at a time). DDR4_top addresses 256 16-bit columns per channel (the data lives in the DRAM on the dq pins): with NCH = 1 halfword h of the AXI address space aliases onto column h[7:0].
+DDR4_AXI: DDR4_top memory controller with an AXI4 subordinate port The unchanged DDR4_top core behind ddr_axi_slv, which uses its word commands (ACT / RD / WR / PRE) (see that file for the AXI rules: INCR / FIXED / WRAP, AxSIZE 0..2, WSTRB read-modify-write, SLVERR on AxSIZE > 2 or a misplaced WLAST, one transaction at a time). DDR4_top addresses 256 16-bit columns per channel (the data lives in the DRAM on the dq pins): with NCH = 1 halfword h of the AXI address space aliases onto column h[7:0].
 
 The AXI4 subordinate port (s_*) and the DRAM pins pass through the wrapper unchanged; the registers only read the front end's counters.
 Halfword h = addr[31:1] reaches the core as haddr = {h[24:11], 7'b0, h[10:0]}: column h[7:0], bank h[10:9], row h[24:11]. The core keeps 256 columns of 16 bits, so the AXI space aliases above 512 bytes.
@@ -90,6 +90,9 @@ Pins of `DDR4_AXI_apb`. Widths of the pass-through pins are at the default param
 | `ck_t` | output | 1 | protocol pin, core port `ck_t` |
 | `ck_c` | output | 1 | protocol pin, core port `ck_c` |
 | `addr` | output | 17 | protocol pin, core port `addr` |
+| `cs_n` | output | 1 | protocol pin, core port `cs_n` |
+| `act_n` | output | 1 | protocol pin, core port `act_n` |
+| `ba` | output | 2 | protocol pin, core port `ba` |
 | `ras_n` | output | 1 | protocol pin, core port `ras_n` |
 | `cas_n` | output | 1 | protocol pin, core port `cas_n` |
 | `we_n` | output | 1 | protocol pin, core port `we_n` |
@@ -138,6 +141,9 @@ Pins of `DDR4_AXI_apb`. Widths of the pass-through pins are at the default param
 | `ck_t` | output | 1 | pin (pass-through) |
 | `ck_c` | output | 1 | pin (pass-through) |
 | `addr` | output | 17 | pin (pass-through) |
+| `cs_n` | output | 1 | pin (pass-through) |
+| `act_n` | output | 1 | pin (pass-through) |
+| `ba` | output | 2 | pin (pass-through) |
 | `ras_n` | output | 1 | pin (pass-through) |
 | `cas_n` | output | 1 | pin (pass-through) |
 | `we_n` | output | 1 | pin (pass-through) |
@@ -157,7 +163,7 @@ Pins of `DDR4_AXI_apb`. Widths of the pass-through pins are at the default param
 
 `DDR4_AXI_apb` is an APB4 slave (AMBA APB protocol v2.0): zero wait states, 32-bit data, 12-bit byte address, PSTRB byte lanes on every writable register, PSLVERR on an unmapped or misaligned address (reads then return 0, writes are dropped). Writes to read-only registers are ignored without an error. The core runs on PCLK and PRESETN. `irq` is level-high: `|(IRQ_STATUS & IRQ_ENABLE)`.
 
-Pass-through pins: `s_awid`, `s_awaddr`, `s_awlen`, `s_awsize`, `s_awburst`, `s_awvalid`, `s_awready`, `s_wdata`, `s_wstrb`, `s_wlast`, `s_wvalid`, `s_wready`, `s_bid`, `s_bresp`, `s_bvalid`, `s_bready`, `s_arid`, `s_araddr`, `s_arlen`, `s_arsize`, `s_arburst`, `s_arvalid`, `s_arready`, `s_rid`, `s_rdata`, `s_rresp`, `s_rlast`, `s_rvalid`, `s_rready`, `ck_t`, `ck_c`, `addr`, `ras_n`, `cas_n`, `we_n`, `dq`, `dqs`, `cke`, `trace_valid`, `trace_cmd`, `trace_addr`.
+Pass-through pins: `s_awid`, `s_awaddr`, `s_awlen`, `s_awsize`, `s_awburst`, `s_awvalid`, `s_awready`, `s_wdata`, `s_wstrb`, `s_wlast`, `s_wvalid`, `s_wready`, `s_bid`, `s_bresp`, `s_bvalid`, `s_bready`, `s_arid`, `s_araddr`, `s_arlen`, `s_arsize`, `s_arburst`, `s_arvalid`, `s_arready`, `s_rid`, `s_rdata`, `s_rresp`, `s_rlast`, `s_rvalid`, `s_rready`, `ck_t`, `ck_c`, `addr`, `cs_n`, `act_n`, `ba`, `ras_n`, `cas_n`, `we_n`, `dq`, `dqs`, `cke`, `trace_valid`, `trace_cmd`, `trace_addr`.
 
 ### Register map
 
@@ -251,5 +257,5 @@ Five-metric coverage with Verilator 5.052 (`scripts/cov/run_cov.sh`); see [COVER
 
 | Scope | Test | Line | Toggle | FSM | SVA | Functional |
 |---|---|---|---|---|---|---|
-| core `rtl/DDR4_AXI_top.sv` | not run | | | | | |
-| wrapper `rtl/DDR4_AXI_apb.sv` | pass | 23/23 | 1062/1062 (+30 excl.) | n/a | 7/7 | 31/31 |
+| core `rtl/DDR4_AXI_top.sv` | pass | 77/77 (+1 excl.) | 2156/2156 (+164 excl.) | 34/34 | 14/14 | 60/60 |
+| wrapper `rtl/DDR4_AXI_apb.sv` | pass | 23/23 | 1070/1070 (+30 excl.) | n/a | 7/7 | 31/31 |

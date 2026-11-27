@@ -9,7 +9,7 @@ front end the coverage flow uses) and fails on any error, so CI catches what
 iverilog lets through. The file set comes from Makefile.<P> (S and DEPS).
 
   python3 scripts/lint/strict_elab.py          # all IPs, exit 1 on any error
-  python3 scripts/lint/strict_elab.py DDR4_Lite
+  python3 scripts/lint/strict_elab.py DDR4
 """
 import glob
 import os
