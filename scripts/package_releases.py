@@ -45,7 +45,7 @@ def files_of(P):
     # every TB the Makefile names (tb/<S>_tb.sv, tb/<S>_apb_tb.sv, extra targets)
     for tb in re.findall(r"tb/\$\(S\)(\w*)\.sv", mk):
         includes(f"tb/{S}{tb}.sv", out)
-    for d, pat in (("syn", rf"{re.escape(S)}(_apb)?(_yosys\.ys|_dc\.tcl|\.sdc)$"),
+    for d, pat in (("syn", rf"{re.escape(S)}(_apb)?(_yosys\.ys|_msynth\.tcl|_dc\.tcl|\.sdc)$"),
                    ("sim", rf"filelist_{re.escape(S)}\.f$")):
         out |= {f"{d}/{f}" for f in os.listdir(os.path.join(ROOT, d)) if re.match(pat, f)}
     for f in (f"docs/ip/{S}.md", "LICENSE"):
